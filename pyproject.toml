@@ -61,6 +61,12 @@ warn_unreachable = true
 module = "tests.*"
 strict = false
 
+# pyarrow 는 py.typed 를 싣지 않고, pandas 스텁은 설치 버전과 어긋난다.
+# 게이트 안쪽에서만 쓰는 라이브러리라 여기서 끊는다.
+[[tool.mypy.overrides]]
+module = ["pyarrow.*", "pandas.*"]
+ignore_missing_imports = true
+
 # -----------------------------------------------------------------------------
 # pytest
 # -----------------------------------------------------------------------------

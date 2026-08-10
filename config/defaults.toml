@@ -1,0 +1,19 @@
+# Lattice 임계치 기본값.
+#
+# 이 파일은 시딩 소스일 뿐이고, 정본은 store 의 config 테이블이다.
+# 값을 바꾸면 새 revision 행으로 들어가며 과거 조회 결과는 바뀌지 않는다.
+# 코드에서 숫자를 하드코딩하지 않는다 — 불변식 10.
+
+[rl]
+# 액션 반영률. RL 결정 중 실제로 집행된 비율이 이 아래면 경고.
+# 그건 RL 이 아니라 룰 시스템이다. (CLAUDE.md 재발 방지 지표)
+action_reflection_warn = 0.30
+
+[analyst]
+# 이 IC 를 넘기기 전까지 새 Analyst 는 가중치 0(관찰 모드)이다.
+ic_threshold = 0.03
+ic_min_sample_days = 200
+
+[data]
+# 백테스트에 쓰는 파이프라인 지연. 실측 p90 으로 갱신하기 전의 보수적 초기값.
+assumed_latency_seconds = 300
