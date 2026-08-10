@@ -1,0 +1,22 @@
+# 시크릿 — 실제 키는 절대 커밋하지 않는다
+.env
+.env.*
+!.env.example
+*secrets*
+!*secrets*.example
+
+# 데이터 — 원본/큐레이티드 전부 제외 (data/raw 는 삭제 금지지만 추적도 하지 않는다)
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+# ⚠️ `env/` 패턴을 넣지 말 것 — LS_KR 은 env/ 를 gitignore 했다가
+#    RL 환경 패키지 전체가 두 달간 버전관리에서 빠졌다 (postmortem-ls.md 6절).
+#    가상환경은 .venv/ 만 쓴다.
+
+# 도구 캐시
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
