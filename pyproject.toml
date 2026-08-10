@@ -1,0 +1,72 @@
+[project]
+name = "lattice"
+version = "0.1.0"
+description = "Lattice — 멀티에이전트 AI 사모펀드"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "duckdb>=1.1",
+    "pyarrow>=17",
+    "pandas>=2.2",
+    "polars>=1.9",
+    "flask>=3.0",
+    "lightgbm>=4.5",
+    "pydantic>=2.9",
+    "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lattice"]
+
+# -----------------------------------------------------------------------------
+# ruff
+# -----------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["lattice", "tools", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# 문서에서 "Analyst ×9" 처럼 쓴다. 오타가 아니다.
+allowed-confusables = ["×"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["lattice", "tools"]
+
+[tool.ruff.lint.per-file-ignores]
+# 가드 테스트는 위반 소스를 문자열 fixture 로 들고 있어야 한다.
+"tests/invariants/*" = ["E501"]
+
+# -----------------------------------------------------------------------------
+# mypy — lattice/ 는 strict, 나머지는 느슨하게
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["lattice", "tools"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false
+
+# -----------------------------------------------------------------------------
+# pytest
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "invariant: CLAUDE.md 불변식 검증 — 커밋 전 필수 통과",
+]
