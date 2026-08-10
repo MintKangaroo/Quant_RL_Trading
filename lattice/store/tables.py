@@ -68,6 +68,37 @@ _SPECS: dict[str, TableSpec] = {
         },
         doc="매 거래일 상장종목 명단 스냅샷. 상폐 종목을 지우지 않는다.",
     ),
+    "documents": TableSpec(
+        name="documents",
+        columns={
+            "doc_id": pa.string(),
+            "doc_type": pa.string(),
+            "title": pa.string(),
+            "filer": pa.string(),
+            "url": pa.string(),
+            "raw_path": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from", "doc_id"),
+        doc=(
+            "공시·뉴스. valid_from 은 공시 접수일, observed_at 은 우리가 받아온 시각. "
+            "기사 발행시각은 사후 수정되므로 신뢰하지 않는다 (data-contract §4)."
+        ),
+    ),
+    "ingest_latency": TableSpec(
+        name="ingest_latency",
+        columns={
+            "stage": pa.string(),
+            "elapsed_ms": pa.float64(),
+            "ok": pa.bool_(),
+            "detail": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from", "stage"),
+        doc=(
+            "파이프라인 단계별 실측 지연. entity_id = 수집 소스. "
+            "백테스트 지연은 이 실측의 p90 을 쓴다 — 가정한 지연과 실제 지연의 "
+            "차이가 백테스트를 거짓말로 만드는 대표적 원인이다 (data-contract §5)."
+        ),
+    ),
     "events": TableSpec(
         name="events",
         columns={
