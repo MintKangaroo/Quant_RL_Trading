@@ -14,6 +14,16 @@ action_reflection_warn = 0.30
 ic_threshold = 0.03
 ic_min_sample_days = 200
 
+[execution]
+# 충격비용 = k × 변동성 × √(주문량 / 일평균거래량)
+impact_k = 0.1
+# 하루 거래량 중 우리가 차지할 수 있는 최대 비율.
+participation_cap = 0.03
+# 이 일수 안에 청산 불가능한 크기는 애초에 들어가지 않는다.
+liquidation_days = 3
+# 이보다 작은 주문은 수수료로 잡아먹힌다. 단위: 원.
+min_order_value = 100000.0
+
 [data]
 # 백테스트에 쓰는 파이프라인 지연. 실측 p90 으로 갱신하기 전의 보수적 초기값.
 assumed_latency_seconds = 300

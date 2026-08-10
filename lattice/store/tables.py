@@ -68,6 +68,38 @@ _SPECS: dict[str, TableSpec] = {
         },
         doc="매 거래일 상장종목 명단 스냅샷. 상폐 종목을 지우지 않는다.",
     ),
+    "events": TableSpec(
+        name="events",
+        columns={
+            "seq": pa.int64(),
+            "stage": pa.string(),
+            "actor": pa.string(),
+            "payload_hash": pa.string(),
+            "payload": pa.string(),
+        },
+        natural_key=("entity_id", "seq"),
+        doc=(
+            "이벤트 로그. entity_id = run_id, valid_from = ts_sim, "
+            "observed_at = ts_wall. 같은 뜻의 필드를 두 벌 들지 않는다."
+        ),
+    ),
+    "agent_cache": TableSpec(
+        name="agent_cache",
+        columns={
+            "agent": pa.string(),
+            "agent_version": pa.string(),
+            "features_hash": pa.string(),
+            "output": pa.string(),
+            "computed_at": pa.timestamp("us", tz="UTC"),
+        },
+        natural_key=("entity_id", "valid_from", "agent", "agent_version", "features_hash"),
+        doc=(
+            "에이전트·LLM 출력 캐시. observed_at 은 계산한 벽시계 시각이 아니라 "
+            "as_of 다 — 출력이 as_of 이전 데이터만의 함수이므로 그 시점에 알 수 "
+            "있었던 것이 맞고, 벽시계를 찍으면 과거 리플레이에서 영영 안 보인다. "
+            "실제 계산 시각은 computed_at 에 따로 남긴다."
+        ),
+    ),
     CONFIG_TABLE: TableSpec(
         name=CONFIG_TABLE,
         columns={"value_json": pa.string()},
