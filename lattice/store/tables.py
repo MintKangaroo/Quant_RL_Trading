@@ -114,6 +114,62 @@ _SPECS: dict[str, TableSpec] = {
             "observed_at = ts_wall. 같은 뜻의 필드를 두 벌 들지 않는다."
         ),
     ),
+    "signals": TableSpec(
+        name="signals",
+        columns={
+            "analyst": pa.string(),
+            "analyst_version": pa.string(),
+            "score": pa.float64(),
+            "confidence": pa.float64(),
+            "horizon_days": pa.int32(),
+            "features_hash": pa.string(),
+            "evidence_json": pa.string(),
+            "latency_ms": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "analyst", "analyst_version"),
+        doc=(
+            "Analyst 점수. valid_from = as_of(신호가 유효해진 시점), "
+            "observed_at = 계산해서 알게 된 시점. analyst_version 이 자연키에 "
+            "들어가는 이유는 나쁜 모델의 성적이 좋은 모델에 섞이면 안 되기 "
+            "때문이다 — 버전별로 IC 를 따로 잰다."
+        ),
+    ),
+    "verdicts": TableSpec(
+        name="verdicts",
+        columns={
+            "analyst": pa.string(),
+            "analyst_version": pa.string(),
+            "decision": pa.string(),
+            "severity": pa.float64(),
+            "category": pa.string(),
+            "reason": pa.string(),
+            "expires_at": pa.timestamp("us", tz="UTC"),
+        },
+        natural_key=("entity_id", "valid_from", "analyst", "analyst_version"),
+        doc=(
+            "News·SNS 판정. 매수 금지만 가능하고 매도 권한은 없다. "
+            "expires_at 없는 차단은 스키마가 거부한다 — 영구 차단은 존재할 수 "
+            "없다. 차단된 종목의 이후 수익률로 성적표를 만든다."
+        ),
+    ),
+    "analyst_weights": TableSpec(
+        name="analyst_weights",
+        columns={
+            "analyst_version": pa.string(),
+            "weight": pa.float64(),
+            "ic": pa.float64(),
+            "ic_threshold": pa.float64(),
+            "sample_days": pa.int32(),
+            "passed": pa.bool_(),
+            "market": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from", "analyst_version"),
+        doc=(
+            "IC 검증 결과와 그에 따른 가중치. entity_id = analyst 이름. "
+            "가중치를 손으로 켜고 끄면 언젠가 검증 안 된 것이 켜져 있다. "
+            "통과 여부는 측정 결과에서만 나온다 — 통과 못 하면 weight 0."
+        ),
+    ),
     "agent_cache": TableSpec(
         name="agent_cache",
         columns={
