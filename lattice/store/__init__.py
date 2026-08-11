@@ -66,14 +66,23 @@ class Store:
         as_of: datetime,
         entity: str | Sequence[str] | None = None,
         lookback: timedelta | int | None = None,
+        until: datetime | None = None,
     ) -> pd.DataFrame:
         """``as_of`` 시점에 알 수 있었던 것만 돌려준다.
 
-        ``lookback`` 은 ``valid_from`` 기준 창이다(정수면 일). 관측 기준이
-        아니다 — 둘을 같다고 보면 뒤늦게 도착한 정정본을 놓친다.
+        ``lookback`` 과 ``until`` 은 ``valid_from`` 기준 창이다(lookback 이
+        정수면 일). 관측 기준이 아니다 — 둘을 같다고 보면 뒤늦게 도착한
+        정정본을 놓친다. 큰 구간을 나눠 읽을 때는 **as_of 를 옮기지 말고
+        이 창을 옮겨야 한다.**
         """
         return reader.query(
-            self._connect(), self.root, table, as_of=as_of, entity=entity, lookback=lookback
+            self._connect(),
+            self.root,
+            table,
+            as_of=as_of,
+            entity=entity,
+            lookback=lookback,
+            until=until,
         )
 
     def config(self, name: str, *, as_of: datetime) -> Any:
@@ -99,16 +108,42 @@ class Store:
     def ingest_run_recorded(self, table: str, ingest_run_id: str) -> bool:
         return writer.run_recorded(self.root, table, ingest_run_id)
 
-    def seed_config_defaults(self, path: Path | None = None) -> int:
+    def seed_config_defaults(
+        self, path: Path | None = None, *, effective_at: datetime | None = None
+    ) -> int:
         """체크인된 기본값을 config 테이블에 심는다.
 
-        run id 가 파일 내용 해시라, 내용이 그대로면 두 번째 시딩은 거부된다.
+        이미 있는 값은 건드리지 않고, **바뀐 값만 정정본으로** 넣는다.
+        과거 as_of 조회는 옛 값을 그대로 본다 — 오늘 임계치를 바꿨다고 작년
+        백테스트 결과가 소급해 바뀌면 재현이 불가능해진다.
+
+        빈 창고에 처음 심을 때는 ``effective_at`` 이 필요 없다. 값이 바뀌어
+        정정본을 넣어야 할 때만 필요하며, **store 는 벽시계를 읽지 않는다** —
+        시각의 출처는 언제나 호출자의 Clock 이다 (불변식 2).
         """
         source_file = path or DEFAULT_CONFIG_FILE
+        probe = effective_at or _config.DEFAULTS_EPOCH
+        existing = _config.current_values(self.get(_config.CONFIG_TABLE, as_of=probe))
+
+        if existing and effective_at is None:
+            changed = _config.changed_names(source_file, existing)
+            if changed:
+                raise SchemaViolation(
+                    f"설정 {sorted(changed)} 이 바뀌었다. 정정본을 넣으려면 "
+                    "effective_at 을 줘야 한다 — 발효 시점 없이 덮으면 과거 "
+                    "as_of 조회까지 소급해 바뀐다"
+                )
+            return 0
+
+        rows = _config.defaults_rows(
+            source_file, current=existing, effective_at=effective_at
+        )
+        if not rows:
+            return 0
         return self.append(
             _config.CONFIG_TABLE,
-            _config.defaults_rows(source_file),
-            ingest_run_id=_config.defaults_run_id(source_file),
+            rows,
+            ingest_run_id=_config.defaults_run_id(source_file, moment=effective_at),
         )
 
     # -- 내부 -----------------------------------------------------------------
@@ -145,8 +180,11 @@ def get(
     as_of: datetime,
     entity: str | Sequence[str] | None = None,
     lookback: timedelta | int | None = None,
+    until: datetime | None = None,
 ) -> pd.DataFrame:
-    return default_store().get(table, as_of=as_of, entity=entity, lookback=lookback)
+    return default_store().get(
+        table, as_of=as_of, entity=entity, lookback=lookback, until=until
+    )
 
 
 def append(

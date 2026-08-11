@@ -17,7 +17,12 @@ from typing import Any
 
 from lattice.collectors.latency import LatencyRecorder
 from lattice.collectors.ls_client import PATH_MARKET, LSClient
-from lattice.collectors.market_hours import Market
+from lattice.collectors.market_hours import (
+    Market,
+    is_trading_day,
+    local_time,
+    previous_trading_day,
+)
 from lattice.collectors.publication import ObservedAtPolicy, resolve
 from lattice.collectors.raw import RawArchive
 from lattice.replay.clock import Clock
@@ -45,6 +50,24 @@ def _bar_timestamp(yyyymmdd: str) -> datetime:
     밀린다. 저장은 UTC 로 통일하고 표시할 때만 지역 시각으로 바꾼다.
     """
     return datetime.strptime(yyyymmdd, "%Y%m%d").replace(tzinfo=UTC)
+
+
+def session_of(market: Market, observed_at: datetime) -> datetime:
+    """수집 시각이 속한 **거래일**. valid_from 으로 쓴다.
+
+    관측시각의 UTC 날짜를 그대로 쓰면 안 된다. KST 09:00 이전에 수집하면
+    UTC 날짜가 하루 전이라 명단이 통째로 하루 밀리고, 휴장일에 수집하면
+    그날이 세션인 것처럼 기록된다.
+
+    지역 시각으로 날짜를 뽑고, 그날이 거래일이 아니면 직전 거래일로 붙인다 —
+    장 마감 후·주말에 받은 명단은 마지막으로 열린 세션의 명단이다.
+    """
+    local_date = local_time(market, observed_at).date()
+    session = (
+        local_date if is_trading_day(market, local_date)
+        else previous_trading_day(market, local_date)
+    )
+    return datetime(session.year, session.month, session.day, tzinfo=UTC)
 
 
 def normalize_ohlcv(
@@ -222,7 +245,7 @@ class MarketCollector:
             rows = normalize_master(
                 payload.get("t8436OutBlock") or [],
                 market=self.market,
-                trading_day=observed_at.replace(hour=0, minute=0, second=0, microsecond=0),
+                trading_day=session_of(self.market, observed_at),
                 observed_at=observed_at,
             )
 

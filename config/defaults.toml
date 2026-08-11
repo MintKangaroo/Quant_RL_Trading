@@ -24,6 +24,14 @@ liquidation_days = 3
 # 이보다 작은 주문은 수수료로 잡아먹힌다. 단위: 원.
 min_order_value = 100000.0
 
+[collector]
+# 킬스위치가 보는 수집 오류율. 이 창 안에서 최소 표본 이상 모였을 때만 판단한다.
+# 표본이 적을 때 성급히 끄면 잡음 하나로 파이프라인이 멈춘다.
+error_rate_window_sec = 120.0
+error_rate_min_samples = 8
+# 호출 이력을 들고 있는 롤링 윈도.
+call_history_sec = 600.0
+
 [data]
 # 백테스트에 쓰는 파이프라인 지연. 실측 p90 으로 갱신하기 전의 보수적 초기값.
 assumed_latency_seconds = 300

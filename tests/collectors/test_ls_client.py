@@ -13,7 +13,13 @@ import httpx
 import pytest
 
 from lattice.collectors.errors import LSAPIError, MissingCredentials
-from lattice.collectors.ls_client import PATH_ORDER, LSClient, LSCredentials, isu_code
+from lattice.collectors.ls_client import (
+    PATH_ORDER,
+    HealthParams,
+    LSClient,
+    LSCredentials,
+    isu_code,
+)
 from lattice.replay.clock import ReplayClock
 
 CREDS = LSCredentials(appkey="key", appsecret="secret", base_url="https://api.test")
@@ -191,9 +197,32 @@ def test_error_rate_uses_a_rolling_window(ts) -> None:  # type: ignore[no-untype
             api.request_tr(PATH_ORDER, "CSPAT00601", {})
         api.clock.advance(timedelta(seconds=5))
 
-    assert api.recent_error_rate(window_sec=120.0) == 1.0
+    # 임계치는 HealthParams 로 주입된다. 인자 기본값으로 들면 킬스위치가 어떤
+    # 기준으로 발동했는지 사후에 재구성할 수 없다 (불변식 10).
+    assert api.recent_error_rate() == 1.0
     api.clock.advance(timedelta(seconds=600))
-    assert api.recent_error_rate(window_sec=120.0) == 0.0
+    assert api.recent_error_rate() == 0.0
+
+
+def test_health_params_come_from_store(store, ts) -> None:  # type: ignore[no-untyped-def]
+    store.seed_config_defaults()
+    as_of = ts(2026, 1, 1)
+    params = HealthParams.from_store(store, as_of=as_of)
+
+    assert params.window_sec == store.config("collector.error_rate_window_sec", as_of=as_of)
+    assert params.min_samples == store.config("collector.error_rate_min_samples", as_of=as_of)
+
+
+def test_small_sample_does_not_trip_the_kill_switch(ts) -> None:  # type: ignore[no-untyped-def]
+    """표본이 적을 때 성급히 끄면 잡음 하나로 파이프라인이 멈춘다."""
+    api = client(routing(lambda _: httpx.Response(500, text="boom")), ts)
+    api.health = HealthParams(window_sec=120.0, min_samples=8, history_sec=600.0)
+
+    for _ in range(3):
+        with pytest.raises(LSAPIError):
+            api.request_tr(PATH_ORDER, "CSPAT00601", {})
+
+    assert api.recent_error_rate() == 0.0
 
 
 def test_isu_code_prefix() -> None:

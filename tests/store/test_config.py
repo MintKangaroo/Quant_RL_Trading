@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lattice.store.errors import ConfigNotFound, DuplicateIngestRun
+from lattice.store.errors import ConfigNotFound, SchemaViolation
 
 
 @pytest.fixture
@@ -28,9 +28,58 @@ def test_unknown_key_is_an_error_not_a_default(seeded, ts) -> None:  # type: ign
         seeded.config("rl.does_not_exist", as_of=ts(2026, 1, 1))
 
 
-def test_reseeding_identical_defaults_is_rejected(seeded) -> None:  # type: ignore[no-untyped-def]
-    with pytest.raises(DuplicateIngestRun):
-        seeded.seed_config_defaults()
+def test_reseeding_identical_defaults_writes_nothing(seeded) -> None:  # type: ignore[no-untyped-def]
+    """같은 사실을 두 번 적지 않는다. 멱등이어야 재실행이 안전하다."""
+    assert seeded.seed_config_defaults() == 0
+
+
+def test_changing_a_default_without_effective_at_is_refused(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    """발효 시점 없이 덮으면 과거 as_of 조회까지 소급해 바뀐다.
+
+    이 방어가 없으면 자연키·revision·observed_at 이 전부 같은 행이 두 개가 되고,
+    승자는 최신값이 아니라 row_hash 가 작은 쪽이 된다 — 편집한 값이 조용히
+    무시되거나, 무시되지 않으면 작년 백테스트가 재현되지 않는다.
+    """
+    edited = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.05")
+
+    with pytest.raises(SchemaViolation, match=r"analyst\.ic_threshold"):
+        seeded.seed_config_defaults(edited)
+
+
+def test_changed_default_lands_as_a_restatement(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    edited = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.05")
+    change = ts(2026, 6, 1)
+
+    # 바뀐 한 줄만 들어간다. 나머지 설정은 건드리지 않는다.
+    assert seeded.seed_config_defaults(edited, effective_at=change) == 1
+
+    assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 5, 31)) == 0.03
+    assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 6, 2)) == 0.05
+    # 첫 시딩은 epoch 라 아무리 과거로 조회해도 보인다.
+    assert seeded.config("analyst.ic_threshold", as_of=ts(2001, 1, 1)) == 0.03
+
+
+def test_reverting_a_default_is_allowed(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    """A→B→A 되돌리기는 정상적인 운영 행위다. run id 충돌로 막히면 안 된다."""
+    changed = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.05")
+    seeded.seed_config_defaults(changed, effective_at=ts(2026, 6, 1))
+
+    original = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.03")
+    assert seeded.seed_config_defaults(original, effective_at=ts(2026, 7, 1)) == 1
+
+    assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 6, 15)) == 0.05
+    assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 7, 2)) == 0.03
+
+
+def _edited(tmp_path, old: str, new: str):  # type: ignore[no-untyped-def]
+    """체크인된 defaults.toml 의 한 줄만 바꾼 사본."""
+    from lattice.store import DEFAULT_CONFIG_FILE
+
+    text = DEFAULT_CONFIG_FILE.read_text(encoding="utf-8")
+    assert old in text, f"{old!r} 가 defaults.toml 에 없다"
+    target = tmp_path / f"defaults-{abs(hash(new))}.toml"
+    target.write_text(text.replace(old, new), encoding="utf-8")
+    return target
 
 
 def test_threshold_change_does_not_rewrite_the_past(seeded, ts) -> None:  # type: ignore[no-untyped-def]

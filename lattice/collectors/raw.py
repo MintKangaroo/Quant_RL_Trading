@@ -36,15 +36,27 @@ class RawArchive:
         ingest_run_id: str,
         label: str,
     ) -> Path:
-        """원본을 그대로 남긴다. 같은 run 안에서 순번이 붙어 덮어쓰지 않는다."""
+        """원본을 그대로 남긴다. 어떤 경우에도 기존 파일을 덮지 않는다.
+
+        순번을 메모리에만 두면 안 된다. run id 가 결정론적이라(백필은
+        ``bf-prices-KR-20240110``), 아카이브 직후 죽은 세션을 **새 프로세스**가
+        재시도하면 순번이 0000 부터 다시 시작해 먼저 받아 둔 원본을 덮어쓴다.
+        정규화 버그를 나중에 발견해도 그 시점 데이터는 영영 복구할 수 없다.
+
+        그래서 디스크에 있는 것을 진실로 본다. 메모리 카운터는 같은 프로세스
+        안에서 stat 을 아끼는 용도로만 남긴다.
+        """
         target_dir = self.directory(source, observed_at)
         target_dir.mkdir(parents=True, exist_ok=True)
 
         key = f"{source}/{ingest_run_id}/{label}"
         index = self._counter.get(key, 0)
+        path = target_dir / f"{ingest_run_id}-{label}-{index:04d}.json"
+        while path.exists():
+            index += 1
+            path = target_dir / f"{ingest_run_id}-{label}-{index:04d}.json"
         self._counter[key] = index + 1
 
-        path = target_dir / f"{ingest_run_id}-{label}-{index:04d}.json"
         path.write_text(
             json.dumps(
                 {

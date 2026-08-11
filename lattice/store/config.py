@@ -23,13 +23,10 @@ DEFAULTS_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 DEFAULTS_SOURCE = "config-defaults"
 
 
-def defaults_rows(path: Path) -> list[dict[str, Any]]:
-    """TOML 기본값을 config 테이블 행으로 편다.
-
-    ``[section] key = value`` 는 ``section.key`` 라는 이름이 된다.
-    """
+def flatten(path: Path) -> dict[str, str]:
+    """TOML 을 ``section.key -> value_json`` 으로 편다."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    rows: list[dict[str, Any]] = []
+    flat: dict[str, str] = {}
 
     def walk(prefix: str, node: dict[str, Any]) -> None:
         for key, value in node.items():
@@ -37,23 +34,87 @@ def defaults_rows(path: Path) -> list[dict[str, Any]]:
             if isinstance(value, dict):
                 walk(name, value)
             else:
-                rows.append(
-                    {
-                        "entity_id": name,
-                        "valid_from": DEFAULTS_EPOCH,
-                        "observed_at": DEFAULTS_EPOCH,
-                        "source": DEFAULTS_SOURCE,
-                        "value_json": json.dumps(value, ensure_ascii=False, sort_keys=True),
-                    }
-                )
+                flat[name] = json.dumps(value, ensure_ascii=False, sort_keys=True)
 
     walk("", raw)
-    return sorted(rows, key=lambda row: str(row["entity_id"]))
+    return dict(sorted(flat.items()))
 
 
-def defaults_run_id(path: Path) -> str:
-    """파일 내용으로 결정되는 run id. 같은 파일을 두 번 시딩하면 거부된다."""
+def defaults_rows(
+    path: Path,
+    *,
+    current: dict[str, tuple[str, int]] | None = None,
+    effective_at: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """TOML 기본값을 config 테이블 행으로 편다.
+
+    **첫 시딩**은 ``DEFAULTS_EPOCH`` 로 들어간다. 어떤 as_of 로 조회해도 보여야
+    하기 때문이다.
+
+    **값을 바꿔 다시 시딩할 때**는 그렇게 하면 안 된다. 같은 자연키·같은
+    revision·같은 observed_at 인 행이 두 개가 되고, 승자는 최신값이 아니라
+    ``row_hash`` 가 작은 쪽이 된다 (reader.py 의 타이브레이커). 편집한 값이
+    조용히 무시되거나, 무시되지 않으면 이번엔 **과거 as_of 조회까지 소급해
+    바뀐다** — 작년 백테스트를 재현할 수 없게 된다.
+
+    그래서 바뀐 값만 ``effective_at`` 시점의 정정본(revision+1)으로 넣는다.
+    과거 조회는 옛 값을 그대로 본다. 이것이 이 테이블을 이중시간으로 둔 이유다.
+    """
+    flat = flatten(path)
+    known = current or {}
+    moment = effective_at or DEFAULTS_EPOCH
+    rows: list[dict[str, Any]] = []
+
+    for name, value_json in flat.items():
+        previous = known.get(name)
+        if previous is None:
+            rows.append(_row(name, value_json, DEFAULTS_EPOCH, 0))
+        elif previous[0] != value_json:
+            rows.append(_row(name, value_json, moment, previous[1] + 1))
+        # 값이 그대로면 아무것도 쓰지 않는다. 같은 사실을 두 번 적지 않는다.
+    return rows
+
+
+def _row(name: str, value_json: str, moment: datetime, revision: int) -> dict[str, Any]:
+    return {
+        "entity_id": name,
+        "valid_from": moment,
+        "observed_at": moment,
+        "source": DEFAULTS_SOURCE,
+        "revision": revision,
+        "value_json": value_json,
+    }
+
+
+def changed_names(path: Path, current: dict[str, tuple[str, int]]) -> set[str]:
+    """파일과 창고의 값이 어긋난 설정 이름."""
+    return {
+        name
+        for name, value_json in flatten(path).items()
+        if name in current and current[name][0] != value_json
+    }
+
+
+def current_values(frame: Any) -> dict[str, tuple[str, int]]:
+    """지금 창고에 들어 있는 설정. ``이름 -> (값, revision)``."""
+    if frame.empty:
+        return {}
+    latest = frame.sort_values(["valid_from", "revision"]).groupby("entity_id").tail(1)
+    return {
+        str(row["entity_id"]): (str(row["value_json"]), int(row["revision"]))
+        for row in latest.to_dict(orient="records")
+    }
+
+
+def defaults_run_id(path: Path, *, moment: datetime | None = None) -> str:
+    """파일 내용 + 발효 시점으로 결정되는 run id.
+
+    내용만으로 정하면, 값을 A→B→A 로 되돌렸을 때 첫 A 의 run id 와 부딪혀
+    되돌리기가 거부된다. 되돌리는 것은 정상적인 운영 행위다.
+    """
     digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    if moment is not None:
+        digest = f"{digest}-{moment:%Y%m%dT%H%M%S%f}"
     return f"{DEFAULTS_SOURCE}-{digest}"
 
 

@@ -297,7 +297,9 @@ def render_report(store: Store, clock: Clock, *, market: Market, as_of: datetime
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--market", default="KR", choices=[m.value for m in Market])
-    parser.add_argument("--years", type=int, default=5)
+    # 기본값은 store.config 의 backfill.years 다. 여기 숫자를 따로 들면
+    # 두 값이 갈라져도 아무도 모른다 (불변식 10).
+    parser.add_argument("--years", type=int)
     parser.add_argument("--symbols", type=int, help="시험 실행: 이 개수만큼만 백필")
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")
@@ -346,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
         store,
         clock,
         market=market,
-        years=args.years,
+        years=args.years or int(store.config("backfill.years", as_of=clock.now())),
         symbols=args.symbols,
         sessions_limit=args.sessions,
         dry_run=args.dry_run,

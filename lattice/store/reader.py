@@ -7,6 +7,11 @@
 - ``observed_at <= as_of`` — 예외 없음
 - 자연키마다 as_of 이전의 최신 ``revision`` 하나만
 - 결정론적 정렬 — 같은 질의는 언제나 바이트 단위로 같은 결과
+
+``lookback`` 과 ``until`` 은 **``valid_from`` 축**을 자른다. ``as_of`` 축(관측)과
+헷갈리면 안 된다. 큰 구간을 나눠 읽을 때 as_of 를 창마다 옮기면, 늦게 도착한
+정정본이 어느 창에도 안 걸려 조용히 사라진다. 창은 valid_from 으로 자르고
+as_of 는 요청한 시점 하나로 고정한다.
 """
 
 from __future__ import annotations
@@ -58,10 +63,13 @@ def query(
     as_of: datetime,
     entity: str | Sequence[str] | None = None,
     lookback: timedelta | int | None = None,
+    until: datetime | None = None,
 ) -> pd.DataFrame:
     spec = get_spec(table)
     as_of = _require_aware("as_of", as_of)
     valid_floor = _valid_from_floor(as_of, lookback)
+    if until is not None:
+        until = _require_aware("until", until)
 
     files = list(
         paths.iter_data_files(
@@ -87,6 +95,10 @@ def query(
     if valid_floor is not None:
         predicates.append("valid_from >= ?")
         params.append(valid_floor)
+
+    if until is not None:
+        predicates.append("valid_from < ?")
+        params.append(until)
 
     key = ", ".join(spec.natural_key)
     columns = ", ".join(spec.all_columns)

@@ -76,6 +76,27 @@ PAPER_ALLOWED_TR = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class HealthParams:
+    """수집 건전성 판정 임계치. 전부 store.config 에서 온다 (불변식 10).
+
+    ``FillParams`` 와 같은 패턴이다 — 호출자가 as_of 시점 설정을 읽어 넣고,
+    클라이언트 자체는 입력만으로 결정되는 상태로 남는다.
+    """
+
+    window_sec: float = 120.0
+    min_samples: int = 8
+    history_sec: float = 600.0
+
+    @classmethod
+    def from_store(cls, store: Any, *, as_of: datetime) -> HealthParams:
+        return cls(
+            window_sec=float(store.config("collector.error_rate_window_sec", as_of=as_of)),
+            min_samples=int(store.config("collector.error_rate_min_samples", as_of=as_of)),
+            history_sec=float(store.config("collector.call_history_sec", as_of=as_of)),
+        )
+
+
 @dataclass
 class Token:
     access_token: str
@@ -121,6 +142,9 @@ class LSClient:
     timeout: float = 10.0
     live_trading: bool = False
     min_interval_sec: float = MIN_INTERVAL_SEC_KR
+    #: 기본값은 선행 프로젝트에서 검증된 값이다. 운영에서는 호출자가
+    #: HealthParams.from_store 로 as_of 시점 설정을 읽어 넣는다.
+    health: HealthParams = field(default_factory=HealthParams)
     sleep: Callable[[float], None] = time.sleep
     _token: Token | None = field(default=None, repr=False)
     _last_call: datetime | None = field(default=None, repr=False)
@@ -136,15 +160,19 @@ class LSClient:
         US 는 누적 카운터라 하루가 지나면 옛 실패가 영원히 남는다. KR 방식을 쓴다.
         """
         self._calls.append((self.clock.now(), ok))
-        cutoff = self.clock.now() - timedelta(seconds=600)
+        cutoff = self.clock.now() - timedelta(seconds=self.health.history_sec)
         while self._calls and self._calls[0][0] < cutoff:
             self._calls.popleft()
 
-    def recent_error_rate(self, window_sec: float = 120.0, min_samples: int = 8) -> float:
-        """최근 오류율. 킬스위치가 이 값을 본다."""
-        cutoff = self.clock.now() - timedelta(seconds=window_sec)
+    def recent_error_rate(self) -> float:
+        """최근 오류율. 킬스위치가 이 값을 본다.
+
+        임계치를 인자 기본값으로 들지 않는다 — 킬스위치가 언제 어떤 기준으로
+        발동했는지가 코드에만 남으면 사후에 재구성할 수 없다 (불변식 10).
+        """
+        cutoff = self.clock.now() - timedelta(seconds=self.health.window_sec)
         recent = [ok for moment, ok in self._calls if moment >= cutoff]
-        if len(recent) < min_samples:
+        if len(recent) < self.health.min_samples:
             return 0.0
         return sum(1 for ok in recent if not ok) / len(recent)
 

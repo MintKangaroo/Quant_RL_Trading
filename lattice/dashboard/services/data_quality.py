@@ -72,15 +72,30 @@ def iter_windows(
 ) -> Iterator[pd.DataFrame]:
     """구간을 창으로 잘라 순서대로 돌려준다. 오래된 창부터.
 
-    ``store.get`` 은 ``observed_at <= as_of`` 를 강제하고 ``lookback`` 이
-    ``valid_from`` 하한을 준다. 그 둘의 교집합이 한 창이 된다 — 게이트를
-    우회하지 않고도 큰 구간을 나눠 읽을 수 있다.
+    창은 **``valid_from`` 축에서만** 옮긴다. ``as_of`` 는 요청받은 시점 하나로
+    고정한다.
+
+    창마다 as_of 를 옮기면 안 된다. valid_from 은 옛날이고 observed_at 이 늦게
+    도착한 행(정정본)이 자기 창에서는 아직 관측되지 않았고, 다음 창에서는
+    valid_from 하한 아래라 어느 창에도 안 걸린다. 그러면 게이트는 정정본을
+    보는데 화면만 정정 전 값을 그리게 된다.
 
     화면과 CLI 가 같은 창 나누기를 쓴다. 두 벌로 두면 같은 데이터에서 서로 다른
     커버리지 숫자가 나오고, 어느 쪽이 맞는지 아무도 모르게 된다.
     """
     for edge in _window_edges(as_of, lookback, window):
-        yield store.get(table, as_of=edge, lookback=window)
+        yield store.get(table, as_of=as_of, lookback=_span(as_of, edge, window), until=edge)
+
+
+def _span(as_of: datetime, edge: datetime, window: int) -> int:
+    """창 하한을 ``as_of`` 기준 일수로 바꾼다.
+
+    ``lookback`` 은 as_of 로부터 거슬러 세므로, 창의 왼쪽 끝을 그 축으로 옮겨야
+    한다. 하루 올려 잡는 것은 경계에서 잘리지 않게 하기 위함이다 — 창이 조금
+    겹치는 것은 ``Coverage`` 가 세션 단위로 중복을 걸러 준다.
+    """
+    left = edge - timedelta(days=window)
+    return max(int((as_of - left).days) + 1, 1)
 
 
 def collect_coverage(

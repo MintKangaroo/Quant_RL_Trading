@@ -172,10 +172,15 @@ def check_determinism(
     empty: list[str] = []
     digests: set[str] = set()
 
+    # run id 는 검증 실행마다 달라야 한다. 이벤트 로그는 append-only 라, 같은
+    # id 로 두 번 적재하면 창고가 거부한다 — 검증기를 두 번 못 돌리게 된다.
+    # 비교 대상은 run id 가 아니라 주문·체결의 직렬화 결과다.
+    stamp = f"{as_of:%Y%m%dT%H%M%S}"
+
     for index, day in enumerate(picked, start=1):
         moment = datetime(day.year, day.month, day.day, 23, tzinfo=UTC)
-        first = _replay(store, moment, f"m1-{day:%Y%m%d}-a", params)
-        second = _replay(store, moment, f"m1-{day:%Y%m%d}-b", params)
+        first = _replay(store, moment, f"m1-{stamp}-{day:%Y%m%d}-a", params)
+        second = _replay(store, moment, f"m1-{stamp}-{day:%Y%m%d}-b", params)
 
         if first.serialized().encode("utf-8") != second.serialized().encode("utf-8"):
             mismatches.append(day.isoformat())
@@ -225,12 +230,15 @@ def _run(command: list[str]) -> tuple[int, str]:
 
 
 def check_contract_tests() -> Check:
-    code, output = _run(["uv", "run", "pytest", "tests/invariants/", "-q"])
-    tail = [line for line in output.splitlines() if "passed" in line or "failed" in line]
+    # pyproject 의 addopts 에 이미 -q 가 있다. 그대로 -q 를 또 주면 -qq 가 되어
+    # "N passed" 요약 줄 자체가 사라진다 — 증거로 쓸 것이 없어진다.
+    command = ["uv", "run", "pytest", "tests/invariants/", "-o", "addopts=", "-q"]
+    code, output = _run(command)
+    summary = [line for line in output.splitlines() if " passed" in line or " failed" in line]
     return Check(
         "결정론 / 미래 훔쳐보기 / 생존편향 / 정정공시 테스트 통과",
         code == 0,
-        ["$ uv run pytest tests/invariants/ -q", *(tail or output.splitlines()[-3:])],
+        [f"$ {' '.join(command)}", *(summary or output.splitlines()[-3:])],
     )
 
 
