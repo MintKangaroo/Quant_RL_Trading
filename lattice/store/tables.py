@@ -36,14 +36,53 @@ _SPECS: dict[str, TableSpec] = {
             "market": pa.string(),
             "investor": pa.string(),
             "net_value": pa.float64(),
+            "net_volume": pa.float64(),
             # 장중 잠정치와 마감 후 확정치는 별도 행으로 들어온다.
             "is_final": pa.bool_(),
         },
-        doc="수급. 잠정/확정 구분.",
+        natural_key=("entity_id", "valid_from", "investor"),
+        doc=(
+            "투자자별 순매수. 주체가 자연키에 들어간다. 그날 그 주체가 손대지 "
+            "않은 종목은 행 자체가 없다 — 없는 것을 0으로 채우지 않는다. "
+            "'순매수 0' 과 '거래 없음' 은 다른 사실이다."
+        ),
+    ),
+    "shorting": TableSpec(
+        name="shorting",
+        columns={
+            "market": pa.string(),
+            "board": pa.string(),
+            "short_volume": pa.float64(),
+            "total_volume": pa.float64(),
+            "short_ratio": pa.float64(),
+        },
+        doc=(
+            "공매도. **T+1~2 에 공표된다** — observed_at 이 세션 당일이면 "
+            "flow_kr 이 통째로 미래를 본다. backfill.shorting_lag_days 로 "
+            "거래일 단위로 늦춰 찍는다."
+        ),
+    ),
+    "indices": TableSpec(
+        name="indices",
+        columns={
+            "market": pa.string(),
+            "board": pa.string(),
+            "open": pa.float64(),
+            "high": pa.float64(),
+            "low": pa.float64(),
+            "close": pa.float64(),
+            "volume": pa.float64(),
+            "value": pa.float64(),
+        },
+        doc=(
+            "지수 일봉. regime Analyst 의 입력. prices 와 섞지 않는다 — "
+            "지수가 종목 유니버스에 끼면 커버리지 통계와 횡단면 z 가 오염된다."
+        ),
     ),
     "fundamentals": TableSpec(
         name="fundamentals",
         columns={
+            "market": pa.string(),
             "metric": pa.string(),
             "value": pa.float64(),
             "fiscal_period": pa.string(),

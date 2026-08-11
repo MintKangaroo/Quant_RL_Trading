@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Protocol, runtime_checkable
 from zoneinfo import ZoneInfo
 
@@ -37,9 +37,15 @@ class NotATradingDay(CollectorError):
 
 @runtime_checkable
 class ObservedAtPolicy(Protocol):
-    """거래일 하나를 관측시각 하나로 바꾼다. 그것만 한다."""
+    """거래일 하나를 관측시각 하나로 바꾼다. 그것만 한다.
 
-    def for_session(self, day: date) -> datetime: ...
+    ``extra_lag_days`` 는 **데이터셋마다 다른 공표 지연**을 위한 것이다.
+    같은 세션의 사실이라도 일봉은 당일 마감 직후에 나오고 공매도 잔고는
+    T+1~2 에 나온다. 하나의 지연으로 뭉뚱그리면 늦게 나오는 쪽이 통째로
+    미래를 본다.
+    """
+
+    def for_session(self, day: date, *, extra_lag_days: int = 0) -> datetime: ...
 
 
 @dataclass(frozen=True)
@@ -47,12 +53,13 @@ class FetchTimePolicy:
     """라이브 수집 경로 — 관측시각은 우리가 받아온 시각이다.
 
     실시간으로 받는 값은 공표 시각보다 늦게 도착한다. 늦은 쪽이 진실이므로
-    실제 수신 시각을 찍는다.
+    실제 수신 시각을 찍는다. 공표 지연은 이미 수신 시각에 반영돼 있으므로
+    ``extra_lag_days`` 를 더하지 않는다.
     """
 
     clock: Clock
 
-    def for_session(self, day: date) -> datetime:
+    def for_session(self, day: date, *, extra_lag_days: int = 0) -> datetime:
         return self.clock.now()
 
 
@@ -68,7 +75,7 @@ class PublicationPolicy:
     lag_seconds: float
     clock: Clock
 
-    def for_session(self, day: date) -> datetime:
+    def for_session(self, day: date, *, extra_lag_days: int = 0) -> datetime:
         if not is_trading_day(self.market, day):
             raise NotATradingDay(f"{self.market} {day.isoformat()} 는 거래일이 아니다")
 
@@ -76,6 +83,10 @@ class PublicationPolicy:
         close_local = datetime.combine(
             day, spec.regular_close, tzinfo=ZoneInfo(spec.timezone)
         )
+        # 지연은 거래일로 센다. 달력일로 세면 금요일 세션의 T+2 가 일요일이
+        # 되어, 실제로는 화요일에야 알 수 있는 것을 일요일부터 아는 게 된다.
+        for _ in range(max(extra_lag_days, 0)):
+            close_local = _next_session_close(self.market, close_local, spec.regular_close)
         published = (close_local + timedelta(seconds=self.lag_seconds)).astimezone(UTC)
 
         now = self.clock.now()
@@ -88,6 +99,14 @@ class PublicationPolicy:
                 f"공표된다. 현재 {now.isoformat()} — 아직 알 수 없는 사실이다"
             )
         return published
+
+
+def _next_session_close(market: Market, moment: datetime, close: time) -> datetime:
+    """다음 거래일의 마감 지역시각."""
+    day = moment.date() + timedelta(days=1)
+    while not is_trading_day(market, day):
+        day += timedelta(days=1)
+    return datetime.combine(day, close, tzinfo=moment.tzinfo)
 
 
 CONFIG_LAG_KEYS: dict[Market, str] = {

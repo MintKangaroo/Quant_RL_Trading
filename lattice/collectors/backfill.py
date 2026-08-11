@@ -25,7 +25,7 @@ from lattice.collectors.errors import CollectorError
 from lattice.collectors.krx_source import HistoricalSource
 from lattice.collectors.latency import LatencyRecorder
 from lattice.collectors.market_hours import Market, trading_days
-from lattice.collectors.publication import ObservedAtPolicy
+from lattice.collectors.publication import NotYetPublished, ObservedAtPolicy
 from lattice.collectors.raw import RawArchive
 from lattice.replay.clock import Clock
 from lattice.store import DuplicateIngestRun, Store
@@ -59,10 +59,24 @@ class SessionResult:
     universe: int
     skipped: bool
     error: str | None = None
+    #: 아직 공표되지 않아 넘어간 세션. **실패가 아니다.**
+    #: 오늘 장이 안 끝났거나 공매도 T+2 가 안 지난 것뿐이고, 내일 다시 돌리면
+    #: 들어온다. 이걸 실패로 세면 매 실행이 거짓 경보로 끝나고, 거짓 경보가
+    #: 일상이 되면 진짜 실패를 아무도 안 본다.
+    deferred: bool = False
 
     @property
     def ok(self) -> bool:
         return self.error is None
+
+    @property
+    def counts(self) -> dict[str, int]:
+        """테이블별 적재 행수. 진행 출력과 집계가 이것만 본다.
+
+        패널 백필과 모양을 맞추기 위한 것이다 — 출력 코드가 결과 종류마다
+        갈라지면 새 테이블을 추가할 때마다 CLI 를 고쳐야 한다.
+        """
+        return {PRICES: self.prices, UNIVERSE: self.universe}
 
 
 @dataclass
@@ -70,18 +84,24 @@ class BackfillReport:
     market: Market
     sessions: int = 0
     skipped: int = 0
-    prices: int = 0
-    universe: int = 0
+    deferred: int = 0
+    counts: dict[str, int] = field(default_factory=dict)
     failures: list[tuple[date, str]] = field(default_factory=list)
 
-    def absorb(self, result: SessionResult) -> None:
+    def absorb(self, result: Any) -> None:
         self.sessions += 1
         if result.skipped:
             self.skipped += 1
-        self.prices += result.prices
-        self.universe += result.universe
+        if getattr(result, "deferred", False):
+            self.deferred += 1
+            return
+        for table, rows in result.counts.items():
+            self.counts[table] = self.counts.get(table, 0) + rows
         if result.error is not None:
             self.failures.append((result.day, result.error))
+
+    def render_counts(self) -> str:
+        return ", ".join(f"{table} {rows:,}행" for table, rows in sorted(self.counts.items()))
 
 
 @dataclass
@@ -161,6 +181,11 @@ class Backfiller:
                 universe = self._append(UNIVERSE, universe_rows, day)
 
             return SessionResult(day=day, prices=prices, universe=universe, skipped=False)
+        except NotYetPublished as pending:
+            return SessionResult(
+                day=day, prices=0, universe=0, skipped=False,
+                error=str(pending), deferred=True,
+            )
         except CollectorError as error:
             return SessionResult(day=day, prices=0, universe=0, skipped=False, error=str(error))
         finally:
@@ -308,14 +333,13 @@ class ProgressLog:
     def path(self) -> Path:
         return self.root / PROGRESS_DIR / self.plan_id / PROGRESS_FILE
 
-    def record(self, result: SessionResult, *, at: datetime) -> None:
+    def record(self, result: Any, *, at: datetime) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(
             {
                 "at": at.isoformat(),
                 "day": result.day.isoformat(),
-                "prices": result.prices,
-                "universe": result.universe,
+                "counts": result.counts,
                 "skipped": result.skipped,
                 "error": result.error,
             },

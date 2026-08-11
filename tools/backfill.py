@@ -16,6 +16,7 @@ import argparse
 import os
 import sys
 import time
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -32,6 +33,8 @@ from lattice.collectors.backfill import (  # noqa: E402
 )
 from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
+from lattice.collectors.panels import PANELS, PanelBackfiller  # noqa: E402
+from lattice.collectors.panels import SHORTING as SHORTING  # noqa: E402
 from lattice.collectors.publication import publication_policy  # noqa: E402
 from lattice.collectors.raw import RawArchive  # noqa: E402
 from lattice.dashboard.services import data_quality as dq  # noqa: E402
@@ -80,6 +83,7 @@ def run_backfill(
     symbols: int | None,
     sessions_limit: int | None,
     dry_run: bool,
+    table: str | None = None,
 ) -> int:
     if not credentials_present():
         print(
@@ -94,14 +98,26 @@ def run_backfill(
     start = end - timedelta(days=365 * years)
 
     source = KrxSource()
-    backfiller = Backfiller(
-        store=store,
-        source=source,
-        clock=clock,
-        archive=RawArchive(root=store.root),
-        policy=publication_policy(store, market, clock=clock),
-        market=market,
-    )
+    policy = publication_policy(store, market, clock=clock)
+    archive = RawArchive(root=store.root)
+
+    if table is not None:
+        panel = PANELS[table]
+        if panel.table == SHORTING:
+            # 실제 지연은 설정에서 온다. 코드의 기본값을 믿고 넘어가면
+            # 언젠가 설정만 바꾸고 관측시각은 그대로인 상태가 된다 (불변식 10).
+            panel = replace(
+                panel, lag_days=int(store.config("backfill.shorting_lag_days", as_of=now))
+            )
+        backfiller: Backfiller | PanelBackfiller = PanelBackfiller(
+            store=store, source=source, clock=clock, archive=archive,
+            policy=policy, panel=panel, market=market,
+        )
+    else:
+        backfiller = Backfiller(
+            store=store, source=source, clock=clock, archive=archive,
+            policy=policy, market=market,
+        )
 
     sessions = backfiller.plan(start, end)
     if sessions_limit is not None:
@@ -137,18 +153,23 @@ def run_backfill(
 
         elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
         remaining = eta(index, len(pending), elapsed)
-        status = "SKIP" if result.skipped else ("FAIL" if result.error else "ok")
+        if result.skipped:
+            status = "SKIP"
+        elif getattr(result, "deferred", False):
+            status = "WAIT"  # 아직 공표되지 않았다. 실패가 아니다
+        else:
+            status = "FAIL" if result.error else "ok"
         tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
+        counts = " ".join(f"{name}={rows}" for name, rows in sorted(result.counts.items()))
         print(
-            f"[{index}/{len(pending)}] {day} {status}  "
-            f"prices={result.prices} universe={result.universe}{tail}"
+            f"[{index}/{len(pending)}] {day} {status}  {counts}{tail}"
             + (f"  {result.error}" if result.error else "")
         )
 
     print(
-        f"\n완료 — 세션 {report.sessions}개 (건너뜀 {report.skipped}), "
-        f"prices {report.prices:,}행, universe {report.universe:,}행, "
-        f"실패 {len(report.failures)}건"
+        f"\n완료 — 세션 {report.sessions}개 "
+        f"(건너뜀 {report.skipped}, 미공표 대기 {report.deferred}), "
+        f"{report.render_counts()}, 실패 {len(report.failures)}건"
     )
     for day, message in report.failures[:20]:
         print(f"  실패 {day}: {message}")
@@ -302,6 +323,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--years", type=int)
     parser.add_argument("--symbols", type=int, help="시험 실행: 이 개수만큼만 백필")
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
+    parser.add_argument(
+        "--table",
+        choices=sorted(PANELS),
+        help="패널 테이블 하나만 백필. 생략하면 prices+universe",
+    )
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")
     parser.add_argument(
         "--data-root",
@@ -352,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         symbols=args.symbols,
         sessions_limit=args.sessions,
         dry_run=args.dry_run,
+        table=args.table,
     )
 
 

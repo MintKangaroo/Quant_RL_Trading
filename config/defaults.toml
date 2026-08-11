@@ -50,6 +50,10 @@ us_publication_lag_seconds = 1200   # 16:00 마감 → 16:20 공표
 # 세션 간 호출 간격. 소스를 두들겨 차단당하지 않기 위한 예의.
 session_pause_ms = 200
 
+# 공매도는 세션 당일에 나오지 않는다. 거래일 단위로 이만큼 늦춰 관측시각을
+# 찍는다. 0 으로 두면 flow_kr 이 통째로 미래를 본다.
+shorting_lag_days = 2
+
 [data_quality]
 # 거래일 커버리지가 이 아래면 경고. 데이터가 조용히 새는 것을 잡는 첫 방어선.
 coverage_warn = 0.98

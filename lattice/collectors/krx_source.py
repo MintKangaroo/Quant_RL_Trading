@@ -32,6 +32,18 @@ SOURCE = "krx"
 #: pykrx 가 세션 쿠키를 얻기 위해 읽는 환경변수. 없으면 모든 조회가 빈 결과다.
 CREDENTIAL_ENV = ("KRX_ID", "KRX_PW")
 
+#: 수급 주체. KRX 는 주체마다 따로 물어야 준다.
+#: 개인·외국인·기관은 항등식(합=0)을 이루고, 나머지는 기관의 세부다.
+#: 세부를 함께 받는 이유는 연기금과 투신의 방향이 자주 엇갈리기 때문이다 —
+#: "기관 순매수" 하나로 뭉치면 그 정보가 사라진다.
+INVESTORS = ("외국인", "기관합계", "개인", "연기금", "금융투자", "투신")
+
+#: 공매도·지수는 시장 단위로만 조회된다. "ALL" 을 받지 않는다.
+SHORTING_BOARDS = ("KOSPI", "KOSDAQ")
+
+#: 밸류·퀄리티 원자료. 섹터 내 백분위 변환은 Analyst 가 한다 (agents.md §2).
+VALUATION_COLUMNS = ("BPS", "PER", "PBR", "EPS", "DIV", "DPS")
+
 #: KRX 응답 컬럼 → 우리 이름. 한글 컬럼명을 코드 전체에 퍼뜨리지 않는다.
 OHLCV_COLUMNS = {
     "시가": "open",
@@ -122,6 +134,113 @@ class KrxSource:
         if frame is None or frame.empty:
             raise KRXUnavailable(f"KRX {stamp} 일봉이 비었다")
         return normalize_krx_frame(frame)
+
+
+    # -- flow_kr / fundamental 용 ---------------------------------------------
+
+    def flows_on(self, day: date) -> list[dict[str, Any]]:
+        """주체별 순매수. 주체마다 한 번씩 호출한다 (KRX 가 그렇게만 준다).
+
+        주체별로 종목 수가 다르다 — 연기금은 586개, 개인은 2,700개. 그날 그
+        주체가 손대지 않은 종목은 아예 응답에 없다. 없는 것을 0으로 채우지
+        않는다. "순매수 0" 과 "거래 없음" 은 다른 사실이고, 0으로 채우면
+        모델이 존재하지 않는 관측을 학습한다.
+        """
+        self._require_credentials()
+        stamp = day.strftime("%Y%m%d")
+        api = self._stock()
+        rows: list[dict[str, Any]] = []
+        for investor in INVESTORS:
+            frame = api.get_market_net_purchases_of_equities_by_ticker(
+                stamp, stamp, "ALL", investor
+            )
+            if frame is None or frame.empty:
+                continue
+            for code, record in frame.to_dict(orient="index").items():
+                rows.append(
+                    {
+                        "code": str(code),
+                        "investor": investor,
+                        "net_value": record.get("순매수거래대금"),
+                        "net_volume": record.get("순매수거래량"),
+                    }
+                )
+        if not rows:
+            raise KRXUnavailable(f"KRX {stamp} 수급이 비었다")
+        return sorted(rows, key=lambda item: (str(item["code"]), str(item["investor"])))
+
+    def shorting_on(self, day: date) -> list[dict[str, Any]]:
+        """공매도 거래량·비중. KOSPI/KOSDAQ 을 따로 물어야 한다 (ALL 불가)."""
+        self._require_credentials()
+        stamp = day.strftime("%Y%m%d")
+        api = self._stock()
+        rows: list[dict[str, Any]] = []
+        for board in SHORTING_BOARDS:
+            frame = api.get_shorting_volume_by_ticker(stamp, board)
+            if frame is None or frame.empty:
+                continue
+            for code, record in frame.to_dict(orient="index").items():
+                rows.append(
+                    {
+                        "code": str(code),
+                        "board": board,
+                        "short_volume": record.get("공매도"),
+                        "total_volume": record.get("매수"),
+                        "short_ratio": record.get("비중"),
+                    }
+                )
+        if not rows:
+            raise KRXUnavailable(f"KRX {stamp} 공매도가 비었다")
+        return sorted(rows, key=lambda item: str(item["code"]))
+
+    def fundamentals_on(self, day: date) -> list[dict[str, Any]]:
+        """PER/PBR/EPS/BPS/DIV/DPS + 시가총액."""
+        self._require_credentials()
+        stamp = day.strftime("%Y%m%d")
+        api = self._stock()
+        valuation = api.get_market_fundamental_by_ticker(stamp, market="ALL")
+        if valuation is None or valuation.empty:
+            raise KRXUnavailable(f"KRX {stamp} 펀더멘털이 비었다")
+
+        caps = api.get_market_cap_by_ticker(stamp, market="ALL")
+        cap_by_code = (
+            {str(code): record for code, record in caps.to_dict(orient="index").items()}
+            if caps is not None and not caps.empty
+            else {}
+        )
+
+        rows: list[dict[str, Any]] = []
+        for code, record in valuation.to_dict(orient="index").items():
+            cap = cap_by_code.get(str(code), {})
+            merged = {name: record.get(name) for name in VALUATION_COLUMNS}
+            merged.update(
+                {
+                    "market_cap": cap.get("시가총액"),
+                    "shares": cap.get("상장주식수"),
+                }
+            )
+            rows.append({"code": str(code), **merged})
+        return sorted(rows, key=lambda item: str(item["code"]))
+
+    def indices_on(self, day: date) -> list[dict[str, Any]]:
+        """지수 OHLCV. regime Analyst 의 입력이다."""
+        self._require_credentials()
+        stamp = day.strftime("%Y%m%d")
+        api = self._stock()
+        rows: list[dict[str, Any]] = []
+        for board in SHORTING_BOARDS:
+            frame = api.get_index_ohlcv_by_ticker(stamp, board)
+            if frame is None or frame.empty:
+                continue
+            for code, record in frame.to_dict(orient="index").items():
+                mapped = {
+                    english: record.get(korean)
+                    for korean, english in OHLCV_COLUMNS.items()
+                }
+                rows.append({"code": f"{board}:{code}", "board": board, **mapped})
+        if not rows:
+            raise KRXUnavailable(f"KRX {stamp} 지수가 비었다")
+        return sorted(rows, key=lambda item: str(item["code"]))
 
 
 def normalize_krx_frame(frame: Any) -> list[dict[str, Any]]:
