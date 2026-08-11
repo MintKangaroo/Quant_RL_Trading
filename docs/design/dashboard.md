@@ -42,7 +42,7 @@ GET /api/fund/summary?as_of=2024-03-05T15:30:00+09:00
 | 화면 | 내용 | 우선순위 |
 |---|---|---|
 | **Fund** | 전체 현황 | **1** |
-| Data Quality | 커버리지, 결측률, 지연 실측 분포 | 2 (M1 산출물) |
+| Data Quality ✅ | 커버리지, 결측률, 지연 실측 분포 | 2 (M1 산출물) |
 | Decision Trace | 왜 이 종목을 샀는가 | 3 |
 | Positions | 보유 종목, 청산 소요일수 | 4 |
 | Agent Health | 15개 생사, IC 추이, 지연, LLM 비용 | 5 |
@@ -50,6 +50,33 @@ GET /api/fund/summary?as_of=2024-03-05T15:30:00+09:00
 | Model Lab | 학습곡선, explained_variance, 게이트 현황 | 7 |
 | Attribution | 종목/섹터/Analyst/환율 기여 | 8 |
 | Regime · Execution · Alerts | | 9 |
+
+### Data Quality — 구현됨
+
+```
+uv run python tools/dashboard.py        # DASHBOARD_PORT (기본 6060)
+```
+
+| 엔드포인트 | 내용 |
+|---|---|
+| `GET /api/data-quality/summary` | KPI + 경고 판정 |
+| `GET /api/data-quality/coverage` | 일별 종목 수, 기대 거래일 대비 |
+| `GET /api/data-quality/missing` | 일별 close/volume 결측률 |
+| `GET /api/data-quality/latency` | 단계별 p50/p90/p99 |
+| `GET /api/data-quality/universe` | 상장 종목 수, 상장폐지 누적 |
+| `GET /api/data-quality/failures` | 최근 수집 실패 |
+
+전부 `as_of` / `lookback` 을 받는다. 응답 봉투는
+`{as_of, live, lookback_days, thresholds, data}` 이며, `as_of` 를 되돌려주는 것이 규약이다.
+
+규약은 `lattice/dashboard/api/common.py` 한 곳에만 있다. 집계는 Flask 를 모르는
+`lattice/dashboard/services/data_quality.py` 가 하고, `tools/backfill.py --report` 가
+**같은 함수**를 쓴다 — 같은 숫자를 두 곳에서 계산하면 언젠가 갈라진다.
+
+`tests/invariants/test_dashboard_bans.py` 가 브라우저 저장소·차트 라이브러리 추가·
+허용되지 않은 외부 출처를 정적으로 막고,
+`tests/dashboard/test_data_quality_api.py::test_every_api_route_accepts_as_of` 가
+URL map 을 훑어 불변식 9 를 강제한다 — 화면이 늘어나도 계속 강제된다.
 
 ---
 

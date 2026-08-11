@@ -16,18 +16,14 @@ import argparse
 import os
 import sys
 import time
-from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from datetime import time as dtime
 from pathlib import Path
-from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from lattice.collectors.backfill import (  # noqa: E402
-    PRICES,
     UNIVERSE,
     Backfiller,
     BackfillReport,
@@ -38,6 +34,7 @@ from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
 from lattice.collectors.publication import publication_policy  # noqa: E402
 from lattice.collectors.raw import RawArchive  # noqa: E402
+from lattice.dashboard.services import data_quality as dq  # noqa: E402
 from lattice.replay.clock import Clock, LiveClock  # noqa: E402
 from lattice.store import ConfigNotFound, Store  # noqa: E402
 
@@ -194,51 +191,16 @@ def _short(delta: timedelta | None) -> str:
 # -----------------------------------------------------------------------------
 
 
-#: 집계 창 크기. 5년치를 한 번에 올리면 340만 행이라 메모리가 터진다.
-WINDOW_DAYS = 32
-
-
-def month_starts(first: date, last: date) -> list[date]:
-    months = []
-    cursor = first.replace(day=1)
-    while cursor <= last:
-        months.append(cursor)
-        cursor = (cursor.replace(day=28) + timedelta(days=4)).replace(day=1)
-    return months
-
-
-@dataclass
-class Coverage:
-    """세션별 집계. 전체를 메모리에 들고 있지 않는다."""
-
-    rows: dict[date, int] = field(default_factory=dict)
-    close_null: dict[date, int] = field(default_factory=dict)
-    volume_null: dict[date, int] = field(default_factory=dict)
-    entities: set[str] = field(default_factory=set)
-
-    def absorb(self, frame: Any) -> None:
-        if frame.empty:
-            return
-        sessions = frame["valid_from"].dt.date
-        for day, group in frame.groupby(sessions):
-            if day in self.rows:  # 창이 겹치는 구간. 두 번 세지 않는다
-                continue
-            self.rows[day] = len(group)
-            self.close_null[day] = int(group["close"].isna().sum())
-            self.volume_null[day] = int(group["volume"].isna().sum())
-        self.entities.update(frame["entity_id"].astype(str))
-
-    @property
-    def total(self) -> int:
-        return sum(self.rows.values())
+#: 리포트가 훑는 구간. 백필 구간보다 넉넉히 잡아 앞뒤를 놓치지 않는다.
+REPORT_SPAN_DAYS = 365 * 6
 
 
 def render_report(store: Store, clock: Clock, *, market: Market, as_of: datetime) -> str:
-    """창고를 달 단위 창으로 훑어 집계한다.
+    """창고를 창 단위로 훑어 집계한다.
 
-    ``store.get`` 은 ``observed_at <= as_of`` 를 강제하고 ``lookback`` 으로
-    ``valid_from`` 하한을 준다. 그 둘의 교집합이 한 달 창이 된다 — 게이트를
-    우회하지 않고도 340만 행을 나눠 읽을 수 있다.
+    창 나누기와 커버리지 집계는 대시보드와 **같은 함수**를 쓴다
+    (``lattice/dashboard/services/data_quality.py``). 두 벌로 두면 같은 데이터에서
+    서로 다른 커버리지 숫자가 나오고, 어느 쪽이 맞는지 아무도 모르게 된다.
     """
     lines = [
         "# 백필 검증 리포트",
@@ -248,31 +210,19 @@ def render_report(store: Store, clock: Clock, *, market: Market, as_of: datetime
         "",
     ]
 
-    probe = store.get(PRICES, as_of=as_of, lookback=WINDOW_DAYS)
-    if probe.empty:
+    coverage = dq.collect_coverage(store, as_of=as_of, lookback=REPORT_SPAN_DAYS)
+    if not coverage.rows:
         lines.append("prices 가 비어 있다. 백필이 실행되지 않았거나 전부 실패했다.")
         return "\n".join(lines)
 
-    end = as_of.astimezone(UTC).date()
-    start = end - timedelta(days=365 * 6)
-
-    coverage = Coverage()
     #: 종목 → (마지막 세션, 상장여부, 이름). 창을 시간순으로 훑으며 갱신한다.
     state: dict[str, tuple[date, bool, str]] = {}
     listed_by_year: dict[int, set[str]] = {}
 
-    for month in month_starts(start, end):
-        edge = min(
-            datetime.combine(month, dtime.min, tzinfo=UTC) + timedelta(days=WINDOW_DAYS),
-            as_of,
-        )
-        coverage.absorb(store.get(PRICES, as_of=edge, lookback=WINDOW_DAYS))
-
-        window = store.get(UNIVERSE, as_of=edge, lookback=WINDOW_DAYS)
+    for window in dq.iter_windows(store, UNIVERSE, as_of=as_of, lookback=REPORT_SPAN_DAYS):
         if window.empty:
             continue
-        window = window.sort_values("valid_from")
-        for row in window.to_dict(orient="records"):
+        for row in window.sort_values("valid_from").to_dict(orient="records"):
             entity = str(row["entity_id"])
             session = row["valid_from"].date()
             is_listed = bool(row["is_listed"])
@@ -282,7 +232,7 @@ def render_report(store: Store, clock: Clock, *, market: Market, as_of: datetime
             if is_listed:
                 listed_by_year.setdefault(session.year, set()).add(entity)
 
-    sessions = sorted(coverage.rows)
+    sessions = coverage.sessions
     first, last = sessions[0], sessions[-1]
     expected = len(trading_days(market, first, last))
     covered = len(sessions)

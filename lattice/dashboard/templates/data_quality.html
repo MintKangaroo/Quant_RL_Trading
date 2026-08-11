@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Data Quality · Lattice{% endblock %}
+
+{% block body %}
+<header>
+  <h1>Lattice</h1>
+  <span class="sub">Data Quality</span>
+  <span class="sub num" id="as-of-label">—</span>
+
+  <!-- 타임머신의 최소 형태. as_of 를 모든 API 에 넘기는 것만으로 동작한다. -->
+  <form class="controls" id="scope-form">
+    <label for="as-of">as_of</label>
+    <input type="datetime-local" id="as-of" name="as_of" step="60">
+    <label for="lookback">창(일)</label>
+    <input type="number" id="lookback" name="lookback" min="1" style="width: 76px">
+    <button type="submit">조회</button>
+    <button type="button" id="live">지금</button>
+  </form>
+</header>
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>커버리지 — 일별 종목 수</h2>
+      <div class="chart" id="chart-coverage"></div>
+    </div>
+    <div class="panel">
+      <h2>결측률 추이</h2>
+      <div class="chart" id="chart-missing"></div>
+    </div>
+    <div class="panel">
+      <h2>유니버스 — 상장 종목 수 / 상장폐지 누적</h2>
+      <div class="chart" id="chart-universe"></div>
+    </div>
+    <div class="panel">
+      <h2>수집 지연 — 단계별 p50 / p90 / p99 (ms)</h2>
+      <div class="chart" id="chart-latency"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>최근 수집 실패</h2>
+    <div id="failures"></div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='data_quality.js') }}"></script>
+{% endblock %}

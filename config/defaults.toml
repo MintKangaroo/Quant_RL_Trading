@@ -41,3 +41,17 @@ us_publication_lag_seconds = 1200   # 16:00 마감 → 16:20 공표
 
 # 세션 간 호출 간격. 소스를 두들겨 차단당하지 않기 위한 예의.
 session_pause_ms = 200
+
+[data_quality]
+# 거래일 커버리지가 이 아래면 경고. 데이터가 조용히 새는 것을 잡는 첫 방어선.
+coverage_warn = 0.98
+# 결측률이 이 위면 경고.
+missing_warn = 0.01
+# 수집 지연 p90 이 이 위면 경고. data.assumed_latency_seconds 와 같은 뜻이다.
+latency_p90_warn_ms = 300000
+# 화면 기본 조회 창.
+default_lookback_days = 90
+# 상한. 화면 하나가 창고를 통째로 메모리에 올리지 않게 막는다.
+max_lookback_days = 400
+# 최근 실패 표에 띄울 행 수.
+failure_rows = 50

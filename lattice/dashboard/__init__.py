@@ -5,3 +5,7 @@
 
 명세: docs/design/dashboard.md
 """
+
+from lattice.dashboard.app import create_app
+
+__all__ = ["create_app"]

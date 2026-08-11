@@ -1,0 +1,141 @@
+/* 색·타이포는 docs/design/dashboard.md §6 토큰 그대로.
+   여백보다 정보. 한 화면에서 판단이 끝나야 한다. */
+
+:root {
+  --bg: #0e1116;
+  --panel: #161a20;
+  --panel2: #1b2028;
+  --border: #262c35;
+  --text: #e6e9ee;
+  --muted: #8a93a0;
+  --dim: #5a626d;
+  --warn: #f5a524;
+  /* 상승 = 빨강(한국식)으로 통일. 국장·미장을 같이 하므로
+     화면마다 다르면 사고가 난다. */
+  --up: #e5484d;
+  --down: #3e7bfa;
+  --bench: #6b7280;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* 모든 숫자는 등폭. 자릿수가 흔들리면 표를 못 읽는다. */
+.num, td.num, .kpi-value, .tag {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+header .sub { color: var(--muted); font-size: 12px; }
+
+.controls { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+label { color: var(--muted); font-size: 12px; }
+
+input, button, select {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 5px 8px;
+  font: inherit;
+}
+
+input:focus-visible, button:focus-visible, select:focus-visible {
+  outline: 2px solid var(--warn);
+  outline-offset: 1px;
+}
+
+button { cursor: pointer; }
+button:hover { background: var(--border); }
+
+main { padding: 14px 18px 32px; display: grid; gap: 14px; }
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.kpi { background: var(--panel); padding: 9px 12px; }
+.kpi-label { color: var(--muted); font-size: 11px; }
+.kpi-value { font-size: 19px; margin-top: 2px; }
+.kpi-note { color: var(--dim); font-size: 11px; }
+.kpi.warn .kpi-value { color: var(--warn); }
+
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px 12px;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.chart { width: 100%; height: 240px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px 5px 0;
+}
+td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--panel2); }
+td.num, th.num { text-align: right; }
+
+.alerts { display: grid; gap: 6px; }
+.alert {
+  background: var(--panel2);
+  border-left: 3px solid var(--warn);
+  padding: 6px 10px;
+  color: var(--warn);
+  border-radius: 2px;
+}
+.alert.ok { border-left-color: var(--dim); color: var(--muted); }
+
+.empty { color: var(--dim); padding: 12px 0; }
+.error { color: var(--warn); }
+
+/* 움직이는 대시보드는 아마추어처럼 보인다. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+@media (max-width: 640px) {
+  .controls { margin-left: 0; width: 100%; }
+  .chart { height: 200px; }
+}
