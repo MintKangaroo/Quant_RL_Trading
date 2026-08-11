@@ -338,7 +338,8 @@ class ProgressLog:
         line = json.dumps(
             {
                 "at": at.isoformat(),
-                "day": result.day.isoformat(),
+                # 세션 축 백필은 날짜, 종목 축(수급)은 종목코드다.
+                "unit": getattr(result.day, "isoformat", lambda: str(result.day))(),
                 "counts": result.counts,
                 "skipped": result.skipped,
                 "error": result.error,

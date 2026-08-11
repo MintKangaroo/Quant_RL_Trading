@@ -16,9 +16,10 @@ import argparse
 import os
 import sys
 import time
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -32,6 +33,8 @@ from lattice.collectors.backfill import (  # noqa: E402
     eta,
 )
 from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
+from lattice.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
+from lattice.collectors.ls_flow import LSFlowBackfiller, LSFlowSource  # noqa: E402
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
 from lattice.collectors.panels import PANELS, PanelBackfiller  # noqa: E402
 from lattice.collectors.panels import SHORTING as SHORTING  # noqa: E402
@@ -40,6 +43,9 @@ from lattice.collectors.raw import RawArchive  # noqa: E402
 from lattice.dashboard.services import data_quality as dq  # noqa: E402
 from lattice.replay.clock import Clock, LiveClock  # noqa: E402
 from lattice.store import ConfigNotFound, Store  # noqa: E402
+
+#: 수급은 종목 축이라 패널과 실행 경로가 다르다.
+FLOW_LS = "flows-ls"
 
 ENV_FILE = REPO_ROOT / ".env"
 
@@ -174,6 +180,124 @@ def run_backfill(
     for day, message in report.failures[:20]:
         print(f"  실패 {day}: {message}")
     return 1 if report.failures else 0
+
+
+def flow_symbols(store: Store, clock: Clock, market: Market) -> list[str]:
+    """수급을 받을 종목 순서. **유동성 높은 것부터.**
+
+    12시간짜리 실행이라 중간에 멈출 수 있다. 그때 이미 들어온 것이 쓸모
+    있으려면 매매 후보가 될 종목이 먼저 와야 한다. 알파벳순으로 돌면
+    12시간 뒤에도 000020 부터 000660 까지밖에 없다.
+
+    상장폐지 종목은 뒤로 보내되 **빼지는 않는다** — 생존편향 때문이다.
+    """
+    now = clock.now()
+    prefix = f"{market}:"
+
+    universe = store.get(UNIVERSE, as_of=now, lookback=REPORT_SPAN_DAYS)
+    everything = (
+        {str(value) for value in universe["entity_id"]} if not universe.empty else set()
+    )
+
+    prices = store.get("prices", as_of=now, lookback=90)
+    if prices.empty:
+        ranked: list[str] = []
+    else:
+        liquidity = prices.groupby("entity_id")["value"].median().sort_values(ascending=False)
+        ranked = [str(entity) for entity in liquidity.index]
+
+    tail = sorted(everything - set(ranked))
+    return [
+        entity[len(prefix):]
+        for entity in [*ranked, *tail]
+        if entity.startswith(prefix)
+    ]
+
+
+def run_flow_backfill(
+    store: Store, clock: Clock, *, market: Market, years: int, limit: int | None
+) -> int:
+    """LS t1717 수급 백필. 레포에서 유일하게 **종목 축**으로 도는 수집이다."""
+    credentials = LSCredentials.from_env()
+    if not credentials.usable():
+        print("LS_APPKEY / LS_APPSECRET 이 없다.", file=sys.stderr)
+        return 2
+
+    now = clock.now()
+    end = now.astimezone(UTC).date()
+    start = end - timedelta(days=365 * years)
+
+    client = LSClient(credentials=credentials, clock=clock, live_trading=False)
+    backfiller = LSFlowBackfiller(
+        store=store,
+        source=LSFlowSource(client=client),
+        clock=clock,
+        archive=RawArchive(root=store.root),
+        observed_at_for=publication_policy(store, market, clock=clock).for_session,
+        market=str(market),
+    )
+
+    symbols = flow_symbols(store, clock, market)
+    if limit is not None:
+        symbols = symbols[:limit]
+    pending = backfiller.pending(symbols)
+    print(
+        f"{market} 수급 {start} ~ {end}  종목 {len(symbols)}개 "
+        f"(이미 적재 {len(symbols) - len(pending)}개, 남은 {len(pending)}개)"
+    )
+    if not pending:
+        print("할 일이 없다.")
+        return 0
+
+    progress = ProgressLog(root=store.root, plan_id=f"{market}-flows-{start}-{end}")
+    report = BackfillReport(market=market)
+    started = time.monotonic()  # invariant-allow: wallclock
+
+    for index, symbol in enumerate(pending, start=1):
+        result = backfiller.run_symbol(symbol, start, end)
+        report.absorb(result)
+        progress.record(_FlowRecord(symbol, result), at=clock.now())
+
+        elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
+        remaining = eta(index, len(pending), elapsed)
+        status = "SKIP" if result.skipped else ("FAIL" if result.error else "ok")
+        tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
+        print(
+            f"[{index}/{len(pending)}] {symbol} {status}  flows={result.rows}{tail}"
+            + (f"  {result.error}" if result.error else ""),
+            flush=True,
+        )
+
+    print(
+        f"\n완료 — 종목 {report.sessions}개 (건너뜀 {report.skipped}), "
+        f"{report.render_counts()}, 실패 {len(report.failures)}건"
+    )
+    return 1 if report.failures else 0
+
+
+@dataclass(frozen=True)
+class _FlowRecord:
+    """진행 로그가 기대하는 모양으로 맞춰 준다 (day/counts/skipped/error)."""
+
+    symbol: str
+    result: Any
+
+    @property
+    def day(self) -> Any:
+        return self.symbol
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return dict(self.result.counts)
+
+    @property
+    def skipped(self) -> bool:
+        return bool(self.result.skipped)
+
+    @property
+    def error(self) -> str | None:
+        message = self.result.error
+        return None if message is None else str(message)
 
 
 def probe_codes(source: KrxSource, sessions: list[date], count: int) -> frozenset[str]:
@@ -325,7 +449,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
     parser.add_argument(
         "--table",
-        choices=sorted(PANELS),
+        choices=[*sorted(PANELS), FLOW_LS],
         help="패널 테이블 하나만 백필. 생략하면 prices+universe",
     )
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")
@@ -361,6 +485,13 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(text + "\n", encoding="utf-8")
         print(f"\n(저장: {_display(args.out)})")
         return 0
+
+    if args.table == FLOW_LS:
+        return run_flow_backfill(
+            store, clock, market=market,
+            years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            limit=args.symbols,
+        )
 
     if market is not Market.KR:
         print(
