@@ -200,12 +200,28 @@ def test_target_is_cross_sectional_not_absolute(panel) -> None:
     assert by_day.max() < 1e-9, "횡단면 z 의 일별 평균은 0 이어야 한다"
 
 
-def test_forward_return_uses_trading_day_axis(panel) -> None:
-    """거래일 축으로 민다. 달력일로 밀면 연휴에서 기간이 들쭉날쭉해진다."""
+def test_forward_return_enters_one_day_after_the_signal(panel) -> None:
+    """신호는 **마감 후**에 나온다. 그날 종가에 체결할 수는 없다.
+
+    entry_lag 를 빼면 이미 지나간 종가에 들어간 셈이 되어 하루치 공짜 미래를
+    본다. IC 를 조용히 부풀리는 대표적 경로다.
+    """
     one = panel[panel["entity_id"] == ENTITIES[0]].sort_values("session").reset_index(drop=True)
     forward = ic.forward_returns(panel, horizon=5)
     row = forward[forward["entity_id"] == ENTITIES[0]].sort_values("session").iloc[0]
 
-    expected = one.loc[5, "close"] / one.loc[0, "close"] - 1.0
+    # 신호일 t=0 → t=1 종가에 진입 → t=6 종가에 청산
+    expected = one.loc[6, "close"] / one.loc[1, "close"] - 1.0
 
     assert row["forward_return"] == pytest.approx(expected)
+
+
+def test_entry_lag_changes_the_measured_alpha(panel) -> None:
+    """지연을 0 으로 두면 값이 달라진다 — 스위치가 실제로 먹는다는 증거."""
+    lagged = ic.forward_returns(panel, horizon=5, entry_lag=1)
+    immediate = ic.forward_returns(panel, horizon=5, entry_lag=0)
+
+    first_lagged = lagged.sort_values(["entity_id", "session"]).iloc[0]["forward_return"]
+    first_immediate = immediate.sort_values(["entity_id", "session"]).iloc[0]["forward_return"]
+
+    assert first_lagged != pytest.approx(first_immediate)

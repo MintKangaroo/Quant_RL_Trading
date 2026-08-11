@@ -90,8 +90,23 @@ class ICResult:
 # -----------------------------------------------------------------------------
 
 
-def forward_returns(prices: pd.DataFrame, *, horizon: int = HORIZON_DAYS) -> pd.DataFrame:
-    """종목별 h거래일 후 수익률.
+#: 신호와 진입 사이의 거래일 수.
+#:
+#: 신호는 **마감 후** 공표 시각에 나온다 (PublicationPolicy). 그런데 타깃을
+#: 그날 종가부터 재면, 이미 지나간 종가에 체결한 셈이 되어 하루치 공짜 미래를
+#: 본다. IC 를 조용히 부풀리는 대표적 경로다.
+#:
+#: 그래서 진입은 **다음 거래일 종가**다. 보수적이지만 거짓이 아니다.
+ENTRY_LAG_DAYS = 1
+
+
+def forward_returns(
+    prices: pd.DataFrame,
+    *,
+    horizon: int = HORIZON_DAYS,
+    entry_lag: int = ENTRY_LAG_DAYS,
+) -> pd.DataFrame:
+    """종목별 수익률. 신호일 기준 ``entry_lag`` 뒤에 들어가 ``horizon`` 만큼 보유.
 
     거래일 축으로 민다. 달력일로 밀면 연휴에서 기간이 들쭉날쭉해지고, 그
     들쭉날쭉함이 레짐과 상관돼 IC 를 왜곡한다.
@@ -99,8 +114,9 @@ def forward_returns(prices: pd.DataFrame, *, horizon: int = HORIZON_DAYS) -> pd.
     frame = prices.loc[:, ["entity_id", "session", "close"]].dropna(subset=["close"])
     frame = frame.sort_values(["entity_id", "session"])
     grouped = frame.groupby("entity_id")["close"]
-    frame["forward_close"] = grouped.shift(-horizon)
-    frame["forward_return"] = frame["forward_close"] / frame["close"] - 1.0
+    frame["entry_close"] = grouped.shift(-entry_lag)
+    frame["forward_close"] = grouped.shift(-(entry_lag + horizon))
+    frame["forward_return"] = frame["forward_close"] / frame["entry_close"] - 1.0
     return frame.dropna(subset=["forward_return"])
 
 
