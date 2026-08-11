@@ -21,8 +21,11 @@
 from __future__ import annotations
 
 import os
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
+from functools import partial
 from typing import Any, Protocol, runtime_checkable
 
 from lattice.collectors.errors import CollectorError
@@ -84,6 +87,10 @@ class KrxSource:
     """
 
     name: str = SOURCE
+    #: 일시적 오류 재시도 횟수. KRX 는 종종 HTML 오류 페이지를 돌려준다.
+    retries: int = 3
+    retry_pause_sec: float = 1.5
+    sleep: Callable[[float], None] = time.sleep
     _api: Any = field(default=None, repr=False)
     _names: Any = field(default=None, repr=False)
 
@@ -107,6 +114,27 @@ class KrxSource:
             self._names = krx
         return self._names
 
+    def _call(self, label: str, action: Callable[[], Any]) -> Any:
+        """소스 호출 하나. **여기가 외부 세계와의 경계다.**
+
+        pykrx 는 KRX 가 HTML 오류 페이지를 돌려주면 ``JSONDecodeError`` 를,
+        응답 모양이 다르면 ``KeyError`` 를 그대로 던진다. 그게 엔진까지 올라가면
+        1,223 세션짜리 무인 실행이 800번째에서 통째로 죽는다.
+
+        경계에서 ``KRXUnavailable`` 로 바꾼다. 소스 문제는 재시도할 일이고,
+        우리 코드의 버그는 그대로 올라가야 하므로 **이 경계 밖에서는 넓게 잡지
+        않는다.** 재시도는 잠깐 쉬고 몇 번만 — KRX 를 두들기면 더 막힌다.
+        """
+        last: Exception | None = None
+        for attempt in range(self.retries):
+            try:
+                return action()
+            except Exception as error:  # 소스가 던지는 모든 것 — 경계이므로 넓게 잡는다
+                last = error
+                if attempt + 1 < self.retries:
+                    self.sleep(self.retry_pause_sec * (attempt + 1))
+        raise KRXUnavailable(f"KRX {label} 실패 ({type(last).__name__}: {last})") from last
+
     def _require_credentials(self) -> None:
         if not credentials_present():
             raise KRXUnavailable(
@@ -118,7 +146,9 @@ class KrxSource:
         """그날 상장돼 있던 전종목. 지금은 상장폐지된 종목도 포함된다."""
         self._require_credentials()
         stamp = day.strftime("%Y%m%d")
-        series = self._krx().get_market_ticker_and_name(stamp, "ALL")
+        series = self._call(
+            f"명단 {stamp}", lambda: self._krx().get_market_ticker_and_name(stamp, "ALL")
+        )
         if series is None or series.empty:
             raise KRXUnavailable(f"KRX {stamp} 종목 명단이 비었다")
         return sorted(
@@ -130,7 +160,9 @@ class KrxSource:
         """그날 전종목 일봉. 원주가 — 수정주가는 미래를 포함한다."""
         self._require_credentials()
         stamp = day.strftime("%Y%m%d")
-        frame = self._stock().get_market_ohlcv_by_ticker(stamp, market="ALL")
+        frame = self._call(
+            f"일봉 {stamp}", lambda: self._stock().get_market_ohlcv_by_ticker(stamp, market="ALL")
+        )
         if frame is None or frame.empty:
             raise KRXUnavailable(f"KRX {stamp} 일봉이 비었다")
         return normalize_krx_frame(frame)
@@ -151,8 +183,12 @@ class KrxSource:
         api = self._stock()
         rows: list[dict[str, Any]] = []
         for investor in INVESTORS:
-            frame = api.get_market_net_purchases_of_equities_by_ticker(
-                stamp, stamp, "ALL", investor
+            frame = self._call(
+                f"수급 {stamp} {investor}",
+                partial(
+                    api.get_market_net_purchases_of_equities_by_ticker,
+                    stamp, stamp, "ALL", investor,
+                ),
             )
             if frame is None or frame.empty:
                 continue
@@ -176,7 +212,10 @@ class KrxSource:
         api = self._stock()
         rows: list[dict[str, Any]] = []
         for board in SHORTING_BOARDS:
-            frame = api.get_shorting_volume_by_ticker(stamp, board)
+            frame = self._call(
+                f"공매도 {stamp} {board}",
+                partial(api.get_shorting_volume_by_ticker, stamp, board),
+            )
             if frame is None or frame.empty:
                 continue
             for code, record in frame.to_dict(orient="index").items():
@@ -198,11 +237,16 @@ class KrxSource:
         self._require_credentials()
         stamp = day.strftime("%Y%m%d")
         api = self._stock()
-        valuation = api.get_market_fundamental_by_ticker(stamp, market="ALL")
+        valuation = self._call(
+            f"펀더멘털 {stamp}",
+            lambda: api.get_market_fundamental_by_ticker(stamp, market="ALL"),
+        )
         if valuation is None or valuation.empty:
             raise KRXUnavailable(f"KRX {stamp} 펀더멘털이 비었다")
 
-        caps = api.get_market_cap_by_ticker(stamp, market="ALL")
+        caps = self._call(
+            f"시총 {stamp}", lambda: api.get_market_cap_by_ticker(stamp, market="ALL")
+        )
         cap_by_code = (
             {str(code): record for code, record in caps.to_dict(orient="index").items()}
             if caps is not None and not caps.empty
@@ -229,7 +273,10 @@ class KrxSource:
         api = self._stock()
         rows: list[dict[str, Any]] = []
         for board in SHORTING_BOARDS:
-            frame = api.get_index_ohlcv_by_ticker(stamp, board)
+            frame = self._call(
+                f"지수 {stamp} {board}",
+                partial(api.get_index_ohlcv_by_ticker, stamp, board),
+            )
             if frame is None or frame.empty:
                 continue
             for code, record in frame.to_dict(orient="index").items():

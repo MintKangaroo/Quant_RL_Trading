@@ -126,6 +126,10 @@ class Store:
         existing = _config.current_values(self.get(_config.CONFIG_TABLE, as_of=probe))
 
         if existing and effective_at is None:
+            # **바뀐 값**만 발효 시점을 요구한다. 새로 생긴 키는 아니다 —
+            # 새 키에는 덮어쓸 과거가 없으므로 소급 변경 위험이 없고,
+            # 여기서 함께 막으면 설정을 추가할 때마다 기존 창고가 그 키를
+            # 영영 모르는 채로 남는다.
             changed = _config.changed_names(source_file, existing)
             if changed:
                 raise SchemaViolation(
@@ -133,7 +137,6 @@ class Store:
                     "effective_at 을 줘야 한다 — 발효 시점 없이 덮으면 과거 "
                     "as_of 조회까지 소급해 바뀐다"
                 )
-            return 0
 
         rows = _config.defaults_rows(
             source_file, current=existing, effective_at=effective_at

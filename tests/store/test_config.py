@@ -33,6 +33,25 @@ def test_reseeding_identical_defaults_writes_nothing(seeded) -> None:  # type: i
     assert seeded.seed_config_defaults() == 0
 
 
+def test_new_keys_land_without_an_effective_at(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    """설정을 **추가**하는 것은 발효 시점을 요구하지 않는다.
+
+    새 키에는 덮어쓸 과거가 없으므로 소급 변경 위험이 없다. 여기서 함께
+    막으면 설정을 추가할 때마다 기존 창고가 그 키를 영영 모르는 채로 남고,
+    그 사실은 몇 주 뒤 ConfigNotFound 로 백필이 죽을 때에야 드러난다.
+    """
+    from lattice.store import DEFAULT_CONFIG_FILE
+
+    text = DEFAULT_CONFIG_FILE.read_text(encoding="utf-8")
+    extended = tmp_path / "with-new-key.toml"
+    extended.write_text(text + "\n[m2]\nbrand_new_knob = 7\n", encoding="utf-8")
+
+    assert seeded.seed_config_defaults(extended) == 1
+    assert seeded.config("m2.brand_new_knob", as_of=ts(2026, 1, 1)) == 7
+    # 새 키는 epoch 로 들어간다 — 아무리 과거로 조회해도 보인다.
+    assert seeded.config("m2.brand_new_knob", as_of=ts(2001, 1, 1)) == 7
+
+
 def test_changing_a_default_without_effective_at_is_refused(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
     """발효 시점 없이 덮으면 과거 as_of 조회까지 소급해 바뀐다.
 
