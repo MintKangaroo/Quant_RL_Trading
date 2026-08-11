@@ -35,6 +35,10 @@ from lattice.replay.clock import Clock, LiveClock
 
 PATH_OAUTH = "/oauth2/token"
 PATH_MARKET = "/stock/market-data"
+#: 외인/기관 수급. **market-data 가 아니다** — 경로를 틀리면 TR 이 없다고 나오고
+#: (IGW00215), 그러면 "LS 에는 수급이 없다" 는 잘못된 결론에 도달한다.
+PATH_FLOW = "/stock/frgr-itt"
+PATH_INVESTOR = "/stock/investor"
 PATH_ACCNO = "/stock/accno"
 PATH_ORDER = "/stock/order"
 
@@ -72,6 +76,7 @@ PAPER_ALLOWED_TR = frozenset(
         "t8407",  # 복수종목 현재가
         "t8410",  # 일봉
         "t1511",  # 업종 지수
+        "t1717",  # 외인기관종목별동향 — 읽기 전용 시세 정보다
     }
 )
 
