@@ -1,1 +1,274 @@
-# Quant_RL_Trading
+# Lattice
+
+**멀티에이전트 AI 사모펀드.** 목표는 시장보다 덜 잃고 시장보다 더 버는 것 — 한 숫자로 말하면 **정보비율(IR)** 이다.
+
+[![tests](https://img.shields.io/badge/tests-218%20passed-2ea44f)](#검증)
+[![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
+[![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
+
+---
+
+## 왜 처음부터 다시 만드는가
+
+이 프로젝트에는 선행 프로젝트가 둘 있다. `LS_KR`(국장)과 `LS_USA`(미장)다. 강화학습 기반으로 만들었지만 **학습이 되지 않아 사실상 룰 기반으로 동작한 실패 사례**다.
+
+부검해서 원인을 먼저 찾았다 ([`docs/postmortem-ls.md`](docs/postmortem-ls.md)):
+
+| 무엇이 잘못됐나 | 결과 |
+|---|---|
+| 안전장치가 RL 출력을 덮어씀 | **액션 반영률 0%** — RL이 낸 결정이 하나도 집행되지 않았다 |
+| 상태값에 목표 비중만 들어감 | RL이 자기가 하지 않은 행동으로 보상받았다 |
+| 미장은 obs 42 vs 모델 128 차원 불일치 | 매 리밸런싱이 실패하면서도 계속 운영됐다 |
+| **중단 기준이 없었음** | 9차 재정식화까지 끌고 가다 폐기 |
+
+그래서 Lattice의 규칙은 하나다 — **배관은 재사용, 두뇌는 새로.** LS API 인증·주문 전송·휴장일 처리처럼 실거래로 검증된 I/O는 이식하고, 학습 루프·상태값 설계·보상 함수는 가져오지 않는다.
+
+그리고 **재발 방지 지표**를 상시 감시한다.
+
+> **액션 반영률** = RL이 낸 결정 중 실제로 집행된 비율. **30% 미만이면 경고.** 그건 RL이 아니라 룰 시스템이다.
+
+---
+
+## 불변식 — 이 프로젝트의 헌법
+
+위반하면 프로젝트 전체가 거짓이 된다. 문서의 지시는 권고지만, 이것들은 **테스트와 정적 가드로 강제**된다.
+
+1. 모든 데이터 접근은 `store.get(table, as_of=...)` 를 경유한다
+2. `datetime.now()` 직접 호출 금지 — 시간은 `Clock` 주입으로만
+3. 모든 저장 레코드는 `observed_at` 을 갖는다 (없으면 저장 거부)
+4. 데이터는 append-only. 정정은 `revision` 을 올린 새 행으로
+5. 백테스트와 라이브는 같은 코드를 쓴다. `Clock`만 바꿔 낀다
+6. Executor 안에는 AI가 없다. 순수 코드만
+7. **실현 비중**을 Allocator에 되먹인다 (목표 비중이 아니라)
+8. LLM 출력은 보상 함수에 들어가지 않는다 — Claude는 심판이 아니라 해설자다
+9. 모든 대시보드 API는 `as_of` 파라미터를 받는다
+10. 임계치는 `store.config` 에서 읽는다. 하드코딩 금지
+
+가장 중요한 구분은 **이중시간**이다.
+
+```
+valid_from    그 사실이 실제로 유효해진 시점
+observed_at   내가 그것을 알 수 있었던 시점
+```
+
+둘을 헷갈리면 백테스트가 조용히 미래를 본다. 그리고 그 사실은 화면 어디에도 드러나지 않는다.
+
+---
+
+## 지금까지 확인된 것
+
+### M1 — 데이터 창고 + 리플레이 엔진 ✅
+
+```
+$ uv run python tools/verify_m1.py
+
+[PASS] 과거 5년치 전종목 curated 백필 (상장폐지 종목 포함)
+       구간 2021-08-11 ~ 2026-08-10 (5.0년)
+       거래일 1223 / 기대 1223 = 100.0%
+       prices 3,383,617행, 종목(누적) 3,219개
+       현재 상장 2,871 / 상장폐지 감지 348
+
+[PASS] 임의 과거 날짜 100개 리플레이 → 전부 결정론적
+       표본 100개 (시드 20260811), 각 날짜를 두 번 실행해 바이트 비교
+       불일치 0건 / 빈 주문 0건 / 서로 다른 결과 100종 100일
+
+[PASS] 결정론 / 미래 훔쳐보기 / 생존편향 / 정정공시 테스트 통과
+[PASS] datetime.now() 직접 호출 0건, 데이터 직접 조회 0건 (CI 검사)
+
+[PASS] 지연 실측 수집 시작 (p50/p90 대시보드 표시)
+       표본 4,892건, 전체 p50 84.3ms / p90 1069.2ms
+         fetch      p50 1043.2ms  p90 1227.2ms
+         append     p50  101.4ms  p90  120.9ms
+         archive    p50   36.6ms  p90   45.8ms
+         normalize  p50   14.9ms  p90   19.2ms
+
+M1 완료 기준 5개 전부 통과.
+```
+
+`서로 다른 결과 100종 / 100일` 이 중요하다. **아무것도 하지 않는 구현도 "두 번 실행해서 같다"는 통과한다.** 그래서 빈 주문 건수와 결과의 가짓수를 함께 센다.
+
+### 타임머신이 실제로 동작한다
+
+같은 API를 `as_of`만 바꿔 호출한 결과다.
+
+| 요청 | 마지막 세션 |
+|---|---|
+| `as_of=2023-06-15T15:29:00+09:00` (장 마감 전) | 2023-06-14 |
+| `as_of=2023-06-15T16:01:00+09:00` (공표 후) | **2023-06-15** |
+
+백필된 데이터의 `observed_at` 은 **원 공표 시각**(세션 종료 + 공표 지연)이다. 백필을 돌린 시각이 아니다. 이걸 틀리면 5년치가 통째로 거짓이 된다.
+
+### 생존편향이 데이터에서 제거됐다
+
+```
+상폐 종목 표본: KR:012510 더존비즈온, delisted_on=2026-07-15
+  상폐 30일 전 유니버스 조회 → is_listed=True
+  상폐 30일 전 시세 조회    → 6행, 마지막 종가 120,000
+  상폐 이후 조회            → is_listed=False
+```
+
+오늘 명단으로 과거를 그렸다면 이 회사는 처음부터 없던 것이 되고, 그 종목에서 난 손실은 백테스트에서 영원히 사라진다.
+
+### M2 — Analyst 투입 + IC 검증 (진행 중)
+
+IC 측정 파이프라인이 **실제로 누수를 잡는지** 먼저 증명했다. 검증기를 만들어 놓고 "잘 도네" 하고 넘어가면 아무것도 검증하지 않는 채로 통과 도장만 찍는다.
+
+실제 창고(338만 행, 타깃 751,394행 / 261일) 대조군:
+
+| 대조군 | IC | 통과 | 가중치 |
+|---|---|---|---|
+| 타깃을 그대로 점수로 (누수) | **1.0000** | ✅ | 1.0 |
+| 무작위 점수 | **0.0006** | ❌ | **0.0** |
+
+일별 횡단면 타깃 평균 `1.1e-16` — 시장 전체 수익이 제대로 빠졌다는 뜻이다. 이걸 안 빼면 모든 Analyst가 그냥 베타를 학습하고 IC가 좋아 보인다.
+
+> **백테스트 IC가 0.15처럼 나오면 재능이 아니라 버그다.** 먼저 누수를 의심할 것.
+
+---
+
+## 구조
+
+```
+lattice/
+  store/        데이터 게이트 — Parquet/DuckDB를 만질 수 있는 유일한 패키지
+  replay/       Clock, 이벤트 로그, 에이전트 캐시, 체결 시뮬레이터
+  collectors/   수집 전담. 점수를 내지 않는다
+  analysts/     점수·판정을 낸다. 수집하지 않는다
+  selector/     후보 선정, Analyst 가중치 진화        (M3)
+  allocator/    RL 제어기 — 목표 비중                  (M4)
+  executor/     주문 변환, 리스크 가드, 킬스위치        (M3)
+  auditor/      귀속 분석                              (M5)
+  modelops/     재학습 판정, 드리프트 감지              (M5)
+  dashboard/    Flask + ECharts. 모든 API가 as_of를 받는다
+  schemas/      Order, Signal, Verdict
+tools/
+  backfill.py     백필 실행기 + 검증 리포트
+  measure_ic.py   Analyst IC 측정
+  verify_m1.py    마일스톤 완료 기준 검증
+  invariant_guard.py  불변식 정적 가드 (AST 기반)
+```
+
+### 데이터 흐름
+
+```
+Collector → data/raw/ (원본 보존, 삭제 금지)
+             ↓ 정규화
+          store.append()  ← observed_at 없으면 거부
+             ↓
+      data/curated/{table}/observed_date=YYYY-MM-DD/
+             ↓
+          store.get(as_of=...)  ← observed_at <= as_of 강제
+             ↓
+     Analyst → Selector → Allocator → Executor
+```
+
+---
+
+## 데이터 소스 — 결정 기록
+
+이 부분은 시행착오가 많았고, 기록해 둘 가치가 있다.
+
+| 소스 | 결과 |
+|---|---|
+| 네이버 계열 무료 시세 | ❌ **수정주가만 준다.** 2021-04-08 카카오 종가를 109,992로 돌려준다 (실제 548,000). 일주일 뒤 액면분할이 소급 반영된 값이라 전 구간이 미래를 본다 |
+| pykrx (data.krx.co.kr) | ⚠️ 원주가·상폐종목 모두 제공하지만 **약관상 자동화 수집 금지.** 대량 조회로 IP 차단됨 |
+| KRX Open API | ✅ 정식 경로. 다만 **수급·공매도·PER/PBR이 없다** (엔드포인트 탐색으로 확인) |
+| LS `/stock/frgr-itt` (t1717) | ✅ **투자자별 수급.** 경로를 `/stock/market-data`로 착각해 한 번 "없다"고 잘못 결론냈다 |
+| OpenDART | ✅ 재무제표 + **접수일(`rcept_dt`)** — `observed_at` 을 정확히 찍을 수 있다 |
+
+**약관을 지킨다.** 차단당한 뒤 요청 간격을 늘려 탐지를 피하거나 IP를 바꾸는 방법은 쓰지 않았다. 명시적으로 적용된 접근 제한을 뚫는 것이고, 약관 위반을 알고도 계속하는 것이 되기 때문이다.
+
+PER/PBR은 DART 재무 + 주가로 직접 계산한다. 남이 계산해 준 값보다 **시점 정합성이 정확하다.**
+
+---
+
+## 실행
+
+### 요구사항
+
+Python 3.12, [uv](https://docs.astral.sh/uv/). 데이터 소스 키는 `.env.example` 참고.
+
+```bash
+git clone https://github.com/MintKangaroo/Quant_RL_Trading.git
+cd Quant_RL_Trading
+uv sync
+cp .env.example .env   # 키를 채운다
+```
+
+### 백필
+
+```bash
+uv run python tools/backfill.py --years 5 --symbols 10   # 시험 실행 (10종목)
+uv run python tools/backfill.py --years 5                # 전체
+uv run python tools/backfill.py --table flows-ls         # 투자자별 수급
+uv run python tools/backfill.py --report                 # 검증 리포트
+```
+
+중단해도 된다. 다시 같은 명령을 치면 이미 들어간 세션은 건너뛰고 이어받는다. 재개의 기준은 체크포인트 파일이 아니라 **창고의 매니페스트**라, 체크포인트가 유실돼도 정확하다.
+
+### 대시보드
+
+```bash
+uv run python tools/dashboard.py        # 기본 6060 포트
+```
+
+```bash
+# 모든 엔드포인트가 as_of 를 받는다
+curl 'localhost:6060/api/data-quality/summary'
+curl --get --data-urlencode 'as_of=2023-06-15T16:01:00+09:00' \
+     localhost:6060/api/data-quality/coverage
+```
+
+### 검증
+
+```bash
+uv run pytest tests/                      # 218 passed
+uv run python tools/invariant_guard.py    # 불변식 위반 0건
+uv run python tools/verify_m1.py          # M1 완료 기준
+uv run ruff check . && uv run mypy
+```
+
+`tests/invariants/` 는 커밋 전 필수 통과다. 여기에는 결정론·미래 훔쳐보기·생존편향·정정공시·늦게 도착한 정정본·브라우저 저장소 금지 검사가 들어 있다.
+
+---
+
+## 마일스톤
+
+원칙: **M3까지는 RL 없이 돌아가야 한다.** RL이 없으면 아무것도 안 되는 구조로 만들지 않는다.
+
+| | 내용 | 상태 |
+|---|---|---|
+| **M1** | 데이터 창고 + 리플레이 엔진 | ✅ 완료 |
+| **M2** | Analyst 9종 + IC 검증 (purged K-fold + embargo) | 🔄 진행 중 |
+| **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | |
+| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | |
+| **M5** | Auditor + ModelOps + Claude 리뷰 | |
+
+### 중단 기준
+
+선행 프로젝트가 실패한 결정적 이유 중 하나는 **중단 기준이 없었다는 것**이다.
+
+- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리
+- Analyst가 6개월간 하나도 IC 0.03을 못 넘김 → 피처·타깃 설계 원점 재검토
+- 실전 12개월간 shadow IR이 지속적으로 음수 → 프로젝트 종료 검토
+
+---
+
+## 문서
+
+| 문서 | 내용 |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | 불변식, 참고 규칙, 금지 사항 |
+| [`docs/glossary.md`](docs/glossary.md) | 에이전트 용어, 패키지 구조 |
+| [`docs/design/data-contract.md`](docs/design/data-contract.md) | 이중시간 저장, 데이터 게이트, 백필 관측시각 |
+| [`docs/design/agents.md`](docs/design/agents.md) | 에이전트 명세, Signal/Verdict 스키마 |
+| [`docs/design/reward-and-risk.md`](docs/design/reward-and-risk.md) | 보상 함수, MDD 밴드, 자본 단계 |
+| [`docs/design/dashboard.md`](docs/design/dashboard.md) | 화면 명세, 색·타이포, API 규약 |
+| [`docs/milestones.md`](docs/milestones.md) | M1~M5, 완료 기준, 중단 기준 |
+| [`docs/postmortem-ls.md`](docs/postmortem-ls.md) | 선행 프로젝트 부검 |
+
+---
+
+## 라이선스
+
+미정. 개인 연구 프로젝트다.
