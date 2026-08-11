@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Agent Health · Lattice{% endblock %}
+
+{% block body %}
+{% with active = 'agent-health' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <h2>Analyst 명단 — IC · 통과 여부 · 가중치</h2>
+    <div id="roster"></div>
+    <p class="note">
+      가중치는 코드가 아니라 <strong>측정 결과</strong>에서만 나온다.
+      IC 합격선을 넘지 못한 Analyst 는 가중치 0(관찰 모드)으로 동작하며,
+      점수는 계속 기록하되 매매에는 쓰지 않는다.
+    </p>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>IC 추이 — 알파 감쇠 감시</h2>
+      <div class="chart" id="chart-ic"></div>
+      <p class="note">
+        재측정이 쌓이면 IC 가 내려가는 것이 여기서 먼저 보인다.
+        점이 하나뿐이면 아직 추이가 아니다.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>Signal 기록 현황</h2>
+      <div id="signals"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>News · SNS 거부 성적표</h2>
+    <div id="verdicts"></div>
+    <p class="note">
+      거부는 점수가 아니라 판정이라 IC 로 검증할 수 없다.
+      차단한 종목의 <strong>이후 수익률</strong>을 추적하는 것이 유일한 검증 수단이다.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='agent_health.js') }}"></script>
+{% endblock %}

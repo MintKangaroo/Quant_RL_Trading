@@ -1,0 +1,19 @@
+{# 화면 공통 헤더. 타임머신 컨트롤은 한 곳에만 둔다 —
+   화면마다 따로 만들면 as_of 를 넘기는 방식이 갈라진다. #}
+<header>
+  <h1>Lattice</h1>
+  <nav class="tabs">
+    <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">Data Quality</a>
+    <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">Agent Health</a>
+  </nav>
+  <span class="sub num" id="as-of-label">—</span>
+
+  <form class="controls" id="scope-form">
+    <label for="as-of">as_of</label>
+    <input type="datetime-local" id="as-of" name="as_of" step="60">
+    <label for="lookback">창(일)</label>
+    <input type="number" id="lookback" name="lookback" min="1" style="width: 76px">
+    <button type="submit">조회</button>
+    <button type="button" id="live">지금</button>
+  </form>
+</header>

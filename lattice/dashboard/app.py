@@ -11,7 +11,7 @@ from typing import Any
 from flask import Flask, render_template
 from werkzeug.exceptions import HTTPException
 
-from lattice.dashboard.api import data_quality
+from lattice.dashboard.api import agent_health, data_quality
 from lattice.replay.clock import Clock, LiveClock
 from lattice.store import ConfigNotFound, Store, StoreError
 
@@ -24,11 +24,16 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.json.ensure_ascii = False  # type: ignore[attr-defined]
 
     app.register_blueprint(data_quality.bp)
+    app.register_blueprint(agent_health.bp)
 
     @app.get("/")
     @app.get("/data-quality")
     def data_quality_page() -> str:
         return render_template("data_quality.html")
+
+    @app.get("/agent-health")
+    def agent_health_page() -> str:
+        return render_template("agent_health.html")
 
     @app.errorhandler(HTTPException)
     def http_error(error: HTTPException) -> Any:

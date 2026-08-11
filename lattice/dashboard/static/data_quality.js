@@ -1,75 +1,15 @@
 /* Data Quality 화면.
  *
- * 상태는 URL 쿼리스트링에만 둔다. 브라우저 저장소는 금지다 (dashboard.md §6)
- * — 브라우저에 숨은 상태가 있으면 같은 링크를 열어도 서로 다른 화면을 보게
- * 되고, "그때 그 화면" 을 재현할 수 없다.
- * (금지어를 여기 적으면 가드가 잡는다: tests/invariants/test_dashboard_bans.py)
+ * 공통 규약(타임머신 컨트롤, as_of 부착, 차트 기본값)은 scope.js 에 있다.
+ * 여기서는 이 화면 고유의 표현만 만든다.
  */
 
-const COLOR = {
-  text: "#e6e9ee", muted: "#8a93a0", dim: "#5a626d", border: "#262c35",
-  panel: "#161a20", warn: "#f5a524", up: "#e5484d", down: "#3e7bfa", bench: "#6b7280",
-};
-
-const AXIS = {
-  axisLine: { lineStyle: { color: COLOR.border } },
-  axisLabel: { color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10 },
-  splitLine: { lineStyle: { color: COLOR.border, opacity: 0.4 } },
-};
-
-const BASE = {
-  backgroundColor: "transparent",
-  animation: false, // 움직이는 대시보드는 아마추어처럼 보인다
-  grid: { left: 52, right: 52, top: 18, bottom: 28 },
-  tooltip: { trigger: "axis", backgroundColor: COLOR.panel, borderColor: COLOR.border,
-             textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 } },
-  legend: { textStyle: { color: COLOR.muted, fontSize: 11 }, top: 0, right: 0 },
-};
-
-const charts = {};
-
-function chart(id) {
-  if (!charts[id]) charts[id] = echarts.init(document.getElementById(id), null, { renderer: "canvas" });
-  return charts[id];
-}
-
-function params() {
-  const search = new URLSearchParams(window.location.search);
-  const out = new URLSearchParams();
-  for (const key of ["as_of", "lookback"]) {
-    const value = search.get(key);
-    if (value) out.set(key, value);
-  }
-  return out;
-}
-
-async function fetchJson(path) {
-  const query = params().toString();
-  const response = await fetch(`/api/data-quality/${path}${query ? "?" + query : ""}`);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-  return body;
-}
-
-const pct = (v, digits = 2) => (v === null || v === undefined ? "—" : (v * 100).toFixed(digits) + "%");
-const num = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleString("ko-KR"));
-const ms = (v) => (v === null || v === undefined ? "—" : Number(v).toFixed(0) + " ms");
-
-function kpi(label, value, note, warn) {
-  return `<div class="kpi${warn ? " warn" : ""}">
-    <div class="kpi-label">${label}</div>
-    <div class="kpi-value">${value}</div>
-    <div class="kpi-note">${note || ""}</div>
-  </div>`;
-}
-
 async function renderSummary() {
-  const body = await fetchJson("summary");
+  const body = await fetchJson("data-quality/summary");
   const d = body.data;
   const t = body.thresholds;
 
-  document.getElementById("as-of-label").textContent =
-    `as_of ${body.as_of}${body.live ? " (live)" : ""} · 창 ${body.lookback_days}일`;
+  showScope(body);
 
   document.getElementById("kpis").innerHTML = [
     kpi("커버리지", pct(d.coverage_ratio, 1),
@@ -85,14 +25,11 @@ async function renderSummary() {
     kpi("prices 행수", num(d.rows_total), ""),
   ].join("");
 
-  const alerts = document.getElementById("alerts");
-  alerts.innerHTML = d.warnings.length
-    ? d.warnings.map((text) => `<div class="alert">${text}</div>`).join("")
-    : `<div class="alert ok">경고 없음 — 임계치는 store.config 기준</div>`;
+  showAlerts(d.warnings);
 }
 
 async function renderCoverage() {
-  const { data } = await fetchJson("coverage");
+  const { data } = await fetchJson("data-quality/coverage");
   chart("chart-coverage").setOption({
     ...BASE,
     xAxis: { type: "category", data: data.points.map((p) => p.session), ...AXIS },
@@ -107,7 +44,7 @@ async function renderCoverage() {
 }
 
 async function renderMissing() {
-  const { data } = await fetchJson("missing");
+  const { data } = await fetchJson("data-quality/missing");
   chart("chart-missing").setOption({
     ...BASE,
     legend: { ...BASE.legend, data: ["close", "volume"] },
@@ -126,7 +63,7 @@ async function renderMissing() {
 }
 
 async function renderUniverse() {
-  const { data } = await fetchJson("universe");
+  const { data } = await fetchJson("data-quality/universe");
   chart("chart-universe").setOption({
     ...BASE,
     legend: { ...BASE.legend, data: ["상장", "상폐 누적"] },
@@ -146,7 +83,7 @@ async function renderUniverse() {
 }
 
 async function renderLatency() {
-  const { data } = await fetchJson("latency");
+  const { data } = await fetchJson("data-quality/latency");
   const stages = data.stages.map((s) => s.stage);
   chart("chart-latency").setOption({
     ...BASE,
@@ -164,7 +101,7 @@ async function renderLatency() {
 }
 
 async function renderFailures() {
-  const { data } = await fetchJson("failures");
+  const { data } = await fetchJson("data-quality/failures");
   const target = document.getElementById("failures");
   if (!data.length) {
     target.innerHTML = `<div class="empty">최근 창에 수집 실패 없음.</div>`;
@@ -179,51 +116,5 @@ async function renderFailures() {
     </tr>`).join("")}</tbody></table>`;
 }
 
-async function refresh() {
-  const jobs = [renderSummary, renderCoverage, renderMissing, renderUniverse,
-                renderLatency, renderFailures];
-  for (const job of jobs) {
-    try {
-      await job();
-    } catch (error) {
-      document.getElementById("alerts").innerHTML +=
-        `<div class="alert">${job.name}: ${error.message}</div>`;
-    }
-  }
-}
-
-document.getElementById("scope-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const query = new URLSearchParams();
-  const asOf = document.getElementById("as-of").value;
-  const lookback = document.getElementById("lookback").value;
-  // datetime-local 은 타임존이 없다. 브라우저의 오프셋을 붙여서 보낸다 —
-  // 타임존 없는 as_of 는 API 가 거부한다.
-  if (asOf) query.set("as_of", new Date(asOf).toISOString());
-  if (lookback) query.set("lookback", lookback);
-  window.location.search = query.toString();
-});
-
-document.getElementById("live").addEventListener("click", () => {
-  window.location.search = "";
-});
-
-window.addEventListener("resize", () => {
-  Object.values(charts).forEach((instance) => instance.resize());
-});
-
-(function init() {
-  const search = new URLSearchParams(window.location.search);
-  const asOf = search.get("as_of");
-  if (asOf) {
-    const local = new Date(asOf);
-    if (!Number.isNaN(local.valueOf())) {
-      const offset = local.getTimezoneOffset() * 60000;
-      document.getElementById("as-of").value =
-        new Date(local.valueOf() - offset).toISOString().slice(0, 16);
-    }
-  }
-  const lookback = search.get("lookback");
-  if (lookback) document.getElementById("lookback").value = lookback;
-  refresh();
-})();
+runAll([renderSummary, renderCoverage, renderMissing, renderUniverse,
+        renderLatency, renderFailures]);

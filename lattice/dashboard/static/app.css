@@ -49,6 +49,41 @@ header .sub { color: var(--muted); font-size: 12px; }
 
 .controls { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
+.tabs { display: flex; gap: 2px; }
+.tabs a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+.tabs a:hover { color: var(--text); background: var(--panel2); }
+.tabs a.on { color: var(--text); background: var(--panel2); border-color: var(--border); }
+
+/* 상태 배지. 색은 판정에만 쓴다 — 통과/관찰/미측정은 판정이다. */
+.tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 2px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+}
+.tag.pass { color: var(--up); border-color: var(--up); }
+.tag.observe { color: var(--warn); border-color: var(--warn); }
+.tag.dim { color: var(--dim); }
+
+.good { color: var(--up); }
+.weak { color: var(--muted); }
+
+.note {
+  color: var(--dim);
+  font-size: 11px;
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+.note strong { color: var(--muted); font-weight: 500; }
+
 label { color: var(--muted); font-size: 12px; }
 
 input, button, select {
