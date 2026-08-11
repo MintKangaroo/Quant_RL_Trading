@@ -18,6 +18,7 @@ from typing import Any
 from lattice.collectors.latency import LatencyRecorder
 from lattice.collectors.ls_client import PATH_MARKET, LSClient
 from lattice.collectors.market_hours import Market
+from lattice.collectors.publication import ObservedAtPolicy, resolve
 from lattice.collectors.raw import RawArchive
 from lattice.replay.clock import Clock
 from lattice.store import Store
@@ -51,7 +52,7 @@ def normalize_ohlcv(
     *,
     entity_id: str,
     market: Market,
-    observed_at: datetime,
+    observed_at: datetime | ObservedAtPolicy,
 ) -> list[dict[str, Any]]:
     """t8410OutBlock1 → prices 행.
 
@@ -60,17 +61,22 @@ def normalize_ohlcv(
 
     ``observed_at`` 은 **수집 시각**이다. 봉의 날짜가 아니다 — 그날의 봉을
     그날 자정에 알 수 있었을 리 없다.
+
+    백필은 여기에 ``PublicationPolicy`` 를 넣어 봉마다 원 공표 시각을 찍는다.
+    라이브는 이미 계산된 수집 시각 하나를 그대로 넘긴다. 코드는 같고 정책만
+    다르다 (불변식 5).
     """
     normalized: list[dict[str, Any]] = []
     for row in rows:
         raw_date = str(row.get("date") or "").strip()
         if len(raw_date) != 8 or not raw_date.isdigit():
             continue
+        bar_ts = _bar_timestamp(raw_date)
         normalized.append(
             {
                 "entity_id": entity_id,
-                "valid_from": _bar_timestamp(raw_date),
-                "observed_at": observed_at,
+                "valid_from": bar_ts,
+                "observed_at": resolve(observed_at, bar_ts.date()),
                 "source": SOURCE,
                 "market": str(market),
                 "open": _to_float(row.get("open")),
@@ -91,6 +97,8 @@ def normalize_master(
     market: Market,
     trading_day: datetime,
     observed_at: datetime,
+    is_listed: bool = True,
+    delisted_on: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """t8436OutBlock → universe 행.
 
@@ -98,7 +106,8 @@ def normalize_master(
     (``shcode``, ``hname``, ``etfgubun``, ``spac_gubun``).
 
     상장폐지 종목을 지우지 않는다. 오늘 명단에 없다고 과거 명단에서 빼면
-    생존편향이 그대로 들어온다.
+    생존편향이 그대로 들어온다. 상폐는 행을 지우는 대신 ``is_listed=False`` 인
+    새 행을 남기는 것으로 표현한다 (append-only, 불변식 4).
     """
     normalized: list[dict[str, Any]] = []
     for row in rows:
@@ -115,11 +124,11 @@ def normalize_master(
                 "source": SOURCE,
                 "market": str(market),
                 "name": str(row.get("hname") or code),
-                "is_listed": True,
+                "is_listed": is_listed,
                 # ETF·스팩은 상장돼 있어도 우리가 살 대상은 아니다.
                 # 데이터 유니버스와 매매 유니버스는 다르다 (data-contract §6).
-                "is_tradable": not (is_etf or is_spac),
-                "delisted_on": None,
+                "is_tradable": is_listed and not (is_etf or is_spac),
+                "delisted_on": delisted_on,
             }
         )
     return normalized

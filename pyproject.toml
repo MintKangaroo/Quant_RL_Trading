@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.9",
     "httpx>=0.27",
     "exchange-calendars>=4.13.2",
+    "pykrx>=1.2.8",
 ]
 
 [dependency-groups]
@@ -65,7 +66,7 @@ strict = false
 # pyarrow 는 py.typed 를 싣지 않고, pandas 스텁은 설치 버전과 어긋난다.
 # 게이트 안쪽에서만 쓰는 라이브러리라 여기서 끊는다.
 [[tool.mypy.overrides]]
-module = ["pyarrow.*", "pandas.*", "exchange_calendars.*"]
+module = ["pyarrow.*", "pandas.*", "exchange_calendars.*", "pykrx.*"]
 ignore_missing_imports = true
 
 # -----------------------------------------------------------------------------

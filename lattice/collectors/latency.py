@@ -63,6 +63,22 @@ class LatencyRecorder:
         if not self._rows:
             return 0
         rows, self._rows = self._rows, []
-        return self.store.append(
-            LATENCY_TABLE, rows, ingest_run_id=f"latency-{self.ingest_run_id}"
-        )
+        return self.store.append(LATENCY_TABLE, rows, ingest_run_id=self._attempt_id())
+
+    def _attempt_id(self) -> str:
+        """시도마다 다른 run id.
+
+        수집이 실패해 재시도하면 같은 ingest_run_id 로 두 번 지연을 적재하게 되고,
+        창고는 중복으로 거절한다. 그런데 **재시도의 지연이야말로 버려선 안 되는
+        표본**이다 — 느려서 실패한 호출을 빼면 p90 이 낙관적으로 왜곡되고,
+        백테스트가 쓰는 지연 가정이 실제보다 짧아진다.
+
+        그래서 실패한 시도를 덮어쓰지 않고 옆에 쌓는다 (불변식 4).
+        """
+        base = f"latency-{self.ingest_run_id}"
+        if not self.store.ingest_run_recorded(LATENCY_TABLE, base):
+            return base
+        attempt = 2
+        while self.store.ingest_run_recorded(LATENCY_TABLE, f"{base}-{attempt}"):
+            attempt += 1
+        return f"{base}-{attempt}"

@@ -7,8 +7,10 @@ LS_KR / LS_USA 에서 이식한 것과 이식하지 않은 것은 각 모듈 doc
 출처와 함께 적었다 (CLAUDE.md 참고 규칙: 배관은 재사용, 두뇌는 새로).
 """
 
+from lattice.collectors.backfill import Backfiller, BackfillReport, ProgressLog
 from lattice.collectors.document_collector import DocumentCollector, normalize_filings
 from lattice.collectors.errors import CollectorError, LSAPIError, MissingCredentials
+from lattice.collectors.krx_source import HistoricalSource, KrxSource, KRXUnavailable
 from lattice.collectors.latency import LatencyRecorder
 from lattice.collectors.ls_client import LSClient, LSCredentials, Token, isu_code
 from lattice.collectors.market_collector import (
@@ -17,11 +19,25 @@ from lattice.collectors.market_collector import (
     normalize_ohlcv,
 )
 from lattice.collectors.market_hours import Market, is_regular_session, is_trading_day
+from lattice.collectors.publication import (
+    FetchTimePolicy,
+    NotATradingDay,
+    NotYetPublished,
+    ObservedAtPolicy,
+    PublicationPolicy,
+    publication_policy,
+)
 from lattice.collectors.raw import RawArchive
 
 __all__ = [
+    "BackfillReport",
+    "Backfiller",
     "CollectorError",
     "DocumentCollector",
+    "FetchTimePolicy",
+    "HistoricalSource",
+    "KRXUnavailable",
+    "KrxSource",
     "LSAPIError",
     "LSClient",
     "LSCredentials",
@@ -29,6 +45,11 @@ __all__ = [
     "Market",
     "MarketCollector",
     "MissingCredentials",
+    "NotATradingDay",
+    "NotYetPublished",
+    "ObservedAtPolicy",
+    "ProgressLog",
+    "PublicationPolicy",
     "RawArchive",
     "Token",
     "is_regular_session",
@@ -37,4 +58,5 @@ __all__ = [
     "normalize_filings",
     "normalize_master",
     "normalize_ohlcv",
+    "publication_policy",
 ]
