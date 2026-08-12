@@ -32,6 +32,7 @@ if str(REPO_ROOT) not in sys.path:
 from lattice.analysts import ic  # noqa: E402
 from lattice.analysts.base import Analyst, to_scores_frame  # noqa: E402
 from lattice.analysts.chart import ChartAnalyst  # noqa: E402
+from lattice.analysts.event import EventAnalyst  # noqa: E402
 from lattice.analysts.risk import RiskAnalyst  # noqa: E402
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
 from lattice.collectors.publication import publication_policy  # noqa: E402
@@ -41,6 +42,7 @@ from tools.backfill import build_store, load_env  # noqa: E402
 
 ANALYSTS: dict[str, type[Analyst]] = {
     "chart": ChartAnalyst,
+    "event": EventAnalyst,
     "risk": RiskAnalyst,
 }
 
