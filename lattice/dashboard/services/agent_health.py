@@ -22,6 +22,7 @@ from typing import Any
 
 import pandas as pd
 
+from lattice.analysts import scorecard
 from lattice.store import Store
 
 WEIGHTS = "analyst_weights"
@@ -172,7 +173,10 @@ def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[s
     """
     frame = store.get(VERDICTS, as_of=as_of, lookback=lookback)
     if frame.empty:
-        return {"blocks": 0, "by_category": [], "by_analyst": [], "active": 0}
+        return {
+            "blocks": 0, "by_category": [], "by_analyst": [], "active": 0,
+            "scorecard": scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback),
+        }
 
     blocked = frame[frame["decision"] == "block"]
     active = blocked[blocked["expires_at"] > as_of]
@@ -180,6 +184,9 @@ def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[s
     return {
         "blocks": len(blocked),
         "active": len(active),
+        # 차단이 실제로 손실을 피하게 해 줬는지. IC 를 못 쓰는 이 둘의
+        # 유일한 검증 수단이다.
+        "scorecard": scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback),
         "by_category": [
             {"category": str(name), "count": int(count)}
             for name, count in blocked["category"].value_counts().items()

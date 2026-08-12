@@ -125,16 +125,22 @@ async function renderSignals() {
 async function renderVerdicts() {
   const { data } = await fetchJson("agent-health/verdicts");
   const target = document.getElementById("verdicts");
+  const card = data.scorecard || {};
   if (!data.blocks) {
     target.innerHTML = `<div class="empty">거부 기록이 없다.
       News · SNS 수집기는 M3 실전 직전에 붙인다 — 과거 데이터를 검증할 수 없어
-      IC 에 물리지 않는다.</div>`;
+      IC 에 물리지 않는다. 판정 규칙·거부 상한·만료·성적표 배관은 완성돼 있다.</div>`;
     return;
   }
   target.innerHTML = `
     <div class="kpis" style="margin-bottom:10px">
       ${kpi("총 거부", num(data.blocks), "")}
       ${kpi("현재 유효", num(data.active), "expires_at 이 지나면 자동 해제")}
+      ${kpi("채점 완료", num(card.settled), `진행 중 ${num(card.pending)}건은 제외`)}
+      ${kpi("적중률", pct(card.hit_rate, 1), "차단 종목이 시장보다 더 빠진 비율",
+            card.hit_rate !== null && card.hit_rate < 0.5)}
+      ${kpi("평균 초과수익", pct(card.mean_excess, 2), "음수면 손실을 피한 것",
+            card.mean_excess !== null && card.mean_excess > 0)}
     </div>
     <table>
       <thead><tr><th>사유</th><th class="num">건수</th></tr></thead>

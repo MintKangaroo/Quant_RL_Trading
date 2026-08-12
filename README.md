@@ -14,7 +14,7 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
-[![tests](https://img.shields.io/badge/tests-231%20passed-2ea44f)](#검증)
+[![tests](https://img.shields.io/badge/tests-274%20passed-2ea44f)](#검증)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
 [![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
 
