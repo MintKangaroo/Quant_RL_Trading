@@ -21,14 +21,26 @@ Q1~Q3 는 3개월 값이고 **사업보고서(Q4)만 연간 누적**이다. 이�
 
 실제 4분기 = 연간 - (Q1+Q2+Q3) 로 복원한다.
 
-## 지금 없는 것: 밸류
+## 밸류 (v0.2)
 
-PER·PBR 은 시가총액이 필요하고, 시가총액은 **상장주식수**가 필요하다. pykrx 는
-약관 문제로 막혔고, DART 주식총수는 분기보고서에서 비어 있으며, KRX Open API 는
-아직 인증이 열리지 않았다. 없는 것을 지어내지 않는다 — 주식수가 들어오면
-``VALUE_FEATURES`` 를 켠다.
+v0.1 은 시가총액이 없어 퀄리티와 성장만 봤다. KRX Open API 가 열리면서
+``market_stats`` 에 상장주식수·시가총액이 들어왔고, 밸류를 켰다.
 
-그래서 v0.1 은 **퀄리티와 성장**만 본다. 둘 다 시가총액이 필요 없다.
+**비율이 아니라 수익률(역수)로 쓴다.** PER 이 아니라 이익수익률
+(net_income / market_cap) 이다. PER 은 이익이 0 에 가까워지면 발산하고 적자
+기업에서는 음수가 되는데, 그 음수는 "아주 싸다"와 부호가 같아 횡단면 정렬이
+뒤집힌다. 역수는 적자가 그냥 음의 수익률이 되어 순서가 유지된다.
+
+## 커버리지가 모자라면 밸류를 **뺀다**
+
+시가총액이 없는 날은 밸류 z 가 전부 NaN 이 되고, ``fillna(0.0)`` 이 그걸
+중앙값 자리로 덮는다. 그러면 밸류 가중치 0.35 가 **아무 정보도 없는 0 에**
+실려서 나머지 피처의 영향력만 희석시킨다. 점수는 멀쩡히 나오므로 아무도
+눈치채지 못한다 — ``LOOKBACK_DAYS`` 주석의 실패와 같은 모양이다.
+
+그래서 횡단면 커버리지가 ``MIN_VALUE_COVERAGE`` 에 못 미치면 밸류 열을 아예
+만들지 않는다. ``combine`` 이 남은 가중치로 정규화하므로 퀄리티·성장만으로
+정직하게 되돌아간다. 조용히 희석되는 것보다 대놓고 빠지는 편이 낫다.
 """
 
 from __future__ import annotations
@@ -62,16 +74,33 @@ STOCK_METRICS = (
 )
 
 WEIGHTS = {
-    "roe": 0.30,             # 자본 대비 이익 — 퀄리티의 대표
-    "operating_margin": 0.20,
-    "low_leverage": 0.15,    # 부채비율의 역 (낮을수록 +)
-    "current_ratio": 0.10,
-    "revenue_growth": 0.15,  # TTM 매출 전년 대비
-    "profit_growth": 0.10,   # TTM 영업이익 전년 대비
+    # 밸류 0.35 — 국내 횡단면에서 가장 오래 살아남은 팩터다.
+    "earnings_yield": 0.15,   # TTM 순이익 / 시가총액 (PER 의 역수)
+    "book_to_market": 0.12,   # 자본 / 시가총액 (PBR 의 역수)
+    "sales_to_price": 0.08,   # TTM 매출 / 시가총액 (PSR 의 역수)
+    # 퀄리티 0.47
+    "roe": 0.20,              # 자본 대비 이익 — 퀄리티의 대표
+    "operating_margin": 0.13,
+    "low_leverage": 0.09,     # 부채비율의 역 (낮을수록 +)
+    "current_ratio": 0.05,
+    # 성장 0.18
+    "revenue_growth": 0.11,   # TTM 매출 전년 대비
+    "profit_growth": 0.07,    # TTM 영업이익 전년 대비
 }
 
-#: 상장주식수가 들어오면 켠다. 지금은 계산할 수 없다.
-VALUE_FEATURES = ("per", "pbr", "psr")
+#: 시가총액이 있어야 계산되는 것들. 커버리지가 모자라면 통째로 빠진다.
+VALUE_FEATURES = ("earnings_yield", "book_to_market", "sales_to_price")
+
+MARKET_STATS = "market_stats"
+
+#: 시가총액을 찾으러 거슬러 올라가는 달력일. 거래일 기준 한 달 남짓이다.
+#: 재무(1150일)만큼 길 필요가 없다 — 시가총액은 매일 관측되므로, 길게 잡으면
+#: 거래정지 종목의 **한참 묵은** 시가총액이 최신인 척 섞여 든다.
+MARKET_CAP_LOOKBACK_DAYS = 45
+
+#: 밸류를 켜기 위해 시가총액이 있어야 하는 종목 비율. 절반을 밑돌면 그날의
+#: 밸류 횡단면은 표본이라 부르기 어렵다.
+MIN_VALUE_COVERAGE = 0.5
 
 
 def _quarter_index(period: str) -> tuple[int, int]:
@@ -144,7 +173,26 @@ def _safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
 
 class FundamentalAnalyst(Analyst):
     name = "fundamental"
-    version = "fundamental-v0.1.0"
+    version = "fundamental-v0.2.0"
+
+    def market_cap(self, as_of: datetime) -> pd.Series:
+        """종목별 최신 시가총액. 없으면 빈 Series.
+
+        게이트가 ``observed_at <= as_of`` 를 막아 주므로, 여기서는 **그 시점까지
+        관측된 것 중 가장 최근 것**을 고르기만 하면 된다.
+        """
+        raw = self.store.get(
+            MARKET_STATS, as_of=as_of, lookback=MARKET_CAP_LOOKBACK_DAYS
+        )
+        if raw.empty:
+            return pd.Series(dtype=float)
+        raw = raw[(raw["market"] == str(self.market)) & (raw["metric"] == "market_cap")]
+        if raw.empty:
+            return pd.Series(dtype=float)
+        latest = raw.sort_values("valid_from").groupby("entity_id").tail(1)
+        caps = latest.set_index("entity_id")["value"].astype(float)
+        # 0 이나 음수 시가총액은 관측 오류다. 나누면 부호가 뒤집힌다.
+        return caps[caps > 0]
 
     def features(self, as_of: datetime) -> pd.DataFrame:
         # 게이트가 공시 전 재무를 걸러 준다. 45~69일 지연은 여기서 자동으로 지켜진다.
@@ -205,6 +253,14 @@ class FundamentalAnalyst(Analyst):
             _safe_ratio(ttm["operating_income"], ttm_prev["operating_income"]) - 1.0
         )
 
+        # 밸류. 시가총액이 충분히 깔린 날만 만든다 — 모자라면 열 자체가 없고,
+        # combine 이 남은 가중치로 정규화한다.
+        caps = self.market_cap(as_of).reindex(ttm.index)
+        if caps.notna().mean() >= MIN_VALUE_COVERAGE:
+            raw_features["earnings_yield"] = ttm["net_income"] / caps
+            raw_features["book_to_market"] = point["total_equity"] / caps
+            raw_features["sales_to_price"] = ttm["revenue"] / caps
+
         raw_features = raw_features.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if raw_features.empty:
             return pd.DataFrame()
@@ -212,4 +268,9 @@ class FundamentalAnalyst(Analyst):
         return raw_features.apply(zscore).fillna(0.0)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
-        return combine(features, WEIGHTS)
+        # 밸류가 빠진 날은 그 가중치를 빼고 정규화한다. 없는 피처를 0 으로
+        # 채워 넣으면 나머지 피처의 영향력만 줄어든다.
+        present = {
+            name: weight for name, weight in WEIGHTS.items() if name in features.columns
+        }
+        return combine(features, present)
