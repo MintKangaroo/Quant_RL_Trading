@@ -2,7 +2,19 @@
 
 **멀티에이전트 AI 사모펀드.** 목표는 시장보다 덜 잃고 시장보다 더 버는 것 — 한 숫자로 말하면 **정보비율(IR)** 이다.
 
-[![tests](https://img.shields.io/badge/tests-218%20passed-2ea44f)](#검증)
+격자(lattice)는 옵션 가격결정의 이항 격자에서 온 말이자, 이 시스템의 다층 에이전트 구조 그 자체다.
+
+```
+Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
+  수집         분석 9      후보 선정     비중·타이밍     주문
+                                          (RL)
+                    Auditor        ModelOps
+                  성과 귀속       모델 감시
+```
+
+> Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
+
+[![tests](https://img.shields.io/badge/tests-227%20passed-2ea44f)](#검증)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
 [![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
 
@@ -291,6 +303,24 @@ uv run ruff check . && uv run mypy
 
 | 문서 | 내용 |
 |---|---|
+| [`CLAUDE.md`](CLAUDE.md) | 불변식 10개. 이 프로젝트의 헌법 |
+| [`START-HERE.md`](START-HERE.md) | 전체 실행 순서, 부트스트랩 프롬프트 |
+| [`docs/glossary.md`](docs/glossary.md) | 에이전트 용어, 패키지 구조 |
+| [`docs/milestones.md`](docs/milestones.md) | M1~M5, 완료 기준, **중단 기준** |
+| [`docs/runbook.md`](docs/runbook.md) | 배포, 장애 등급, 킬스위치, 복구 |
+| [`docs/design/data-contract.md`](docs/design/data-contract.md) | 이중시간 저장, 데이터 게이트, 백필 관측시각 |
+| [`docs/design/accounting.md`](docs/design/accounting.md) | NAV·TWR·배당·세금 — 보상 함수의 `r_port` 정의 |
+| [`docs/design/reward-and-risk.md`](docs/design/reward-and-risk.md) | 보상 함수, MDD 밴드, 자본 단계 |
+| [`docs/design/agents.md`](docs/design/agents.md) | 에이전트 명세, Signal/Verdict 스키마 |
+| [`docs/design/selector.md`](docs/design/selector.md) | Analyst 가중치 진화, 후보 선정 |
+| [`docs/design/rl-training.md`](docs/design/rl-training.md) | RL 학습 절차, 오라클 카나리, 진단 |
+| [`docs/design/dashboard.md`](docs/design/dashboard.md) | 3탭 화면 명세, 밀도 규칙, API 규약 |
+| [`docs/design/reporting.md`](docs/design/reporting.md) | 리포트 3종, 이메일 제약 |
+| [`docs/design/config.md`](docs/design/config.md) | 모든 임계치의 단일 소스 |
+| [`docs/design/ls-api.md`](docs/design/ls-api.md) | LS API 제약 확인 목록 |
+| [`docs/postmortem-ls.md`](docs/postmortem-ls.md) | 선행 프로젝트 부검 |
+
+---|---|
 | [`CLAUDE.md`](CLAUDE.md) | 불변식, 참고 규칙, 금지 사항 |
 | [`docs/glossary.md`](docs/glossary.md) | 에이전트 용어, 패키지 구조 |
 | [`docs/design/data-contract.md`](docs/design/data-contract.md) | 이중시간 저장, 데이터 게이트, 백필 관측시각 |

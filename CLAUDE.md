@@ -70,12 +70,15 @@ Lattice — 멀티에이전트 AI 사모펀드.
 - News·SNS Analyst에 매도 권한 부여 (매수 금지만 가능)
 - 과거 데이터가 없는 신호를 RL 상태값에 넣는 것
 - ECharts 외 차트 라이브러리 추가
+- 시크릿을 코드에 하드코딩하는 것 (`.env` + Secret Manager)
+- 장 중 배포
 
 ---
 
 ## 개발 원칙
 
 - **M3까지는 RL 없이 돌아가야 한다.** RL은 작동하는 시스템 위에 얹는다
+- **NAV 산출은 `lattice/accounting/` 한 곳에서만 한다.** 각 모듈이 따로 계산하면 반드시 어긋난다
 - 새 Analyst는 IC 0.03을 통과해야 가중치를 받는다. 통과 전에는 관찰 모드(가중치 0)
 - 설계를 바꾸면 `docs/design/` 을 먼저 고치고 코드를 고친다
 - 커밋 전 `pytest tests/invariants/` 통과 필수
@@ -90,5 +93,13 @@ Lattice — 멀티에이전트 AI 사모펀드.
 | `docs/design/reward-and-risk.md` | 보상 함수, MDD 밴드, 자본 단계 |
 | `docs/design/data-contract.md` | 이중시간 저장, 데이터 게이트, 검증 테스트 |
 | `docs/design/agents.md` | 에이전트 명세, Signal 스키마 |
-| `docs/design/dashboard.md` | 화면 명세, 색·타이포, API 규약 |
+| `docs/design/accounting.md` | NAV·TWR·배당·세금 — 보상 함수의 r_port 정의 |
+| `docs/design/selector.md` | Analyst 가중치 진화, 후보 선정 |
+| `docs/runbook.md` | 배포, 장애 등급, 킬스위치, 복구 |
+| `docs/design/rl-training.md` | RL 학습 절차, 진단, 하이퍼파라미터 |
+| `docs/design/reporting.md` | 리포트 3종, 이메일 제약 |
+| `docs/design/dashboard.md` | 3탭 화면 명세, 밀도 규칙, API 규약 |
+| `docs/design/config.md` | 모든 임계치의 단일 소스 (config/lattice.yaml) |
+| `docs/design/ls-api.md` | LS API 제약 확인 목록 |
 | `docs/milestones.md` | M1~M5, 완료 기준, 중단 기준 |
+| `START-HERE.md` | 전체 실행 순서, 부트스트랩 프롬프트 |

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lattice · Fund</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+<style>
+:root{
+  --bg:#0E1116; --panel:#161A20; --panel2:#1B2028; --border:#262C35;
+  --text:#E6E9EE; --muted:#8A93A0; --dim:#5A626D;
+  --up:#E5484D; --down:#3E7BFA; --warn:#F5A524; --bench:#6B7280;
+  --band-free:#1F6F4A; --band-mid:#8A6520; --band-hot:#7A2429;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:'IBM Plex Sans KR',system-ui,sans-serif;
+  font-size:13px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+.num{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums; letter-spacing:-0.01em}
+.pos{color:var(--up)} .neg{color:var(--down)} .mut{color:var(--muted)}
+
+/* ---------- topbar ---------- */
+.topbar{
+  display:flex; align-items:center; gap:20px;
+  padding:10px 18px; border-bottom:1px solid var(--border);
+  background:var(--panel); position:sticky; top:0; z-index:20; flex-wrap:wrap;
+}
+.brand{display:flex; align-items:baseline; gap:9px}
+.brand b{font-size:15px; font-weight:600; letter-spacing:0.12em}
+.brand span{font-size:10px; color:var(--dim); letter-spacing:0.18em; text-transform:uppercase}
+.timemachine{display:flex; align-items:center; gap:11px; flex:1; min-width:260px}
+.timemachine label{font-size:10px; color:var(--dim); letter-spacing:0.14em; text-transform:uppercase; white-space:nowrap}
+.timemachine input[type=range]{flex:1; accent-color:var(--warn); height:3px; cursor:pointer; min-width:120px}
+#asof{font-size:12px; color:var(--text); white-space:nowrap}
+.status{display:flex; align-items:center; gap:7px; font-size:11px; color:var(--muted); white-space:nowrap}
+.dot{width:7px; height:7px; border-radius:50%; background:#3FB950; box-shadow:0 0 0 3px rgba(63,185,80,.14)}
+
+/* ---------- kpi strip ---------- */
+.kpis{
+  display:grid; grid-template-columns:repeat(8,minmax(0,1fr));
+  border-bottom:1px solid var(--border); background:var(--panel);
+}
+.kpi{padding:11px 16px; border-right:1px solid var(--border); min-width:0}
+.kpi:last-child{border-right:none}
+.kpi .k{font-size:9.5px; color:var(--dim); letter-spacing:0.13em; text-transform:uppercase; white-space:nowrap}
+.kpi .v{font-size:18px; font-weight:500; margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.kpi .s{font-size:10.5px; color:var(--muted); margin-top:1px}
+
+/* ---------- layout ---------- */
+.wrap{display:grid; grid-template-columns:minmax(0,2.15fr) minmax(280px,1fr); gap:12px; padding:12px}
+.col{display:flex; flex-direction:column; gap:12px; min-width:0}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:3px; min-width:0}
+.card > h3{
+  margin:0; padding:9px 14px; font-size:10px; font-weight:600;
+  letter-spacing:0.15em; text-transform:uppercase; color:var(--dim);
+  border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;
+}
+.card > h3 em{font-style:normal; font-size:10px; color:var(--muted); letter-spacing:0.02em; text-transform:none}
+.chart{width:100%}
+
+/* ---------- mdd gauge ---------- */
+.gauge{display:flex; gap:16px; padding:16px 14px}
+.track{position:relative; width:34px; height:186px; border-radius:2px; overflow:hidden; flex:none;
+  background:linear-gradient(to top,
+    var(--band-free) 0%, var(--band-free) 40%,
+    var(--band-mid) 40%, var(--band-mid) 73.3%,
+    var(--band-hot) 73.3%, var(--band-hot) 100%);
+  opacity:.9}
+.fill{position:absolute; left:0; right:0; bottom:0; background:rgba(230,233,238,.9); transition:height .3s}
+.marks{flex:1; position:relative; height:186px; font-size:10px}
+.mark{position:absolute; left:0; right:0; border-top:1px dashed var(--border); padding-top:2px; color:var(--dim)}
+.mark b{color:var(--muted); font-weight:500}
+.gauge-read{padding:0 14px 14px}
+.gauge-read .big{font-size:26px; font-weight:500}
+.gauge-read .cap{font-size:11px; color:var(--muted); margin-top:2px}
+
+/* ---------- rows ---------- */
+.rows{padding:6px 14px 12px}
+.row{display:flex; justify-content:space-between; align-items:baseline; padding:5px 0; border-bottom:1px solid rgba(38,44,53,.55)}
+.row:last-child{border-bottom:none}
+.row .lbl{color:var(--muted); font-size:12px}
+.row .val{font-size:12.5px}
+
+/* ---------- allocation ---------- */
+.alloc{padding:14px}
+.bar{display:flex; height:26px; border-radius:2px; overflow:hidden; margin-bottom:9px}
+.seg{display:flex; align-items:center; justify-content:center; font-size:10.5px; font-family:'IBM Plex Mono',monospace}
+.legend{display:flex; gap:14px; font-size:11px; color:var(--muted); flex-wrap:wrap}
+.legend i{display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:1px}
+
+/* ---------- agents ---------- */
+.agents{padding:12px 14px}
+.grid15{display:grid; grid-template-columns:repeat(5,1fr); gap:6px}
+.ag{background:var(--panel2); border:1px solid var(--border); border-radius:2px; padding:6px 5px; text-align:center}
+.ag .nm{font-size:9px; color:var(--muted); letter-spacing:.03em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ag .st{width:6px; height:6px; border-radius:50%; margin:4px auto 0}
+.ok{background:#3FB950} .warn{background:var(--warn)} .bad{background:var(--up)}
+
+/* ---------- metrics table ---------- */
+table{width:100%; border-collapse:collapse; font-size:12px}
+th,td{padding:6px 14px; text-align:right; border-bottom:1px solid rgba(38,44,53,.55)}
+th{font-size:9.5px; color:var(--dim); letter-spacing:0.11em; text-transform:uppercase; font-weight:500}
+th:first-child,td:first-child{text-align:left; color:var(--muted)}
+tbody tr:last-child td{border-bottom:none}
+td.bnum{font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums}
+
+.bottom{display:grid; grid-template-columns:minmax(0,2.15fr) minmax(280px,1fr); gap:12px; padding:0 12px 12px}
+.foot{padding:8px 18px 20px; font-size:10.5px; color:var(--dim); display:flex; gap:18px; flex-wrap:wrap}
+
+@media (max-width:1080px){
+  .kpis{grid-template-columns:repeat(4,1fr)}
+  .kpi{border-bottom:1px solid var(--border)}
+  .wrap,.bottom{grid-template-columns:1fr}
+}
+@media (max-width:560px){
+  .kpis{grid-template-columns:repeat(2,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+:focus-visible{outline:2px solid var(--warn); outline-offset:2px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><b>LATTICE</b><span>Fund</span></div>
+  <div class="timemachine">
+    <label for="tm">시점</label>
+    <input id="tm" type="range" min="250" max="1250" value="1250" aria-label="조회 시점">
+    <span id="asof" class="num">—</span>
+  </div>
+  <div class="status"><span class="dot"></span><span id="sysmsg">정상 · Analyst 15/15</span></div>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="wrap">
+  <div class="col">
+    <div class="card">
+      <h3>순자산 vs 혼합 벤치마크 <em id="navcap">원화 기준 · KOSPI 50 / S&amp;P500 50</em></h3>
+      <div id="navChart" class="chart" style="height:288px"></div>
+    </div>
+    <div class="card">
+      <h3>낙폭 · 리스크 예산 <em>자유 12% · 경고 22% · 한계 30%</em></h3>
+      <div id="uwChart" class="chart" style="height:196px"></div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="card">
+      <h3>MDD 예산</h3>
+      <div class="gauge">
+        <div class="track"><div class="fill" id="gfill" style="height:0%"></div></div>
+        <div class="marks">
+          <div class="mark" style="top:0%"><b>30%</b> 한계 — 강제 청산</div>
+          <div class="mark" style="top:26.7%"><b>22%</b> 급증 구간</div>
+          <div class="mark" style="top:60%"><b>12%</b> 자유구간 경계</div>
+          <div class="mark" style="top:100%; border-top:none"><b>0%</b></div>
+        </div>
+      </div>
+      <div class="gauge-read">
+        <div class="big num" id="ddNow">—</div>
+        <div class="cap" id="ddCap">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>자본 배분</h3>
+      <div class="alloc">
+        <div class="bar" id="allocBar"></div>
+        <div class="legend">
+          <span><i style="background:#4C6EF5"></i>국장</span>
+          <span><i style="background:#2AA198"></i>미장</span>
+          <span><i style="background:#3A4149"></i>현금</span>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="row"><span class="lbl">원달러</span><span class="val num" id="fx">—</span></div>
+        <div class="row"><span class="lbl">다음 배분 조정</span><span class="val num">금 15:40</span></div>
+        <div class="row"><span class="lbl">환전 데드밴드</span><span class="val num">4.1%p / 10.0%p</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>오늘의 결정 <em>Session 2026-08-07-KR</em></h3>
+      <div class="rows">
+        <div class="row"><span class="lbl">후보 선정</span><span class="val num">24 종목</span></div>
+        <div class="row"><span class="lbl">신규 매수</span><span class="val num pos">3</span></div>
+        <div class="row"><span class="lbl">청산</span><span class="val num neg">2</span></div>
+        <div class="row"><span class="lbl">필터 거부</span><span class="val num" style="color:var(--warn)">5 <span class="mut">(뉴스 4 · SNS 1)</span></span></div>
+        <div class="row"><span class="lbl">목표 대비 실현 괴리</span><span class="val num">1.8%p</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>에이전트 상태</h3>
+      <div class="agents">
+        <div class="grid15" id="agentGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="card">
+    <h3>월별 초과수익 <em>벤치마크 대비 %p</em></h3>
+    <div id="heat" class="chart" style="height:214px"></div>
+  </div>
+  <div class="card">
+    <h3>핵심 지표</h3>
+    <table>
+      <thead><tr><th>지표</th><th>전략</th><th>벤치마크</th></tr></thead>
+      <tbody id="metrics"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="foot">
+  <span>모든 수치는 as_of 기준으로 재구성됩니다.</span>
+  <span>표시 데이터는 UI 검증용 목업입니다.</span>
+</div>
+
+<script>
+/* ============ 목업 데이터 (결정론적 시드) ============ */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=mulberry32(20260807);
+function gauss(){let u=0,v=0;while(!u)u=rnd();while(!v)v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+
+const N=1251, dates=[], nav=[100], bmk=[100];
+let d=new Date(2021,7,9);
+for(let i=0;i<N;i++){
+  while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()+1);
+  dates.push(d.toISOString().slice(0,10));
+  d=new Date(d); d.setDate(d.getDate()+1);
+}
+// 레짐: 상승 → 약세 → 회복 → 상승
+const regime=i=> i<300?0.045: i<560?-0.115: i<820?0.055: i<1080?0.085:0.035;
+for(let i=1;i<N;i++){
+  const drift=regime(i)/252, vol=(i>300&&i<560?0.019:0.0115);
+  const mk=drift+gauss()*vol;
+  // 전략: 베타 0.82, 알파 연 6%, 잔차 낮음
+  const st=0.82*mk+0.06/252+gauss()*0.0052;
+  bmk.push(bmk[i-1]*(1+mk));
+  nav.push(nav[i-1]*(1+st));
+}
+const dd=[], ddb=[]; let pk=nav[0], pkb=bmk[0];
+for(let i=0;i<N;i++){
+  pk=Math.max(pk,nav[i]); pkb=Math.max(pkb,bmk[i]);
+  dd.push(-(pk-nav[i])/pk*100); ddb.push(-(pkb-bmk[i])/pkb*100);
+}
+
+/* ============ 지표 계산 ============ */
+function metrics(s,e){
+  const seg=nav.slice(0,e+1), bg=bmk.slice(0,e+1), n=e;
+  const yrs=n/252;
+  const cagr=x=>(Math.pow(x[n]/x[0],1/yrs)-1)*100;
+  const rets=x=>{const r=[];for(let i=1;i<=n;i++)r.push(x[i]/x[i-1]-1);return r};
+  const rp=rets(seg), rb=rets(bg);
+  const sd=r=>{const m=r.reduce((a,b)=>a+b,0)/r.length;return Math.sqrt(r.reduce((a,b)=>a+(b-m)**2,0)/r.length)*Math.sqrt(252)*100};
+  const mdd=x=>{let p=x[0],m=0;for(const v of x){p=Math.max(p,v);m=Math.min(m,-(p-v)/p*100)}return m};
+  const ex=rp.map((v,i)=>v-rb[i]);
+  const te=sd(ex);
+  const exAnn=(cagr(seg)-cagr(bg));
+  const dsd=r=>{const dn=r.filter(v=>v<0);return Math.sqrt(dn.reduce((a,b)=>a+b*b,0)/r.length)*Math.sqrt(252)*100};
+  const cov=(()=>{const mp=rp.reduce((a,b)=>a+b,0)/n,mb=rb.reduce((a,b)=>a+b,0)/n;
+    let c=0,vb=0;for(let i=0;i<n;i++){c+=(rp[i]-mp)*(rb[i]-mb);vb+=(rb[i]-mb)**2}return c/vb})();
+  return {
+    cagr:[cagr(seg),cagr(bg)], vol:[sd(rp),sd(rb)],
+    sharpe:[cagr(seg)/sd(rp),cagr(bg)/sd(rb)],
+    sortino:[cagr(seg)/dsd(rp),cagr(bg)/dsd(rb)],
+    mdd:[mdd(seg),mdd(bg)],
+    win:[rp.filter(v=>v>0).length/n*100, rb.filter(v=>v>0).length/n*100],
+    ir:[exAnn/te,null], te:[te,null], beta:[cov,1.0]
+  };
+}
+
+/* ============ 렌더 ============ */
+const fmt=(v,p=2)=>(v>=0?'+':'')+v.toFixed(p);
+const cls=v=>v>=0?'pos':'neg';
+const navC=echarts.init(document.getElementById('navChart'),null,{renderer:'canvas'});
+const uwC =echarts.init(document.getElementById('uwChart'));
+const heatC=echarts.init(document.getElementById('heat'));
+
+const axisBase={axisLine:{lineStyle:{color:'#262C35'}},axisTick:{show:false},
+  axisLabel:{color:'#5A626D',fontFamily:'IBM Plex Mono',fontSize:10},
+  splitLine:{lineStyle:{color:'rgba(38,44,53,.5)'}}};
+const tip={backgroundColor:'#1B2028',borderColor:'#262C35',
+  textStyle:{color:'#E6E9EE',fontFamily:'IBM Plex Mono',fontSize:11}};
+
+function render(e){
+  const D=dates.slice(0,e+1);
+  const base=nav[0], nn=nav.slice(0,e+1).map(v=>v/base*100);
+  const bb=bmk.slice(0,e+1).map(v=>v/bmk[0]*100);
+  const exc=nn.map((v,i)=>v-bb[i]);
+  const m=metrics(0,e);
+  const curdd=dd[e];
+
+  document.getElementById('asof').textContent=D[e];
+
+  /* KPI */
+  const kpi=[
+    ['순자산','₩'+(1_000_000*nn[e]/100).toLocaleString('ko-KR',{maximumFractionDigits:0}),'초기 대비 '+fmt(nn[e]-100)+'%'],
+    ['일간 손익',fmt((nn[e]/nn[e-1]-1)*100)+'%','벤치 '+fmt((bb[e]/bb[e-1]-1)*100)+'%',(nn[e]/nn[e-1]-1)],
+    ['누적 수익률',fmt(nn[e]-100,1)+'%','CAGR '+fmt(m.cagr[0],1)+'%',nn[e]-100],
+    ['초과수익',fmt(exc[e],1)+'%p','연 '+fmt(m.cagr[0]-m.cagr[1],1)+'%p',exc[e]],
+    ['정보비율',m.ir[0].toFixed(2),'TE '+m.te[0].toFixed(1)+'%',m.ir[0]],
+    ['현재 낙폭',curdd.toFixed(1)+'%','예산 30% 중 '+(Math.abs(curdd)/30*100).toFixed(0)+'%',curdd],
+    ['자본 배분','KR 46 / US 39','현금 15%'],
+    ['원달러','1,3'+(60+Math.round(nn[e]%20)),'20일 변동성 6.4%'],
+  ];
+  document.getElementById('kpis').innerHTML=kpi.map(k=>
+    `<div class="kpi"><div class="k">${k[0]}</div>
+     <div class="v num ${k[3]!==undefined?cls(k[3]):''}">${k[1]}</div>
+     <div class="s">${k[2]}</div></div>`).join('');
+
+  /* NAV */
+  navC.setOption({
+    animation:false, backgroundColor:'transparent',
+    grid:[{left:52,right:16,top:16,height:170},{left:52,right:16,top:212,height:56}],
+    tooltip:{trigger:'axis',...tip,axisPointer:{lineStyle:{color:'#3A4149'}}},
+    axisPointer:{link:[{xAxisIndex:'all'}]},
+    xAxis:[{type:'category',data:D,...axisBase,axisLabel:{show:false}},
+           {type:'category',data:D,gridIndex:1,...axisBase}],
+    yAxis:[{type:'value',scale:true,...axisBase,axisLabel:{...axisBase.axisLabel,formatter:'{value}'}},
+           {type:'value',gridIndex:1,...axisBase,splitLine:{show:false},
+            axisLabel:{...axisBase.axisLabel,formatter:'{value}%p'}}],
+    series:[
+      {name:'벤치마크',type:'line',data:bb,showSymbol:false,lineStyle:{color:'#6B7280',width:1.2,type:[5,4]}},
+      {name:'Lattice',type:'line',data:nn,showSymbol:false,lineStyle:{color:'#E6E9EE',width:1.8}},
+      {name:'초과수익',type:'line',data:exc,xAxisIndex:1,yAxisIndex:1,showSymbol:false,
+       lineStyle:{color:'#F5A524',width:1.2},
+       areaStyle:{color:'rgba(245,165,36,.13)'}}
+    ]
+  });
+
+  /* Underwater */
+  uwC.setOption({
+    animation:false, backgroundColor:'transparent',
+    grid:{left:52,right:16,top:14,bottom:26},
+    tooltip:{trigger:'axis',...tip},
+    xAxis:{type:'category',data:D,...axisBase},
+    yAxis:{type:'value',max:0,min:-32,...axisBase,axisLabel:{...axisBase.axisLabel,formatter:'{value}%'}},
+    series:[
+      {name:'벤치마크',type:'line',data:ddb.slice(0,e+1),showSymbol:false,
+       lineStyle:{color:'#6B7280',width:1,type:[4,4]}},
+      {name:'Lattice',type:'line',data:dd.slice(0,e+1),showSymbol:false,
+       lineStyle:{color:'#E5484D',width:1.4},areaStyle:{color:'rgba(229,72,77,.16)'},
+       markArea:{silent:true,data:[
+         [{yAxis:0,itemStyle:{color:'rgba(31,111,74,.10)'}},{yAxis:-12}],
+         [{yAxis:-12,itemStyle:{color:'rgba(245,165,36,.09)'}},{yAxis:-22}],
+         [{yAxis:-22,itemStyle:{color:'rgba(229,72,77,.13)'}},{yAxis:-32}]]},
+       markLine:{silent:true,symbol:'none',
+         label:{color:'#8A93A0',fontSize:9,fontFamily:'IBM Plex Mono',position:'insideStartTop'},
+         data:[{yAxis:-12,lineStyle:{color:'#1F6F4A',type:'dashed'}},
+               {yAxis:-22,lineStyle:{color:'#8A6520',type:'dashed'}},
+               {yAxis:-30,lineStyle:{color:'#E5484D'},label:{formatter:'한계 30%'}}]}}
+    ]
+  });
+
+  /* Gauge */
+  const used=Math.abs(curdd);
+  document.getElementById('gfill').style.height=Math.min(used/30*100,100)+'%';
+  document.getElementById('ddNow').textContent=used.toFixed(1)+'% / 30%';
+  document.getElementById('ddNow').className='big num '+(used<12?'':used<22?'':'pos');
+  document.getElementById('ddCap').textContent=
+    used<12?`자유구간 · 낙폭 페널티 없음 · 여유 ${(12-used).toFixed(1)}%p`
+    :used<22?`페널티 구간 · 한계까지 ${(30-used).toFixed(1)}%p`
+    :`급증 구간 · 신규매수 제한 · 한계까지 ${(30-used).toFixed(1)}%p`;
+
+  /* Metrics */
+  const rows=[['CAGR',m.cagr,'%'],['변동성',m.vol,'%'],['샤프',m.sharpe,''],
+    ['소르티노',m.sortino,''],['MDD',m.mdd,'%'],['승률',m.win,'%'],
+    ['정보비율 (IR)',m.ir,''],['트래킹에러',m.te,'%'],['베타',m.beta,'']];
+  document.getElementById('metrics').innerHTML=rows.map(r=>
+    `<tr><td>${r[0]}</td>
+     <td class="bnum">${r[1][0].toFixed(2)}${r[2]}</td>
+     <td class="bnum mut">${r[1][1]===null?'—':r[1][1].toFixed(2)+r[2]}</td></tr>`).join('');
+
+  /* Heatmap */
+  const mo={}, mb={};
+  for(let i=1;i<=e;i++){
+    const k=dates[i].slice(0,7);
+    mo[k]=(mo[k]||1)*(nav[i]/nav[i-1]);
+    mb[k]=(mb[k]||1)*(bmk[i]/bmk[i-1]);
+  }
+  const keys=Object.keys(mo), yrs=[...new Set(keys.map(k=>k.slice(0,4)))];
+  const cells=keys.map(k=>[+k.slice(5,7)-1, yrs.indexOf(k.slice(0,4)),
+    +(((mo[k]-1)-(mb[k]-1))*100).toFixed(2)]);
+  const lim=Math.max(...cells.map(c=>Math.abs(c[2])),1);
+  heatC.setOption({
+    animation:false, backgroundColor:'transparent',
+    grid:{left:44,right:14,top:10,bottom:44},
+    tooltip:{...tip,formatter:p=>`${yrs[p.value[1]]}-${String(p.value[0]+1).padStart(2,'0')} · ${fmt(p.value[2])}%p`},
+    xAxis:{type:'category',data:['1','2','3','4','5','6','7','8','9','10','11','12'],
+      ...axisBase,splitLine:{show:false},splitArea:{show:true,areaStyle:{color:['transparent']}}},
+    yAxis:{type:'category',data:yrs,...axisBase,splitLine:{show:false}},
+    visualMap:{min:-lim,max:lim,calculable:false,orient:'horizontal',left:'center',bottom:2,
+      itemWidth:11,itemHeight:88,textStyle:{color:'#5A626D',fontSize:10,fontFamily:'IBM Plex Mono'},
+      inRange:{color:['#3E7BFA','#1B2028','#E5484D']}},
+    series:[{type:'heatmap',data:cells,itemStyle:{borderColor:'#0E1116',borderWidth:2},
+      label:{show:true,color:'#E6E9EE',fontSize:9.5,fontFamily:'IBM Plex Mono',
+        formatter:p=>p.value[2].toFixed(1)}}]
+  });
+}
+
+/* 배분 바 + 에이전트 */
+const alloc=[['국장',46,'#4C6EF5'],['미장',39,'#2AA198'],['현금',15,'#3A4149']];
+document.getElementById('allocBar').innerHTML=alloc.map(a=>
+  `<div class="seg" style="width:${a[1]}%;background:${a[2]}">${a[1]}%</div>`).join('');
+document.getElementById('fx').textContent='1,372.40';
+
+const agents=[['Collector·시장','ok'],['Collector·문서','ok'],['Chart','ok'],['Flow KR','ok'],['Flow US','warn'],
+  ['Fundamental','ok'],['News','ok'],['SNS','ok'],['Risk','ok'],['Regime','ok'],
+  ['Event','ok'],['Selector','ok'],['Allocator','ok'],['Executor','ok'],['ModelOps','ok']];
+document.getElementById('agentGrid').innerHTML=agents.map(a=>
+  `<div class="ag" title="${a[0]}"><div class="nm">${a[0]}</div><div class="st ${a[1]}"></div></div>`).join('');
+
+const tm=document.getElementById('tm');
+tm.addEventListener('input',()=>render(+tm.value));
+render(N-1);
+addEventListener('resize',()=>{navC.resize();uwC.resize();heatC.resize()});
+</script>
+</body>
+</html>
