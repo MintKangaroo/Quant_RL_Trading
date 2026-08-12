@@ -153,6 +153,21 @@ _SPECS: dict[str, TableSpec] = {
             "observed_at = ts_wall. 같은 뜻의 필드를 두 벌 들지 않는다."
         ),
     ),
+    "market_stats": TableSpec(
+        name="market_stats",
+        columns={
+            "market": pa.string(),
+            "metric": pa.string(),
+            "value": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "metric"),
+        doc=(
+            "일별 시장 관측 — 상장주식수·시가총액. **fundamentals 와 나눈다.** "
+            "분기에 4번 바뀌는 공시와 매일 바뀌는 관측을 한 테이블에 두면, "
+            "재무를 읽을 때마다 일별 데이터가 딸려 온다. 실제로 그렇게 만들었다가 "
+            "fundamentals 가 460만 행(2.2GB)이 되어 Analyst 가 OOM 으로 죽었다."
+        ),
+    ),
     "signals": TableSpec(
         name="signals",
         columns={

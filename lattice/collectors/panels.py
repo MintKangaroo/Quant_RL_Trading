@@ -348,7 +348,7 @@ PANELS: dict[str, Panel] = {
 #: 있으므로 새로 받는 것은 전부 이쪽을 쓴다.
 OPENAPI_PANELS: dict[str, Panel] = {
     "shares": Panel(
-        table=FUNDAMENTALS,
+        table="market_stats",
         fetch=lambda source, day: source.trades_on(day),  # type: ignore[attr-defined]
         expand=openapi_shares,
     ),

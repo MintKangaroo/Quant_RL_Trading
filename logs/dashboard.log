@@ -1,0 +1,97 @@
+ * Tip: There are .env files present. Install python-dotenv to use them.
+Lattice 대시보드 → http://0.0.0.0:6060/  (창고: /home/mintkangaroo/Project/lattice/data)
+ * Serving Flask app 'lattice.dashboard.app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:6060
+ * Running on http://172.23.171.63:6060
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [12/Aug/2026 16:42:30] "GET /data-quality HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:30] "GET /agent-health HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:30] "GET /api/agent-health/roster HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:46] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:46] "GET /static/app.css HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:46] "GET /static/scope.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:46] "GET /static/data_quality.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:47] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [12/Aug/2026 16:42:50] "GET /agent-health HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:51] "[36mGET /static/app.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:42:51] "[36mGET /static/scope.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:42:51] "GET /static/agent_health.js HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:52] "GET /api/agent-health/summary HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:53] "GET /api/agent-health/roster HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:42:53] "GET /api/agent-health/ic-history HTTP/1.1" 200 -
+[2026-08-12 16:42:55,176] ERROR in app: Exception on /api/data-quality/summary [GET]
+Traceback (most recent call last):
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/dashboard/api/data_quality.py", line 25, in summary
+    service.summary(
+  File "/home/mintkangaroo/Project/lattice/lattice/dashboard/services/data_quality.py", line 288, in summary
+    lat = latency_percentiles(store, as_of=as_of, lookback=lookback)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/dashboard/services/data_quality.py", line 235, in latency_percentiles
+    for stage, group in frame.groupby("stage"):
+                        ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/pandas/core/frame.py", line 9210, in groupby
+    return DataFrameGroupBy(
+           ^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/pandas/core/groupby/groupby.py", line 1331, in __init__
+    grouper, exclusions, obj = get_grouper(
+                               ^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/pandas/core/groupby/grouper.py", line 1043, in get_grouper
+    raise KeyError(gpr)
+KeyError: 'stage'
+127.0.0.1 - - [12/Aug/2026 16:42:55] "[35m[1mGET /api/data-quality/summary HTTP/1.1[0m" 500 -
+[2026-08-12 16:42:55,176] ERROR in app: Exception on /api/agent-health/signals [GET]
+Traceback (most recent call last):
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/.venv/lib/python3.12/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/dashboard/api/agent_health.py", line 56, in signals
+    current = scope()
+              ^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/dashboard/api/common.py", line 111, in scope
+    thresholds = read_thresholds(as_of)
+                 ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/dashboard/api/common.py", line 101, in read_thresholds
+    return {name: current.config(key, as_of=as_of) for name, key in THRESHOLD_KEYS.items()}
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/store/__init__.py", line 99, in config
+    return _config.read_value(exact, name, as_of)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mintkangaroo/Project/lattice/lattice/store/config.py", line 139, in read_value
+    if not frame.empty:
+           ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'empty'
+127.0.0.1 - - [12/Aug/2026 16:42:55] "[35m[1mGET /api/agent-health/signals HTTP/1.1[0m" 500 -
+127.0.0.1 - - [12/Aug/2026 16:42:55] "GET /api/agent-health/verdicts HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:43:00] "GET /data-quality HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:43:00] "[36mGET /static/app.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:43:00] "[36mGET /static/data_quality.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:43:00] "[36mGET /static/scope.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:43:03] "GET /data-quality HTTP/1.1" 200 -
+127.0.0.1 - - [12/Aug/2026 16:43:03] "[36mGET /static/app.css HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:43:03] "[36mGET /static/scope.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:43:03] "[36mGET /static/data_quality.js HTTP/1.1[0m" 304 -
+127.0.0.1 - - [12/Aug/2026 16:43:06] "GET /api/data-quality/summary HTTP/1.1" 200 -

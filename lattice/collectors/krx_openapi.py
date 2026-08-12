@@ -162,8 +162,13 @@ class KrxOpenApi:
                 mapped = {name: raw.get(field) for field, name in TRADE_FIELDS.items()}
                 mapped["board"] = mapped.get("board") or board
                 rows.append(mapped)
-        if not rows:
-            raise KrxOpenApiUnavailable(f"{day.isoformat()} 일별매매가 비었다")
+        # 빈 응답을 장애로 보지 않는다. API 가 200 을 주면서 0행이면 그날은
+        # 장이 안 선 것이다 — 실측: 2026-07-17 은 exchange_calendars 가 거래일로
+        # 보지만 KRX 는 양 시장 모두 0행을 준다(앞뒤 날짜는 정상). 달력
+        # 라이브러리가 모르는 휴장일이 존재한다.
+        #
+        # 장애는 _call 이 예외로 구분한다. 둘을 뭉치면 진짜 장애가 휴장일로
+        # 위장된다.
         return sorted(rows, key=lambda item: str(item.get("code") or ""))
 
     def indices_on(self, day: date) -> list[dict[str, Any]]:
@@ -172,8 +177,6 @@ class KrxOpenApi:
             {name: raw.get(field) for field, name in INDEX_FIELDS.items()}
             for raw in self._call(INDEX_PATH, day)
         ]
-        if not rows:
-            raise KrxOpenApiUnavailable(f"{day.isoformat()} 지수가 비었다")
         return sorted(rows, key=lambda item: str(item.get("name") or ""))
 
     def close(self) -> None:
@@ -194,14 +197,15 @@ def normalize_shares(
     valid_from: datetime,
     observed_at: datetime,
 ) -> list[dict[str, Any]]:
-    """상장주식수·시가총액 → fundamentals 행 (long 포맷).
+    """상장주식수·시가총액 → **market_stats** 행 (long 포맷).
 
-    재무와 같은 테이블에 넣는다. ``fundamental`` Analyst 가 PER 을 만들려면
-    시가총액과 순이익이 **같은 축에서** 조회돼야 하기 때문이다. 둘이 다른
-    테이블에 있으면 조인할 때마다 시점이 어긋날 여지가 생긴다.
+    처음엔 fundamentals 에 넣었는데 그게 잘못이었다. 분기에 4번 바뀌는 공시와
+    매일 바뀌는 관측을 한 테이블에 두니, 재무를 읽을 때마다 일별 데이터
+    435만 행이 딸려 왔다. fundamental Analyst 가 2.2GB 를 올리다 OOM 으로
+    죽고 나서야 드러났다.
 
-    ``report_type='krx_daily'`` 로 DART 재무와 구분한다 — 하나는 일별 시장
-    관측이고 하나는 분기 공시다.
+    Analyst 는 둘을 따로 읽어 합친다. 재무는 창이 길고(1150일) 시가총액은
+    최신 하나면 되므로, 창 길이가 다른 것을 같이 읽을 이유가 없다.
     """
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -221,8 +225,6 @@ def normalize_shares(
                     "market": market,
                     "metric": metric,
                     "value": value,
-                    "fiscal_period": None,
-                    "report_type": "krx_daily",
                 }
             )
     return out
