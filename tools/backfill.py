@@ -31,6 +31,12 @@ from lattice.collectors.backfill import (  # noqa: E402
     ProgressLog,
     eta,
 )
+from lattice.collectors.dart_source import (  # noqa: E402
+    DartBackfiller,
+    DartSource,
+    FilingPolicy,
+    batched,
+)
 from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
 from lattice.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
 from lattice.collectors.ls_flow import LSFlowBackfiller, LSFlowSource  # noqa: E402
@@ -45,6 +51,8 @@ from lattice.store import ConfigNotFound, Store  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
 FLOW_LS = "flows-ls"
+#: DART 재무는 분기 × 배치 축이다.
+DART = "fundamentals-dart"
 
 ENV_FILE = REPO_ROOT / ".env"
 
@@ -274,6 +282,90 @@ def run_flow_backfill(
     return 1 if report.failures else 0
 
 
+def run_dart_backfill(store: Store, clock: Clock, *, market: Market, years: int) -> int:
+    """DART 재무 백필. 분기 × 100개 배치 축으로 돈다.
+
+    종목당 개별 호출이면 5년치가 58,000콜이라 DART 일 한도(20,000)에 걸려
+    3일이 걸린다. 다중회사 조회로 배치당 100개씩 묶으면 수백 콜이면 끝난다.
+    """
+    now = clock.now()
+    source = DartSource()
+    if not source.api_key:
+        print("OPENDART_API_KEY 가 없다.", file=sys.stderr)
+        return 2
+
+    backfiller = DartBackfiller(
+        store=store, source=source, clock=clock,
+        archive=RawArchive(root=store.root),
+        policy=FilingPolicy(
+            hour_kst=int(store.config("backfill.dart_publication_hour_kst", as_of=now)),
+            clock=clock,
+        ),
+        market=str(market),
+    )
+
+    # 유니버스에 한 번이라도 있었던 종목만. 상폐 종목도 포함한다 —
+    # 재무만 빠지면 그 종목의 과거가 반쪽이 되고 생존편향이 되살아난다.
+    universe = store.get(UNIVERSE, as_of=now, lookback=REPORT_SPAN_DAYS)
+    prefix = f"{market}:"
+    wanted = {
+        str(entity)[len(prefix):]
+        for entity in universe["entity_id"].unique()
+        if str(entity).startswith(prefix)
+    }
+    mapping = source.corp_codes()
+    corps = [mapping[stock] for stock in sorted(wanted) if stock in mapping]
+    batches = list(batched(corps))
+    print(f"유니버스 {len(wanted)}종목 중 corp_code 매칭 {len(corps)}개 → 배치 {len(batches)}개")
+
+    end_year = now.astimezone(UTC).year
+    plan = [
+        (year, quarter, index)
+        for year in range(end_year - years, end_year + 1)
+        for quarter in (1, 2, 3, 4)
+        for index in range(len(batches))
+    ]
+    pending = backfiller.pending(plan)
+    print(f"작업 {len(plan)}개 (이미 적재 {len(plan) - len(pending)}, 남은 {len(pending)})")
+    if not pending:
+        print("할 일이 없다.")
+        return 0
+
+    progress = ProgressLog(root=store.root, plan_id=f"{market}-dart-{end_year - years}")
+    report = BackfillReport(market=market)
+    started = time.monotonic()  # invariant-allow: wallclock
+
+    for index, (year, quarter, batch) in enumerate(pending, start=1):
+        result = backfiller.run_batch(
+            batches[batch], year=year, quarter=quarter, batch=batch
+        )
+        report.absorb(result)
+        progress.record(result, at=clock.now())
+
+        elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
+        remaining = eta(index, len(pending), elapsed)
+        if result.skipped:
+            status = "SKIP"
+        elif result.deferred:
+            status = "WAIT"   # 아직 공표되지 않은 공시가 섞여 있다
+        else:
+            status = "FAIL" if result.error else "ok"
+        tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
+        print(
+            f"[{index}/{len(pending)}] {result.unit} {status}  "
+            f"fundamentals={result.rows}{tail}"
+            + (f"  {result.error}" if result.error else ""),
+            flush=True,
+        )
+
+    print(
+        f"\n완료 — 작업 {report.sessions}개 "
+        f"(건너뜀 {report.skipped}, 미공표 대기 {report.deferred}), "
+        f"{report.render_counts()}, 실패 {len(report.failures)}건"
+    )
+    return 1 if report.failures else 0
+
+
 def probe_codes(source: KrxSource, sessions: list[date], count: int) -> frozenset[str]:
     """시험 실행용 종목 표본.
 
@@ -423,7 +515,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
     parser.add_argument(
         "--table",
-        choices=[*sorted(PANELS), FLOW_LS],
+        choices=[*sorted(PANELS), FLOW_LS, DART],
         help="패널 테이블 하나만 백필. 생략하면 prices+universe",
     )
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")
@@ -459,6 +551,12 @@ def main(argv: list[str] | None = None) -> int:
         args.out.write_text(text + "\n", encoding="utf-8")
         print(f"\n(저장: {_display(args.out)})")
         return 0
+
+    if args.table == DART:
+        return run_dart_backfill(
+            store, clock, market=market,
+            years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+        )
 
     if args.table == FLOW_LS:
         return run_flow_backfill(

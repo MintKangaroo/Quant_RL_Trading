@@ -142,6 +142,9 @@ backfill:
   # 0 으로 두면 flow_kr 이 통째로 미래를 본다.
   shorting_lag_days: 2
   session_pause_ms: 200      # 소스를 두들겨 차단당하지 않기 위한 예의
+  # DART 는 공시 '날짜' 만 준다. 시각은 모른다. 그날 이 시각(KST)에 알게 됐다고
+  # 본다 — 접수 마감이 18시이므로 그 이후로 잡으면 절대 낙관적이지 않다.
+  dart_publication_hour_kst: 18
 
 data:
   # 백테스트에 쓰는 파이프라인 지연. 실측 p90 으로 갱신하기 전의 보수적 초기값.
