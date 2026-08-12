@@ -16,10 +16,9 @@ import argparse
 import os
 import sys
 import time
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -177,8 +176,8 @@ def run_backfill(
         f"(건너뜀 {report.skipped}, 미공표 대기 {report.deferred}), "
         f"{report.render_counts()}, 실패 {len(report.failures)}건"
     )
-    for day, message in report.failures[:20]:
-        print(f"  실패 {day}: {message}")
+    for unit, message in report.failures[:20]:
+        print(f"  실패 {unit}: {message}")
     return 1 if report.failures else 0
 
 
@@ -256,7 +255,7 @@ def run_flow_backfill(
     for index, symbol in enumerate(pending, start=1):
         result = backfiller.run_symbol(symbol, start, end)
         report.absorb(result)
-        progress.record(_FlowRecord(symbol, result), at=clock.now())
+        progress.record(result, at=clock.now())
 
         elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
         remaining = eta(index, len(pending), elapsed)
@@ -273,31 +272,6 @@ def run_flow_backfill(
         f"{report.render_counts()}, 실패 {len(report.failures)}건"
     )
     return 1 if report.failures else 0
-
-
-@dataclass(frozen=True)
-class _FlowRecord:
-    """진행 로그가 기대하는 모양으로 맞춰 준다 (day/counts/skipped/error)."""
-
-    symbol: str
-    result: Any
-
-    @property
-    def day(self) -> Any:
-        return self.symbol
-
-    @property
-    def counts(self) -> dict[str, int]:
-        return dict(self.result.counts)
-
-    @property
-    def skipped(self) -> bool:
-        return bool(self.result.skipped)
-
-    @property
-    def error(self) -> str | None:
-        message = self.result.error
-        return None if message is None else str(message)
 
 
 def probe_codes(source: KrxSource, sessions: list[date], count: int) -> frozenset[str]:

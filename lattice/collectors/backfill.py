@@ -78,6 +78,11 @@ class SessionResult:
         """
         return {PRICES: self.prices, UNIVERSE: self.universe}
 
+    @property
+    def unit(self) -> str:
+        """작업 단위의 이름. 세션 축은 날짜, 종목 축은 종목코드다."""
+        return self.day.isoformat()
+
 
 @dataclass
 class BackfillReport:
@@ -86,7 +91,7 @@ class BackfillReport:
     skipped: int = 0
     deferred: int = 0
     counts: dict[str, int] = field(default_factory=dict)
-    failures: list[tuple[date, str]] = field(default_factory=list)
+    failures: list[tuple[str, str]] = field(default_factory=list)
 
     def absorb(self, result: Any) -> None:
         self.sessions += 1
@@ -98,7 +103,10 @@ class BackfillReport:
         for table, rows in result.counts.items():
             self.counts[table] = self.counts.get(table, 0) + rows
         if result.error is not None:
-            self.failures.append((result.day, result.error))
+            # ``unit`` 을 쓴다. 세션 축은 날짜, 종목 축은 종목코드라 결과 종류에
+            # 따라 필드가 다르다 — 여기서 날짜를 가정하면 종목 백필이 **실패를
+            # 기록하려다** 죽는다. 실제로 84번째 종목에서 그렇게 죽었다.
+            self.failures.append((result.unit, result.error))
 
     def render_counts(self) -> str:
         return ", ".join(f"{table} {rows:,}행" for table, rows in sorted(self.counts.items()))
@@ -339,7 +347,7 @@ class ProgressLog:
             {
                 "at": at.isoformat(),
                 # 세션 축 백필은 날짜, 종목 축(수급)은 종목코드다.
-                "unit": getattr(result.day, "isoformat", lambda: str(result.day))(),
+                "unit": result.unit,
                 "counts": result.counts,
                 "skipped": result.skipped,
                 "error": result.error,

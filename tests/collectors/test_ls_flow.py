@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from lattice.collectors.krx_source import KRXUnavailable
 from lattice.collectors.ls_flow import (
     INVESTOR_FIELDS,
     MAX_ROWS_PER_CALL,
@@ -181,6 +182,40 @@ def test_backfill_writes_and_resumes(store, tmp_path, policy) -> None:
     again = make(store, tmp_path, policy).run_symbol("005930", date(2024, 6, 1), date(2024, 6, 30))
     assert again.skipped
     assert make(store, tmp_path, policy).pending(["005930", "000660"]) == ["000660"]
+
+
+def test_failure_can_be_recorded_without_crashing(store, tmp_path, policy) -> None:
+    """**실패를 기록하는 경로**에 테스트가 없어서 18시간짜리 실행이 죽었다.
+
+    BackfillReport 가 실패 목록을 만들 때 날짜를 가정하고 있었는데, 종목 축
+    결과에는 날짜가 없다. 84번째 종목에서 수집이 실패한 순간 그것을 기록하려다
+    프로세스가 통째로 죽었다 — 실패 처리가 실패한 것이다.
+    """
+    from lattice.collectors.backfill import BackfillReport, ProgressLog
+    from lattice.collectors.market_hours import Market
+
+    store.seed_config_defaults()
+
+    class Broken:
+        name = "ls-broken"
+
+        def fetch(self, symbol: str, start: date, end: date) -> list[dict[str, Any]]:
+            raise KRXUnavailable(f"주입된 실패: {symbol}")
+
+    result = make(store, tmp_path, policy, source=Broken()).run_symbol(
+        "005930", date(2024, 6, 1), date(2024, 6, 30)
+    )
+    assert not result.ok
+    assert result.unit == "005930"
+
+    report = BackfillReport(market=Market.KR)
+    report.absorb(result)
+    assert report.failures == [("005930", result.error)]
+
+    # 진행 로그도 종목 축을 그대로 받아써야 한다.
+    log = ProgressLog(root=tmp_path, plan_id="KR-flows-test")
+    log.record(result, at=NOW)
+    assert '"unit": "005930"' in log.path.read_text(encoding="utf-8")
 
 
 def test_empty_symbol_is_not_recorded_as_done(store, tmp_path, policy) -> None:

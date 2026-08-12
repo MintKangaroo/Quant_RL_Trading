@@ -153,6 +153,11 @@ class FlowResult:
     def counts(self) -> dict[str, int]:
         return {FLOWS: self.rows}
 
+    @property
+    def unit(self) -> str:
+        """종목 축이라 날짜가 아니라 종목코드가 단위다."""
+        return self.symbol
+
 
 @dataclass
 class LSFlowBackfiller:

@@ -193,6 +193,10 @@ class PanelResult:
     def counts(self) -> dict[str, int]:
         return {self.table: self.rows}
 
+    @property
+    def unit(self) -> str:
+        return self.day.isoformat()
+
 
 @dataclass
 class PanelBackfiller:
