@@ -63,6 +63,18 @@ class KRXUnavailable(CollectorError):
 
 
 @runtime_checkable
+class PanelSource(Protocol):
+    """패널 백필이 소스에 요구하는 전부.
+
+    조회 메서드는 Panel.fetch 가 알아서 부르므로 여기서 강제하지 않는다.
+    소스마다 주는 것이 다른데 프로토콜이 전부를 요구하면, 하나만 주는 소스는
+    쓰지도 않을 메서드를 빈 껍데기로 구현해야 한다.
+    """
+
+    name: str
+
+
+@runtime_checkable
 class HistoricalSource(Protocol):
     """과거 한 세션을 통째로 읽는 것. 종목 단위가 아니라 날짜 단위다."""
 

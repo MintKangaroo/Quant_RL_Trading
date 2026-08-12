@@ -37,11 +37,16 @@ from lattice.collectors.dart_source import (  # noqa: E402
     FilingPolicy,
     batched,
 )
+from lattice.collectors.krx_openapi import KrxOpenApi  # noqa: E402
 from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
 from lattice.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
 from lattice.collectors.ls_flow import LSFlowBackfiller, LSFlowSource  # noqa: E402
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
-from lattice.collectors.panels import PANELS, PanelBackfiller  # noqa: E402
+from lattice.collectors.panels import (  # noqa: E402
+    OPENAPI_PANELS,
+    PANELS,
+    PanelBackfiller,
+)
 from lattice.collectors.panels import SHORTING as SHORTING  # noqa: E402
 from lattice.collectors.publication import publication_policy  # noqa: E402
 from lattice.collectors.raw import RawArchive  # noqa: E402
@@ -113,8 +118,16 @@ def run_backfill(
     source = KrxSource()
     policy = publication_policy(store, market, clock=clock)
     archive = RawArchive(root=store.root)
+    backfiller: Backfiller | PanelBackfiller
 
-    if table is not None:
+    if table in OPENAPI_PANELS:
+        # 정식 Open API 경로. 인증키만 있으면 되고 pykrx 자격증명은 필요 없다.
+        panel = OPENAPI_PANELS[table]
+        backfiller = PanelBackfiller(
+            store=store, source=KrxOpenApi(), clock=clock, archive=archive,
+            policy=policy, panel=panel, market=market,
+        )
+    elif table is not None:
         panel = PANELS[table]
         if panel.table == SHORTING:
             # 실제 지연은 설정에서 온다. 코드의 기본값을 믿고 넘어가면
@@ -122,7 +135,7 @@ def run_backfill(
             panel = replace(
                 panel, lag_days=int(store.config("backfill.shorting_lag_days", as_of=now))
             )
-        backfiller: Backfiller | PanelBackfiller = PanelBackfiller(
+        backfiller = PanelBackfiller(
             store=store, source=source, clock=clock, archive=archive,
             policy=policy, panel=panel, market=market,
         )
@@ -515,7 +528,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
     parser.add_argument(
         "--table",
-        choices=[*sorted(PANELS), FLOW_LS, DART],
+        choices=[*sorted(PANELS), *sorted(OPENAPI_PANELS), FLOW_LS, DART],
         help="패널 테이블 하나만 백필. 생략하면 prices+universe",
     )
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")

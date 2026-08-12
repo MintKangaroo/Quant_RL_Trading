@@ -22,7 +22,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from lattice.collectors.errors import CollectorError
-from lattice.collectors.krx_source import HistoricalSource
+from lattice.collectors.krx_source import PanelSource
 from lattice.collectors.latency import LatencyRecorder
 from lattice.collectors.market_hours import Market, trading_days
 from lattice.collectors.publication import NotYetPublished, ObservedAtPolicy
@@ -31,7 +31,7 @@ from lattice.replay.clock import Clock
 from lattice.store import DuplicateIngestRun, Store
 
 #: 세션 하나에 대한 원본 응답을 받아오는 것.
-Fetch = Callable[[HistoricalSource, date], list[dict[str, Any]]]
+Fetch = Callable[[PanelSource, date], list[dict[str, Any]]]
 
 #: 원본 행 하나 → 저장 행 하나. None 이면 버린다.
 Normalize = Callable[[dict[str, Any], Market, datetime, datetime], dict[str, Any] | None]
@@ -59,13 +59,21 @@ def number(value: Any) -> float | None:
         return None
 
 
+#: 원본 행 하나 → 저장 행 **여럿**. 지표가 열로 오는 응답(상장주식수·시가총액,
+#: 펀더멘털)을 long 포맷으로 펴는 데 쓴다.
+Expand = Callable[[dict[str, Any], Market, datetime, datetime], list[dict[str, Any]]]
+
+
 @dataclass(frozen=True)
 class Panel:
     """세션당 한 테이블을 채우는 데이터셋 하나."""
 
     table: str
     fetch: Fetch
-    normalize: Normalize
+    #: 1:1 정규화. ``expand`` 가 있으면 쓰이지 않는다.
+    normalize: Normalize | None = None
+    #: 1:N 정규화. 지표 하나가 행 하나인 long 포맷을 만들 때 쓴다.
+    expand: Expand | None = None
     #: 공표 지연(거래일). 공매도처럼 T+N 에 나오는 것에 쓴다.
     lag_days: int = 0
 
@@ -164,12 +172,6 @@ def fundamental_rows(
     return rows
 
 
-def normalize_fundamental(
-    row: dict[str, Any], market: Market, valid_from: datetime, observed_at: datetime
-) -> dict[str, Any] | None:  # pragma: no cover - fan-out 은 PanelBackfiller 가 처리
-    raise NotImplementedError("펀더멘털은 행 하나가 여러 행으로 퍼진다. fundamental_rows 를 쓴다")
-
-
 # -----------------------------------------------------------------------------
 # 실행
 # -----------------------------------------------------------------------------
@@ -201,7 +203,7 @@ class PanelResult:
 @dataclass
 class PanelBackfiller:
     store: Store
-    source: HistoricalSource
+    source: PanelSource
     clock: Clock
     archive: RawArchive
     policy: ObservedAtPolicy
@@ -250,6 +252,10 @@ class PanelBackfiller:
                 rows = self._normalize(payload, valid_from, observed_at)
 
             with latency.stage("append", detail):
+                if not rows:
+                    # 빈 것을 완료로 기록하면 나중에 데이터가 생겨도 영영
+                    # 건너뛴다. 매니페스트를 남기지 않고 그냥 0을 돌려준다.
+                    return PanelResult(day=day, table=table, rows=0, skipped=False)
                 try:
                     written = self.store.append(table, rows, ingest_run_id=run_id)
                 except DuplicateIngestRun:
@@ -274,13 +280,40 @@ class PanelBackfiller:
             code = str(raw.get("code") or "").strip()
             if self.only_codes is not None and code not in self.only_codes:
                 continue
-            if self.panel.table == FUNDAMENTALS:
-                rows.extend(fundamental_rows(raw, self.market, valid_from, observed_at))
+            if self.panel.expand is not None:
+                rows.extend(self.panel.expand(raw, self.market, valid_from, observed_at))
                 continue
+            if self.panel.normalize is None:
+                raise ValueError(f"{self.panel.table} 에 normalize 도 expand 도 없다")
             row = self.panel.normalize(raw, self.market, valid_from, observed_at)
             if row is not None:
                 rows.append(row)
         return rows
+
+
+def openapi_shares(
+    row: dict[str, Any], market: Market, valid_from: datetime, observed_at: datetime
+) -> list[dict[str, Any]]:
+    """일별매매 응답 → 상장주식수·시가총액 (long 포맷).
+
+    이 둘이 없어서 fundamental 의 밸류 팩터(PER·PBR·PSR)를 못 만들고 있었다.
+    시세와 같은 콜에서 나오므로 추가 호출이 없다.
+    """
+    from lattice.collectors.krx_openapi import normalize_shares
+
+    return normalize_shares(
+        [row], market=str(market), valid_from=valid_from, observed_at=observed_at
+    )
+
+
+def openapi_index(
+    row: dict[str, Any], market: Market, valid_from: datetime, observed_at: datetime
+) -> list[dict[str, Any]]:
+    from lattice.collectors.krx_openapi import normalize_indices
+
+    return normalize_indices(
+        [row], market=str(market), valid_from=valid_from, observed_at=observed_at
+    )
 
 
 #: 사용 가능한 패널. CLI 의 --table 이 이 이름을 받는다.
@@ -300,11 +333,28 @@ PANELS: dict[str, Panel] = {
     "fundamentals": Panel(
         table=FUNDAMENTALS,
         fetch=lambda source, day: source.fundamentals_on(day),  # type: ignore[attr-defined]
-        normalize=normalize_fundamental,
+        expand=lambda row, market, valid_from, observed_at: fundamental_rows(
+            row, market, valid_from, observed_at
+        ),
     ),
     "indices": Panel(
         table="indices",
         fetch=lambda source, day: source.indices_on(day),  # type: ignore[attr-defined]
         normalize=normalize_index,
+    ),
+}
+
+#: KRX **정식** Open API 로 받는 패널. pykrx 는 약관상 자동화 수집이 금지돼
+#: 있으므로 새로 받는 것은 전부 이쪽을 쓴다.
+OPENAPI_PANELS: dict[str, Panel] = {
+    "shares": Panel(
+        table=FUNDAMENTALS,
+        fetch=lambda source, day: source.trades_on(day),  # type: ignore[attr-defined]
+        expand=openapi_shares,
+    ),
+    "indices-krx": Panel(
+        table="indices",
+        fetch=lambda source, day: source.indices_on(day),  # type: ignore[attr-defined]
+        expand=openapi_index,
     ),
 }
