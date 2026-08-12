@@ -104,11 +104,47 @@ llm:
   review_model: sonnet
 ```
 
+### 구현이 추가한 섹션
+
+명세 초안에 없던 값들이다. 구현하면서 실제로 필요했고, 하드코딩할 뻔한 것들이라
+설정으로 끌어올렸다.
+
+```yaml
+collector:                     # 킬스위치가 보는 수집 오류율
+  error_rate_window_sec: 120.0
+  error_rate_min_samples: 8    # 표본이 적을 때 성급히 끄면 잡음 하나로 멈춘다
+  call_history_sec: 600.0
+
+backfill:
+  years: 5
+  kr_publication_lag_seconds: 1800   # 세션 종료 + 이 지연 = observed_at
+  us_publication_lag_seconds: 1200
+  shorting_lag_days: 2         # 공매도는 T+2. 0이면 flow_kr 이 미래를 본다
+  session_pause_ms: 200
+
+data:
+  assumed_latency_seconds: 300 # 실측 p90 으로 갱신하기 전의 보수적 초기값
+
+data_quality:                  # 데이터 화면 경고선
+  coverage_warn: 0.98
+  missing_warn: 0.01
+  latency_p90_warn_ms: 300000
+  default_lookback_days: 90
+  max_lookback_days: 400       # 화면 하나가 창고를 통째로 올리지 않게
+  failure_rows: 50
+
+execution:                     # 체결 시뮬레이터
+  impact_k: 0.1                # 충격비용 = k × 변동성 × √(주문량/ADV)
+  min_order_value: 100000.0    # 이보다 작으면 수수료가 잡아먹는다
+```
+
 ---
 
 ## 규약
 
-- `store.config("reward")` 처럼 섹션 단위로 읽는다
+- `store.config("reward")` 는 섹션을 dict 로, `store.config("reward.w_free")` 는
+  값 하나를 돌려준다. **저장은 평평하게** 한다 — 섹션째 한 행에 넣으면 값 하나를
+  바꿔도 섹션 전체가 새 revision 이 되고, 무엇이 바뀌었는지 이력에서 읽을 수 없다
 - 값 변경은 **커밋으로 기록**한다. 런타임 수정 금지
 - 변경 시 `config_version` 을 올리고, 이벤트 로그와 리포트에 함께 남긴다.
   "이 성과가 어느 설정에서 나왔나"를 나중에 추적할 수 있어야 한다

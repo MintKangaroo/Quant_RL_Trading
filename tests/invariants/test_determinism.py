@@ -18,7 +18,7 @@ from lattice.schemas.order import Order, Side
 pytestmark = pytest.mark.invariant
 
 PARAMS = FillParams(
-    impact_k=0.1, participation_cap=0.03, liquidation_days=3, min_order_value=100_000.0
+    impact_k=0.1, max_adv_ratio=0.03, max_liquidation_days=3, min_order_value=100_000.0
 )
 UNIVERSE = ("KR:005930", "KR:000660", "US:AAPL")
 

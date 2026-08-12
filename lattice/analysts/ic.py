@@ -278,7 +278,7 @@ def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int]:
     """합격선과 표본 하한. 하드코딩 금지 (불변식 10)."""
     return (
         float(store.config("analyst.ic_threshold", as_of=as_of)),
-        int(store.config("analyst.ic_min_sample_days", as_of=as_of)),
+        int(store.config("analyst.ic_min_samples", as_of=as_of)),
     )
 
 

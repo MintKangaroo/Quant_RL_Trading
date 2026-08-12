@@ -18,8 +18,44 @@ def seeded(store):  # type: ignore[no-untyped-def]
 
 
 def test_checked_in_defaults_are_readable(seeded, ts) -> None:  # type: ignore[no-untyped-def]
-    assert seeded.config("rl.action_reflection_warn", as_of=ts(2026, 1, 1)) == 0.30
+    assert seeded.config("allocator.action_reflection_floor", as_of=ts(2026, 1, 1)) == 0.30
     assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 1, 1)) == 0.03
+
+
+def test_section_read_returns_the_whole_group(seeded, ts) -> None:  # type: ignore[no-untyped-def]
+    """보상 함수처럼 값 열 개를 한꺼번에 쓰는 곳은 섹션째 받는다.
+
+    키를 하나씩 읽으면 키가 늘 때마다 호출부를 고쳐야 하고, 그러다 보면
+    "이번 하나만" 하고 하드코딩하게 된다.
+    """
+    reward = seeded.config("reward", as_of=ts(2026, 1, 1))
+
+    assert reward["drawdown_free"] == 0.12
+    assert reward["drawdown_warn"] == 0.22
+    assert reward["drawdown_hard"] == 0.30
+    # 값 하나만 필요하면 점 표기로도 읽힌다.
+    assert seeded.config("reward.drawdown_hard", as_of=ts(2026, 1, 1)) == 0.30
+
+
+def test_list_values_survive_the_round_trip(seeded, ts) -> None:  # type: ignore[no-untyped-def]
+    """리스트는 통째로 한 값이다. 평평하게 저장해도 모양이 유지돼야 한다."""
+    assert seeded.config("universe", as_of=ts(2026, 1, 1))["exclude_flags"] == [
+        "관리종목", "거래정지", "정리매매",
+    ]
+
+
+def test_config_version_is_readable(seeded, ts) -> None:  # type: ignore[no-untyped-def]
+    """"이 성과가 어느 설정에서 나왔나" 를 추적하려면 판번호가 있어야 한다.
+
+    섹션에 속하지 않는 최상위 값이라 섹션 조회와 헷갈리기 쉽다.
+    """
+    assert seeded.config("config_version", as_of=ts(2026, 1, 1)) == 1
+
+
+def test_unknown_section_is_an_error_not_an_empty_dict(seeded, ts) -> None:  # type: ignore[no-untyped-def]
+    """빈 dict 를 돌려주면 호출부가 조용히 기본값으로 흘러간다."""
+    with pytest.raises(ConfigNotFound):
+        seeded.config("does_not_exist", as_of=ts(2026, 1, 1))
 
 
 def test_unknown_key_is_an_error_not_a_default(seeded, ts) -> None:  # type: ignore[no-untyped-def]
@@ -43,8 +79,8 @@ def test_new_keys_land_without_an_effective_at(seeded, tmp_path, ts) -> None:  #
     from lattice.store import DEFAULT_CONFIG_FILE
 
     text = DEFAULT_CONFIG_FILE.read_text(encoding="utf-8")
-    extended = tmp_path / "with-new-key.toml"
-    extended.write_text(text + "\n[m2]\nbrand_new_knob = 7\n", encoding="utf-8")
+    extended = tmp_path / "with-new-key.yaml"
+    extended.write_text(text + "\nm2:\n  brand_new_knob: 7\n", encoding="utf-8")
 
     assert seeded.seed_config_defaults(extended) == 1
     assert seeded.config("m2.brand_new_knob", as_of=ts(2026, 1, 1)) == 7
@@ -59,14 +95,14 @@ def test_changing_a_default_without_effective_at_is_refused(seeded, tmp_path, ts
     승자는 최신값이 아니라 row_hash 가 작은 쪽이 된다 — 편집한 값이 조용히
     무시되거나, 무시되지 않으면 작년 백테스트가 재현되지 않는다.
     """
-    edited = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.05")
+    edited = _edited(tmp_path, "ic_threshold: 0.03", "ic_threshold: 0.05")
 
     with pytest.raises(SchemaViolation, match=r"analyst\.ic_threshold"):
         seeded.seed_config_defaults(edited)
 
 
 def test_changed_default_lands_as_a_restatement(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
-    edited = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.05")
+    edited = _edited(tmp_path, "ic_threshold: 0.03", "ic_threshold: 0.05")
     change = ts(2026, 6, 1)
 
     # 바뀐 한 줄만 들어간다. 나머지 설정은 건드리지 않는다.
@@ -80,10 +116,10 @@ def test_changed_default_lands_as_a_restatement(seeded, tmp_path, ts) -> None:  
 
 def test_reverting_a_default_is_allowed(seeded, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
     """A→B→A 되돌리기는 정상적인 운영 행위다. run id 충돌로 막히면 안 된다."""
-    changed = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.05")
+    changed = _edited(tmp_path, "ic_threshold: 0.03", "ic_threshold: 0.05")
     seeded.seed_config_defaults(changed, effective_at=ts(2026, 6, 1))
 
-    original = _edited(tmp_path, "ic_threshold = 0.03", "ic_threshold = 0.03")
+    original = _edited(tmp_path, "ic_threshold: 0.03", "ic_threshold: 0.03")
     assert seeded.seed_config_defaults(original, effective_at=ts(2026, 7, 1)) == 1
 
     assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 6, 15)) == 0.05
@@ -91,12 +127,12 @@ def test_reverting_a_default_is_allowed(seeded, tmp_path, ts) -> None:  # type: 
 
 
 def _edited(tmp_path, old: str, new: str):  # type: ignore[no-untyped-def]
-    """체크인된 defaults.toml 의 한 줄만 바꾼 사본."""
+    """체크인된 lattice.yaml 의 한 줄만 바꾼 사본."""
     from lattice.store import DEFAULT_CONFIG_FILE
 
     text = DEFAULT_CONFIG_FILE.read_text(encoding="utf-8")
-    assert old in text, f"{old!r} 가 defaults.toml 에 없다"
-    target = tmp_path / f"defaults-{abs(hash(new))}.toml"
+    assert old in text, f"{old!r} 가 lattice.yaml 에 없다"
+    target = tmp_path / f"defaults-{abs(hash(new))}.yaml"
     target.write_text(text.replace(old, new), encoding="utf-8")
     return target
 

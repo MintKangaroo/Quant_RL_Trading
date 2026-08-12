@@ -19,7 +19,7 @@ from lattice.replay.fills import (
 from lattice.schemas.order import Order, Side
 
 PARAMS = FillParams(
-    impact_k=0.1, participation_cap=0.03, liquidation_days=3, min_order_value=100_000.0
+    impact_k=0.1, max_adv_ratio=0.03, max_liquidation_days=3, min_order_value=100_000.0
 )
 
 
@@ -64,12 +64,12 @@ def test_buy_pays_up_and_sell_gets_less() -> None:
     assert bought.avg_price > 70_000.0 > sold.avg_price
 
 
-def test_participation_cap_causes_partial_fill() -> None:
+def test_max_adv_ratio_causes_partial_fill() -> None:
     fill = simulate_fill(buy(100_000), state(volume=1_000_000.0), PARAMS)
 
     assert fill.status is FillStatus.PARTIAL
     assert fill.filled_quantity == 30_000, "거래량의 3% 를 넘겨 체결됐다"
-    assert fill.reason == "participation_cap"
+    assert fill.reason == "max_adv_ratio"
 
 
 def test_halted_stock_does_not_fill() -> None:
@@ -148,8 +148,8 @@ def test_params_come_from_store_config(store, ts) -> None:  # type: ignore[no-un
 
     loaded = FillParams.from_store(store, as_of=ts(2026, 8, 1))
 
-    assert loaded.participation_cap == 0.03
-    assert loaded.liquidation_days == 3
+    assert loaded.max_adv_ratio == 0.03
+    assert loaded.max_liquidation_days == 3
     assert loaded == PARAMS
 
 

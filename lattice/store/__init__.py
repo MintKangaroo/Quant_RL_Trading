@@ -41,7 +41,7 @@ from lattice.store.tables import table_names
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ROOT = REPO_ROOT / "data"
-DEFAULT_CONFIG_FILE = REPO_ROOT / "config" / "defaults.toml"
+DEFAULT_CONFIG_FILE = REPO_ROOT / "config" / "lattice.yaml"
 ROOT_ENV = "LATTICE_DATA_ROOT"
 
 
@@ -86,9 +86,23 @@ class Store:
         )
 
     def config(self, name: str, *, as_of: datetime) -> Any:
-        """임계치 조회. 하드코딩 금지 — 불변식 10."""
-        frame = self.get(_config.CONFIG_TABLE, as_of=as_of, entity=name)
-        return _config.read_value(frame, name, as_of)
+        """임계치 조회. 하드코딩 금지 — 불변식 10.
+
+        점이 있으면 값 하나(``"reward.w_free"``), 없으면 섹션 전체를 dict 로
+        (``"reward"``) 돌려준다. 보상 함수처럼 값 열 개를 한꺼번에 쓰는 곳은
+        키를 하나씩 읽으면 키가 늘 때마다 호출부를 고쳐야 한다.
+        """
+        exact = self.get(_config.CONFIG_TABLE, as_of=as_of, entity=name)
+        if "." in name or not exact.empty:
+            # 점이 있거나, 그 이름의 값이 실제로 있으면 값 하나다.
+            # ``config_version`` 처럼 섹션에 속하지 않는 최상위 값이 여기 걸린다.
+            return _config.read_value(exact, name, as_of)
+
+        # 섹션 조회는 entity 로 좁힐 수 없다. 게이트가 접두사 검색을 하지
+        # 않으므로 config 테이블 전체를 받아 여기서 고른다 — 설정은 수백 행
+        # 규모라 문제되지 않는다.
+        frame = self.get(_config.CONFIG_TABLE, as_of=as_of)
+        return _config.read_section(frame, name, as_of)
 
     # -- 적재 -----------------------------------------------------------------
 

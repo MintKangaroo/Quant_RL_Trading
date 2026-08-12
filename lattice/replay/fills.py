@@ -35,16 +35,16 @@ class FillParams:
     """체결 규칙 임계치. 전부 store.config 에서 온다."""
 
     impact_k: float
-    participation_cap: float
-    liquidation_days: int
+    max_adv_ratio: float
+    max_liquidation_days: int
     min_order_value: float
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> FillParams:
         return cls(
             impact_k=float(store.config("execution.impact_k", as_of=as_of)),
-            participation_cap=float(store.config("execution.participation_cap", as_of=as_of)),
-            liquidation_days=int(store.config("execution.liquidation_days", as_of=as_of)),
+            max_adv_ratio=float(store.config("execution.max_adv_ratio", as_of=as_of)),
+            max_liquidation_days=int(store.config("execution.max_liquidation_days", as_of=as_of)),
             min_order_value=float(store.config("execution.min_order_value", as_of=as_of)),
         )
 
@@ -127,7 +127,7 @@ def max_position_for_liquidation(state: MarketState, params: FillParams) -> int:
     Executor(M3)가 포지션 상한을 걸 때 쓴다. 못 빠져나오는 크기는 애초에
     들어가지 않는다.
     """
-    return int(state.adv * params.participation_cap * params.liquidation_days)
+    return int(state.adv * params.max_adv_ratio * params.max_liquidation_days)
 
 
 def simulate_fill(order: Order, state: MarketState, params: FillParams) -> Fill:
@@ -148,7 +148,7 @@ def simulate_fill(order: Order, state: MarketState, params: FillParams) -> Fill:
     if requested <= 0:
         return _rejected(order, "below_lot_size")
 
-    capacity = int(state.volume * params.participation_cap)
+    capacity = int(state.volume * params.max_adv_ratio)
     if capacity <= 0:
         return _rejected(order, "no_liquidity")
 
@@ -183,5 +183,5 @@ def simulate_fill(order: Order, state: MarketState, params: FillParams) -> Fill:
         avg_price=price,
         impact_bps=bps,
         status=FillStatus.FILLED if filled == requested else FillStatus.PARTIAL,
-        reason="ok" if filled == requested else "participation_cap",
+        reason="ok" if filled == requested else "max_adv_ratio",
     )

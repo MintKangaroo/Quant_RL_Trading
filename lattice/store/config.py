@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from lattice.store.errors import ConfigNotFound
 from lattice.store.tables import CONFIG_TABLE
@@ -22,10 +23,19 @@ DEFAULTS_EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 
 DEFAULTS_SOURCE = "config-defaults"
 
+#: 설정 판번호. 값이 바뀔 때마다 올린다 — "이 성과가 어느 설정에서 나왔나" 를
+#: 나중에 추적하려면 성과와 함께 기록될 무언가가 있어야 한다.
+VERSION_KEY = "config_version"
+
 
 def flatten(path: Path) -> dict[str, str]:
-    """TOML 을 ``section.key -> value_json`` 으로 편다."""
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    """YAML 을 ``section.key -> value_json`` 으로 편다.
+
+    저장은 평평하게 한다. 섹션째로 한 행에 넣으면 값 하나를 바꿔도 섹션 전체가
+    새 revision 이 되고, 무엇이 바뀌었는지 이력에서 읽어낼 수 없다.
+    읽을 때만 ``section()`` 으로 다시 묶는다.
+    """
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     flat: dict[str, str] = {}
 
     def walk(prefix: str, node: dict[str, Any]) -> None:
@@ -34,6 +44,7 @@ def flatten(path: Path) -> dict[str, str]:
             if isinstance(value, dict):
                 walk(name, value)
             else:
+                # 리스트(exclude_flags 등)는 통째로 한 값이다.
                 flat[name] = json.dumps(value, ensure_ascii=False, sort_keys=True)
 
     walk("", raw)
@@ -132,10 +143,38 @@ def read_value(frame: Any, name: str, as_of: datetime) -> Any:
     raise ConfigNotFound(f"{as_of.isoformat()} 시점에 발효된 설정 {name!r} 이 없다")
 
 
+def read_section(frame: Any, name: str, as_of: datetime) -> dict[str, Any]:
+    """섹션 하나를 dict 로. ``config("reward")`` 가 이걸 쓴다.
+
+    ``reward.w_free`` 를 하나씩 읽으면 호출부가 키 이름을 알아야 하고, 키가
+    늘 때마다 호출부를 고쳐야 한다. 보상 함수처럼 값 열 개를 한꺼번에 쓰는
+    곳은 섹션째 받는 편이 낫다.
+    """
+    prefix = f"{name}."
+    if frame.empty:
+        raise ConfigNotFound(f"{as_of.isoformat()} 시점에 발효된 설정 섹션 {name!r} 이 없다")
+
+    effective = frame[frame["valid_from"] <= as_of].sort_values("valid_from")
+    if effective.empty:
+        raise ConfigNotFound(f"{as_of.isoformat()} 시점에 발효된 설정 섹션 {name!r} 이 없다")
+
+    out: dict[str, Any] = {}
+    for row in effective.to_dict(orient="records"):
+        entity = str(row["entity_id"])
+        if entity.startswith(prefix):
+            # 정렬이 오래된 것부터라, 뒤에 오는 최신 발효값이 앞을 덮는다.
+            out[entity[len(prefix) :]] = json.loads(row["value_json"])
+    if not out:
+        raise ConfigNotFound(f"{as_of.isoformat()} 시점에 발효된 설정 섹션 {name!r} 이 없다")
+    return out
+
+
 __all__ = [
     "CONFIG_TABLE",
     "DEFAULTS_EPOCH",
+    "VERSION_KEY",
     "defaults_rows",
     "defaults_run_id",
+    "read_section",
     "read_value",
 ]
