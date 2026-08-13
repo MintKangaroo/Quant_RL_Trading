@@ -14,7 +14,7 @@ from tools.invariant_guard import RULE_WALLCLOCK, scan_repo, scan_source
 
 pytestmark = pytest.mark.invariant
 
-MODULE = "lattice/analysts/chart.py"
+MODULE = "quant_rl_trading/analysts/chart.py"
 
 
 VIOLATIONS = {
@@ -73,7 +73,7 @@ def test_allow_comment_exempts_the_line() -> None:
         "    def now(self):\n"
         "        return datetime.now(UTC)  # invariant-allow: wallclock\n"
     )
-    found = [v for v in scan_source(source, "lattice/replay/clock.py") if v.rule == RULE_WALLCLOCK]
+    found = [v for v in scan_source(source, "quant_rl_trading/replay/clock.py") if v.rule == RULE_WALLCLOCK]
     assert not found, found
 
 
@@ -84,7 +84,7 @@ def test_allow_comment_does_not_leak_to_other_lines() -> None:
         "a = datetime.now()  # invariant-allow: wallclock\n"
         "b = datetime.now()\n"
     )
-    found = [v for v in scan_source(source, "lattice/replay/clock.py") if v.rule == RULE_WALLCLOCK]
+    found = [v for v in scan_source(source, "quant_rl_trading/replay/clock.py") if v.rule == RULE_WALLCLOCK]
     assert [v.line for v in found] == [3], found
 
 

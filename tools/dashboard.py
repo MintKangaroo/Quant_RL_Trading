@@ -16,9 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lattice.dashboard import create_app  # noqa: E402
-from lattice.replay.clock import LiveClock  # noqa: E402
-from lattice.store import ConfigNotFound, Store  # noqa: E402
+from quant_rl_trading.dashboard import create_app  # noqa: E402
+from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
+from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
 from tools.backfill import load_env  # noqa: E402
 
 DEFAULT_HOST = "127.0.0.1"

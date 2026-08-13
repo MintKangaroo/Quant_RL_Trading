@@ -29,19 +29,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lattice.analysts import ic  # noqa: E402
-from lattice.analysts.base import Analyst, to_scores_frame  # noqa: E402
-from lattice.analysts.chart import ChartAnalyst  # noqa: E402
-from lattice.analysts.event import EventAnalyst  # noqa: E402
-from lattice.analysts.flow_kr import FlowKrAnalyst  # noqa: E402
-from lattice.analysts.flow_us import FlowUsAnalyst  # noqa: E402
-from lattice.analysts.fundamental import FundamentalAnalyst  # noqa: E402
-from lattice.analysts.regime import RegimeAnalyst  # noqa: E402
-from lattice.analysts.risk import RiskAnalyst  # noqa: E402
-from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
-from lattice.collectors.publication import publication_policy  # noqa: E402
-from lattice.replay.clock import LiveClock, ReplayClock  # noqa: E402
-from lattice.store import Store  # noqa: E402
+from quant_rl_trading.analysts import ic  # noqa: E402
+from quant_rl_trading.analysts.base import Analyst, to_scores_frame  # noqa: E402
+from quant_rl_trading.analysts.chart import ChartAnalyst  # noqa: E402
+from quant_rl_trading.analysts.event import EventAnalyst  # noqa: E402
+from quant_rl_trading.analysts.flow_kr import FlowKrAnalyst  # noqa: E402
+from quant_rl_trading.analysts.flow_us import FlowUsAnalyst  # noqa: E402
+from quant_rl_trading.analysts.fundamental import FundamentalAnalyst  # noqa: E402
+from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
+from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
+from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
+from quant_rl_trading.replay.clock import LiveClock, ReplayClock  # noqa: E402
+from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 ANALYSTS: dict[str, type[Analyst]] = {

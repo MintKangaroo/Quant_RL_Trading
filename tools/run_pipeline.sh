@@ -15,7 +15,7 @@ echo "=== pipeline 시작 $(date '+%F %T') ==="
 echo "--- 1/2 미장 백필 ---"
 (
     ulimit -v 8388608
-    LATTICE_DUCKDB_MEMORY_LIMIT=1GB LATTICE_DUCKDB_THREADS=2 \
+    QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/backfill.py --market US
 ) >logs/backfill-us.log 2>&1
 echo "백필 종료(rc=$?) $(date '+%F %T')"

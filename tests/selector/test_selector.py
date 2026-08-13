@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import pytest
 
-from lattice.selector import (
+from quant_rl_trading.selector import (
     Candidate,
     SelectionParams,
     SelectionTrace,

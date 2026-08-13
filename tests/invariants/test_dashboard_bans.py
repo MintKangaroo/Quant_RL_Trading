@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DASHBOARD = REPO_ROOT / "lattice" / "dashboard"
+DASHBOARD = REPO_ROOT / "quant_rl_trading" / "dashboard"
 
 BANNED_STORAGE = ("localStorage", "sessionStorage")
 

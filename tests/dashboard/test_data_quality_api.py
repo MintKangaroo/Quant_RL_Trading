@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 
-from lattice.dashboard import create_app
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.dashboard import create_app
+from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2024, 3, 20, tzinfo=UTC)
 

@@ -5,11 +5,11 @@
 같은 숫자가 학습·Executor·대시보드·리포트 네 곳에 흩어지면 반드시 어긋난다.
 12%를 13%로 바꿨는데 화면만 12%를 보여주는 상황이 실제로 일어난다.
 
-`config/lattice.yaml` 하나가 유일한 출처다.
+`config/quant_rl_trading.yaml` 하나가 유일한 출처다.
 
 ---
 
-## config/lattice.yaml
+## config/quant_rl_trading.yaml
 
 ```yaml
 reward:

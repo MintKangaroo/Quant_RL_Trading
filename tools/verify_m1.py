@@ -28,12 +28,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
-from lattice.dashboard.services import data_quality as dq  # noqa: E402
-from lattice.replay import FillParams, MarketState, ReplayClock, run_session  # noqa: E402
-from lattice.replay.clock import LiveClock  # noqa: E402
-from lattice.schemas.order import Order, Side  # noqa: E402
-from lattice.store import Store  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
+from quant_rl_trading.dashboard.services import data_quality as dq  # noqa: E402
+from quant_rl_trading.replay import FillParams, MarketState, ReplayClock, run_session  # noqa: E402
+from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
+from quant_rl_trading.schemas.order import Order, Side  # noqa: E402
+from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import REPORT_SPAN_DAYS, build_store, load_env  # noqa: E402
 
 #: 리플레이 표본 수. 완료 기준이 100개다.

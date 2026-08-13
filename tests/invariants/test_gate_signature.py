@@ -11,8 +11,8 @@ from datetime import datetime
 
 import pytest
 
-from lattice import store
-from lattice.store.errors import NaiveTimestamp
+from quant_rl_trading import store
+from quant_rl_trading.store.errors import NaiveTimestamp
 
 pytestmark = pytest.mark.invariant
 

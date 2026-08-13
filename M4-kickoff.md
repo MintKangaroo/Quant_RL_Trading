@@ -11,7 +11,7 @@
 ## 4-1. 환경 스켈레톤
 
 ```
-docs/design/rl-training.md §1 을 읽고 lattice/allocator/env.py 구현 계획을 세워줘.
+docs/design/rl-training.md §1 을 읽고 quant_rl_trading/allocator/env.py 구현 계획을 세워줘.
 아직 구현하지 마.
 
 Gymnasium 호환 LatticeEnv:
@@ -77,7 +77,7 @@ r_t = (r_port − r_bench) − w(d_t)·Δd_t − cost_t
 ## 4-3. 정책 네트워크
 
 ```
-rl-training.md §2 대로 lattice/allocator/policy.py 를 구현할 계획을 세워줘.
+rl-training.md §2 대로 quant_rl_trading/allocator/policy.py 를 구현할 계획을 세워줘.
 
 구조:
 - per-asset MLP (28→128)
@@ -135,7 +135,7 @@ tests/rl/test_oracle_canary.py 로 영구 보존해줘.
 ## 4-5. PPO 학습 루프
 
 ```
-lattice/allocator/train.py 를 구현할 계획을 세워줘.
+quant_rl_trading/allocator/train.py 를 구현할 계획을 세워줘.
 
 rl-training.md §4 의 하이퍼파라미터를 config 기본값으로:
 num_envs 32, n_steps 512, minibatch 2048, n_epochs 10,

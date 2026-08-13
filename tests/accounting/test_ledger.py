@@ -10,9 +10,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lattice.accounting import KRW, USD, Rates, snapshot
-from lattice.accounting import ledger as ledger_module
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.accounting import KRW, USD, Rates, snapshot
+from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.replay.clock import ReplayClock
 
 DAY1 = datetime(2026, 3, 2, 6, 40, tzinfo=UTC)   # 한국시간 15:40
 DAY2 = DAY1 + timedelta(days=1)

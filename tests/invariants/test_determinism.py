@@ -12,8 +12,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from lattice.replay import FillParams, MarketState, ReplayClock, run_session
-from lattice.schemas.order import Order, Side
+from quant_rl_trading.replay import FillParams, MarketState, ReplayClock, run_session
+from quant_rl_trading.schemas.order import Order, Side
 
 pytestmark = pytest.mark.invariant
 

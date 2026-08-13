@@ -67,13 +67,13 @@ VM 은 국내 리전(asia-northeast3)에 둔다. LS API 지연이 직접 슬리�
 
 ```bash
 # 발동
-python -m lattice.executor.killswitch engage --reason "..."
+python -m quant_rl_trading.executor.killswitch engage --reason "..."
 
 # 상태 확인
-python -m lattice.executor.killswitch status
+python -m quant_rl_trading.executor.killswitch status
 
 # 해제 (확인 프롬프트 필수)
-python -m lattice.executor.killswitch release --confirm
+python -m quant_rl_trading.executor.killswitch release --confirm
 ```
 
 해제 전 체크리스트:

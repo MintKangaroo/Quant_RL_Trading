@@ -7,7 +7,7 @@ for analyst in chart event; do
     echo "=== ${analyst} 시작 $(date '+%F %T') ==="
     (
         ulimit -v 8388608
-        LATTICE_DUCKDB_MEMORY_LIMIT=1GB LATTICE_DUCKDB_THREADS=2 \
+        QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
             .venv/bin/python tools/measure_features.py \
             --analyst "${analyst}" --market KR --sessions 300
     ) >"logs/feat-${analyst}.log" 2>&1

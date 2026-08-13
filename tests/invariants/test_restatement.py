@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lattice.store.errors import DuplicateIngestRun
+from quant_rl_trading.store.errors import DuplicateIngestRun
 
 pytestmark = pytest.mark.invariant
 

@@ -17,8 +17,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lattice.collectors.raw import RawArchive
-from lattice.dashboard.services import data_quality as dq
+from quant_rl_trading.collectors.raw import RawArchive
+from quant_rl_trading.dashboard.services import data_quality as dq
 
 pytestmark = pytest.mark.invariant
 

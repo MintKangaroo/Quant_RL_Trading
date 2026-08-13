@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lattice.collectors.backfill import (  # noqa: E402
+from quant_rl_trading.collectors.backfill import (  # noqa: E402
     PRICES,
     UNIVERSE,
     Backfiller,
@@ -32,39 +32,39 @@ from lattice.collectors.backfill import (  # noqa: E402
     ProgressLog,
     eta,
 )
-from lattice.collectors.dart_filings import (  # noqa: E402
+from quant_rl_trading.collectors.dart_filings import (  # noqa: E402
     FilingsBackfiller,
     FilingsReport,
 )
-from lattice.collectors.dart_source import (  # noqa: E402
+from quant_rl_trading.collectors.dart_source import (  # noqa: E402
     DartBackfiller,
     DartSource,
     FilingPolicy,
     batched,
 )
-from lattice.collectors.krx_openapi import KrxOpenApi  # noqa: E402
-from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
-from lattice.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
-from lattice.collectors.ls_flow import LSFlowBackfiller, LSFlowSource  # noqa: E402
-from lattice.collectors.ls_us_source import (  # noqa: E402
+from quant_rl_trading.collectors.krx_openapi import KrxOpenApi  # noqa: E402
+from quant_rl_trading.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
+from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
+from quant_rl_trading.collectors.ls_flow import LSFlowBackfiller, LSFlowSource  # noqa: E402
+from quant_rl_trading.collectors.ls_us_source import (  # noqa: E402
     LsUsSource,
     UsPriceBackfiller,
 )
-from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
-from lattice.collectors import us_universe_panel as up  # noqa: E402
-from lattice.collectors.us_universe import UA_ENV, fetch_listings  # noqa: E402
-from lattice.collectors.panels import (  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
+from quant_rl_trading.collectors import us_universe_panel as up  # noqa: E402
+from quant_rl_trading.collectors.us_universe import UA_ENV, fetch_listings  # noqa: E402
+from quant_rl_trading.collectors.panels import (  # noqa: E402
     OPENAPI_PANELS,
     PANELS,
     PanelBackfiller,
 )
-from lattice.collectors.panels import SHORTING as SHORTING  # noqa: E402
-from lattice.collectors.publication import publication_policy  # noqa: E402
-from lattice.collectors.raw import RawArchive  # noqa: E402
-from lattice.dashboard.services import data_quality as dq  # noqa: E402
-from lattice.replay.clock import Clock, LiveClock  # noqa: E402
-from lattice.settings import load_env  # noqa: E402,F401  (재수출 — 호출부가 여기서 가져간다)
-from lattice.store import ConfigNotFound, Store  # noqa: E402
+from quant_rl_trading.collectors.panels import SHORTING as SHORTING  # noqa: E402
+from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
+from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
+from quant_rl_trading.dashboard.services import data_quality as dq  # noqa: E402
+from quant_rl_trading.replay.clock import Clock, LiveClock  # noqa: E402
+from quant_rl_trading.settings import load_env  # noqa: E402,F401  (재수출 — 호출부가 여기서 가져간다)
+from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
 FLOW_LS = "flows-ls"
@@ -660,7 +660,7 @@ def render_report(store: Store, clock: Clock, *, market: Market, as_of: datetime
     """창고를 창 단위로 훑어 집계한다.
 
     창 나누기와 커버리지 집계는 대시보드와 **같은 함수**를 쓴다
-    (``lattice/dashboard/services/data_quality.py``). 두 벌로 두면 같은 데이터에서
+    (``quant_rl_trading/dashboard/services/data_quality.py``). 두 벌로 두면 같은 데이터에서
     서로 다른 커버리지 숫자가 나오고, 어느 쪽이 맞는지 아무도 모르게 된다.
     """
     lines = [

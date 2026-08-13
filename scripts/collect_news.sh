@@ -20,7 +20,7 @@ LOG="logs/news-$(date +%Y%m).log"
     # DuckDB 한도를 조인다. 이 머신은 9.7GB 이고 국장·미장 워커가 같이 도는
     # 시간대가 있어, 수집기 하나가 메모리를 크게 잡으면 그쪽이 죽는다.
     ulimit -v 8388608
-    LATTICE_DUCKDB_MEMORY_LIMIT=512MB LATTICE_DUCKDB_THREADS=2 \
+    QUANT_RL_DUCKDB_MEMORY_LIMIT=512MB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/collect_news.py --market "${MARKET}" --limit "${LIMIT}"
     echo "rc=$?"
 } >>"${LOG}" 2>&1

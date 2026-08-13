@@ -30,7 +30,7 @@ Quant_RL_Trading 로 가져올 때는 .env 로 옮겨야 해.
 ## R-1. 리포트 데이터 계층 (LLM 없이)
 
 ```
-docs/design/reporting.md 를 읽고 lattice/reporting/ 구현 계획을 세워줘.
+docs/design/reporting.md 를 읽고 quant_rl_trading/reporting/ 구현 계획을 세워줘.
 이 단계에서는 Claude API를 쓰지 않아. 숫자만 모으는 계층이야.
 
 build_report(kind, as_of) -> ReportData     kind: "close" | "weekly"

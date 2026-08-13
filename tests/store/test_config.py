@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lattice.store.errors import ConfigNotFound, SchemaViolation
+from quant_rl_trading.store.errors import ConfigNotFound, SchemaViolation
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def test_new_keys_land_without_an_effective_at(seeded, tmp_path, ts) -> None:  #
     막으면 설정을 추가할 때마다 기존 창고가 그 키를 영영 모르는 채로 남고,
     그 사실은 몇 주 뒤 ConfigNotFound 로 백필이 죽을 때에야 드러난다.
     """
-    from lattice.store import DEFAULT_CONFIG_FILE
+    from quant_rl_trading.store import DEFAULT_CONFIG_FILE
 
     text = DEFAULT_CONFIG_FILE.read_text(encoding="utf-8")
     extended = tmp_path / "with-new-key.yaml"
@@ -127,11 +127,11 @@ def test_reverting_a_default_is_allowed(seeded, tmp_path, ts) -> None:  # type: 
 
 
 def _edited(tmp_path, old: str, new: str):  # type: ignore[no-untyped-def]
-    """체크인된 lattice.yaml 의 한 줄만 바꾼 사본."""
-    from lattice.store import DEFAULT_CONFIG_FILE
+    """체크인된 quant_rl_trading.yaml 의 한 줄만 바꾼 사본."""
+    from quant_rl_trading.store import DEFAULT_CONFIG_FILE
 
     text = DEFAULT_CONFIG_FILE.read_text(encoding="utf-8")
-    assert old in text, f"{old!r} 가 lattice.yaml 에 없다"
+    assert old in text, f"{old!r} 가 quant_rl_trading.yaml 에 없다"
     target = tmp_path / f"defaults-{abs(hash(new))}.yaml"
     target.write_text(text.replace(old, new), encoding="utf-8")
     return target

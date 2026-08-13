@@ -7,7 +7,7 @@ echo "=== 시작 $(date '+%F %T') ==="
 
 echo "=== event 피처별 $(date '+%F %T') ==="
 ( ulimit -v 8388608
-  LATTICE_DUCKDB_MEMORY_LIMIT=1GB LATTICE_DUCKDB_THREADS=2 \
+  QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
     .venv/bin/python tools/measure_features.py --analyst event --market KR --sessions 300
 ) >logs/feat-event2.log 2>&1
 echo "=== event 피처별 종료(rc=$?) $(date '+%F %T') ==="
@@ -15,7 +15,7 @@ echo "=== event 피처별 종료(rc=$?) $(date '+%F %T') ==="
 for analyst in event chart; do
     echo "=== ${analyst} 종합 $(date '+%F %T') ==="
     ( ulimit -v 8388608
-      LATTICE_DUCKDB_MEMORY_LIMIT=1GB LATTICE_DUCKDB_THREADS=2 \
+      QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/measure_ic.py \
         --analyst "${analyst}" --market KR --sessions 300 --save
     ) >"logs/ic2-${analyst}.log" 2>&1

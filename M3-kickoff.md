@@ -8,7 +8,7 @@
 ## 3-1. 회계 계층 ⭐ 가장 먼저
 
 ```
-docs/design/accounting.md 를 읽고 lattice/accounting/ 을 구현할 계획을 세워줘.
+docs/design/accounting.md 를 읽고 quant_rl_trading/accounting/ 을 구현할 계획을 세워줘.
 
 보상 함수의 r_port 가 여기서 정의돼. 이게 틀리면 위에 뭘 쌓아도 틀려.
 
@@ -41,7 +41,7 @@ NAV 산출은 이 모듈에서만 해. Executor·Auditor·dashboard·reporting �
 ## 3-2. Selector — 합성과 후보 선정
 
 ```
-docs/design/selector.md 를 읽고 lattice/selector/ 를 구현할 계획을 세워줘.
+docs/design/selector.md 를 읽고 quant_rl_trading/selector/ 를 구현할 계획을 세워줘.
 진화는 아직. 먼저 고정 가중치로 동작하는 합성·선정 로직을 만들어.
 
 combined = Σ(wᵢ·scoreᵢ·confᵢ) / Σ(wᵢ·confᵢ)
@@ -65,7 +65,7 @@ combined = Σ(wᵢ·scoreᵢ·confᵢ) / Σ(wᵢ·confᵢ)
 ## 3-3. Executor
 
 ```
-lattice/executor/ 를 구현할 계획을 세워줘.
+quant_rl_trading/executor/ 를 구현할 계획을 세워줘.
 agents.md §7 의 실행 순서를 그대로 지켜. 순서가 곧 안전이야.
 
 1. 킬스위치 latch 확인 → 걸려 있으면 즉시 종료

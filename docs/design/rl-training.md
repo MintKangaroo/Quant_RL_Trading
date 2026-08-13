@@ -31,7 +31,7 @@ obs["per_asset"][:, ORACLE_IDX] = future_excess_return_5d   # 정답
 
 ## 1. 환경 인터페이스
 
-Gymnasium 호환. `lattice/allocator/env.py`
+Gymnasium 호환. `quant_rl_trading/allocator/env.py`
 
 ```python
 class LatticeEnv(gym.Env):
@@ -87,7 +87,7 @@ concentration = concentration.clamp(max=1e3)  # 폭주 방지
 
 ## 2. 신경망 구조
 
-`lattice/allocator/policy.py`
+`quant_rl_trading/allocator/policy.py`
 
 ```
 assets (N,28) ──> per-asset MLP (28→128) ──┐

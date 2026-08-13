@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
-from lattice.collectors.dart_filings import (
+from quant_rl_trading.collectors.dart_filings import (
     OTHER,
     classify,
     filings_run_id,

@@ -12,18 +12,18 @@ import json
 import httpx
 import pytest
 
-from lattice.collectors.document_collector import DocumentCollector, normalize_filings
-from lattice.collectors.errors import CollectorError, MissingCredentials
-from lattice.collectors.ls_client import LSClient, LSCredentials
-from lattice.collectors.market_collector import (
+from quant_rl_trading.collectors.document_collector import DocumentCollector, normalize_filings
+from quant_rl_trading.collectors.errors import CollectorError, MissingCredentials
+from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
+from quant_rl_trading.collectors.market_collector import (
     SUJUNG_RAW,
     MarketCollector,
     normalize_master,
     normalize_ohlcv,
 )
-from lattice.collectors.market_hours import Market, is_regular_session, is_trading_day
-from lattice.collectors.raw import RawArchive
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.market_hours import Market, is_regular_session, is_trading_day
+from quant_rl_trading.collectors.raw import RawArchive
+from quant_rl_trading.replay.clock import ReplayClock
 
 BARS = [
     {"date": "20240304", "open": "70000", "high": "71000", "low": "69500", "close": "70500",

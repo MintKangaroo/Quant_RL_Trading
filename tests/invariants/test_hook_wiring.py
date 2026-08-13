@@ -38,7 +38,7 @@ def test_settings_registers_the_guard_on_file_edits() -> None:
 
 
 def test_hook_blocks_a_violating_file(tmp_path: Path) -> None:
-    target = REPO_ROOT / "lattice" / "analysts" / "_hook_probe.py"
+    target = REPO_ROOT / "quant_rl_trading" / "analysts" / "_hook_probe.py"
     target.write_text("from datetime import datetime\nx = datetime.now()\n", encoding="utf-8")
     try:
         result = run_hook(target)

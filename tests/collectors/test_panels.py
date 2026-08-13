@@ -13,11 +13,11 @@ from typing import Any
 
 import pytest
 
-from lattice.collectors.market_hours import Market
-from lattice.collectors.panels import PANELS, PanelBackfiller
-from lattice.collectors.publication import PublicationPolicy
-from lattice.collectors.raw import RawArchive
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.panels import PANELS, PanelBackfiller
+from quant_rl_trading.collectors.publication import PublicationPolicy
+from quant_rl_trading.collectors.raw import RawArchive
+from quant_rl_trading.replay.clock import ReplayClock
 
 KST_OFFSET = timedelta(hours=9)
 LAG = 1800.0

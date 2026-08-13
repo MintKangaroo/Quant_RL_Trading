@@ -14,9 +14,9 @@ from typing import Any
 
 import pytest
 
-from lattice.dashboard import create_app
-from lattice.dashboard.services.agent_health import PLANNED
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.dashboard import create_app
+from quant_rl_trading.dashboard.services.agent_health import PLANNED
+from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 11, tzinfo=UTC)
 MEASURED_AT = NOW - timedelta(days=1)

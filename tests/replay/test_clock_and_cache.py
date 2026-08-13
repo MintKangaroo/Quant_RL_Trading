@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from lattice.replay import AgentCache, CacheKey, LiveClock, ReplayClock, features_hash
-from lattice.store.errors import NaiveTimestamp
+from quant_rl_trading.replay import AgentCache, CacheKey, LiveClock, ReplayClock, features_hash
+from quant_rl_trading.store.errors import NaiveTimestamp
 
 
 def test_replay_clock_rejects_naive_time() -> None:

@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lattice.executor import (
+from quant_rl_trading.executor import (
     SizingParams,
     Target,
     action_reflection_rate,
@@ -25,8 +25,8 @@ from lattice.executor import (
     size_orders,
     split,
 )
-from lattice.replay.clock import ReplayClock
-from lattice.schemas.order import Side
+from quant_rl_trading.replay.clock import ReplayClock
+from quant_rl_trading.schemas.order import Side
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)   # 한국시간 10:00
 OPEN = datetime(2026, 8, 12, 0, 0, tzinfo=UTC)  # 한국시간 09:00

@@ -2,7 +2,7 @@
 
 **멀티에이전트 AI 사모펀드.** 목표는 시장보다 덜 잃고 시장보다 더 버는 것 — 한 숫자로 말하면 **정보비율(IR)** 이다.
 
-격자(lattice)는 옵션 가격결정의 이항 격자에서 온 말이자, 이 시스템의 다층 에이전트 구조 그 자체다.
+격자(quant_rl_trading)는 옵션 가격결정의 이항 격자에서 온 말이자, 이 시스템의 다층 에이전트 구조 그 자체다.
 
 ```
 Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
@@ -174,7 +174,7 @@ IC 측정 파이프라인이 **실제로 누수를 잡는지** 먼저 증명했�
 ## 구조
 
 ```
-lattice/
+quant_rl_trading/
   store/        데이터 게이트 — Parquet/DuckDB를 만질 수 있는 유일한 패키지
   replay/       Clock, 이벤트 로그, 에이전트 캐시, 체결 시뮬레이터
   collectors/   수집 전담. 점수를 내지 않는다

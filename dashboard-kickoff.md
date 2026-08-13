@@ -9,7 +9,7 @@
 ## D-1. 셸과 공통 헤더
 
 ```
-docs/design/dashboard.md 를 읽고 lattice/dashboard/ 셸을 만들 계획을 세워줘.
+docs/design/dashboard.md 를 읽고 quant_rl_trading/dashboard/ 셸을 만들 계획을 세워줘.
 아직 개별 탭 내용은 만들지 마. 뼈대만.
 
 - Flask + ECharts CDN. 빌드 도구 없음

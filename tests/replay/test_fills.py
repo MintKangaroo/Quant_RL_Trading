@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from lattice.replay.fills import (
+from quant_rl_trading.replay.fills import (
     FillParams,
     FillStatus,
     MarketState,
@@ -16,7 +16,7 @@ from lattice.replay.fills import (
     max_position_for_liquidation,
     simulate_fill,
 )
-from lattice.schemas.order import Order, Side
+from quant_rl_trading.schemas.order import Order, Side
 
 PARAMS = FillParams(
     impact_k=0.1, max_adv_ratio=0.03, max_liquidation_days=3, min_order_value=100_000.0

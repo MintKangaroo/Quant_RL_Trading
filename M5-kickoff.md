@@ -8,7 +8,7 @@
 ## 5-1. Auditor — 성과 귀속
 
 ```
-lattice/auditor/ 를 구현할 계획을 세워줘.
+quant_rl_trading/auditor/ 를 구현할 계획을 세워줘.
 
 일간·주간 성과를 아래로 분해해:
 
@@ -35,7 +35,7 @@ Analyst별 기여도는 Selector 의 가중치 진화에 피드백돼야 해.
 ## 5-2. ModelOps — 모델 감시
 
 ```
-lattice/modelops/ 를 구현할 계획을 세워줘.
+quant_rl_trading/modelops/ 를 구현할 계획을 세워줘.
 
 감시 항목:
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from lattice.allocator.baseline import AllocatorParams, Baseline, allocate
+from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
 
 #: 실제 설정값. 상한이 잘 걸리는지 보는 테스트가 쓴다.
 PARAMS = AllocatorParams(

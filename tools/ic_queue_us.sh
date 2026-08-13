@@ -35,7 +35,7 @@ for analyst in "${ANALYSTS[@]}"; do
     echo "=== 미장 ${analyst} 시작 $(date '+%F %T') ==="
     (
         ulimit -v 8388608
-        LATTICE_DUCKDB_MEMORY_LIMIT=1GB LATTICE_DUCKDB_THREADS=2 \
+        QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
             .venv/bin/python tools/measure_ic.py \
             --analyst "${analyst}" --market US --sessions 300 --save
     ) >"logs/ic-us-${analyst}.log" 2>&1

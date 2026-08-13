@@ -11,8 +11,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lattice.replay.clock import ReplayClock
-from lattice.session import daily
+from quant_rl_trading.replay.clock import ReplayClock
+from quant_rl_trading.session import daily
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)      # 한국시간 10:00
 SESSIONS = [NOW - timedelta(days=offset) for offset in range(400, -1, -1)]

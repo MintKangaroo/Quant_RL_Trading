@@ -12,8 +12,8 @@ from tools.invariant_guard import RULE_DATA_ACCESS, scan_repo, scan_source
 
 pytestmark = pytest.mark.invariant
 
-MODULE = "lattice/analysts/chart.py"
-GATE = "lattice/store/reader.py"
+MODULE = "quant_rl_trading/analysts/chart.py"
+GATE = "quant_rl_trading/store/reader.py"
 
 
 VIOLATIONS = {
@@ -30,7 +30,7 @@ VIOLATIONS = {
 
 CLEAN = {
     "store gateway": (
-        "from lattice import store\n"
+        "from quant_rl_trading import store\n"
         "def score(as_of):\n"
         "    return store.get('bars', as_of=as_of)\n"
     ),
@@ -61,8 +61,8 @@ def test_store_package_is_exempt(source: str) -> None:
 def test_exemption_is_scoped_to_store_only() -> None:
     """경로 면제가 store/ 밖으로 새면 안 된다."""
     source = "import duckdb\ncon = duckdb.connect('warehouse.db')\n"
-    assert not scan_source(source, "lattice/store/nested/reader.py")
-    assert scan_source(source, "lattice/storefront/reader.py")
+    assert not scan_source(source, "quant_rl_trading/store/nested/reader.py")
+    assert scan_source(source, "quant_rl_trading/storefront/reader.py")
 
 
 def test_repo_has_no_direct_data_access() -> None:

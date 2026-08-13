@@ -80,7 +80,7 @@ CLAUDE.md 지시는 권고지만 hook은 강제되니까.
 ## 2단계 — store 계층
 
 ```
-docs/design/data-contract.md 를 읽고 lattice/store/ 구현 계획을 세워줘.
+docs/design/data-contract.md 를 읽고 quant_rl_trading/store/ 구현 계획을 세워줘.
 아직 구현하지 마.
 
 핵심:
@@ -111,7 +111,7 @@ docs/design/data-contract.md 를 읽고 lattice/store/ 구현 계획을 세워�
 ## 3단계 — replay 계층
 
 ```
-lattice/replay/ 구현 계획을 세워줘. 구현은 아직.
+quant_rl_trading/replay/ 구현 계획을 세워줘. 구현은 아직.
 
 - Clock 프로토콜 + LiveClock / ReplayClock
 - 이벤트 로그: {run_id, seq, ts_wall, ts_sim, stage, actor, payload_hash, payload}
@@ -132,7 +132,7 @@ lattice/replay/ 구현 계획을 세워줘. 구현은 아직.
 ## 4단계 — Collector
 
 ```
-lattice/collectors/ 구현 계획을 세워줘. 구현은 아직.
+quant_rl_trading/collectors/ 구현 계획을 세워줘. 구현은 아직.
 
 docs/postmortem-ls.md 의 "재사용 가치가 있는 I/O 계층" 목록을 참고해서
 LS_KR / LS_USA 코드를 이식하되, CLAUDE.md 의 참고 규칙을 지켜.

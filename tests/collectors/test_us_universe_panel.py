@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from lattice.collectors.market_hours import Market
-from lattice.collectors.us_universe_panel import (
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.us_universe_panel import (
     DEAD_SESSIONS,
     delisting_rows,
     session_rows,

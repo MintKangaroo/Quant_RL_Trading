@@ -113,7 +113,7 @@ NAV = KRW 현금
 
 ## 8. 구현 규약
 
-- NAV 산출은 `lattice/accounting/` 한 곳에서만 한다.
+- NAV 산출은 `quant_rl_trading/accounting/` 한 곳에서만 한다.
   Executor·Auditor·dashboard·reporting이 각자 계산하면 반드시 어긋난다
 - `nav_daily` 테이블에 저장: NAV, 유입, TWR 일간수익률, 누적지수, 통화별 잔고,
   미수배당, 세전/세후, 적용 환율

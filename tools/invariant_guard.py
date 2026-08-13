@@ -15,7 +15,7 @@ grep 이 아니라 AST 를 쓴다. 주석·docstring·문자열 안의 ``datetim
 예외를 두는 방법은 두 가지뿐이다.
 1. 경로 면제 — ``store/`` 는 데이터 게이트 그 자체이므로 Parquet/DuckDB 를 만진다.
 2. 라인 면제 — 해당 라인에 ``# invariant-allow: <rule>`` 주석을 단다.
-   벽시계는 ``lattice/replay/clock.py`` 의 LiveClock 한 지점에서만 허용된다.
+   벽시계는 ``quant_rl_trading/replay/clock.py`` 의 LiveClock 한 지점에서만 허용된다.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: 검사 대상 루트. tests/ 는 제외한다 — 테스트는 가짜 과거 데이터를 직접
 #: 만들어 심어야 하고, 그게 데이터 계약 테스트의 본질이기 때문이다.
-DEFAULT_ROOTS = ("lattice", "tools", "scripts")
+DEFAULT_ROOTS = ("quant_rl_trading", "tools", "scripts")
 
 RULE_WALLCLOCK = "wallclock"
 RULE_DATA_ACCESS = "data-access"
@@ -40,7 +40,7 @@ RULE_DATA_ACCESS = "data-access"
 ALLOW_MARKER = "# invariant-allow:"
 
 #: 데이터 게이트 자신. 여기서만 Parquet/DuckDB 를 직접 연다.
-DATA_GATE_PREFIX = "lattice/store"
+DATA_GATE_PREFIX = "quant_rl_trading/store"
 
 # -----------------------------------------------------------------------------
 # 불변식 2 — datetime.now() 직접 호출 금지. 시간은 Clock 주입으로만.
@@ -173,7 +173,7 @@ def _allowed_lines(source: str, rule: str) -> set[int]:
 
 
 def _is_data_gate(path: str) -> bool:
-    # 경계는 디렉터리 단위다. ``lattice/storefront/`` 가 면제되면 안 된다.
+    # 경계는 디렉터리 단위다. ``quant_rl_trading/storefront/`` 가 면제되면 안 된다.
     normalized = path.replace("\\", "/")
     return normalized == DATA_GATE_PREFIX or normalized.startswith(f"{DATA_GATE_PREFIX}/")
 

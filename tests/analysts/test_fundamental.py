@@ -16,13 +16,13 @@ from datetime import UTC, datetime, timedelta
 import pandas as pd
 import pytest
 
-from lattice.analysts.fundamental import (
+from quant_rl_trading.analysts.fundamental import (
     FundamentalAnalyst,
     to_quarterly,
     trailing_twelve_months,
 )
-from lattice.collectors.market_hours import Market
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 12, tzinfo=UTC)
 
@@ -254,7 +254,7 @@ def test_window_must_cover_whole_calendar_years(seeded) -> None:
     **YoY 피처가 조용히 0이 된다.** 점수는 계속 나오므로 눈치채기 어렵다.
     실측에서 800일 창일 때 revenue_growth 의 표준편차가 정확히 0이었다.
     """
-    from lattice.analysts.fundamental import LOOKBACK_DAYS
+    from quant_rl_trading.analysts.fundamental import LOOKBACK_DAYS
 
     # 8분기(730일) + 달력연도 여유. 이 값이 730 근처로 줄면 YoY 가 죽는다.
     assert LOOKBACK_DAYS >= 1095

@@ -14,7 +14,7 @@ from datetime import datetime
 
 import pytest
 
-from lattice.store.errors import MissingObservedAt, NaiveTimestamp, SchemaViolation, UnknownTable
+from quant_rl_trading.store.errors import MissingObservedAt, NaiveTimestamp, SchemaViolation, UnknownTable
 
 pytestmark = pytest.mark.invariant
 

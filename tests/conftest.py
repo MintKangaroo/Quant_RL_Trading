@@ -21,7 +21,7 @@ def store(tmp_path: Path):  # type: ignore[no-untyped-def]
     데이터 계약 테스트는 전부 진짜 Parquet 을 깔고 진짜 store.get() 을 부른다.
     목으로 통과하는 계약 테스트는 계약을 검증하지 않는다.
     """
-    from lattice.store import Store
+    from quant_rl_trading.store import Store
 
     return Store(root=tmp_path / "data")
 

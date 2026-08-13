@@ -12,14 +12,14 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from lattice.analysts.event import (
+from quant_rl_trading.analysts.event import (
     EventAnalyst,
     calendar_context,
     is_quarter_end_month,
     monthly_expiry,
 )
-from lattice.collectors.market_hours import Market
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 12, tzinfo=UTC)
 #: 관측시각은 세션 마감 후. 봉과 같은 규칙이다.

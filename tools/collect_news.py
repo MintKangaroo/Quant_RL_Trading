@@ -22,11 +22,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from lattice.collectors.market_hours import Market  # noqa: E402
-from lattice.collectors.news_source import NewsCollector, NewsSource  # noqa: E402
-from lattice.collectors.raw import RawArchive  # noqa: E402
-from lattice.replay.clock import LiveClock  # noqa: E402
-from lattice.store import Store  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.collectors.news_source import NewsCollector, NewsSource  # noqa: E402
+from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
+from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
+from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 UNIVERSE = "universe"

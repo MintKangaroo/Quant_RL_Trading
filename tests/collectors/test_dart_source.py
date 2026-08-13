@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from lattice.collectors.dart_source import (
+from quant_rl_trading.collectors.dart_source import (
     ACCOUNTS,
     MAX_CORPS_PER_CALL,
     FilingPolicy,
@@ -26,8 +26,8 @@ from lattice.collectors.dart_source import (
     quarter_end,
     receipt_date,
 )
-from lattice.collectors.publication import NotYetPublished
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.publication import NotYetPublished
+from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 12, tzinfo=UTC)
 

@@ -19,11 +19,11 @@ from typing import Any
 
 import pytest
 
-from lattice.analysts.scorecard import evaluate_blocks
-from lattice.analysts.verdicts import NewsAnalyst, SnsAnalyst, VerdictAnalyst
-from lattice.collectors.market_hours import Market
-from lattice.replay.clock import ReplayClock
-from lattice.schemas.verdict import Category, Decision
+from quant_rl_trading.analysts.scorecard import evaluate_blocks
+from quant_rl_trading.analysts.verdicts import NewsAnalyst, SnsAnalyst, VerdictAnalyst
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.replay.clock import ReplayClock
+from quant_rl_trading.schemas.verdict import Category, Decision
 
 NOW = datetime(2026, 8, 12, tzinfo=UTC)
 ENTITIES = [f"KR:{index:06d}" for index in range(20)]

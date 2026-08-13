@@ -12,15 +12,15 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from lattice.collectors.errors import LSAPIError, MissingCredentials
-from lattice.collectors.ls_client import (
+from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials
+from quant_rl_trading.collectors.ls_client import (
     PATH_ORDER,
     HealthParams,
     LSClient,
     LSCredentials,
     isu_code,
 )
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.replay.clock import ReplayClock
 
 CREDS = LSCredentials(appkey="key", appsecret="secret", base_url="https://api.test")
 

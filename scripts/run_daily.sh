@@ -12,7 +12,7 @@ LOG="logs/daily-$(date +%Y%m).log"
 {
     echo "=== $(date '+%F %T') market=${MARKET} ==="
     ulimit -v 8388608
-    LATTICE_DUCKDB_MEMORY_LIMIT=1GB LATTICE_DUCKDB_THREADS=2 \
+    QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/run_daily.py --market "${MARKET}"
     echo "rc=$?"
 } >>"${LOG}" 2>&1

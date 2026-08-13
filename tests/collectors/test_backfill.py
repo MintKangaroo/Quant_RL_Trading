@@ -17,22 +17,22 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from lattice.collectors.backfill import (
+from quant_rl_trading.collectors.backfill import (
     PRICES,
     UNIVERSE,
     Backfiller,
     ProgressLog,
     session_run_id,
 )
-from lattice.collectors.errors import CollectorError
-from lattice.collectors.market_hours import Market
-from lattice.collectors.publication import (
+from quant_rl_trading.collectors.errors import CollectorError
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.publication import (
     NotATradingDay,
     NotYetPublished,
     PublicationPolicy,
 )
-from lattice.collectors.raw import RawArchive
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.raw import RawArchive
+from quant_rl_trading.replay.clock import ReplayClock
 
 KST = ZoneInfo("Asia/Seoul")
 

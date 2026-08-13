@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from lattice.collectors.krx_source import KRXUnavailable
-from lattice.collectors.ls_flow import (
+from quant_rl_trading.collectors.krx_source import KRXUnavailable
+from quant_rl_trading.collectors.ls_flow import (
     INVESTOR_FIELDS,
     MAX_ROWS_PER_CALL,
     LSFlowBackfiller,
@@ -22,10 +22,10 @@ from lattice.collectors.ls_flow import (
     flow_run_id,
     normalize_flow_rows,
 )
-from lattice.collectors.market_hours import Market
-from lattice.collectors.publication import PublicationPolicy
-from lattice.collectors.raw import RawArchive
-from lattice.replay.clock import ReplayClock
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.publication import PublicationPolicy
+from quant_rl_trading.collectors.raw import RawArchive
+from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 11, tzinfo=UTC)
 
@@ -191,8 +191,8 @@ def test_failure_can_be_recorded_without_crashing(store, tmp_path, policy) -> No
     결과에는 날짜가 없다. 84번째 종목에서 수집이 실패한 순간 그것을 기록하려다
     프로세스가 통째로 죽었다 — 실패 처리가 실패한 것이다.
     """
-    from lattice.collectors.backfill import BackfillReport, ProgressLog
-    from lattice.collectors.market_hours import Market
+    from quant_rl_trading.collectors.backfill import BackfillReport, ProgressLog
+    from quant_rl_trading.collectors.market_hours import Market
 
     store.seed_config_defaults()
 

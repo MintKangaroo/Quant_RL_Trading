@@ -18,21 +18,21 @@ if str(REPO_ROOT) not in sys.path:
 
 import json  # noqa: E402
 
-from lattice.collectors.kosis_source import (  # noqa: E402
+from quant_rl_trading.collectors.kosis_source import (  # noqa: E402
     KOSIS_TABLES,
     KosisCollector,
     KosisSource,
 )
-from lattice.collectors.macro_source import (  # noqa: E402
+from quant_rl_trading.collectors.macro_source import (  # noqa: E402
     EcosCollector,
     EcosSource,
     FredSource,
     IndexCollector,
     MacroCollector,
 )
-from lattice.collectors.market_hours import Market  # noqa: E402
-from lattice.collectors.raw import RawArchive  # noqa: E402
-from lattice.replay.clock import LiveClock  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
+from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 

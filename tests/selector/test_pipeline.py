@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from lattice.selector import pipeline
+from quant_rl_trading.selector import pipeline
 
 NOW = datetime(2026, 8, 12, 6, 40, tzinfo=UTC)
 SESSIONS = [NOW - timedelta(days=offset) for offset in range(400, -1, -1)]

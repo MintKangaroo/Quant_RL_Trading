@@ -1,6 +1,6 @@
 # 용어집과 구조
 
-이름은 격자(lattice)에서 왔다. 옵션 가격결정의 이항 격자에서 온 말이자,
+이름은 격자(quant_rl_trading)에서 왔다. 옵션 가격결정의 이항 격자에서 온 말이자,
 이 시스템의 다층 에이전트 구조 그 자체다.
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
@@ -28,7 +28,7 @@
 ## 패키지 구조
 
 ```
-lattice/
+quant_rl_trading/
   store/        데이터 게이트 (Parquet + DuckDB), 이중시간 조회
   replay/       Clock, 이벤트 로그, 체결 시뮬레이터
   collectors/

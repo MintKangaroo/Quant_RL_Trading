@@ -10,7 +10,7 @@ M1(store + replay + 백필)이 완료된 뒤 시작한다.
 ## 2-1. Signal 스키마와 기반 클래스
 
 ```
-docs/design/agents.md §1 을 읽고 lattice/schemas/ 와 Analyst 기반 클래스를
+docs/design/agents.md §1 을 읽고 quant_rl_trading/schemas/ 와 Analyst 기반 클래스를
 구현할 계획을 세워줘. 아직 개별 Analyst 는 만들지 마.
 
 Signal (pydantic):
@@ -42,7 +42,7 @@ entity_id, verdict("block"|"pass"), severity, category, reason, expires_at
 Analyst 를 만들기 전에 평가 도구를 먼저 만들어줘.
 평가할 수 없으면 만들어도 쓸 수 없어.
 
-lattice/analysts/evaluation.py:
+quant_rl_trading/analysts/evaluation.py:
 
 - 타깃: 5일 후 횡단면 초과수익 z-score
 - IC = Spearman rank correlation (score, 실제 초과수익)

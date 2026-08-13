@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from lattice.accounting import (
+from quant_rl_trading.accounting import (
     KRW,
     USD,
     Book,

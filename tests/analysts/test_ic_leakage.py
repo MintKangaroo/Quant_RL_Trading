@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lattice.analysts import ic
+from quant_rl_trading.analysts import ic
 
 pytestmark = pytest.mark.invariant
 
