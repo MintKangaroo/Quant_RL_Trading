@@ -25,6 +25,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from lattice.collectors.backfill import (  # noqa: E402
+    PRICES,
     UNIVERSE,
     Backfiller,
     BackfillReport,
@@ -46,6 +47,7 @@ from lattice.collectors.ls_us_source import (  # noqa: E402
     UsPriceBackfiller,
 )
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
+from lattice.collectors import us_universe_panel as up  # noqa: E402
 from lattice.collectors.us_universe import UA_ENV, fetch_listings  # noqa: E402
 from lattice.collectors.panels import (  # noqa: E402
     OPENAPI_PANELS,
@@ -318,6 +320,85 @@ def run_us_price_backfill(
         print(f"실패 {len(report.failures)}건 (앞 10건):")
         for unit, error in report.failures[:10]:
             print(f"  {unit}: {error}")
+    return 0
+
+
+def run_us_universe_backfill(
+    store: Store, clock: Clock, *, years: int, dry_run: bool = False
+) -> int:
+    """미장 명단 — 이미 들어온 시세에서 유도해 적재한다.
+
+    시세만 있고 명단이 없으면 Analyst 는 대상이 0개다. 실측에서 미장
+    chart·risk 가 "300세션 측정, 표본 0일 / 0행, IC nan" 으로 끝났다.
+    유도 규칙과 그 한계(생존편향)는 ``us_universe_panel`` 모듈 docstring 에
+    있다.
+
+    시세를 **한 번만** 훑는다. ``prices`` 는 관측지연을 선언하지 않아 창을
+    옮겨 가며 읽으면 매번 전체 파티션을 다시 연다. 컬럼은 자연키 + 관측시각
+    셋만 가져온다 — 나머지는 여기서 쓸 일이 없고 문자열 컬럼이 무게의
+    대부분이다.
+    """
+    market = Market.US
+    now = clock.now()
+
+    print(f"{market} 명단 — 시세에서 유도 (최근 {years}년)", flush=True)
+    frame = store.get(
+        PRICES,
+        as_of=now,
+        lookback=365 * years + 10,
+        market=str(market),
+        columns=["observed_at"],
+    )
+    if frame.empty:
+        print("시세가 없다. 먼저 --market US 로 일봉을 백필해야 한다.", file=sys.stderr)
+        return 2
+
+    report = up.BuildReport()
+    sessions: list[date] = []
+    last_seen: dict[str, tuple[date, object, object]] = {}
+    started = time.monotonic()  # invariant-allow: wallclock
+
+    for day, records in up.group_sessions(frame):
+        sessions.append(day)
+        rows = up.session_rows(records, market=market)
+        for row in rows:
+            last_seen[str(row["entity_id"])] = (
+                day, row["valid_from"], row["observed_at"]
+            )
+            report.entities.add(str(row["entity_id"]))
+
+        run_id = up.run_id_for(market, day)
+        if store.ingest_run_recorded(UNIVERSE, run_id):
+            report.skipped += 1
+            continue
+        if dry_run:
+            report.sessions += 1
+            report.rows += len(rows)
+            continue
+
+        report.rows += store.append(
+            UNIVERSE, rows, ingest_run_id=run_id, source=up.SOURCE
+        )
+        report.sessions += 1
+
+        if report.sessions % 50 == 0:
+            elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
+            remaining = eta(report.sessions, len(sessions), elapsed)
+            tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
+            print(f"  [{report.sessions}] {day} rows={len(rows)}{tail}", flush=True)
+
+    # 상폐는 마지막에 한 번. 마지막 봉이 언제였는지는 전 세션을 다 봐야 안다.
+    dead = up.delisting_rows(last_seen, sessions, market=market)
+    if dead and not dry_run:
+        run_id = up.delisting_run_id(market, sessions[-1])
+        if not store.ingest_run_recorded(UNIVERSE, run_id):
+            report.delisted = store.append(
+                UNIVERSE, dead, ingest_run_id=run_id, source=up.SOURCE
+            )
+    elif dead:
+        report.delisted = len(dead)
+
+    print(f"\n완료 — {report.render()}")
     return 0
 
 
@@ -615,7 +696,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
     parser.add_argument(
         "--table",
-        choices=[*sorted(PANELS), *sorted(OPENAPI_PANELS), FLOW_LS, DART],
+        choices=[*sorted(PANELS), *sorted(OPENAPI_PANELS), FLOW_LS, DART, UNIVERSE],
         help="패널 테이블 하나만 백필. 생략하면 prices+universe",
     )
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")
@@ -663,6 +744,15 @@ def main(argv: list[str] | None = None) -> int:
             store, clock, market=market,
             years=args.years or int(store.config("backfill.years", as_of=clock.now())),
             limit=args.symbols,
+        )
+
+    if market is Market.US and args.table == UNIVERSE:
+        # 미장 명단은 수집이 아니라 유도다 — 이미 받은 시세에서 만든다.
+        return run_us_universe_backfill(
+            store,
+            clock,
+            years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            dry_run=args.dry_run,
         )
 
     if market is Market.US:
