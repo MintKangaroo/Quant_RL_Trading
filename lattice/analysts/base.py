@@ -119,16 +119,39 @@ class Analyst(ABC):
 
     # -- 관측 -------------------------------------------------------------------
 
+    #: 패널에 실을 관측 컬럼. 여기 없는 것을 ``wide`` 로 꺼내면 KeyError 가
+    #: 난다 — 하위 클래스가 목록을 늘려서 쓴다. 기본값을 좁게 두는 이유는
+    #: 메모리다. 5년 창고에서 전 컬럼을 끌면 안 쓰는 문자열이 대부분이다.
+    price_columns: tuple[str, ...] = ("market", "close", "volume", "value")
+
     def price_panel(self, as_of: datetime, *, lookback: int) -> pd.DataFrame:
         """종목×세션 종가 패널. 게이트 경유 (불변식 1).
 
         거래 가능한 종목만 남긴다 — 데이터 유니버스와 매매 유니버스는 다르다.
+
+        **종가 0 은 가격이 아니라 결측이다.** 창고에는 전 종목 종가가 0 인
+        세션이 섞여 있다(수집 실패로 보인다). 그대로 두면 ``pct_change`` 가
+        그 자리에서 ``±inf`` 를 내고, inf 가 하나만 있어도 그 종목의 표준편차·
+        상관·베타가 통째로 NaN 이 된다. 종목 하나가 아니라 **그날을 지나는 모든
+        종목**이 같이 죽으므로, 피처가 조용히 비고 Analyst 는 아무 말도 하지
+        않게 된다. 0 을 여기서 NaN 으로 바꾸면 창 계산이 그 세션만 건너뛴다.
         """
-        prices = self.store.get(PRICES, as_of=as_of, lookback=lookback)
+        prices = self.store.get(
+            PRICES,
+            as_of=as_of,
+            lookback=lookback,
+            columns=list(self.price_columns),
+            # 시장을 SQL 에서 거른다. pandas 로 거르면 미장 행을 통째로 퍼온
+            # 뒤 버리게 되고, 창고에 두 시장이 같이 사는 순간 국장 질의가
+            # 그것만으로 죽는다.
+            market=str(self.market),
+        )
         if prices.empty:
             return prices
-        prices = prices[prices["market"] == str(self.market)].copy()
+        prices = prices.copy()
         prices["session"] = prices["valid_from"].dt.date
+        if "close" in prices.columns:
+            prices.loc[prices["close"] <= 0.0, "close"] = float("nan")
 
         tradable = self.tradable_entities(as_of, lookback=lookback)
         if tradable is not None:
@@ -141,7 +164,12 @@ class Analyst(ABC):
         **오늘 명단이 아니라 그 시점 명단이다.** 오늘 명단으로 과거를 필터하면
         상장폐지 종목이 통째로 빠지고, 애써 백필한 생존편향 제거가 무의미해진다.
         """
-        universe = self.store.get(UNIVERSE, as_of=as_of, lookback=lookback)
+        universe = self.store.get(
+            UNIVERSE,
+            as_of=as_of,
+            lookback=lookback,
+            columns=["is_listed", "is_tradable"],
+        )
         if universe.empty:
             return None
         latest = universe.sort_values("valid_from").groupby("entity_id").tail(1)
