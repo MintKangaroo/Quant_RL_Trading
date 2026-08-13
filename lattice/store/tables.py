@@ -335,6 +335,56 @@ _SPECS: dict[str, TableSpec] = {
             "계산한다** — 원금액으로 하면 입금이 낙폭을 지운다."
         ),
     ),
+    # -- 실행 (M3) ------------------------------------------------------------
+    "orders": TableSpec(
+        name="orders",
+        columns={
+            "market": pa.string(),
+            "session_id": pa.string(),
+            "slice_seq": pa.int32(),
+            "side": pa.string(),
+            "quantity": pa.float64(),
+            "limit_price": pa.float64(),
+            "target_weight": pa.float64(),
+            "status": pa.string(),
+            "reason": pa.string(),
+        },
+        # **주문 식별자가 자연키다.** (session_id, entity_id, slice_seq) 로
+        # 결정론적으로 만들므로, 재시작 후 같은 주문을 다시 만들어도 같은 키가
+        # 나오고 창고가 중복을 거부한다 — 그것이 멱등성의 마지막 방어선이다.
+        natural_key=("entity_id", "session_id", "slice_seq"),
+        doc=(
+            "집행한 주문. 프로세스는 반드시 죽었다 살아난다 — 그때 중복 주문이 "
+            "나가지 않게 하는 것이 이 테이블의 존재 이유다."
+        ),
+    ),
+    "killswitch": TableSpec(
+        name="killswitch",
+        columns={
+            "state": pa.string(),
+            "reason": pa.string(),
+            "triggered_by": pa.string(),
+        },
+        doc=(
+            "킬스위치 latch. **한번 걸리면 사람이 풀기 전까지 유지된다.** "
+            "자동 해제를 두면 발동 원인이 남아 있는 채로 다시 매매한다."
+        ),
+    ),
+    "realized_weights": TableSpec(
+        name="realized_weights",
+        columns={
+            "market": pa.string(),
+            "session_id": pa.string(),
+            "target_weight": pa.float64(),
+            "realized_weight": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "session_id"),
+        doc=(
+            "목표 비중과 **실제 체결된 비중** (불변식 7). 빠지면 RL 은 자기가 "
+            "하지 않은 행동으로 보상받고 학습이 망가진다. 소액 구간에서는 정수 "
+            "라운딩 때문에 둘이 크게 벌어진다."
+        ),
+    ),
     "agent_cache": TableSpec(
         name="agent_cache",
         columns={
