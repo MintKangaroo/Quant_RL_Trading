@@ -158,6 +158,32 @@ _SPECS: dict[str, TableSpec] = {
             "observed_at = ts_wall. 같은 뜻의 필드를 두 벌 들지 않는다."
         ),
     ),
+    "macro_releases": TableSpec(
+        name="macro_releases",
+        columns={
+            "market": pa.string(),
+            "indicator": pa.string(),
+            "release_name": pa.string(),
+            # 발표가 일어나는(또는 일어날) 시각. **valid_from 과 다르다.**
+            "scheduled_at": pa.timestamp("us", tz="UTC"),
+            "actual": pa.float64(),
+            "previous": pa.float64(),
+            "unit": pa.string(),
+            # scheduled | released
+            "status": pa.string(),
+        },
+        # 같은 발표는 한 행이다. 일정이 먼저 들어오고(actual 없음), 발표 후
+        # 실측값이 같은 자연키로 덮는다 — append-only 규칙대로 새 행이 쌓이고
+        # 게이트가 최신 것을 고른다.
+        natural_key=("entity_id", "scheduled_at"),
+        observation_lag_days=3,
+        doc=(
+            "CPI·PPI 등 거시지표 발표 일정과 실측값. **valid_from 은 우리가 그 "
+            "사실을 안 시각이고, 발표 시각은 scheduled_at 이다.** 미래 일정을 "
+            "valid_from 에 넣으면 게이트의 lookback 창이 미래를 못 보고, 그러면 "
+            "'다가오는 일정'을 영영 못 찾는다."
+        ),
+    ),
     "market_stats": TableSpec(
         name="market_stats",
         columns={
