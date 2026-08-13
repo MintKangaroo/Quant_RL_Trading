@@ -199,6 +199,31 @@ td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--panel2); vertical-al
 .tone-off { color: var(--down); border-color: var(--down); }
 .tone-mix { color: var(--warn); border-color: var(--warn); }
 .tone-flat { color: var(--dim); }
+
+/* 진행률 막대. 색은 상태(도는 중/멈춤)에만 쓴다 — 진행률 자체는 손익이
+   아니므로 무채색이다 (dashboard.md §10). */
+.bar {
+  position: relative;
+  height: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 140px;
+}
+.bar > span {
+  display: block;
+  height: 100%;
+  background: var(--muted);
+}
+.bar.on > span { background: var(--warn); }
+.bar.done > span { background: var(--dim); }
+/* 총량을 모르는 작업. 막대를 채우면 거짓말이 되므로 빗금으로 표시한다. */
+.bar.unknown > span {
+  width: 100% !important;
+  background: repeating-linear-gradient(
+    90deg, var(--border) 0 6px, transparent 6px 12px);
+}
 .chip-us { color: var(--muted); }
 .lead .trunc {
   overflow: hidden;
@@ -235,3 +260,29 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
   .controls { margin-left: 0; width: 100%; }
   .chart { height: 200px; }
 }
+
+
+/* 트레이딩 탭 — 12컬럼 그리드 (dashboard.md §4). 큰 그림 2 + 게이지 1. */
+.grid-trading {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.grid-trading .span2 { grid-column: span 2; }
+@media (max-width: 1400px) {
+  .grid-trading { grid-template-columns: 1fr; }
+  .grid-trading .span2 { grid-column: span 1; }
+}
+
+/* MDD 게이지 — 숫자를 크게. 낙폭은 화면에서 가장 먼저 읽혀야 한다. */
+.mdd-value {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 30px;
+  line-height: 1.1;
+  margin: 4px 0 10px;
+}
+.mdd-value .sub { font-size: 14px; }
+
+/* 하락. 상승=빨강이므로 하락은 파랑이다 (한국식, dashboard.md §10). */
+.down { color: var(--down); }

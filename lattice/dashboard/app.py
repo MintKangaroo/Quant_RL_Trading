@@ -11,7 +11,7 @@ from typing import Any
 from flask import Flask, render_template
 from werkzeug.exceptions import HTTPException
 
-from lattice.dashboard.api import agent_health, briefing, data_quality
+from lattice.dashboard.api import agent_health, briefing, data_quality, mock
 from lattice.replay.clock import Clock, LiveClock
 from lattice.settings import load_env
 from lattice.store import ConfigNotFound, Store, StoreError
@@ -30,6 +30,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(data_quality.bp)
     app.register_blueprint(agent_health.bp)
     app.register_blueprint(briefing.bp)
+    app.register_blueprint(mock.bp)
 
     @app.get("/")
     @app.get("/data-quality")
@@ -43,6 +44,11 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     @app.get("/briefing")
     def briefing_page() -> str:
         return render_template("briefing.html")
+
+    @app.get("/trading")
+    def trading_page() -> str:
+        # M2 에서는 목업이다. 화면이 스스로 그 사실을 띄운다.
+        return render_template("trading.html")
 
     @app.errorhandler(HTTPException)
     def http_error(error: HTTPException) -> Any:

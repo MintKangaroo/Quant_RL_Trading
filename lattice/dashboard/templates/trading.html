@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}트레이딩 · Lattice{% endblock %}
+
+{% block body %}
+{% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid-trading">
+    <div class="panel span2">
+      <h2>NAV vs 벤치마크</h2>
+      <div class="chart" id="chart-nav"></div>
+      <p class="note">
+        초과수익이 이 화면의 목적이다. 벤치마크를 못 이기면 지수를 사는 편이 낫다.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>MDD 예산</h2>
+      <div id="mdd"></div>
+      <p class="note">
+        밴드 12 / 22 / 30%는 <code>reward-and-risk.md</code> 의 값이다.
+        <strong>리스크를 안 쓰는 것도 문제라는 걸 화면이 말해야 한다.</strong>
+      </p>
+    </div>
+  </section>
+
+  <section class="grid-trading">
+    <div class="panel span2">
+      <h2>언더워터 — 12 / 22 / 30% 밴드</h2>
+      <div class="chart" id="chart-uw"></div>
+      <p class="note">보상 함수의 시각화다. 벤치마크 낙폭은 점선으로 겹친다.</p>
+    </div>
+    <div class="panel">
+      <h2>자본 배분</h2>
+      <div class="chart" id="chart-alloc"></div>
+      <p class="note">
+        현금을 반드시 포함한다 — 빼면 합이 100%가 되어
+        <strong>레버리지가 없다는 사실이 안 보인다.</strong>
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>보유 포지션</h2>
+    <div id="positions" class="scroll"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>주문 · 체결</h2>
+      <div id="orders" class="scroll"></div>
+      <p class="note">REQUESTED → ACCEPTED → PARTIAL → FILLED / CANCELLED / REJECTED</p>
+    </div>
+    <div class="panel">
+      <h2>리스크 모니터</h2>
+      <div id="risk"></div>
+      <p class="note">
+        한도는 M3 에서 <code>store.config</code> 로 옮긴다 — 화면이 숫자를
+        직접 들면 학습 설정과 어긋난다 (불변식 10).
+      </p>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='trading.js') }}"></script>
+{% endblock %}

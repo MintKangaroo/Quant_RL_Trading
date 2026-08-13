@@ -292,6 +292,64 @@ def evaluate(
     )
 
 
+def rolling_confidence(
+    store: Store,
+    *,
+    analyst: str,
+    as_of: datetime,
+    market: str,
+    window: int = 60,
+) -> float:
+    """최근 ``window`` 거래일 롤링 IC 를 confidence 로.
+
+    **에이전트가 스스로 매기지 않는다** (agents.md §1). 스스로 매기면 과신한다.
+    호출자가 이 값을 넣어 준다.
+
+    이미 저장된 ``signals`` 와 그 시점 타깃을 맞춰 IC 를 다시 잰다. 신호가
+    쌓이기 전에는 잴 것이 없으므로 0 을 돌려준다 — **0 은 "확신 없음" 이지
+    "쓸모없음" 이 아니다.** 관찰 모드와 같은 뜻이고, 신호는 계속 기록된다.
+
+    음수 IC 는 0 으로 자른다. 부호를 뒤집어 쓰고 싶어지지만, 그건 표본에
+    맞춰 사후에 고르는 것이라 다음 구간에서 사라진다 (모듈 docstring).
+    """
+    frame = store.get(
+        "signals", as_of=as_of, lookback=int(window * 7 / 5) + 30, market=None
+    )
+    if frame.empty:
+        return 0.0
+
+    scores = frame[frame["analyst"] == analyst]
+    if scores.empty:
+        return 0.0
+
+    scores = pd.DataFrame(
+        {
+            "entity_id": scores["entity_id"].astype(str),
+            "session": scores["valid_from"].dt.date,
+            "score": scores["score"].astype(float),
+        }
+    )
+    sessions = sorted(scores["session"].unique())[-window:]
+    if len(sessions) < 2:
+        return 0.0
+    scores = scores[scores["session"].isin(set(sessions))]
+
+    targets = build_targets(
+        store, as_of=as_of, lookback=int(window * 7 / 5) + 90, market=market
+    )
+    if targets.empty:
+        return 0.0
+
+    merged = scores.merge(targets, on=["entity_id", "session"], how="inner")
+    if merged.empty:
+        return 0.0
+
+    daily = daily_ic(merged)
+    if daily.empty:
+        return 0.0
+    return max(0.0, float(daily.mean()))
+
+
 def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int]:
     """합격선과 표본 하한. 하드코딩 금지 (불변식 10)."""
     return (

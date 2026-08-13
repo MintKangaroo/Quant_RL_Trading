@@ -14,6 +14,7 @@ from flask import Blueprint
 from lattice.analysts.macro_brief import MacroBrief
 from lattice.dashboard.api.common import clock, envelope, scope, store
 from lattice.dashboard.services import briefing as service
+from lattice.dashboard.services import jobs as jobs_service
 
 bp = Blueprint("briefing_api", __name__, url_prefix="/api/briefing")
 
@@ -45,6 +46,18 @@ def explain() -> Any:
             "warnings": brief.failures,
         },
     )
+
+
+@bp.get("/jobs")
+def jobs() -> Any:
+    """장기 작업 진행률.
+
+    **as_of 로 되감기지 않는다.** 진행률은 운영 상태이지 관측된 사실이 아니라
+    창고에 과거가 없다. 규약대로 as_of 를 받아 되돌려주되, 값은 언제나
+    현재다 — 응답의 live_only 가 그 사실을 알린다.
+    """
+    current = scope()
+    return envelope(current, jobs_service.summary(store().root, as_of=current.as_of))
 
 
 @bp.get("/news")
