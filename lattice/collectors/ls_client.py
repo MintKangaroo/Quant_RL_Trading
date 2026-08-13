@@ -67,6 +67,17 @@ OK_MESSAGE = "완료되었습니다"
 #: 복구 경로는 남겨 둔다 (postmortem-ls.md §6-1).
 TOKEN_INVALID = "IGW00121"
 
+#: 호출 한도 초과. "호출 거래건수를 초과하였습니다" 로 온다.
+#: **에러가 아니라 속도 신호다.** 미장 일봉(g3204)을 1.05초 간격으로 치면
+#: 수십 호출 만에 나온다 — 간격만으로는 못 막고 물러섰다 다시 쳐야 한다.
+RATE_LIMITED = "IGW00201"
+
+#: 한도에 걸렸을 때 물러설 횟수. 지수 백오프라 마지막엔 수십 초를 쉰다.
+RATE_LIMIT_RETRIES = 5
+
+#: 백오프 기준 초. attempt 마다 2배씩 는다 (4·8·16·32·64초).
+RATE_LIMIT_BACKOFF_SEC = 4.0
+
 #: paper 모드에서도 허용되는 read-only TR. 잔고(t0424)·주문(CSPAT*)은 절대 불허.
 #: port: LS_KR ls_client.py:58-66.
 PAPER_ALLOWED_TR = frozenset(
@@ -77,6 +88,10 @@ PAPER_ALLOWED_TR = frozenset(
         "t8410",  # 일봉
         "t1511",  # 업종 지수
         "t1717",  # 외인기관종목별동향 — 읽기 전용 시세 정보다
+        # 해외주식. 국장 TR 과 이름이 겹치지 않아 한 집합에 둔다.
+        "g3101",  # 해외주식 종목 단건 조회
+        "g3104",  # 해외주식 현재가
+        "g3204",  # 해외주식 일/주/월 차트
     }
 )
 
@@ -119,12 +134,25 @@ class LSCredentials:
     base_url: str
 
     @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> LSCredentials:
+    def from_env(
+        cls, env: dict[str, str] | None = None, *, prefix: str = "LS_"
+    ) -> LSCredentials:
+        """``prefix`` 로 키 묶음을 고른다 (``LS_`` = 국장, ``LS_US_`` = 미장).
+
+        **국장과 미장은 별도 appkey 를 쓴다.** LS 는 appkey 당 토큰 하나만
+        유효해서, 같은 키를 공유하면 한쪽이 재발급할 때 다른 쪽 토큰이
+        IGW00121 로 죽는다 (postmortem-ls.md §6-1).
+        """
         source = env if env is not None else dict(os.environ)
         return cls(
-            appkey=source.get("LS_APPKEY", "").strip(),
-            appsecret=source.get("LS_APPSECRET", "").strip(),
-            base_url=source.get("LS_REST_BASE_URL", "").rstrip("/"),
+            appkey=source.get(f"{prefix}APPKEY", "").strip(),
+            appsecret=source.get(f"{prefix}APPSECRET", "").strip(),
+            # base_url 은 국장·미장이 같은 호스트다. 미장 전용 값이 없으면
+            # 국장 것을 쓴다.
+            base_url=(
+                source.get(f"{prefix}REST_BASE_URL")
+                or source.get("LS_REST_BASE_URL", "")
+            ).rstrip("/"),
         )
 
     def usable(self) -> bool:
@@ -195,6 +223,16 @@ class LSClient:
             wait = self.min_interval_sec - elapsed
             if wait > 0:
                 self.sleep(wait)
+        self._last_call = self.clock.now()
+
+    def _back_off(self, attempt: int) -> None:
+        """한도 초과 후 물러서기. 지수적으로 는다.
+
+        간격을 영구적으로 늘리지 않는 이유는, 한도가 순간 버스트에 걸리는
+        것이지 평균 속도에 걸리는 것이 아니기 때문이다. 평균을 늦추면 7천
+        종목 백필이 하루를 넘긴다.
+        """
+        self.sleep(RATE_LIMIT_BACKOFF_SEC * (2**attempt))
         self._last_call = self.clock.now()
 
     # -- 토큰 -----------------------------------------------------------------
@@ -270,7 +308,7 @@ class LSClient:
 
         url = f"{self.credentials.base_url}{path}"
         try:
-            for attempt in range(2):
+            for attempt in range(RATE_LIMIT_RETRIES + 2):
                 self._respect_rate_limit()
                 token = self.ensure_token(allow_paper=allow_paper)
                 response = self._send(url, tr_cd, tr_cont, tr_cont_key, token, body)
@@ -278,6 +316,14 @@ class LSClient:
                 # 토큰 무효는 HTTP 500 + 본문으로 오기도, rsp_cd 로 오기도 한다.
                 if TOKEN_INVALID in (response.text or "") and attempt == 0:
                     self.invalidate_token()
+                    continue
+
+                # 한도 초과도 HTTP 500 + 본문으로 온다. 이건 실패가 아니라
+                # **너무 빨랐다**는 뜻이라, 던지지 말고 물러섰다 다시 친다.
+                # 던지면 백필이 그 종목을 실패로 넘기고, 한도가 풀린 뒤에도
+                # 빈 채로 남는다.
+                if RATE_LIMITED in (response.text or "") and attempt < RATE_LIMIT_RETRIES:
+                    self._back_off(attempt)
                     continue
 
                 if response.status_code != 200:
@@ -297,6 +343,9 @@ class LSClient:
                     if rsp_cd == TOKEN_INVALID and attempt == 0:
                         self.invalidate_token()
                         continue
+                    if rsp_cd == RATE_LIMITED and attempt < RATE_LIMIT_RETRIES:
+                        self._back_off(attempt)
+                        continue
                     raise LSAPIError(
                         f"TR {tr_cd} rsp_cd={rsp_cd} msg={data.get('rsp_msg')}",
                         rsp_cd=str(rsp_cd),
@@ -307,7 +356,7 @@ class LSClient:
                     self._record_call(True)
                 return data
 
-            raise LSAPIError(f"TR {tr_cd} 토큰 재발급 후에도 실패 ({TOKEN_INVALID})")
+            raise LSAPIError(f"TR {tr_cd} 재시도 소진 (토큰 재발급·한도 백오프 후에도 실패)")
         except LSAPIError:
             if count_health:
                 self._record_call(False)

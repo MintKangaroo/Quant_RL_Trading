@@ -41,7 +41,12 @@ from lattice.collectors.krx_openapi import KrxOpenApi  # noqa: E402
 from lattice.collectors.krx_source import KrxSource, credentials_present  # noqa: E402
 from lattice.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
 from lattice.collectors.ls_flow import LSFlowBackfiller, LSFlowSource  # noqa: E402
+from lattice.collectors.ls_us_source import (  # noqa: E402
+    LsUsSource,
+    UsPriceBackfiller,
+)
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
+from lattice.collectors.us_universe import UA_ENV, fetch_listings  # noqa: E402
 from lattice.collectors.panels import (  # noqa: E402
     OPENAPI_PANELS,
     PANELS,
@@ -52,6 +57,7 @@ from lattice.collectors.publication import publication_policy  # noqa: E402
 from lattice.collectors.raw import RawArchive  # noqa: E402
 from lattice.dashboard.services import data_quality as dq  # noqa: E402
 from lattice.replay.clock import Clock, LiveClock  # noqa: E402
+from lattice.settings import load_env  # noqa: E402,F401  (재수출 — 호출부가 여기서 가져간다)
 from lattice.store import ConfigNotFound, Store  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
@@ -60,22 +66,6 @@ FLOW_LS = "flows-ls"
 DART = "fundamentals-dart"
 
 ENV_FILE = REPO_ROOT / ".env"
-
-
-def load_env(path: Path = ENV_FILE) -> None:
-    """``.env`` 를 환경변수로. 이미 설정된 값은 덮지 않는다.
-
-    의존성을 하나 더 늘리지 않으려고 직접 읽는다. 셸에서 export 한 값이
-    파일보다 우선한다 — 일회성 덮어쓰기가 가능해야 한다.
-    """
-    if not path.is_file():
-        return
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
 
 
 def build_store(root: Path | None = None) -> Store:
@@ -232,6 +222,103 @@ def flow_symbols(store: Store, clock: Clock, market: Market) -> list[str]:
         for entity in [*ranked, *tail]
         if entity.startswith(prefix)
     ]
+
+
+def run_us_price_backfill(
+    store: Store,
+    clock: Clock,
+    *,
+    years: int,
+    limit: int | None,
+    dry_run: bool = False,
+) -> int:
+    """미장 일봉 백필. LS 해외주식 g3204, **종목 축**.
+
+    국장처럼 세션 축으로 돌 수가 없다 — 이유와 그 대가(생존편향)는
+    ``ls_us_source`` 모듈 docstring 에 적었다.
+    """
+    market = Market.US
+    source = LsUsSource.from_env(clock=clock)
+    if not source.usable():
+        print(f"LS_US_APPKEY / LS_US_APPSECRET 이 없다.", file=sys.stderr)
+        return 2
+
+    user_agent = os.environ.get(UA_ENV, "")
+    if not user_agent:
+        print(f"{UA_ENV} 가 없다. 미장 종목 명단을 SEC 에서 받지 못한다.", file=sys.stderr)
+        return 2
+
+    now = clock.now()
+    end = now.astimezone(UTC).date()
+    start = end - timedelta(days=365 * years)
+
+    listings = fetch_listings(user_agent)
+    if limit is not None:
+        listings = listings[:limit]
+
+    backfiller = UsPriceBackfiller(
+        store=store,
+        source=source,
+        clock=clock,
+        archive=RawArchive(root=store.root),
+        policy=publication_policy(store, market, clock=clock),
+        market=market,
+        # SEC 가 거래소를 주므로 LS 에 되묻지 않는다 — 종목당 1~2 호출이 준다.
+        exchanges={listing.ticker: listing.exchange for listing in listings},
+    )
+
+    symbols = [listing.ticker for listing in listings]
+    pending = backfiller.pending(symbols)
+    total_batches = len(backfiller.batches(symbols))
+    print(
+        f"{market} 일봉 {start} ~ {end}  종목 {len(symbols)}개 / "
+        f"배치 {total_batches}개 (이미 적재 {total_batches - len(pending)}, "
+        f"남은 {len(pending)})"
+    )
+    if dry_run or not pending:
+        if not pending:
+            print("할 일이 없다.")
+        return 0
+
+    progress = ProgressLog(root=store.root, plan_id=f"{market}-prices-{start}-{end}")
+    report = BackfillReport(market=market)
+    started = time.monotonic()  # invariant-allow: wallclock
+    done = 0
+    pending_symbols = sum(len(group) for _, group in pending)
+
+    def tick(symbol: str, rows: int) -> None:
+        # 배치가 900종목이라 배치 단위로만 찍으면 20분 동안 아무것도 안 보인다.
+        nonlocal done
+        done += 1
+        if done % 50:
+            return
+        elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
+        remaining = eta(done, pending_symbols, elapsed)
+        tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
+        print(f"  [{done}/{pending_symbols}] {symbol} rows={rows}{tail}", flush=True)
+
+    backfiller.on_symbol = tick
+
+    for batch, group in pending:
+        print(f"\n=== 배치 {batch:03d} — {len(group)}종목 ({group[0]}~{group[-1]}) ===", flush=True)
+        result = backfiller.run_batch(batch, group, start=start, end=end)
+        report.absorb(result)
+        progress.record(result, at=clock.now())
+        print(
+            f"배치 {batch:03d} 완료 — rows={result.rows:,} "
+            f"미취급 {len(result.missing)}종목",
+            flush=True,
+        )
+
+    print(
+        f"\n완료 — 배치 {report.sessions}개 (건너뜀 {report.skipped}), "
+        f"행 {report.counts.get('prices', 0):,}"
+    )
+    if report.failures:
+        print(f"실패 {len(report.failures)}건 (앞 10건):")
+        for unit, error in report.failures[:10]:
+            print(f"  {unit}: {error}")
+    return 0
 
 
 def run_flow_backfill(
@@ -578,12 +665,17 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.symbols,
         )
 
-    if market is not Market.KR:
-        print(
-            f"{market} 백필 소스가 아직 없다. LS 해외주식 TR 필드맵이 미검증이고 "
-            "(postmortem-ls.md §6-6) US appkey 도 없다.",
-            file=sys.stderr,
+    if market is Market.US:
+        return run_us_price_backfill(
+            store,
+            clock,
+            years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            limit=args.symbols,
+            dry_run=args.dry_run,
         )
+
+    if market is not Market.KR:
+        print(f"{market} 백필 소스가 아직 없다.", file=sys.stderr)
         return 2
 
     return run_backfill(
