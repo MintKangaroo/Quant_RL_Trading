@@ -33,7 +33,10 @@ from lattice.analysts import ic  # noqa: E402
 from lattice.analysts.base import Analyst, to_scores_frame  # noqa: E402
 from lattice.analysts.chart import ChartAnalyst  # noqa: E402
 from lattice.analysts.event import EventAnalyst  # noqa: E402
+from lattice.analysts.flow_kr import FlowKrAnalyst  # noqa: E402
+from lattice.analysts.flow_us import FlowUsAnalyst  # noqa: E402
 from lattice.analysts.fundamental import FundamentalAnalyst  # noqa: E402
+from lattice.analysts.regime import RegimeAnalyst  # noqa: E402
 from lattice.analysts.risk import RiskAnalyst  # noqa: E402
 from lattice.collectors.market_hours import Market, trading_days  # noqa: E402
 from lattice.collectors.publication import publication_policy  # noqa: E402
@@ -44,12 +47,28 @@ from tools.backfill import build_store, load_env  # noqa: E402
 ANALYSTS: dict[str, type[Analyst]] = {
     "chart": ChartAnalyst,
     "event": EventAnalyst,
+    "flow_kr": FlowKrAnalyst,
+    "flow_us": FlowUsAnalyst,
     "fundamental": FundamentalAnalyst,
+    "regime": RegimeAnalyst,
     "risk": RiskAnalyst,
 }
 
-#: 라벨을 만들 때 훑는 구간. 측정 구간보다 넉넉해야 앞뒤가 잘리지 않는다.
-TARGET_SPAN_DAYS = 365 * 6
+#: 라벨을 만들 때 훑는 구간의 여유분(달력일). 측정 구간보다 넉넉해야 앞뒤가
+#: 잘리지 않는다 — horizon·entry_lag 만큼 뒤로 더 필요하고, 앞쪽은 거래일이
+#: 달력일보다 짧으므로 환산 여유가 필요하다.
+TARGET_SPAN_SLACK_DAYS = 90
+
+
+def target_span(sessions: int) -> int:
+    """``sessions`` 거래일을 덮는 데 필요한 달력일.
+
+    예전에는 6년을 통째로 훑었다. 쓰는 것은 마지막 ``sessions`` 개뿐인데
+    3.6M 행을 만들어 들고 있었고, 그 프레임이 측정 내내 살아 있어서 메모리
+    봉우리의 대부분을 차지했다. **결과는 달라지지 않는다** — 타깃은 종목·세션
+    단위로 국소적이고(전방수익률·횡단면 z), 어차피 마지막 구간만 쓴다.
+    """
+    return int(sessions * 7 / 5) + TARGET_SPAN_SLACK_DAYS
 
 
 def score_sessions(
@@ -96,7 +115,9 @@ def measure(
     as_of = clock.now()
     threshold, min_days = ic.thresholds(store, as_of=as_of)
 
-    targets = ic.build_targets(store, as_of=as_of, lookback=TARGET_SPAN_DAYS)
+    targets = ic.build_targets(
+        store, as_of=as_of, lookback=target_span(sessions), market=str(market)
+    )
     if targets.empty:
         raise SystemExit("타깃이 비었다. prices 백필이 되어 있는지 확인할 것.")
 
