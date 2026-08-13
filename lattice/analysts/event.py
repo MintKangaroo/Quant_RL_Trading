@@ -26,8 +26,26 @@ agents.md §4 는 "만들기 가장 쉽고 효과가 확실하다. 먼저 붙일
 
 데이터 유니버스는 상폐 종목을 품지만(생존편향 제거) **매매 유니버스는 아니다.**
 
-실적발표 D-day·배당락은 이 Analyst 의 진짜 알맹이지만 DART 재무·배당 데이터가
-들어와야 한다. 그전까지는 없는 것을 지어내지 않는다.
+## 공시 이벤트 (2026-08-13 추가)
+
+DART 공시목록이 들어오면서 **날짜가 박힌 진짜 이벤트**가 생겼다
+(``collectors/dart_filings.py``). 그 전까지 이 Analyst 는 maturity·no_halt
+둘뿐이라 이름과 달리 "오래되고 안 멈춘 종목" 을 좋아하는 품질 지표였다.
+
+넣는 것은 **사전에 방향을 말할 수 있는 사건**뿐이다.
+
+    buyback   자사주 취득      +   회사가 자기 주식을 사는 것은 신호다
+    dividend  배당             +
+    contract  수주             +   실적으로 이어지기 전에 먼저 공시된다
+    dilution  유상증자·CB      −   기존 주주 지분이 희석된다
+    distress  불성실공시·관리   −   가장 강한 음의 신호
+
+**earnings(실적 공시)는 점수에 넣지 않는다.** 실적 발표 자체는 방향이 없다 —
+좋았는지 나빴는지는 숫자를 봐야 알고, 그건 fundamental 소관이다. "최근에
+발표했다" 만으로 점수를 주면 어느 쪽으로 줘야 할지 말할 수 없다.
+
+방향을 모르는 피처를 넣고 IC 가 정해 주기를 기다리는 것은, 표본에 사후적으로
+맞추는 일이다.
 """
 
 from __future__ import annotations
@@ -47,9 +65,36 @@ LOOKBACK_DAYS = 400
 #: 다른 값인 이유는, 여기서는 자르는 게 아니라 **정도를 점수로 표현**하기 때문이다.
 YOUNG_DAYS = 250
 
+#: 공시를 훑는 창(달력일). 자사주·배당·증자의 효과가 남아 있는 기간이다.
+FILING_WINDOW_DAYS = 60
+
+#: 부실 신호만 더 길게 본다. 관리종목 지정은 60일이 지나도 여전히 사실이다.
+DISTRESS_WINDOW_DAYS = 120
+
+#: 점수에 들어가는 공시 분류와 부호. **없는 분류는 여기 넣지 않는다** —
+#: earnings 는 방향을 말할 수 없어서 뺐다 (모듈 docstring).
+FILING_SIGNS = {
+    "buyback": +1.0,
+    "dividend": +1.0,
+    "contract": +1.0,
+    "dilution": -1.0,
+    "distress": -1.0,
+}
+
+#: 가중치는 **사전에** 정한다. 측정 결과를 보고 고르면 그 표본에 맞춘 값이
+#: 되고 다음 구간에서 사라진다. 공시 이벤트에 무게를 싣는 이유는 그것이 이
+#: Analyst 가 하기로 한 일이기 때문이다 — maturity·no_halt 는 이벤트가 아니라
+#: 종목 상태이고, 이벤트가 없던 시절의 대타였다.
+#:
+#: 부호는 값에 이미 들어가 있다(``FILING_SIGNS``). 여기서는 전부 양수다.
 WEIGHTS = {
-    "maturity": 0.55,      # 상장 경과일 (길수록 +)
-    "no_halt": 0.45,       # 최근 거래정지 없음 (+)
+    "buyback": 0.20,       # 자사주 취득
+    "distress": 0.20,      # 불성실공시·관리종목 (값이 음수)
+    "dilution": 0.15,      # 유상증자·CB (값이 음수)
+    "dividend": 0.10,      # 배당
+    "contract": 0.10,      # 수주
+    "maturity": 0.15,      # 상장 경과일 (길수록 +)
+    "no_halt": 0.10,       # 최근 거래정지 없음 (+)
 }
 
 
@@ -121,11 +166,67 @@ class EventAnalyst(Analyst):
         halt_ratio = (1.0 - (traded_days / listed_days)).clip(lower=0.0)
         raw["no_halt"] = -halt_ratio.reindex(state.index).fillna(0.0).astype(float)
 
+        for name, series in self._filing_features(as_of, state.index).items():
+            raw[name] = series
+
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         return raw.apply(rank_score).fillna(0.0)
 
+    def _filing_features(
+        self, as_of: datetime, entities: pd.Index
+    ) -> dict[str, pd.Series]:
+        """공시 건수 피처. **없으면 빈 dict 를 돌려준다.**
+
+        공시가 아직 안 들어온 창고에서 전 종목 0 인 열을 만들면, 그 열은 분산이
+        0이라 rank_score 가 전부 0 을 주고 ``combine`` 은 그 가중치만큼 나머지
+        피처의 영향력을 줄인다. 열이 아예 없으면 ``raw_score`` 가 남은 가중치로
+        정규화한다 — fundamental 의 밸류 피처와 같은 처리다.
+
+        건수 그대로 쓴다. 한 종목이 60일 안에 자사주 공시를 세 번 냈으면 한 번
+        낸 종목보다 강한 신호다. 상한을 두면 그 차이가 사라진다.
+        """
+        window = max(FILING_WINDOW_DAYS, DISTRESS_WINDOW_DAYS)
+        documents = self.store.get("documents", as_of=as_of, lookback=window)
+        if documents.empty:
+            return {}
+
+        prefix = f"{self.market}:"
+        documents = documents[
+            documents["entity_id"].astype(str).str.startswith(prefix)
+            & documents["doc_type"].isin(FILING_SIGNS)
+        ]
+        if documents.empty:
+            return {}
+
+        # 창 밖의 행을 다시 자른다. lookback 은 가장 긴 창으로 한 번만 읽고,
+        # 분류마다 필요한 창은 여기서 좁힌다 — 질의를 두 번 하지 않는다.
+        edge = as_of - pd.Timedelta(days=FILING_WINDOW_DAYS)
+        distress_edge = as_of - pd.Timedelta(days=DISTRESS_WINDOW_DAYS)
+
+        out: dict[str, pd.Series] = {}
+        for doc_type, sign in FILING_SIGNS.items():
+            limit = distress_edge if doc_type == "distress" else edge
+            subset = documents[
+                (documents["doc_type"] == doc_type) & (documents["valid_from"] >= limit)
+            ]
+            if subset.empty:
+                continue
+            counts = subset.groupby("entity_id")["doc_id"].nunique()
+            # 공시가 없는 종목은 0 이다. 여기서는 결측이 아니라 **사실**이다 —
+            # "그 종목은 그 기간에 그런 공시를 내지 않았다".
+            out[doc_type] = (
+                sign * counts.reindex(entities).fillna(0.0).astype(float)
+            )
+        return out
+
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
-        return combine(features, WEIGHTS)
+        # 공시가 안 들어온 구간에는 그 열이 아예 없다. 없는 피처를 0 으로
+        # 채워 넣으면 나머지 피처의 영향력만 줄어든다 — fundamental 의 밸류
+        # 피처와 같은 처리다.
+        present = {
+            name: weight for name, weight in WEIGHTS.items() if name in features.columns
+        }
+        return combine(features, present)
 
     def evidence_for(self, features: pd.DataFrame, entity_id: str) -> tuple[Evidence, ...]:
         """종목 피처 + **시장 전체 달력 맥락**.
