@@ -20,3 +20,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# 실행 로그·PID. 기계마다 다르고 재현에 필요 없다.
+logs/

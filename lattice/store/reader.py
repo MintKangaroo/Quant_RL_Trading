@@ -24,7 +24,7 @@ import duckdb
 import pandas as pd
 
 from lattice.store import paths
-from lattice.store.errors import NaiveTimestamp
+from lattice.store.errors import NaiveTimestamp, SchemaViolation
 from lattice.store.schema import ROW_HASH, TableSpec
 from lattice.store.tables import get_spec
 
@@ -55,6 +55,28 @@ def _empty(spec: TableSpec) -> pd.DataFrame:
     return spec.arrow_schema.empty_table().to_pandas()
 
 
+def _projection(spec: TableSpec, columns: Sequence[str] | None) -> list[str]:
+    """돌려줄 컬럼 목록.
+
+    ``flows`` 처럼 큰 테이블은 문자열 컬럼(source·ingest_run_id·row_hash)이
+    행 무게의 대부분이다. 안 쓸 컬럼을 여기서 자르면 pandas 로 넘어오는
+    양이 몇 배 줄어든다 — 게이트를 우회하는 것이 아니라 게이트가 덜 퍼내는
+    것이다.
+
+    **정정본 선택(``revision``·``observed_at``·``row_hash``)은 프루닝 전에
+    이미 끝나 있다.** 그래서 무엇을 자르든 어느 행이 남는지는 바뀌지 않는다.
+    """
+    if columns is None:
+        return list(spec.all_columns)
+
+    unknown = [name for name in columns if name not in spec.all_columns]
+    if unknown:
+        raise SchemaViolation(f"{spec.name} 에 없는 컬럼: {sorted(unknown)}")
+    # 자연키는 항상 남긴다. 없으면 돌려받은 프레임이 무엇에 대한 값인지
+    # 알 수 없고, 호출부가 매번 다시 물어보게 된다.
+    return list(dict.fromkeys([*spec.natural_key, *columns]))
+
+
 def query(
     connection: duckdb.DuckDBPyConnection,
     root: Path,
@@ -64,6 +86,8 @@ def query(
     entity: str | Sequence[str] | None = None,
     lookback: timedelta | int | None = None,
     until: datetime | None = None,
+    columns: Sequence[str] | None = None,
+    market: str | None = None,
 ) -> pd.DataFrame:
     spec = get_spec(table)
     as_of = _require_aware("as_of", as_of)
@@ -100,11 +124,26 @@ def query(
         predicates.append("valid_from < ?")
         params.append(until)
 
+    if market is not None:
+        # 시장을 pandas 로 거르면 안 쓸 시장을 통째로 퍼온 뒤 버리게 된다.
+        # 한 테이블에 여러 시장이 같이 사는 순간(미장 백필) 그 낭비가 국장
+        # 질의를 죽인다 — 실제로 그렇게 죽었다.
+        if "market" not in spec.all_columns:
+            raise SchemaViolation(f"{spec.name} 에는 market 컬럼이 없다")
+        predicates.append("market = ?")
+        params.append(market)
+
     key = ", ".join(spec.natural_key)
-    columns = ", ".join(spec.all_columns)
+    projected = _projection(spec, columns)
+    # 스캔 단계에서부터 좁힌다. ``scoped`` 를 ``SELECT *`` 로 두면 프루닝이
+    # 스캔까지 내려가지 못하고, 바로 뒤 ``row_number()`` 윈도우가 전 컬럼을
+    # 물고 정렬한다 — 메모리 봉우리는 결과가 아니라 이 정렬에서 생긴다.
+    # 순위 계산에 쓰이는 세 컬럼은 호출부가 안 달라고 해도 있어야 한다.
+    scan = ", ".join(dict.fromkeys([*projected, "revision", "observed_at", ROW_HASH]))
+    # 술어는 투영 전에 평가되므로, 여기 없는 컬럼(valid_from)으로도 거를 수 있다.
     sql = f"""
         WITH scoped AS (
-            SELECT * FROM read_parquet(?, union_by_name = true)
+            SELECT {scan} FROM read_parquet(?, union_by_name = true)
             WHERE {" AND ".join(predicates)}
         ),
         ranked AS (
@@ -115,7 +154,7 @@ def query(
             ) AS _rank
             FROM scoped
         )
-        SELECT {columns} FROM ranked
+        SELECT {", ".join(projected)} FROM ranked
         WHERE _rank = 1
         ORDER BY {key}, {ROW_HASH}
     """

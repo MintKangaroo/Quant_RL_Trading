@@ -140,6 +140,7 @@ def build_targets(
     lookback: int,
     horizon: int = HORIZON_DAYS,
     window: int = 32,
+    market: str | None = None,
 ) -> pd.DataFrame:
     """라벨 생성. 창고를 게이트로만 읽는다 (불변식 1).
 
@@ -149,14 +150,31 @@ def build_targets(
     """
     from lattice.dashboard.services import data_quality as dq
 
-    windows = dq.iter_windows(store, PRICES, as_of=as_of, lookback=lookback, window=window)
-    frames = [chunk for chunk in windows if not chunk.empty]
+    # 라벨에 필요한 것은 종가뿐이다. 6년치를 전 컬럼으로 이어 붙이면 안 쓰는
+    # 문자열·부동소수 열이 수백 MB를 차지하고, 그 봉우리에서 머신이 멈춘다.
+    windows = dq.iter_windows(
+        store,
+        PRICES,
+        as_of=as_of,
+        lookback=lookback,
+        window=window,
+        columns=["close"],
+        # 라벨도 한 시장 것만 만든다. 다른 시장 종목이 섞이면 횡단면 z 가
+        # 두 시장을 한 줄에 세우게 되고, 그건 비교가 아니다.
+        market=market,
+    )
+    frames = [
+        chunk.loc[:, ["entity_id", "valid_from", "close"]]
+        for chunk in windows
+        if not chunk.empty
+    ]
     if not frames:
         return pd.DataFrame(columns=["entity_id", "session", "target"])
 
-    prices = pd.concat(frames, ignore_index=True).drop_duplicates(
-        subset=["entity_id", "valid_from"], keep="last"
-    )
+    prices = pd.concat(frames, ignore_index=True)
+    # 창이 서로 겹치게 잘려 있어서 중복이 생긴다 (_span 이 하루 넉넉히 잡는다).
+    frames.clear()
+    prices = prices.drop_duplicates(subset=["entity_id", "valid_from"], keep="last")
     prices["session"] = prices["valid_from"].dt.date
 
     forward = forward_returns(prices, horizon=horizon)

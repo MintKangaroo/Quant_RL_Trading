@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -68,7 +68,14 @@ class Coverage:
 
 
 def iter_windows(
-    store: Store, table: str, *, as_of: datetime, lookback: int, window: int = WINDOW_DAYS
+    store: Store,
+    table: str,
+    *,
+    as_of: datetime,
+    lookback: int,
+    window: int = WINDOW_DAYS,
+    columns: Sequence[str] | None = None,
+    market: str | None = None,
 ) -> Iterator[pd.DataFrame]:
     """구간을 창으로 잘라 순서대로 돌려준다. 오래된 창부터.
 
@@ -82,9 +89,19 @@ def iter_windows(
 
     화면과 CLI 가 같은 창 나누기를 쓴다. 두 벌로 두면 같은 데이터에서 서로 다른
     커버리지 숫자가 나오고, 어느 쪽이 맞는지 아무도 모르게 된다.
+
+    ``columns`` 는 게이트에 그대로 넘긴다. 창을 나누는 이유가 메모리인데
+    창마다 전 컬럼을 퍼오면 나눈 보람이 없다.
     """
     for edge in _window_edges(as_of, lookback, window):
-        yield store.get(table, as_of=as_of, lookback=_span(as_of, edge, window), until=edge)
+        yield store.get(
+            table,
+            as_of=as_of,
+            lookback=_span(as_of, edge, window),
+            until=edge,
+            columns=columns,
+            market=market,
+        )
 
 
 def _span(as_of: datetime, edge: datetime, window: int) -> int:

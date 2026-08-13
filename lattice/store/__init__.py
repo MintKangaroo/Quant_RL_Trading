@@ -44,6 +44,16 @@ DEFAULT_ROOT = REPO_ROOT / "data"
 DEFAULT_CONFIG_FILE = REPO_ROOT / "config" / "lattice.yaml"
 ROOT_ENV = "LATTICE_DATA_ROOT"
 
+#: DuckDB 는 상한을 안 주면 **머신 RAM 의 80%** 를 제 것으로 잡는다. 창고가
+#: 수십만 개의 Parquet 파일이라 flows 처럼 큰 테이블을 훑을 때 그 한도까지
+#: 실제로 밀어붙이고, 그러면 머신이 통째로 멈춘다 — 쿼리가 죽는 게 아니라
+#: 머신이 죽으므로 로그도 남지 않는다. 기본값을 보수적으로 두고 env 로 연다.
+MEMORY_LIMIT_ENV = "LATTICE_DUCKDB_MEMORY_LIMIT"
+THREADS_ENV = "LATTICE_DUCKDB_THREADS"
+DEFAULT_MEMORY_LIMIT = "2GB"
+#: 스레드마다 자기 버퍼를 든다. 12 스레드는 12배로 부푼다.
+DEFAULT_THREADS = "4"
+
 
 class Store:
     """하나의 데이터 루트에 대한 게이트.
@@ -67,6 +77,8 @@ class Store:
         entity: str | Sequence[str] | None = None,
         lookback: timedelta | int | None = None,
         until: datetime | None = None,
+        columns: Sequence[str] | None = None,
+        market: str | None = None,
     ) -> pd.DataFrame:
         """``as_of`` 시점에 알 수 있었던 것만 돌려준다.
 
@@ -74,6 +86,13 @@ class Store:
         정수면 일). 관측 기준이 아니다 — 둘을 같다고 보면 뒤늦게 도착한
         정정본을 놓친다. 큰 구간을 나눠 읽을 때는 **as_of 를 옮기지 말고
         이 창을 옮겨야 한다.**
+
+        ``market`` 은 시장을 SQL 단계에서 거른다. 창고에 여러 시장이 같이
+        살면 이걸 안 쓰는 질의가 안 쓸 시장까지 퍼온다.
+
+        ``columns`` 는 돌려받을 컬럼을 좁힌다. 큰 테이블을 훑을 때 안 쓰는
+        문자열 컬럼이 메모리의 대부분을 차지하기 때문이다. 어느 행이 남는지는
+        바뀌지 않는다 — 정정본 선택은 프루닝 전에 끝난다.
         """
         return reader.query(
             self._connect(),
@@ -83,6 +102,8 @@ class Store:
             entity=entity,
             lookback=lookback,
             until=until,
+            columns=columns,
+            market=market,
         )
 
     def config(self, name: str, *, as_of: datetime) -> Any:
@@ -167,7 +188,22 @@ class Store:
 
     def _connect(self) -> duckdb.DuckDBPyConnection:
         if self._connection is None:
-            self._connection = duckdb.connect(database=":memory:")
+            connection = duckdb.connect(database=":memory:")
+            connection.execute(
+                f"SET memory_limit = '{os.environ.get(MEMORY_LIMIT_ENV, DEFAULT_MEMORY_LIMIT)}'"
+            )
+            connection.execute(
+                f"SET threads = {os.environ.get(THREADS_ENV, DEFAULT_THREADS)}"
+            )
+            # 한도를 넘으면 죽는 대신 디스크로 흘린다. 느려지는 것이 멈추는
+            # 것보다 낫다.
+            connection.execute(f"SET temp_directory = '{self.root / '_duckdb_spill'}'")
+            # 입력 순서 보존을 끄면 스캔 결과를 통째로 버퍼링하지 않는다.
+            # **결정론은 잃지 않는다** — reader 의 모든 질의가 자연키와
+            # row_hash 로 명시적 ORDER BY 를 걸기 때문이다. 그 ORDER BY 를
+            # 지우면 이 설정이 결과 순서를 흔들게 된다.
+            connection.execute("SET preserve_insertion_order = false")
+            self._connection = connection
         return self._connection
 
     def close(self) -> None:
