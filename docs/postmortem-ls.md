@@ -134,7 +134,7 @@ if mode in ("equal_weight", "inverse_vol"):
 ```
 `mode: equal_weight` 이므로 `_passive()` 로 즉시 빠져나가고, `weights.ppo` 는 참조조차 되지 않는다.
 
-> **Lattice 가 물려받지 말아야 할 것**: 설정 파일에 살아 있는 것처럼 보이는 죽은 값.
+> **Quant_RL_Trading 가 물려받지 말아야 할 것**: 설정 파일에 살아 있는 것처럼 보이는 죽은 값.
 > `ppo: 0.30` 과 "메인 의사결정자" 주석을 읽은 사람은 이 시스템이 RL로 돈다고 믿게 된다.
 > 이것이 "RL 프로젝트라고 믿었지만 룰이었다"의 기계적 실체다.
 
@@ -145,7 +145,7 @@ if mode in ("equal_weight", "inverse_vol"):
 "RL 트레이더"로 불렸다. 발견은 2026-08-02 사람이 직접 감사해서야 이뤄졌다.
 
 **→ CLAUDE.md 의 "액션 반영률 30% 미만 경고" 지표가 정확히 이 공백을 겨냥한다.**
-Lattice 에서는 이 값이 대시보드 상시 표시 항목이어야 하며, 0이 되면 즉시 눈에 띄어야 한다.
+Quant_RL_Trading 에서는 이 값이 대시보드 상시 표시 항목이어야 하며, 0이 되면 즉시 눈에 띄어야 한다.
 
 ### 1-5. 가드 체인 — RL 이 살아 있었더라도 통과할 게 많았다
 
@@ -230,7 +230,7 @@ reward = pnl - self.mdd_penalty * dd - self.turnover_penalty * turnover - 0.1 * 
 #   `explained_variance ≈ 0` 이 정확히 그 증상이다
 ```
 
-> **Lattice 대조**: `reward-and-risk.md` 의 `w(d)·Δd` 는 이 실패의 직접적 해독제다.
+> **Quant_RL_Trading 대조**: `reward-and-risk.md` 의 `w(d)·Δd` 는 이 실패의 직접적 해독제다.
 > ① 신저점 갱신 시에만 벌점(증분) → 이미 난 낙폭을 매 스텝 재차 벌하지 않는다.
 > ② 12% 자유구간 → 정상 영업 범위의 낙폭에 벌점 0이라 현금 편향이 생기지 않는다.
 > ③ 벤치 상대 → "없는 알파" 대신 상대 성과를 겨냥.
@@ -312,7 +312,7 @@ syms = sorted((snapshot.get("quotes") or {}).keys())[: self.symbols_n]
 4. **차원 불일치가 런타임에 터졌다**. LS_USA 는 obs 42 vs 모델 128 로 매 리밸런싱이 실패했다
    (`config/settings.yaml:227`). 그런데도 시스템은 멈추지 않고 equal_weight 로 폴백해 계속 돌았다.
 
-> **Lattice 대조**: `milestones.md` M4 의 "상태 인코더(set encoder)" 가 1·2번을 직접 해결한다.
+> **Quant_RL_Trading 대조**: `milestones.md` M4 의 "상태 인코더(set encoder)" 가 1·2번을 직접 해결한다.
 > 추가로 4번이 주는 교훈 — **차원 불일치는 조용한 폴백이 아니라 실패여야 한다.**
 > 폴백이 있었기 때문에 두 달 동안 아무도 RL이 죽은 걸 몰랐다.
 
@@ -359,7 +359,7 @@ fold 경계에서 라벨 구간이 겹치는 것을 막는 장치는 확인되�
 구분하는 필드가 스키마에 없으므로, 백필 데이터에 대해서는 공시를 실제보다 일찍 본다.
 검증할 수 없었다 — `data/schema.py` 를 읽지 않았다. **4단계 착수 전 확인 필요.**
 
-> **Lattice 대조**: (b)와 (c)는 불변식 1·3번(이중시간 + `store.get(as_of=)`)이 겨냥하는 바로 그 구멍이다.
+> **Quant_RL_Trading 대조**: (b)와 (c)는 불변식 1·3번(이중시간 + `store.get(as_of=)`)이 겨냥하는 바로 그 구멍이다.
 > LS 의 누수는 코딩 실수가 아니라 **시점 조회 계층의 부재**에서 왔다. 개별 코드를 조심해서 막을 수 있는 게 아니다.
 
 ---
@@ -401,7 +401,7 @@ fold 경계에서 라벨 구간이 겹치는 것을 막는 장치는 확인되�
 | `broker/order.py` | 331 | |
 | `broker/account.py` | 334 | |
 | `broker/market_data.py` | 276 | |
-| `broker/fill_reconciler.py` | 139 | **KR 에 없다.** 체결 대사 — Lattice 불변식 7번(실현 비중)에 직접 유용 |
+| `broker/fill_reconciler.py` | 139 | **KR 에 없다.** 체결 대사 — Quant_RL_Trading 불변식 7번(실현 비중)에 직접 유용 |
 | `broker/ls_websocket.py` | 93 | |
 | `scheduling/market_hours.py`, `market_hooks.py` | — | 미장 시간·서머타임 [추측] |
 
@@ -411,7 +411,7 @@ fold 경계에서 라벨 구간이 겹치는 것을 막는 장치는 확인되�
 `config/secrets.env*` + `!config/secrets.env.example` 로 차단돼 있고,
 `git ls-files` 결과 추적되는 건 `.example` 뿐이다.
 
-Lattice `.env.example` 에 필요한 키 이름 (LS_KR `config/secrets.env` 의 키 목록, 값 제외):
+Quant_RL_Trading `.env.example` 에 필요한 키 이름 (LS_KR `config/secrets.env` 의 키 목록, 값 제외):
 ```
 LS_APPKEY, LS_APPSECRET, LS_REST_BASE_URL, LS_WS_BASE_URL,
 LS_ACCOUNT_NO, LS_ACCOUNT_PRODUCT_CODE,
@@ -428,10 +428,10 @@ SMTP_SERVER, SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD, RECIPIENT_EMAIL
 #    저장소에서 빠져 있었다(2026-08-03 발견). 가상환경은 .venv/ 만 쓴다.
 ```
 `env/` 를 gitignore 했다가 RL 환경 패키지 전체가 두 달간 버전관리에서 빠져 있었다.
-Lattice 는 `.venv/` 만 제외한다.
+Quant_RL_Trading 는 `.venv/` 만 제외한다.
 
 **휴장일이 27줄짜리 텍스트 파일이다.** `config/krx_holidays.txt` — 수동 관리이며
-갱신되지 않으면 조용히 틀린다. Lattice 에서는 이식하되 이중시간 저장으로 옮기고,
+갱신되지 않으면 조용히 틀린다. Quant_RL_Trading 에서는 이식하되 이중시간 저장으로 옮기고,
 만료 감시를 두는 것이 낫다.
 
 ### 6-1. 인증 · 토큰 — 이식 난이도 낮음, 최우선
@@ -443,7 +443,7 @@ Lattice 는 `.venv/` 만 제외한다.
 다른 쪽 토큰이 서버에서 무효화된다(`IGW00121`). 그 감지 → 강제 재발급 → 재시도 로직이
 KR `ls_client.py:231-296` 에 있고, 주석(`:232-236`)에 경위가 남아 있다.
 
-> Lattice 는 **KR/US 별도 appkey 를 발급**해서 이 문제를 원천 제거하는 게 낫다.
+> Quant_RL_Trading 는 **KR/US 별도 appkey 를 발급**해서 이 문제를 원천 제거하는 게 낫다.
 > US `ls_client.py:32` 주석도 같은 권고를 한다.
 
 자격증명은 `config/loader.py:85-114` 에서 `settings.yaml`(구조) + `secrets.env`(민감정보) 병합.
@@ -507,7 +507,7 @@ US 는 프로세스를 재시작하면 당일 주문 카운터가 초기화된�
 - **US**: 09:30–16:00 ET (`:24-25`), 휴장일은 **`pandas_market_calendars`(XNYS) 조회** (`:48-68`).
   DST 는 `pytz` 의 `America/New_York` 이 자동 처리.
 
-> Lattice 는 US 패턴(라이브러리 조회)을 기본으로 하고, KR 은 `exchange_calendars` 의 `XKRX`
+> Quant_RL_Trading 는 US 패턴(라이브러리 조회)을 기본으로 하고, KR 은 `exchange_calendars` 의 `XKRX`
 > 로 대체 검토할 가치가 있다. 수작업 리스트는 갱신을 잊으면 조용히 틀린다.
 
 ### 6-6. 응답 정규화 — KR 은 검증됨, US 는 미검증
@@ -549,9 +549,9 @@ KR 킬스위치 원형(고쳐지지 않은 버그 보유).
 
 ---
 
-## Lattice 로 가져갈 결론
+## Quant_RL_Trading 로 가져갈 결론
 
-| # | LS 에서 실제로 일어난 일 | Lattice 의 대응 | 상태 |
+| # | LS 에서 실제로 일어난 일 | Quant_RL_Trading 의 대응 | 상태 |
 |---|---|---|---|
 | 1 | RL 기여도 0%를 아무도 측정하지 않아 두 달간 몰랐다 | 액션 반영률 상시 표시, 30% 미만 경고 | CLAUDE.md 에 명시됨 |
 | 2 | 설정에 살아 있는 척하는 죽은 값 (`ppo: 0.30` + mode 스위치) | 임계치는 `store.config` 단일 출처 | 불변식 10 |
@@ -575,7 +575,7 @@ LS 의 실패에서 가장 반복적으로 나타난 메커니즘은 **조용한
 전부 "안전하게" 설계됐고, 전부 **실패를 성공처럼 보이게 만들었다.**
 개별적으로는 합리적이지만 합치면 시스템이 죽었는데도 계속 도는 상태가 된다.
 
-제안: Lattice 에 **"조용한 폴백 금지"** 규칙을 추가할 것.
+제안: Quant_RL_Trading 에 **"조용한 폴백 금지"** 규칙을 추가할 것.
 모델 미로딩·차원 불일치·매핑 실패는 경고가 아니라 **Session 실패**여야 하고,
 `degraded` 상태가 대시보드에 표시돼야 한다. 이것을 CLAUDE.md 불변식이나
 `docs/design/agents.md` 에 넣을지는 결정이 필요하다.

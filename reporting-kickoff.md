@@ -22,7 +22,7 @@ LS_KR 레포에서 Gmail 발송 관련 코드를 찾아 정리해줘. subagent�
 docs/port-gmail.md 로 정리해줘. 파일 경로와 함께.
 
 자격증명이 코드에 하드코딩돼 있으면 반드시 표시해줘.
-Lattice 로 가져올 때는 .env 로 옮겨야 해.
+Quant_RL_Trading 로 가져올 때는 .env 로 옮겨야 해.
 ```
 
 ---
@@ -55,7 +55,7 @@ ReportData 는 pydantic 모델로 정의하고 4개 섹션을 담아:
 ④ 주식 시황
    KOSPI·KOSDAQ·S&P500·나스닥·원달러, 섹터별 등락,
    인기 주식(거래대금 z-score 상위 / 언급량 상위 / 신고가)
-   ← 각 인기 종목이 Lattice 후보에 포함됐는지 여부를 반드시 함께 담아
+   ← 각 인기 종목이 Quant_RL_Trading 후보에 포함됐는지 여부를 반드시 함께 담아
    내일 예정 이벤트
 
 weekly 는 여기에 주간 귀속(종목/섹터/Analyst/환율)과

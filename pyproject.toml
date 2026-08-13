@@ -1,7 +1,7 @@
 [project]
 name = "lattice"
 version = "0.1.0"
-description = "Lattice — 멀티에이전트 AI 사모펀드"
+description = "Quant_RL_Trading — 멀티에이전트 AI 사모펀드"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "duckdb>=1.1",

@@ -46,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     host = args.host or os.environ.get("DASHBOARD_HOST") or DEFAULT_HOST
     port = args.port or int(os.environ.get("DASHBOARD_PORT") or DEFAULT_PORT)
 
-    print(f"Lattice 대시보드 → http://{host}:{port}/  (창고: {store.root})")
+    print(f"Quant_RL_Trading 대시보드 → http://{host}:{port}/  (창고: {store.root})")
     create_app(store=store, clock=clock).run(host=host, port=port, debug=args.debug)
     return 0
 

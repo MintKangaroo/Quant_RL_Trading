@@ -9,7 +9,7 @@
 # 쪽이라 조용히 비면 위험한 종목이 후보에 남는다. 여유를 두는 이유가 이것이다.
 set -u
 
-cd /home/mintkangaroo/Project/lattice || exit 1
+cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
 LIMIT="${1:-30}"
 MARKET="${2:-KR}"

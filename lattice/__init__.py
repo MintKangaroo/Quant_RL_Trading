@@ -1,4 +1,4 @@
-"""Lattice — 멀티에이전트 AI 사모펀드.
+"""Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 
 Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 

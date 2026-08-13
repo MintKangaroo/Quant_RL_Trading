@@ -52,7 +52,7 @@ LS_KR 과 LS_USA 레포를 부검해줘. 파일을 많이 읽어야 하니 subag
 ```
 CLAUDE.md 와 docs/glossary.md 를 읽어. 거기 불변식이 이 프로젝트의 헌법이야.
 
-Lattice 레포 뼈대를 만들 계획을 세워줘. 아직 구현하지 마, 계획만.
+Quant_RL_Trading 레포 뼈대를 만들 계획을 세워줘. 아직 구현하지 마, 계획만.
 
 - docs/glossary.md 의 패키지 구조 그대로
 - Python 3.12, uv

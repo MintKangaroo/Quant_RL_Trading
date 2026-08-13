@@ -6,7 +6,7 @@ port(collectors): LS_KR broker/ls_client.py 이식 (인증·토큰갱신·TR호�
 이식하면서 바꾼 것:
 
 1. ``time.time()`` → Clock 주입 (불변식 2). 원본은 레이트리밋과 토큰 만료를
-   모두 벽시계로 쟀다. Lattice 에서는 시간의 출처가 하나뿐이다.
+   모두 벽시계로 쟀다. Quant_RL_Trading 에서는 시간의 출처가 하나뿐이다.
 2. ``requests`` → ``httpx``. 테스트에서 transport 를 갈아끼워 네트워크 없이 돈다.
 3. 성공 판정은 **KR 판을 기준으로 삼는다.** US 판의 ``rsp_cd.startswith("0")`` 은
    지나치게 포괄적이라 실패를 성공으로 읽는다 (postmortem-ls.md §6-2).
@@ -63,7 +63,7 @@ OK_CODES = frozenset({"00000", "00039", "00040", "00463"})
 OK_MESSAGE = "완료되었습니다"
 
 #: 토큰 무효 코드. KR/US 가 같은 appkey 를 공유하면 한쪽 재발급이 다른 쪽을
-#: 무효화한다. Lattice 는 KR/US 별도 appkey 를 쓰는 것을 전제로 하지만,
+#: 무효화한다. Quant_RL_Trading 는 KR/US 별도 appkey 를 쓰는 것을 전제로 하지만,
 #: 복구 경로는 남겨 둔다 (postmortem-ls.md §6-1).
 TOKEN_INVALID = "IGW00121"
 

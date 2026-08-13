@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lattice · Fund</title>
+<title>Quant_RL_Trading · Fund</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
@@ -332,7 +332,7 @@ function render(e){
             axisLabel:{...axisBase.axisLabel,formatter:'{value}%p'}}],
     series:[
       {name:'벤치마크',type:'line',data:bb,showSymbol:false,lineStyle:{color:'#6B7280',width:1.2,type:[5,4]}},
-      {name:'Lattice',type:'line',data:nn,showSymbol:false,lineStyle:{color:'#E6E9EE',width:1.8}},
+      {name:'Quant_RL_Trading',type:'line',data:nn,showSymbol:false,lineStyle:{color:'#E6E9EE',width:1.8}},
       {name:'초과수익',type:'line',data:exc,xAxisIndex:1,yAxisIndex:1,showSymbol:false,
        lineStyle:{color:'#F5A524',width:1.2},
        areaStyle:{color:'rgba(245,165,36,.13)'}}
@@ -349,7 +349,7 @@ function render(e){
     series:[
       {name:'벤치마크',type:'line',data:ddb.slice(0,e+1),showSymbol:false,
        lineStyle:{color:'#6B7280',width:1,type:[4,4]}},
-      {name:'Lattice',type:'line',data:dd.slice(0,e+1),showSymbol:false,
+      {name:'Quant_RL_Trading',type:'line',data:dd.slice(0,e+1),showSymbol:false,
        lineStyle:{color:'#E5484D',width:1.4},areaStyle:{color:'rgba(229,72,77,.16)'},
        markArea:{silent:true,data:[
          [{yAxis:0,itemStyle:{color:'rgba(31,111,74,.10)'}},{yAxis:-12}],

@@ -6,7 +6,7 @@ port(collectors): LS_USA scheduling/market_hours.py 의 **방식**을 이식한�
 LS_KR 은 휴장일을 27줄짜리 수작업 텍스트 파일(`config/krx_holidays.txt`)로
 들고 있었고 2026년만 커버했다. 갱신을 잊으면 **조용히 틀린다** — 휴장일에
 주문을 내거나, 거래일을 휴장일로 착각해 하루를 통째로 건너뛴다.
-Lattice 는 KR 도 라이브러리(XKRX)로 조회한다 (postmortem-ls.md §6-5).
+Quant_RL_Trading 는 KR 도 라이브러리(XKRX)로 조회한다 (postmortem-ls.md §6-5).
 
 DST 는 라이브러리와 tz 데이터가 처리한다. 손으로 계산하지 않는다.
 """
