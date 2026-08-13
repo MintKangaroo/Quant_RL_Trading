@@ -18,7 +18,21 @@ agents.md §4 는 "만들기 가장 쉽고 효과가 확실하다. 먼저 붙일
 
 - **상장 경과일** — 신규 상장주는 변동성이 크고 수급이 불안정하다. 오래된
   종목 쪽으로 점수를 준다
-- **거래정지 이력** — 최근 정지가 있었으면 감점. 다시 멈출 수 있다
+
+## 거래정지 피처(no_halt)는 뺐다 (2026-08-14)
+
+"유니버스에는 있는데 그날 봉이 없다" 를 거래정지 대용으로 썼는데, **한 번도
+발화하지 않았다.** 실측에서 고유값 1개·표준편차 0.0000 — 전 종목이 같은 값인
+상수였다. KRX 는 정지 종목도 거래량 0 인 봉을 주기 때문에 "봉이 없는 날" 이
+생기지 않는다.
+
+상수 열은 IC 가 nan 이고 rank_score 가 전부 0 을 준다. 그런데 **가중치는
+그대로 먹는다** — 이 피처는 처음부터 event 가중치의 45% 를 들고 아무 일도
+하지 않았다. 피처별 IC 에서 maturity 단독이 +0.0333 으로 그 시절 event 합산
+IC 와 정확히 같았던 것이 그 증거다.
+
+약한 신호를 뺀 것이 아니라 **고장 난 것을 뺐다.** 진짜 거래정지 데이터가
+들어오면 그때 다시 붙인다.
 
 상장폐지·거래불가 종목은 **점수를 내지 않는다.** 감점이 아니라 배제다 —
 가중 합에 넣으면 "오래됐고 정지 이력도 없다" 는 장점이 상폐를 상쇄해서
@@ -94,7 +108,6 @@ WEIGHTS = {
     "dividend": 0.10,      # 배당
     "contract": 0.10,      # 수주
     "maturity": 0.15,      # 상장 경과일 (길수록 +)
-    "no_halt": 0.10,       # 최근 거래정지 없음 (+)
 }
 
 
@@ -153,18 +166,6 @@ class EventAnalyst(Analyst):
             {entity: (latest_session - day).days for entity, day in first_seen.items()}
         ).reindex(state.index)
         raw["maturity"] = age.clip(upper=LOOKBACK_DAYS).astype(float)
-
-        # 거래정지 대용: 유니버스에는 있는데 그날 봉이 없는 세션의 비율.
-        # 최근 60세션만 본다 — 1년 전 정지는 지금과 무관하다.
-        recent = sorted(set(universe["session"]))[-60:]
-        listed_days = (
-            universe[universe["session"].isin(recent)].groupby("entity_id")["session"].nunique()
-        )
-        traded_days = (
-            prices[prices["session"].isin(recent)].groupby("entity_id")["session"].nunique()
-        )
-        halt_ratio = (1.0 - (traded_days / listed_days)).clip(lower=0.0)
-        raw["no_halt"] = -halt_ratio.reindex(state.index).fillna(0.0).astype(float)
 
         for name, series in self._filing_features(as_of, state.index).items():
             raw[name] = series

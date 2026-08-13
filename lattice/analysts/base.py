@@ -75,13 +75,30 @@ def rank_score(series: pd.Series) -> pd.Series:
 
 
 def combine(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
-    """피처 z 들을 가중 합해 하나의 z 로.
+    """피처들을 가중 합해 하나의 점수로.
 
     가중치를 손으로 정하는 것은 M2 까지다. M3 의 Selector 가 진화 알고리즘으로
     Analyst 간 가중치를 찾고, Analyst 내부 가중치는 모델이 학습한다.
+
+    **분산이 0인 피처는 빼고 정규화한다.** 전 종목이 같은 값인 열은 점수에
+    아무것도 더하지 않으면서 분모의 자기 몫은 그대로 가져간다 — 즉 **나머지
+    피처의 영향력을 조용히 깎는다.** event 의 ``no_halt`` 가 정확히 그랬다:
+    실측에서 한 번도 발화하지 않는 상수였는데 가중치의 45% 를 들고 있었고,
+    그동안 event 점수는 사실상 나머지 한 피처 혼자 낸 것이었다. 측정에서는
+    "IC 가 좀 낮네" 로만 보여서 몇 달을 못 알아봤다.
+
+    합성 데이터로는 안 잡힌다. 테스트에서는 그 피처가 값을 갖도록 만들기
+    때문이다. 그래서 코드가 스스로 막게 한다.
     """
-    total = sum(abs(value) for value in weights.values()) or 1.0
-    combined = sum(frame[name] * weight for name, weight in weights.items())
+    live = {
+        name: weight
+        for name, weight in weights.items()
+        if name in frame.columns and float(frame[name].std() or 0.0) > 0.0
+    }
+    if not live:
+        return pd.Series(0.0, index=frame.index)
+    total = sum(abs(value) for value in live.values()) or 1.0
+    combined = sum(frame[name] * weight for name, weight in live.items())
     return pd.Series(combined / total, index=frame.index)
 
 

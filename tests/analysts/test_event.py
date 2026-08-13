@@ -135,13 +135,24 @@ def test_delisted_symbol_gets_no_signal_at_all(seeded) -> None:
     assert {"KR:000100", "KR:000200"} <= set(signals)
 
 
-def test_halt_history_lowers_the_score(seeded, store) -> None:
-    """최근 거래정지가 있었으면 감점한다. 다시 멈출 수 있다."""
+def test_거래정지_피처는_더_이상_없다(seeded) -> None:
+    """no_halt 는 뺐다 (2026-08-14). **코드가 아니라 데이터가 이유다.**
+
+    이 테스트가 예전에 통과한 것은 합성 데이터에서 "유니버스에는 있고 봉은
+    없는" 날을 일부러 만들었기 때문이다. 실제 KRX 는 정지 종목에도 거래량 0 인
+    봉을 주므로 그 조건이 **한 번도 성립하지 않았다** — 실측 고유값 1개,
+    표준편차 0.0000.
+
+    상수 열은 점수에 아무것도 더하지 않으면서 가중치는 그대로 먹는다. 이
+    피처는 event 가중치의 45% 를 들고 아무 일도 하지 않았다.
+
+    합성 데이터로 통과하는 테스트가 **현실에서 그 코드가 도는지는 말해 주지
+    않는다.** 진짜 거래정지 데이터가 들어오면 그때 다시 붙인다.
+    """
     analyst = EventAnalyst(seeded, ReplayClock(NOW), market=Market.KR)
     features = analyst.features(NOW)
 
-    # 고참(000100)만 정지 이력이 있으므로 no_halt 가 상대적으로 낮아야 한다.
-    assert features.loc["KR:000100", "no_halt"] < features.loc["KR:000200", "no_halt"]
+    assert "no_halt" not in features.columns
 
 
 # -- 공통 계약 --------------------------------------------------------------------
