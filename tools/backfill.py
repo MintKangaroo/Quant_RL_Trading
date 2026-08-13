@@ -32,6 +32,10 @@ from lattice.collectors.backfill import (  # noqa: E402
     ProgressLog,
     eta,
 )
+from lattice.collectors.dart_filings import (  # noqa: E402
+    FilingsBackfiller,
+    FilingsReport,
+)
 from lattice.collectors.dart_source import (  # noqa: E402
     DartBackfiller,
     DartSource,
@@ -66,6 +70,8 @@ from lattice.store import ConfigNotFound, Store  # noqa: E402
 FLOW_LS = "flows-ls"
 #: DART 재무는 분기 × 배치 축이다.
 DART = "fundamentals-dart"
+#: DART 공시목록은 날짜 축이다. 재무와 소스는 같고 축이 다르다.
+DART_FILINGS = "documents-dart"
 
 ENV_FILE = REPO_ROOT / ".env"
 
@@ -402,6 +408,69 @@ def run_us_universe_backfill(
     return 0
 
 
+def run_dart_filings_backfill(
+    store: Store, clock: Clock, *, market: Market, years: int, dry_run: bool = False
+) -> int:
+    """DART 공시 목록 — `event` Analyst 의 입력.
+
+    **날짜 축으로 돈다.** 회사 축이면 2,700종목 × 5년이라 콜이 폭발한다.
+    휴장일도 도는 이유는 공시가 휴일에도 접수되기 때문이다 — 거래일로 자르면
+    그 공시를 영영 못 받는다.
+    """
+    source = DartSource()
+    if not source.api_key:
+        print("OPENDART_API_KEY 가 없다.", file=sys.stderr)
+        return 2
+
+    now = clock.now()
+    end = now.astimezone(UTC).date()
+    start = end - timedelta(days=365 * years)
+
+    backfiller = FilingsBackfiller(
+        store=store,
+        source=source,
+        policy=FilingPolicy(
+            hour_kst=int(store.config("backfill.dart_publication_hour_kst", as_of=now)),
+            clock=clock,
+        ),
+        market=str(market),
+    )
+
+    days = backfiller.plan(start, end)
+    pending = backfiller.pending(days)
+    print(
+        f"{market} 공시 {start} ~ {end}  날짜 {len(days)}개 × 시장 2개 "
+        f"(이미 적재 {len(days) * 2 - len(pending)}, 남은 {len(pending)})"
+    )
+    if dry_run or not pending:
+        if not pending:
+            print("할 일이 없다.")
+        return 0
+
+    report = FilingsReport()
+    started = time.monotonic()  # invariant-allow: wallclock
+
+    for index, (day, corp_class) in enumerate(pending, start=1):
+        result = backfiller.run_day(day, corp_class)
+        report.absorb(result)
+        report.days += 1
+        if index % 50 == 0 or index == len(pending):
+            elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
+            remaining = eta(index, len(pending), elapsed)
+            tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
+            print(
+                f"  [{index}/{len(pending)}] {day} {corp_class} "
+                f"누적 {report.rows:,}행{tail}",
+                flush=True,
+            )
+
+    source.close()
+    print(f"\n완료 — {report.render()}")
+    for unit, message in report.failures[:10]:
+        print(f"  실패 {unit}: {message}")
+    return 1 if report.failures else 0
+
+
 def run_flow_backfill(
     store: Store, clock: Clock, *, market: Market, years: int, limit: int | None
 ) -> int:
@@ -696,7 +765,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sessions", type=int, help="최근 N 거래일만")
     parser.add_argument(
         "--table",
-        choices=[*sorted(PANELS), *sorted(OPENAPI_PANELS), FLOW_LS, DART, UNIVERSE],
+        choices=[
+            *sorted(PANELS), *sorted(OPENAPI_PANELS),
+            FLOW_LS, DART, DART_FILINGS, UNIVERSE,
+        ],
         help="패널 테이블 하나만 백필. 생략하면 prices+universe",
     )
     parser.add_argument("--dry-run", action="store_true", help="계획만 출력")
@@ -737,6 +809,13 @@ def main(argv: list[str] | None = None) -> int:
         return run_dart_backfill(
             store, clock, market=market,
             years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+        )
+
+    if args.table == DART_FILINGS:
+        return run_dart_filings_backfill(
+            store, clock, market=market,
+            years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            dry_run=args.dry_run,
         )
 
     if args.table == FLOW_LS:

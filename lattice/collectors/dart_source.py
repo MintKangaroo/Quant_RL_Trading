@@ -55,6 +55,9 @@ REPORT_CODES = {1: "11013", 2: "11012", 3: "11014", 4: "11011"}
 #: 분기 종료일(월, 일). valid_from 이 된다.
 QUARTER_END = {1: (3, 31), 2: (6, 30), 3: (9, 30), 4: (12, 31)}
 
+#: 공시목록 한 페이지 최대. DART 상한이다.
+FILINGS_PAGE_SIZE = 100
+
 #: 연결(CFS)을 우선한다. 없는 회사만 별도(OFS)를 쓴다 — 지주회사·금융사에서
 #: 둘을 섞으면 같은 지표가 회사마다 다른 의미가 된다.
 FS_PREFERENCE = ("CFS", "OFS")
@@ -124,6 +127,8 @@ class DartSource:
     timeout: float = 60.0
     retries: int = 3
     retry_pause_sec: float = 1.5
+    #: 페이지를 넘길 때의 예의. 하루치가 여러 페이지인 날에만 쓴다.
+    page_pause_sec: float = 0.15
     sleep: Callable[[float], None] = time.sleep
     transport: httpx.BaseTransport | None = None
     _client: httpx.Client | None = field(default=None, repr=False)
@@ -219,6 +224,57 @@ class DartSource:
                 f"fnlttMultiAcnt status={status} msg={payload.get('message')}"
             )
         return list(payload.get("list") or [])
+
+    # -- 공시 목록 -------------------------------------------------------------
+
+    def filings(
+        self, *, day: date, corp_class: str, max_pages: int = 20
+    ) -> list[dict[str, Any]]:
+        """하루치 공시 목록. 페이지를 끝까지 넘긴다.
+
+        데이터 없음(013)은 **실패가 아니다.** 휴일이거나 그 시장에 그날 접수된
+        공시가 없는 것뿐이다.
+
+        ``max_pages`` 는 안전장치다 — 응답의 ``total_page`` 가 이상하게 커져도
+        무한히 돌지 않는다. 2,000건이면 그날 전 시장 공시를 덮는다.
+        """
+        stamp = day.strftime("%Y%m%d")
+        collected: list[dict[str, Any]] = []
+        page = 1
+
+        while page <= max_pages:
+            response = self._call(
+                "/list.json",
+                {
+                    "bgn_de": stamp,
+                    "end_de": stamp,
+                    "corp_cls": corp_class,
+                    "page_no": str(page),
+                    "page_count": str(FILINGS_PAGE_SIZE),
+                },
+            )
+            if response.status_code != 200:
+                raise DartUnavailable(f"list.json HTTP {response.status_code}")
+            try:
+                payload = response.json()
+            except ValueError as error:
+                raise DartUnavailable(f"list.json JSON 파싱 실패: {error}") from error
+
+            status = str(payload.get("status"))
+            if status == NO_DATA:
+                break
+            if status != "000":
+                raise DartUnavailable(
+                    f"list.json status={status} msg={payload.get('message')}"
+                )
+
+            collected.extend(payload.get("list") or [])
+            if page >= int(payload.get("total_page") or 1):
+                break
+            page += 1
+            self.sleep(self.page_pause_sec)
+
+        return collected
 
     def close(self) -> None:
         if self._client is not None:
