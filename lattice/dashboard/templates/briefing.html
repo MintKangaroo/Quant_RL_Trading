@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}뉴스 · 일정 · Lattice{% endblock %}
+
+{% block body %}
+{% with active = 'briefing' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="panel" id="next-panel">
+    <h2>다음 발표</h2>
+    <div id="next"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>거시지표 — 발표 완료</h2>
+      <div id="released" class="scroll"></div>
+      <p class="note">
+        <strong>발표 시각은 <code>scheduled_at</code> 이고 <code>valid_from</code> 은
+        우리가 안 시각이다.</strong> 발표 시각을 관측시각으로 찍으면
+        공표 전부터 알고 있던 것이 된다.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>거시지표 — 예정</h2>
+      <div id="upcoming" class="scroll"></div>
+      <p class="note">
+        예정 건의 <code>actual</code> 은 비어 있다. 0 으로 채우지 않는다 —
+        0 은 "발표됐고 0이었다" 라는 다른 사실이다.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>발표 해석 — 서프라이즈 · 시장 반응</h2>
+    <div id="explain" class="scroll"></div>
+    <p class="note">
+      <strong>"예상치" 는 직전값이다 — 블룸버그 컨센서스가 아니다.</strong>
+      시장이 이미 반영한 변화까지 서프라이즈로 세므로 과장돼 있다.
+      반면 <strong>시장 반응은 실측</strong>이라 해석의 무게는 그쪽에 있다.
+      해설은 Claude 가 쓰지만 <strong>보상 함수에 들어가지 않는다</strong> (불변식 8).
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>뉴스 · 공시</h2>
+    <div id="news" class="scroll"></div>
+    <p class="note">
+      기사 발행시각은 사후에 수정되므로 관측시각으로 쓰지 않는다
+      (data-contract §4). 같은 기사가 여러 종목에 걸리면 한 줄로 접고
+      걸린 종목을 함께 표시한다.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='briefing.js') }}"></script>
+{% endblock %}

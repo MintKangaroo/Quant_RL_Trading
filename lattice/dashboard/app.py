@@ -11,12 +11,16 @@ from typing import Any
 from flask import Flask, render_template
 from werkzeug.exceptions import HTTPException
 
-from lattice.dashboard.api import agent_health, data_quality
+from lattice.dashboard.api import agent_health, briefing, data_quality
 from lattice.replay.clock import Clock, LiveClock
+from lattice.settings import load_env
 from lattice.store import ConfigNotFound, Store, StoreError
 
 
 def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
+    # API 키를 여기서 읽는다. 안 부르면 화면이 200 을 내면서 해설만 조용히
+    # 빠진다 — 그건 고장이 아니라 침묵이라 아무도 눈치채지 못한다.
+    load_env()
     app = Flask(__name__)
     app.config["LATTICE_STORE"] = store if store is not None else Store()
     app.config["LATTICE_CLOCK"] = clock if clock is not None else LiveClock()
@@ -25,6 +29,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
 
     app.register_blueprint(data_quality.bp)
     app.register_blueprint(agent_health.bp)
+    app.register_blueprint(briefing.bp)
 
     @app.get("/")
     @app.get("/data-quality")
@@ -34,6 +39,10 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     @app.get("/agent-health")
     def agent_health_page() -> str:
         return render_template("agent_health.html")
+
+    @app.get("/briefing")
+    def briefing_page() -> str:
+        return render_template("briefing.html")
 
     @app.errorhandler(HTTPException)
     def http_error(error: HTTPException) -> Any:
