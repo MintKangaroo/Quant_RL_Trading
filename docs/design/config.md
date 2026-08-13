@@ -36,7 +36,11 @@ accounting:
   dividend_tax_kr: 0.154
   dividend_tax_us: 0.15
   capital_gains_us: 0.22     # 충당금으로만. 일간 NAV 미반영
+  capital_gains_allowance_krw: 2_500_000   # 해외 양도세 기본공제(연간)
   return_method: TWR
+  fee_kr: 0.000_15           # 위탁수수료(편도)
+  fee_us: 0.002_5            # 해외주식 위탁수수료(편도)
+  transaction_tax_kr: 0.001_8  # 증권거래세 — **매도에만** 붙는다
 
 universe:
   min_turnover_20d_kr: 500_000_000   # 원

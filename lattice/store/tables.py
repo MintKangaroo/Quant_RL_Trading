@@ -255,6 +255,86 @@ _SPECS: dict[str, TableSpec] = {
             "통과 여부는 측정 결과에서만 나온다 — 통과 못 하면 weight 0."
         ),
     ),
+    # -- 회계 (M3) ------------------------------------------------------------
+    #
+    # NAV 산출은 ``lattice/accounting/`` 한 곳에서만 한다 (accounting.md §8).
+    # 이 테이블들은 그 모듈의 입력과 출력이다.
+    "trades": TableSpec(
+        name="trades",
+        columns={
+            "market": pa.string(),
+            "side": pa.string(),
+            "quantity": pa.float64(),
+            "price": pa.float64(),
+            "currency": pa.string(),
+            "fee": pa.float64(),
+            "tax": pa.float64(),
+            # 체결 하나가 주문 하나가 아니다. 분할 집행이면 여러 행이 같은
+            # 주문에서 나온다 — 되돌아가 볼 수 있게 주문 식별자를 남긴다.
+            "order_id": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from", "order_id"),
+        doc=(
+            "체결. **발생주의(trade-date)** — 결제일이 아니라 체결 시점에 "
+            "손익·수수료를 인식한다 (accounting.md §1). 수수료와 세금은 "
+            "체결가에 녹이지 않고 따로 든다. 녹이면 나중에 비용만 따로 볼 수 없다."
+        ),
+    ),
+    "capital_flows": TableSpec(
+        name="capital_flows",
+        columns={
+            "currency": pa.string(),
+            "amount": pa.float64(),
+            "kind": pa.string(),
+        },
+        doc=(
+            "입출금. **TWR 계산의 핵심 입력이다** — 이걸 모르면 입금일에 "
+            "수익이 난 것으로 오인한다 (accounting.md §6). entity_id 는 계좌."
+        ),
+    ),
+    "dividends": TableSpec(
+        name="dividends",
+        columns={
+            "market": pa.string(),
+            "currency": pa.string(),
+            "per_share": pa.float64(),
+            "tax_rate": pa.float64(),
+            # 배당락일 = valid_from. 입금일은 따로 든다 — 인식은 배당락일에
+            # 하되(§4) 실제 현금 이동은 이 날짜에 일어난다.
+            "pay_date": pa.timestamp("us", tz="UTC"),
+        },
+        doc=(
+            "배당. **valid_from 은 배당락일이다.** 입금일 인식으로 바꾸면 "
+            "배당락 하락이 그대로 낙폭이 되어 보상 함수가 손실로 오인한다."
+        ),
+    ),
+    "nav_daily": TableSpec(
+        name="nav_daily",
+        columns={
+            "nav": pa.float64(),
+            "inflow": pa.float64(),
+            "twr_return": pa.float64(),
+            "index_value": pa.float64(),
+            "drawdown": pa.float64(),
+            "cash_krw": pa.float64(),
+            "cash_usd": pa.float64(),
+            "equity_kr": pa.float64(),
+            "equity_us": pa.float64(),
+            "accrued_dividend": pa.float64(),
+            "payable": pa.float64(),
+            "fx_rate": pa.float64(),
+            # 양도세는 일간 NAV 에 넣지 않는다 (§5). 충당금으로만 추적하고
+            # 세후 성과를 따로 보고한다.
+            "tax_provision": pa.float64(),
+            "nav_after_tax": pa.float64(),
+            "benchmark_index": pa.float64(),
+        },
+        doc=(
+            "일간 회계 스냅샷. 한국시간 15:40 하루 한 번, 미장은 직전 종가 "
+            "(accounting.md §2). **낙폭은 NAV 원금액이 아니라 TWR 누적지수로 "
+            "계산한다** — 원금액으로 하면 입금이 낙폭을 지운다."
+        ),
+    ),
     "agent_cache": TableSpec(
         name="agent_cache",
         columns={
