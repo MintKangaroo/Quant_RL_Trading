@@ -86,6 +86,13 @@ selector:
 
 allocator:
   action_reflection_floor: 0.30   # 미만이면 경고 — RL이 아니라 룰 시스템이다
+  # M3 룰 베이스라인. equal | score | score_inverse_vol
+  # 기본을 score 로 두는 이유: M4 에서 RL 의 진짜 경쟁자가 될 것이기 때문이다.
+  # 동일가중은 이기기 쉬운 상대라, 그걸 기준으로 삼으면 RL 이 실제로 나은지
+  # 모르는 채로 승격시키게 된다.
+  baseline: score
+  max_position_weight: 0.15   # 한 종목이 이보다 커지면 분산이 아니다
+  cash_buffer: 0.05           # 체결·수수료·환율 오차를 흡수할 여유
   episode_days: 250
   n_max_candidates: 30
   gamma: 0.997
