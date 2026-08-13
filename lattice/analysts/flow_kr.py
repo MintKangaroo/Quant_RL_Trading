@@ -32,7 +32,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from lattice.analysts.base import Analyst, combine, zscore
+from lattice.analysts.base import Analyst, combine, rank_score
 
 FLOWS = "flows"
 
@@ -107,8 +107,8 @@ class FlowKrAnalyst(Analyst):
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if raw.empty:
             return pd.DataFrame()
-        # 결측은 그 종목의 중앙값 자리(z=0). 앞뒤로 채우면 미래를 본다.
-        return raw.apply(zscore).fillna(0.0)
+        # 결측은 횡단면 순위 중앙(0). 앞뒤로 채우면 미래를 본다.
+        return raw.apply(rank_score).fillna(0.0)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
         return combine(features, WEIGHTS)

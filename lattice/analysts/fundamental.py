@@ -50,7 +50,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from lattice.analysts.base import Analyst, combine, zscore
+from lattice.analysts.base import Analyst, combine, rank_score
 
 FUNDAMENTALS = "fundamentals"
 
@@ -264,8 +264,8 @@ class FundamentalAnalyst(Analyst):
         raw_features = raw_features.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if raw_features.empty:
             return pd.DataFrame()
-        # 결측은 횡단면 중앙값 자리(z=0). 앞뒤로 채우면 미래를 본다.
-        return raw_features.apply(zscore).fillna(0.0)
+        # 결측은 횡단면 순위 중앙(0). 앞뒤로 채우면 미래를 본다.
+        return raw_features.apply(rank_score).fillna(0.0)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
         # 밸류가 빠진 날은 그 가중치를 빼고 정규화한다. 없는 피처를 0 으로

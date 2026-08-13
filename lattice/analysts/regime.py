@@ -41,7 +41,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from lattice.analysts.base import Analyst, combine, zscore
+from lattice.analysts.base import Analyst, combine, rank_score
 
 INDICES = "indices"
 
@@ -111,7 +111,7 @@ class RegimeAnalyst(Analyst):
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if raw.empty:
             return pd.DataFrame()
-        return raw.apply(zscore).fillna(0.0)
+        return raw.apply(rank_score).fillna(0.0)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
         # ``as_of`` 를 인자로 못 받는 자리라 상태를 캐시에서 읽는다.
