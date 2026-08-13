@@ -43,6 +43,37 @@ def zscore(series: pd.Series) -> pd.Series:
     return ((series - float(series.mean())) / spread).clip(-5.0, 5.0)
 
 
+def rank_score(series: pd.Series) -> pd.Series:
+    """횡단면 **순위** 정규화. z 대신 이걸 쓴다.
+
+    z-score 의 분모는 이상치에 부풀려진다. 주가 모멘텀처럼 꼬리가 두꺼운
+    분포에서는 대부분의 종목이 0 근처로 눌리고 극단값만 클립에 걸려,
+    **피처마다 실제 분산이 달라진다.** 실측(2026-08-12, 2,787종목):
+
+        momentum_20  std 0.523      reversal_5   std 0.403
+        range_position std 0.987    volume_surge std 0.864
+
+    분산이 다른 z 를 가중합하면 **선언한 가중치가 실효 가중치가 아니다** —
+    momentum_20 은 30%로 선언했지만 실효 22%, reversal_5 는 20% 선언에 11.5%
+    였다. 순위로 바꾸면 모든 피처가 같은 분산을 갖고, 가중치가 뜻대로 먹는다.
+
+    그리고 **IC 를 순위상관(Spearman)으로 재기 때문에** 피처도 순위 공간에
+    두는 것이 평가 지표와 일치한다.
+
+    출력은 대략 [-1.73, 1.73] 범위의 균등분포다(표준화된 균등). 정규분위수로
+    바꾸지 않는 이유는, 그러면 다시 꼬리에 큰 값이 생겨 가중합이 소수 종목에
+    끌려가기 때문이다.
+    """
+    values = series.dropna()
+    if values.empty or values.nunique() < 2:
+        return pd.Series(0.0, index=series.index)
+    # 동점은 평균 순위. 안 그러면 같은 값이 다른 점수를 받는다.
+    ranked = values.rank(method="average", pct=True)
+    # [0,1] → 평균 0, 표준편차 1 로. 균등분포의 std 는 1/sqrt(12) 이다.
+    normalized = (ranked - 0.5) * (12.0**0.5)
+    return normalized.reindex(series.index)
+
+
 def combine(frame: pd.DataFrame, weights: dict[str, float]) -> pd.Series:
     """피처 z 들을 가중 합해 하나의 z 로.
 

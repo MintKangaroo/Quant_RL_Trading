@@ -21,7 +21,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from lattice.analysts.base import Analyst, combine, zscore
+from lattice.analysts.base import Analyst, combine, rank_score
 
 LOOKBACK_DAYS = 100
 
@@ -73,7 +73,7 @@ class RiskAnalyst(Analyst):
         raw["low_beta"] = -beta
 
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
-        return raw.apply(zscore).fillna(0.0)
+        return raw.apply(rank_score).fillna(0.0)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
         return combine(features, WEIGHTS)
