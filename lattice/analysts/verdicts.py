@@ -31,18 +31,41 @@ IC 를 못 쓰므로 **차단한 종목의 이후 수익률**을 추적한다. �
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
+from lattice.analysts.news_screen import Candidate
 from lattice.collectors.market_hours import Market
 from lattice.replay.clock import Clock
 from lattice.schemas.verdict import Category, Decision, Verdict
 from lattice.store import Store
 
-#: 필터가 참고하는 원자료. 지금은 비어 있다.
+#: 필터가 참고하는 원자료.
 DOCUMENTS = "documents"
+
+
+def block_limit(candidates: int, cap_ratio: float) -> int:
+    """차단 가능한 최대 종목 수.
+
+    **내림이 아니라 올림이다.** 내림으로 두면 후보가 적을 때 상한이 0 이 되어
+    필터가 구조적으로 무력해진다 — 실제로 후보 3종목에서 ``int(3 * 0.3) = 0``
+    이 되어, 패턴이 4건 걸렸는데 전부 잘렸다. 그건 "막을 것이 없었다" 가
+    아니라 "막을 수가 없었다" 다.
+
+    대신 **후보를 전부 막지는 못한다.** 상한의 목적이 비율 자체가 아니라
+    "살 종목이 남아 있을 것" 이기 때문이다 (모듈 docstring §3). 그래서 마지막
+    한 종목은 언제나 살아남고, 후보가 하나뿐이면 아무것도 못 막는다.
+
+    후보가 적을 때 실효 비율이 설정값을 조금 넘는다(3종목이면 33%). 설정값을
+    지키느라 필터를 끄는 것보다, 넘더라도 "전부 막지 않는다" 를 지키는 쪽이
+    상한의 뜻에 맞다.
+    """
+    if candidates <= 1:
+        return 0
+    return min(candidates - 1, math.ceil(candidates * cap_ratio))
 
 
 class VerdictAnalyst(ABC):
@@ -80,7 +103,7 @@ class VerdictAnalyst(ABC):
 
         cap_ratio = float(self.store.config("analyst.block_ratio_cap", as_of=as_of))
         ttl_days = int(self.store.config("analyst.verdict_ttl_days", as_of=as_of))
-        limit = int(len(entities) * cap_ratio)
+        limit = block_limit(len(entities), cap_ratio)
 
         blocked = self.candidates_to_block(entities, as_of)
         # 심각도 높은 것부터. 상한에 걸리면 덜 심각한 것이 살아남는다.
@@ -117,7 +140,11 @@ class NewsAnalyst(VerdictAnalyst):
     """
 
     name = "news"
-    version = "news-v0.1.0"
+    version = "news-v0.2.0"
+
+    #: 2단계 판정기. None 이면 키워드 결과를 그대로 쓴다 — 실측한 오탐률이
+    #: 높아 권장하지 않지만, 오프라인 실행과 테스트가 가능해야 한다.
+    screen: Any = None
 
     #: 공시 제목에서 찾을 신호. 수집기가 붙으면 이 표가 1차 스크리닝이 된다.
     #: LLM 2단계 호출(저비용 스크리닝 → 의심 건만 고성능)의 0단계에 해당한다.
@@ -140,7 +167,7 @@ class NewsAnalyst(VerdictAnalyst):
             return []
 
         wanted = set(entities)
-        found: list[tuple[str, Category, float, str]] = []
+        found: list[Candidate] = []
         for row in documents.to_dict(orient="records"):
             entity = str(row["entity_id"])
             if entity not in wanted:
@@ -149,9 +176,24 @@ class NewsAnalyst(VerdictAnalyst):
             for category, needles in self.PATTERNS.items():
                 hit = next((needle for needle in needles if needle in title), None)
                 if hit is not None:
-                    found.append((entity, category, _severity(category), f"{hit}: {title[:80]}"))
+                    found.append(
+                        Candidate(
+                            entity_id=entity,
+                            category=category,
+                            severity=_severity(category),
+                            reason=f"{hit}: {title[:80]}",
+                            title=title,
+                        )
+                    )
                     break
-        return found
+
+        # 2단계. 키워드는 방향·주체·귀속을 구분하지 못한다 — 실측 오탐 4/4.
+        if self.screen is not None and found:
+            found = self.screen.screen(found, as_of=as_of)
+
+        return [
+            (item.entity_id, item.category, item.severity, item.reason) for item in found
+        ]
 
 
 class SnsAnalyst(VerdictAnalyst):
