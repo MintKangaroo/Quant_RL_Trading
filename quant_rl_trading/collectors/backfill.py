@@ -304,11 +304,18 @@ class Backfiller:
 
         런 안에서는 메모리로 이어받고, 런의 첫 세션에서만 창고를 읽는다.
         세션마다 조회하면 파티션이 늘어날수록 느려진다.
+
+        **``market`` 으로 반드시 거른다.** 창고의 ``universe`` 테이블은
+        KR·US 를 함께 담는다. 이 필터가 없으면 KR 백필의 첫 세션이 US 종목
+        전체를 "직전엔 상장이었는데 오늘 명단엔 없다" 로 오인해서, 멀쩡한
+        US 종목에 ``market="KR"``·``is_listed=False``·``delisted_on=오늘``
+        로 상장폐지 행을 만들어 버린다 — 실제로 2026-08-12 에 그렇게 나서
+        US 종목 6,648개가 KR 창고에 가짜 상폐로 찍혔다(2026-08-15 규명).
         """
         if self._listed is not None:
             return self._listed
 
-        frame = self.store.get(UNIVERSE, as_of=observed_at)
+        frame = self.store.get(UNIVERSE, as_of=observed_at, market=str(self.market))
         if frame.empty:
             self._listed = set()
             return self._listed

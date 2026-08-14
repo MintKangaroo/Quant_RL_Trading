@@ -428,6 +428,14 @@ def shares_rows(
     for fact in facts:
         if since is not None and fact.end < since:
             continue
+        # **표지 날짜가 제출일보다 뒤면 버린다.** 제출자가 연도를 잘못 적는
+        # 일이 실제로 있다 — 실측으로 6건 나왔고 최대 10년을 앞섰다
+        # (US:ASLE end=2034-03-05, filed=2024-03-28). 값 자체는 진짜지만
+        # 날짜가 미래라 **그 종목의 영원한 최신 행**이 되어, 뒤에 나온 정확한
+        # 주식수를 앞으로도 계속 덮는다. 아무도 그 사실을 눈치채지 못한다.
+        # 아직 오지 않은 날짜의 사실을 공시할 수는 없으므로 이건 오타가 확실하다.
+        if fact.end > fact.filed:
+            continue
         rows.append(
             {
                 "entity_id": f"{market}:{ticker}",

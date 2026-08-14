@@ -36,6 +36,7 @@ from quant_rl_trading.collectors.us_shares import (
     MARKET_CAP,
     SHARES,
     SOURCE,
+    ShareFact,
     build_timelines,
     existing_shares,
     filing_moment,
@@ -167,6 +168,32 @@ def test_관측시각은_기준일이_아니라_공시일이다() -> None:
     # 공시일 + EDGAR 접수 마감(18시 ET) → UTC. 여름이라 UTC-4.
     assert row["observed_at"] == datetime(2026, 7, 31, 22, tzinfo=UTC)
     assert row["observed_at"] > row["valid_from"]
+
+
+def test_표지_날짜가_제출일보다_뒤면_버린다() -> None:
+    """제출자가 연도를 잘못 적는 일이 실제로 있다.
+
+    실측으로 6건 나왔고 최대 10년을 앞섰다 — `US:ASLE` 은 2024-03-28 에 제출한
+    공시의 표지 날짜가 **2034-03-05** 였다. 값 자체는 진짜 주식수다.
+
+    그냥 두면 그 행이 **그 종목의 영원한 최신 행**이 되어, 뒤에 나온 정확한
+    주식수를 앞으로도 계속 덮는다. 시가총액이 조용히 낡은 값으로 계산되고
+    아무도 눈치채지 못한다 — 미래 시각 주문이 어떤 조회에도 안 보였던 것과
+    같은 계열의 고장이다.
+
+    아직 오지 않은 날짜의 사실을 공시할 수는 없으므로 이건 오타가 확실하다.
+    """
+    facts_with_typo = [
+        # 정상: 표지 날짜가 제출일보다 앞선다
+        ShareFact(end=date(2024, 3, 15), value=50_000_000.0, filed=date(2024, 3, 28), tag="dei"),
+        # 오타: 연도가 10년 앞섰다
+        ShareFact(end=date(2034, 3, 5), value=52_990_947.0, filed=date(2024, 3, 28), tag="dei"),
+    ]
+
+    rows = shares_rows(facts_with_typo, ticker="ASLE")
+
+    assert len(rows) == 1, "미래 표지 날짜가 걸러지지 않았다"
+    assert rows[0]["valid_from"] == datetime(2024, 3, 15, tzinfo=UTC)
 
 
 def test_모든_행이_공시일_이후에_관측된다() -> None:

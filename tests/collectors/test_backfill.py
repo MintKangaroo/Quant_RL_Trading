@@ -188,6 +188,48 @@ def test_publication_lag_shifts_visibility(store, tmp_path) -> None:
 # -- 생존편향 -----------------------------------------------------------------
 
 
+def test_다른_시장_종목이_가짜_상폐로_찍히지_않는다(store, tmp_path) -> None:
+    """**실측(2026-08-15) 재현.** ``_known_listed()`` 가 ``market`` 으로
+    거르지 않으면, 런의 **첫 세션**(``self._listed is None``)이 창고의
+    ``universe`` 전체(다른 시장 포함)를 "직전엔 상장" 으로 읽는다. 그날
+    KR 명단엔 당연히 US 종목이 없으니 "직전엔 있었는데 오늘 명단엔 없다"
+    로 오인해서 가짜 상폐 행을 만든다 — 실제로 이렇게 US 종목 6,648개가
+    KR 창고에 ``market="KR"``·``is_listed=False``·``delisted_on=오늘`` 로
+    찍혔다. entity_id 접두어는 원래 값("US:AA")을 그대로 물려받아서 얼핏
+    보면 정상 US 행처럼 보이는 것도 이 사고를 늦게 발견한 이유였다.
+    """
+    store.append(
+        UNIVERSE,
+        [
+            {
+                "entity_id": "US:AA", "valid_from": datetime(2024, 3, 1, tzinfo=UTC),
+                "observed_at": datetime(2024, 3, 1, tzinfo=UTC), "source": "ls_us_derived",
+                "market": "US", "name": "Alcoa", "is_listed": True, "is_tradable": True,
+                "delisted_on": None,
+            },
+        ],
+        ingest_run_id="us-universe-seed",
+    )
+
+    # 새 Backfiller 인스턴스라 self._listed 가 None 이다 — 문제가 재현되려면
+    # 정확히 이 조건(런의 첫 세션)이어야 한다.
+    backfiller = make_backfiller(store, tmp_path)
+    assert backfiller.run_session(D1).ok
+
+    frame = store.get(UNIVERSE, as_of=published_at(D1) + timedelta(minutes=1))
+    us_rows = frame[frame["entity_id"] == "US:AA"]
+    # 심어둔 US 행 하나만 있어야 한다. KR 백필이 새로 상폐 행을 만들었다면
+    # 여기 두 번째 행(market="KR", is_listed=False)이 섞여 들어온다.
+    assert len(us_rows) == 1
+    assert bool(us_rows.iloc[0]["is_listed"]) is True
+    assert us_rows.iloc[0]["market"] == "US"
+
+    # KR 쪽 정상 흐름도 그대로 살아 있어야 한다 — 필터를 추가하다 KR 자신의
+    # 상폐 감지를 망가뜨리는 회귀가 없어야 한다.
+    kr_universe = frame[frame["entity_id"].str.startswith("KR:")]
+    assert set(kr_universe["entity_id"]) == {"KR:005930", "KR:003570", "KR:123450"}
+
+
 def test_delisted_symbol_survives_in_past_universe(store, tmp_path) -> None:
     """상폐 종목이 상폐 이전 조회에 살아 있어야 한다.
 
