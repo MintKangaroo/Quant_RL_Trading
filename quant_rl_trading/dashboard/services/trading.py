@@ -113,9 +113,46 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 누적수익률은 지수에서 온다. NAV 비율로 재면 입금이 수익이 된다.
         cumulative = context.snapshot.index_value / 100.0 - 1.0
 
+    # 수익 4종 — LS_KR 대시보드에서 가장 먼저 읽던 자리다.
+    #
+    # **원금은 입출금의 합이지 첫날 NAV 가 아니다.** 첫날 NAV 로 재면 이후
+    # 입금이 통째로 수익으로 잡힌다 (accounting.md §6, TWR 과 같은 이유).
+    flows = store.get(
+        "capital_flows", as_of=as_of, entity=ledger_module.ACCOUNT, lookback=None
+    )
+    principal = float(flows["amount"].astype(float).sum()) if not flows.empty else 0.0
+    total_pnl = nav - principal if principal > 0 else None
+
+    # 오늘 수익금은 **직전 스냅샷 대비**다. 그날 입금이 있었으면 그만큼 뺀다 —
+    # 안 빼면 입금일이 대박 난 날로 보인다.
+    today_pnl = None
+    if previous is not None:
+        today_pnl = nav - float(previous["nav"]) - float(context.snapshot.inflow or 0.0)
+
+    curve = store.get(
+        NAV_DAILY, as_of=as_of, entity=ledger_module.ACCOUNT, lookback=400
+    )
+    win_rate = None
+    mdd = None
+    if not curve.empty:
+        ordered = curve.sort_values(["valid_from", "observed_at"])
+        returns = ordered["twr_return"].astype(float)
+        # **승률은 일간이다.** LS_KR 은 종목별 매도 기준이었는데, 우리는 아직
+        # 매도 이력이 거의 없다. 없는 것을 재면 표본 두세 건짜리 승률이 나오고
+        # 그 숫자는 성적이 아니라 노이즈다. 무엇을 세는지 화면에 적는다.
+        traded = returns[returns != 0.0]
+        win_rate = float((traded > 0).mean()) if len(traded) else None
+        mdd = float(ordered["drawdown"].astype(float).min())
+
     return {
         "nav": nav,
         "nav_after_tax": valuation.nav_after_tax,
+        "principal": principal or None,
+        "today_pnl": today_pnl,
+        "total_pnl": total_pnl,
+        "win_rate": win_rate,
+        "win_samples": int(len(traded)) if not curve.empty and win_rate is not None else 0,
+        "mdd": mdd,
         "cash_krw": valuation.cash_krw,
         "cash_usd": valuation.cash_usd,
         "equity": equity,
@@ -496,6 +533,40 @@ def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, 
     }
 
 
+def returns_calendar(store: Store, context: Context, *, lookback: int) -> dict[str, Any]:
+    """일별 수익률. 화면이 달력으로 깐다.
+
+    **여기서 달력을 만들지 않는다** — 주 시작 요일·빈칸 배치는 표현이고,
+    표현을 서버에 넣으면 화면을 바꿀 때마다 API 가 따라 바뀐다.
+
+    수익률은 TWR 이다. NAV 증감으로 재면 입금일이 수익으로 잡힌다.
+    """
+    frame = store.get(
+        NAV_DAILY, as_of=context.as_of, entity=ledger_module.ACCOUNT, lookback=lookback
+    )
+    if frame.empty:
+        return {"days": [], "months": []}
+    ordered = frame.sort_values(["valid_from", "observed_at"])
+    days = [
+        {
+            "session": pd.Timestamp(row["valid_from"]).date().isoformat(),
+            "return": float(row["twr_return"]),
+            "nav": float(row["nav"]),
+        }
+        for row in ordered.to_dict(orient="records")
+    ]
+    # 월별 누적은 일별 수익률의 곱이다. 합이 아니다 — 합으로 재면 변동이 큰
+    # 달에서 실제와 벌어진다.
+    months: dict[str, float] = {}
+    for day in days:
+        key = day["session"][:7]
+        months[key] = (1.0 + months.get(key, 0.0)) * (1.0 + day["return"]) - 1.0
+    return {
+        "days": days,
+        "months": [{"month": k, "return": v} for k, v in sorted(months.items())],
+    }
+
+
 def candles(
     store: Store, *, as_of: datetime, entity_id: str, market: str, lookback: int
 ) -> dict[str, Any]:
@@ -715,6 +786,7 @@ def payload(
             "decision": None,
             "orders": [],
             "equity": {"sessions": [], "nav": [], "index": [], "drawdown": [], "benchmark": []},
+            "calendar": {"days": [], "months": []},
         }
     kpi = kpis(store, context)
     risk_state = risk(store, context)
@@ -729,4 +801,5 @@ def payload(
         "decision": decision(store, context, entity_id=entity_id),
         "orders": orders(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
+        "calendar": returns_calendar(store, context, lookback=lookback),
     }

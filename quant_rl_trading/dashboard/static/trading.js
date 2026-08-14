@@ -92,22 +92,28 @@ function renderKpis(body) {
   const indexLine = e && e.index.length > 1 ? e.index : null;
   const ddLine = e && e.drawdown.length > 1 ? e.drawdown : null;
 
+  const signed = (v) => (v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
   const cards = [
-    kpi("총자산", num(Math.round(k.nav)), `세후 ${num(Math.round(k.nav_after_tax))}`, false,
+    kpi("총자산", num(Math.round(k.nav)), `원금 ${num(Math.round(k.principal || 0))}`, false,
         { unit: "KRW", spark: navLine }),
-    kpi("금일손익", pct(k.daily_return), `지수 ${dec(k.index_value, 2)}`, false,
-        { tone: tone(k.daily_return) }),
-    kpi("수익률 (누적)", pct(k.cumulative_return), "TWR 기준", false,
+    // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
+    kpi("오늘 수익금", signed(k.today_pnl), `지수 ${dec(k.index_value, 2)}`, false,
+        { unit: "KRW", tone: tone(k.today_pnl) }),
+    kpi("오늘 수익률", pct(k.daily_return), "TWR 기준", false, { tone: tone(k.daily_return) }),
+    kpi("총 수익금", signed(k.total_pnl), "원금 대비", false,
+        { unit: "KRW", tone: tone(k.total_pnl) }),
+    kpi("총 수익률", pct(k.cumulative_return), "TWR 누적", false,
         { tone: tone(k.cumulative_return), spark: indexLine }),
-    kpi("MDD", pct(k.drawdown), risk.band_message, risk.band !== "free",
-        { spark: ddLine, tone: k.drawdown < 0 ? "down" : "" }),
+    kpi("승률", k.win_rate === null ? "—" : pct(k.win_rate, 0),
+        // 무엇을 세는지 적는다. 매도 기준 승률과 다른 숫자다.
+        k.win_rate === null ? "표본 없음" : `일간 ${k.win_samples}일 중`),
+    kpi("MDD", pct(k.mdd), `현재 ${pct(k.drawdown)} · ${risk.band_message}`,
+        risk.band !== "free", { spark: ddLine, tone: "down" }),
     kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
     kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
         k.action_reflection < k.action_reflection_floor),
     kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",
         s ? s.engine : "—"),
-    kpi("API 상태", s && s.broker ? s.broker.split(" · ")[1] || s.broker : "—",
-        s ? s.broker.split(" · ")[0] : "—"),
     kpi("주문 거부", risk.orders_rejected + " / " + risk.orders_total,
         risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`,
         risk.reject_rate !== null && risk.reject_rate > risk.killswitch.order_fail_rate),
@@ -524,6 +530,53 @@ async function renderCandles(entityId, positions) {
   });
 }
 
+/* -- 수익률 캘린더 --------------------------------------------------------- */
+
+/* 일별 수익률을 달력으로 깐다. **거래일만 칸을 만든다** — 휴장일에 빈칸을
+ * 두면 달력 모양은 예뻐지지만 "그날 0% 였다" 로 읽힌다.
+ *
+ * 색은 손익이라 규칙대로 쓴다(상승 초록·하락 빨강). 진하기는 그 창에서의
+ * 상대 크기다 — 절대 기준을 두면 변동이 작은 구간이 통째로 회색이 된다.
+ */
+function renderCalendar(body) {
+  const target = document.getElementById("calendar");
+  if (!target) return;
+  const cal = body.data.calendar || { days: [], months: [] };
+  if (!cal.days.length) {
+    target.innerHTML = `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
+    return;
+  }
+  const scale = Math.max(...cal.days.map((d) => Math.abs(d.return)), 1e-9);
+  const byMonth = new Map();
+  for (const day of cal.days) {
+    const key = day.session.slice(0, 7);
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(day);
+  }
+  const monthReturn = new Map(cal.months.map((m) => [m.month, m.return]));
+
+  target.innerHTML = [...byMonth.entries()]
+    .map(([month, days]) => {
+      const total = monthReturn.get(month);
+      const cells = days
+        .map((day) => {
+          const strength = Math.min(1, Math.abs(day.return) / scale);
+          const color = day.return > 0 ? "34,197,94" : day.return < 0 ? "239,68,68" : "90,98,109";
+          return `<span class="cal-day" style="background:rgba(${color},${(0.15 + strength * 0.75).toFixed(2)})"
+                        title="${day.session} · ${pct(day.return)} · NAV ${num(Math.round(day.nav))}">
+            ${Number(day.session.slice(8))}
+          </span>`;
+        })
+        .join("");
+      return `<div class="cal-month">
+        <div class="cal-head"><span>${month}</span>
+          <b class="mono ${signClass(total)}">${pct(total)}</b></div>
+        <div class="cal-grid">${cells}</div>
+      </div>`;
+    })
+    .join("");
+}
+
 /* -- 진입 ----------------------------------------------------------------- */
 
 async function loadTrading() {
@@ -563,6 +616,7 @@ async function loadTrading() {
   renderPositions(body);
   renderOrders(body);
   renderEquity(body);
+  renderCalendar(body);
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
   await renderCandles(body.data.decision.entity_id, body.data.positions);

@@ -678,3 +678,22 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .ledger .side { font-weight: 600; letter-spacing: 0.04em; }
 .ledger .side.buy { color: var(--up); }
 .ledger .side.sell { color: var(--down); }
+
+
+/* 수익률 캘린더 — 달마다 한 줄. 칸 하나가 거래일 하나다. */
+.cal { display: flex; flex-wrap: wrap; gap: 14px; }
+.cal-month { min-width: 190px; }
+.cal-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; color: var(--muted); margin-bottom: 4px;
+}
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-day {
+  display: flex; align-items: center; justify-content: center;
+  height: 22px;
+  border-radius: 2px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--text);
+  cursor: default;
+}
