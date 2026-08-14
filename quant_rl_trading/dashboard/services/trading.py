@@ -506,6 +506,13 @@ def candles(
         return {"entity_id": entity_id, "sessions": [], "ohlc": [], "volume": [], "ma": {}}
 
     ordered = frame.sort_values("valid_from")
+    # 휴장일이 종가 0 으로 적재된 세션이 있다 (2026-06-03·2026-07-17). 그대로
+    # 그리면 y축이 0까지 늘어나 나머지 봉이 전부 납작해진다. **0원에 거래된
+    # 날은 없다** — 없는 봉을 지우는 것이지 불편한 값을 감추는 것이 아니다.
+    # 수집 쪽은 이제 그 응답을 거부한다 (krx_source.ohlcv_on).
+    ordered = ordered[ordered["close"].astype(float) > 0]
+    if ordered.empty:
+        return {"entity_id": entity_id, "sessions": [], "ohlc": [], "volume": [], "ma": {}}
     closes = ordered["close"].astype(float)
     sessions = [pd.Timestamp(value).date().isoformat() for value in ordered["valid_from"]]
     trades = store.get(TRADES, as_of=as_of, entity=entity_id, lookback=lookback)
@@ -625,7 +632,12 @@ def system(store: Store, context: Context) -> dict[str, Any]:
         mode, mode_note = "LIVE", "실전 창고"
 
     as_of = context.as_of
-    latency = store.get("ingest_latency", as_of=as_of, lookback=2)
+    # 여기서 쓰는 것은 **가장 늦은 관측 시각 하나**다. 컬럼을 안 좁히면
+    # 단계별 실측 로그의 detail 문자열까지 통째로 퍼온다 — 요청 하나에서
+    # 1.3초를 쓰고 있었고, 그게 이 API 시간의 절반이었다.
+    latency = store.get(
+        "ingest_latency", as_of=as_of, lookback=2, columns=["observed_at"]
+    )
     last_ingest = None
     if not latency.empty:
         last_ingest = pd.Timestamp(latency["observed_at"].max()).isoformat()

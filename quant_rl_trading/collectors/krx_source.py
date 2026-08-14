@@ -177,7 +177,18 @@ class KrxSource:
         )
         if frame is None or frame.empty:
             raise KRXUnavailable(f"KRX {stamp} 일봉이 비었다")
-        return normalize_krx_frame(frame)
+        # 휴장일에도 KRX 는 **전 종목을 0 으로 채운 표**를 준다. 빈 응답이
+        # 아니라서 그대로 적재되고, 창고에는 "그날 전 종목이 0원이 됐다" 는
+        # 기록이 남는다. 실제로 2026-06-03(지방선거)·2026-07-17 두 세션이
+        # 그렇게 들어와 차트의 y축이 0까지 늘어났고, Analyst 는 수익률이
+        # inf 가 되어 조용히 침묵했다.
+        #
+        # 거래일 판단을 여기서 하지 않는 이유: 달력은 틀릴 수 있고 응답은
+        # 사실이다. **전 종목이 0** 이라는 것 자체가 휴장의 증거다.
+        rows = normalize_krx_frame(frame)
+        if rows and not any(row.get("close") for row in rows):
+            raise KRXUnavailable(f"KRX {stamp} 은 거래일이 아니다 — 전 종목 종가 0")
+        return rows
 
 
     # -- flow_kr / fundamental 용 ---------------------------------------------
