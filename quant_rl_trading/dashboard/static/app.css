@@ -684,20 +684,46 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .ledger .side.sell { color: var(--down); }
 
 
-/* 수익률 캘린더 — 달마다 한 줄. 칸 하나가 거래일 하나다. */
-.cal { display: flex; flex-wrap: wrap; gap: 14px; }
-.cal-month { min-width: 190px; }
+/* 수익률 캘린더 — **요일에 맞춘 진짜 달력이다.**
+   칸이 비어 있는 것은 0% 가 아니라 장이 없던 날이다. 그래서 .none 은
+   색도 테두리도 주지 않는다 — 회색으로라도 칠하면 "본전" 으로 읽힌다. */
+.cal { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.cal-month { min-width: 236px; flex: 1 1 236px; }
 .cal-head {
   display: flex; justify-content: space-between; align-items: baseline;
   font-size: 11px; color: var(--muted); margin-bottom: 4px;
 }
+.cal-week {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+  font-size: 9px; color: var(--dim); text-align: center; margin-bottom: 2px;
+}
+/* 주말은 흐리게. 격자에서 주 경계를 찾는 데 드는 시간을 없앤다. */
+.cal-week span:first-child, .cal-week span:last-child { color: #4a525d; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
-.cal-day {
-  display: flex; align-items: center; justify-content: center;
-  height: 22px;
+.cal-cell {
+  position: relative;
+  display: flex; flex-direction: column; justify-content: space-between;
+  min-height: 34px;
+  padding: 2px 3px;
   border-radius: 2px;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
-  font-size: 10px;
   color: var(--text);
   cursor: default;
 }
+.cal-grid.compact .cal-cell { min-height: 20px; padding: 1px 2px; }
+.cal-cell .d { font-size: 8.5px; color: var(--dim); font-style: normal; line-height: 1; }
+.cal-cell .r {
+  font-size: 9.5px; font-weight: 600; text-align: right; line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis;
+}
+/* 장이 없던 날. 날짜만 흐리게 남기고 나머지는 아무것도 그리지 않는다. */
+.cal-cell.none { background: transparent; }
+.cal-cell.none .d { color: #333a44; }
+
+/* 표 안의 작은 링크 버튼 (월별 표 → 그 달로 이동) */
+.linky {
+  background: none; border: none; color: var(--accent);
+  font-size: 10.5px; cursor: pointer; padding: 0;
+}
+.linky:hover { text-decoration: underline; }

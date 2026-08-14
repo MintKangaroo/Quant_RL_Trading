@@ -29,13 +29,16 @@ STATIC = REPO_ROOT / "quant_rl_trading" / "dashboard" / "static"
 TEMPLATES = REPO_ROOT / "quant_rl_trading" / "dashboard" / "templates"
 PAYLOADS = Path(__file__).parent / "payloads"
 
-#: (탭, 템플릿, 스크립트). 탭을 늘리면 여기 한 줄을 더한다.
+#: (탭, 템플릿, 스크립트, 먼저 실을 스크립트). 탭을 늘리면 여기 한 줄을 더한다.
+#: 네 번째 칸은 템플릿이 그 스크립트보다 **앞에서** 부르는 것들이다 — 빠뜨리면
+#: 브라우저에서는 되는데 테스트만 ReferenceError 로 죽는다.
 TABS = [
-    ("market", "market.html", "market.js"),
-    ("headlines", "headlines.html", "headlines.js"),
-    ("system", "system.html", "system.js"),
-    ("learning", "learning.html", "learning.js"),
-    ("ai_review", "ai_review.html", "ai_review.js"),
+    ("market", "market.html", "market.js", ()),
+    ("headlines", "headlines.html", "headlines.js", ()),
+    ("system", "system.html", "system.js", ()),
+    ("learning", "learning.html", "learning.js", ()),
+    ("ai_review", "ai_review.html", "ai_review.js", ()),
+    ("calendar_page", "calendar.html", "calendar_page.js", ("calendar.js",)),
 ]
 
 HARNESS = """
@@ -103,9 +106,9 @@ runAll = async (jobs) => { for (const job of jobs) await job(); };
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
-@pytest.mark.parametrize(("tab", "template", "script"), TABS)
+@pytest.mark.parametrize(("tab", "template", "script", "preload"), TABS)
 def test_탭_렌더러가_실제_응답으로_끝까지_돈다(
-    tab: str, template: str, script: str, tmp_path: Path
+    tab: str, template: str, script: str, preload: tuple[str, ...], tmp_path: Path
 ) -> None:
     payloads = json.loads((PAYLOADS / f"{tab}.json").read_text(encoding="utf-8"))
 
@@ -125,6 +128,7 @@ def test_탭_렌더러가_실제_응답으로_끝까지_돈다(
     js = "\n".join([
         HARNESS.replace("IDS", json.dumps(ids)),
         (STATIC / "scope.js").read_text(),
+        *[(STATIC / name).read_text() for name in preload],
         source,
         DRIVER.replace("PAYLOADS", json.dumps(payloads)).replace("JOBS", jobs),
     ])

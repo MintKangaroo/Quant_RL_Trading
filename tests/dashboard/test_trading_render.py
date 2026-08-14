@@ -98,6 +98,9 @@ def test_트레이딩_렌더러가_실제_응답으로_끝까지_돈다(tmp_path
     script = "\n".join([
         HARNESS.replace("IDS", json.dumps(ids)),
         scope,
+        # trading.html 이 trading.js 보다 먼저 싣는다. 빠뜨리면 브라우저에서는
+        # 되는데 테스트만 ReferenceError 로 죽는다.
+        (STATIC / "calendar.js").read_text(),
         trading_js,
         DRIVER.replace("TRADING", json.dumps(trading)).replace("CHART", json.dumps(chart)),
     ])

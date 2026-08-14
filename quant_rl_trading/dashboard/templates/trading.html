@@ -92,12 +92,18 @@
 
   <section class="panel">
     <h2>수익률 캘린더
-      <span class="right"><span class="sub">일별 TWR · 거래일만</span></span>
+      <span class="right">
+        <span class="sub">일별 TWR · 거래일만</span>
+        {# 새 창은 as_of 를 물려받는다 (trading.js). 안 물려주면 달력만
+           조용히 지금을 본다. #}
+        <button type="button" id="calendar-popout" title="새 창에서 크게 보기">표시하기</button>
+      </span>
     </h2>
     <div id="calendar" class="cal"></div>
     <p class="note">
-      휴장일에는 칸을 만들지 않는다. 빈칸을 두면 달력 모양은 예뻐지지만
-      <strong>"그날 0% 였다"</strong> 로 읽힌다. 진하기는 그 창에서의 상대 크기다.
+      요일에 맞춘 달력이다. <strong>빈칸은 0% 가 아니라 장이 없던 날이라</strong>
+      색도 숫자도 주지 않는다 — 0% 로 칠하면 쉰 날이 본전 친 날로 읽힌다.
+      진하기는 그 창에서의 상대 크기다.
     </p>
   </section>
 
@@ -121,5 +127,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='calendar.js') }}"></script>
 <script src="{{ url_for('static', filename='trading.js') }}"></script>
 {% endblock %}

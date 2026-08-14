@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}수익률 캘린더 · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{# 별도 창으로 뜨는 화면이다. 공통 헤더의 탭 줄까지 들고 오면 새 창에서
+   다른 탭으로 새어 나가므로, 여기서는 타임머신만 그대로 쓴다.
+   as_of 는 연 쪽에서 쿼리로 넘어온다 — 새 창이 조용히 지금을 보면
+   달력만 다른 시점을 말하게 된다. #}
+<header>
+  <h1>수익률 캘린더</h1>
+  <span class="badge dim" id="mode-badge">Quant_RL_Trading</span>
+  <span class="sub num" id="as-of-label">—</span>
+
+  <form class="controls" id="scope-form">
+    <label for="as-of">as_of</label>
+    <input type="datetime-local" id="as-of" name="as_of" step="60">
+    <label for="lookback">창(일)</label>
+    <input type="number" id="lookback" name="lookback" min="1" style="width: 76px">
+    <button type="submit">조회</button>
+    <button type="button" id="live">지금</button>
+  </form>
+</header>
+
+<main class="terminal">
+  {# runAll 이 실패를 여기 적는다. 없으면 오류가 조용히 사라진다. #}
+  <section class="alerts" id="alerts"></section>
+  <section class="kpis" id="cal-kpis"></section>
+
+  <section class="panel">
+    <h2>
+      <span class="seg">
+        <button type="button" id="cal-prev" title="이전 달">‹</button>
+        <button type="button" id="cal-next" title="다음 달">›</button>
+      </span>
+      <span id="cal-label">—</span>
+      <span class="right">
+        <span class="sub">일별 TWR · 거래일만</span>
+      </span>
+    </h2>
+    <div id="calendar-full" class="cal"></div>
+    <p class="note">
+      수익률은 <strong>TWR</strong> 이다. NAV 증감으로 재면 입금일이 수익으로 잡힌다.
+      <strong>빈칸은 0% 가 아니라 장이 없던 날이다</strong> — 그래서 색도 숫자도 주지 않는다.
+      진하기는 이 창 전체에서의 상대 크기라 달끼리 비교할 수 있다.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>월별 <span class="right"><span class="sub">일별 TWR 복리합성</span></span></h2>
+    <div id="cal-months" class="scroll dense"></div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='calendar.js') }}"></script>
+<script src="{{ url_for('static', filename='calendar_page.js') }}"></script>
+{% endblock %}

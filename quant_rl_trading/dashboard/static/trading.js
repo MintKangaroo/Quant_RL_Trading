@@ -593,49 +593,34 @@ async function renderCandles(entityId, positions) {
 
 /* -- 수익률 캘린더 --------------------------------------------------------- */
 
-/* 일별 수익률을 달력으로 깐다. **거래일만 칸을 만든다** — 휴장일에 빈칸을
- * 두면 달력 모양은 예뻐지지만 "그날 0% 였다" 로 읽힌다.
+/* 그리는 일은 calendar.js 가 한다 — 별도 창(/calendar)과 **같은 렌더러**다.
+ * 두 벌로 만들면 한쪽만 고쳐진 채로 남고, 두 화면이 같은 수익률을 다르게 그린다.
  *
- * 색은 손익이라 규칙대로 쓴다(상승 초록·하락 빨강). 진하기는 그 창에서의
- * 상대 크기다 — 절대 기준을 두면 변동이 작은 구간이 통째로 회색이 된다.
+ * 탭에서는 최근 달만, 숫자 없이 색으로만 보여준다. 패널 하나에 여러 달을
+ * 숫자까지 넣으면 칸이 읽을 수 없게 작아진다. 전체는 새 창에서 본다.
  */
-function renderCalendar(body) {
-  const target = document.getElementById("calendar");
-  if (!target) return;
+function renderCalendarPanel(body) {
   const cal = body.data.calendar || { days: [], months: [] };
-  if (!cal.days.length) {
-    target.innerHTML = `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
-    return;
-  }
-  const scale = Math.max(...cal.days.map((d) => Math.abs(d.return)), 1e-9);
-  const byMonth = new Map();
-  for (const day of cal.days) {
-    const key = day.session.slice(0, 7);
-    if (!byMonth.has(key)) byMonth.set(key, []);
-    byMonth.get(key).push(day);
-  }
-  const monthReturn = new Map(cal.months.map((m) => [m.month, m.return]));
+  const months = calendarMonths(cal);
+  renderCalendar(document.getElementById("calendar"), cal, {
+    months: months.slice(-1),
+    compact: true,
+  });
+}
 
-  target.innerHTML = [...byMonth.entries()]
-    .map(([month, days]) => {
-      const total = monthReturn.get(month);
-      const cells = days
-        .map((day) => {
-          const strength = Math.min(1, Math.abs(day.return) / scale);
-          const color = day.return > 0 ? "34,197,94" : day.return < 0 ? "239,68,68" : "90,98,109";
-          return `<span class="cal-day" style="background:rgba(${color},${(0.15 + strength * 0.75).toFixed(2)})"
-                        title="${day.session} · ${pct(day.return)} · NAV ${num(Math.round(day.nav))}">
-            ${Number(day.session.slice(8))}
-          </span>`;
-        })
-        .join("");
-      return `<div class="cal-month">
-        <div class="cal-head"><span>${month}</span>
-          <b class="mono ${signClass(total)}">${pct(total)}</b></div>
-        <div class="cal-grid">${cells}</div>
-      </div>`;
-    })
-    .join("");
+/* 새 창은 지금 보고 있는 as_of·창을 그대로 물려받는다. 안 넘기면 달력만
+ * 조용히 지금을 보게 되고, 두 화면이 다른 시점을 말한다. */
+function bindCalendarPopout() {
+  const button = document.getElementById("calendar-popout");
+  // 지금은 loadTrading 이 한 번만 돌지만, 나중에 자동 갱신이 붙으면 누를 때마다
+  // 창이 여러 개 뜬다. 한 번만 매다는 비용이 그 고장을 찾는 비용보다 싸다.
+  if (!button || button.dataset.bound) return;
+  button.dataset.bound = "1";
+  button.addEventListener("click", () => {
+    const query = params().toString();
+    window.open(`/calendar${query ? "?" + query : ""}`, "quant-rl-calendar",
+                "width=980,height=860,scrollbars=yes");
+  });
 }
 
 /* -- 진입 ----------------------------------------------------------------- */
@@ -678,7 +663,8 @@ async function loadTrading() {
   renderOrders(body);
   renderEquity(body);
   renderUnderwater(body);
-  renderCalendar(body);
+  renderCalendarPanel(body);
+  bindCalendarPopout();
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
   await renderCandles(body.data.decision.entity_id, body.data.positions);

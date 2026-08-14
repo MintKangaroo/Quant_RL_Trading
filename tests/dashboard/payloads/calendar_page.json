@@ -1,0 +1,25 @@
+{
+  "trading/calendar": {
+    "as_of": "2026-08-14T11:32:07.308191+00:00",
+    "data": {
+      "best": null,
+      "calendar": {
+        "days": [],
+        "months": []
+      },
+      "cumulative": null,
+      "sessions": 0,
+      "worst": null
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  }
+}

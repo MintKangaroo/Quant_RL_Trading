@@ -47,6 +47,21 @@ def overview() -> Any:
     )
 
 
+@bp.get("/calendar")
+def calendar() -> Any:
+    """수익률 캘린더만. **장부를 접지 않는다.**
+
+    달력은 ``nav_daily`` 하나만 있으면 그려진다. 별도 창이 ``/api/trading`` 을
+    부르면 보유·후보·스냅샷까지 전부 다시 계산하게 되는데, 그 값은 이 화면에
+    한 글자도 안 나온다.
+    """
+    current = scope()
+    return envelope(
+        current,
+        service.calendar_payload(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.post("/killswitch")
 def killswitch() -> Any:
     """EMERGENCY STOP — 화면에서 매매를 멈춘다.

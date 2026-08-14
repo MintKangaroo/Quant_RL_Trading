@@ -587,8 +587,12 @@ def _benchmark_drawdown(
     return out
 
 
-def returns_calendar(store: Store, context: Context, *, lookback: int) -> dict[str, Any]:
+def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     """일별 수익률. 화면이 달력으로 깐다.
+
+    ``Context`` 가 아니라 ``as_of`` 만 받는다. 달력은 ``nav_daily`` 하나로
+    그려지는데 Context 를 요구하면 부르는 쪽이 장부와 스냅샷을 먼저 접어야
+    하고, 그 값은 이 화면에 한 글자도 안 나온다.
 
     **여기서 달력을 만들지 않는다** — 주 시작 요일·빈칸 배치는 표현이고,
     표현을 서버에 넣으면 화면을 바꿀 때마다 API 가 따라 바뀐다.
@@ -596,7 +600,7 @@ def returns_calendar(store: Store, context: Context, *, lookback: int) -> dict[s
     수익률은 TWR 이다. NAV 증감으로 재면 입금일이 수익으로 잡힌다.
     """
     frame = store.get(
-        NAV_DAILY, as_of=context.as_of, entity=ledger_module.ACCOUNT, lookback=lookback
+        NAV_DAILY, as_of=as_of, entity=ledger_module.ACCOUNT, lookback=lookback
     )
     if frame.empty:
         return {"days": [], "months": []}
@@ -618,6 +622,38 @@ def returns_calendar(store: Store, context: Context, *, lookback: int) -> dict[s
     return {
         "days": days,
         "months": [{"month": k, "return": v} for k, v in sorted(months.items())],
+    }
+
+
+def calendar_payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """별도 창의 캘린더가 쓰는 전부. ``nav_daily`` 만 읽는다.
+
+    ``최고/최악의 날`` 을 여기서 고르는 이유는, 화면이 고르면 표시된 달만
+    보고 고르게 되기 때문이다. 창 전체에서 골라야 "이 창의 최악" 이 된다.
+    """
+    calendar = returns_calendar(store, as_of=as_of, lookback=lookback)
+    days = calendar["days"]
+    if not days:
+        return {
+            "calendar": calendar,
+            "best": None,
+            "worst": None,
+            "sessions": 0,
+            "cumulative": None,
+        }
+
+    best = max(days, key=lambda day: day["return"])
+    worst = min(days, key=lambda day: day["return"])
+    cumulative = 1.0
+    for day in days:
+        cumulative *= 1.0 + day["return"]
+    return {
+        "calendar": calendar,
+        "best": best,
+        "worst": worst,
+        "sessions": len(days),
+        # 창 전체의 누적. 일별 TWR 의 곱이다 — 합으로 재면 변동이 큰 구간에서 벌어진다.
+        "cumulative": cumulative - 1.0,
     }
 
 
@@ -855,5 +891,5 @@ def payload(
         "decision": decision(store, context, entity_id=entity_id),
         "orders": orders(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
-        "calendar": returns_calendar(store, context, lookback=lookback),
+        "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback),
     }

@@ -98,6 +98,11 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     def trading_page() -> str:
         return render_template("trading.html")
 
+    # 별도 창으로 뜨는 화면이라 탭 줄에 없다. 트레이딩 탭의 버튼이 연다.
+    @app.get("/calendar")
+    def calendar_page() -> str:
+        return render_template("calendar.html")
+
     @app.get("/market")
     def market_page() -> str:
         return render_template("market.html")

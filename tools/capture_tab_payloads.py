@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STATIC = REPO_ROOT / "quant_rl_trading" / "dashboard" / "static"
 PAYLOADS = REPO_ROOT / "tests" / "dashboard" / "payloads"
 
-TABS = ("market", "headlines", "system", "learning", "ai_review")
+TABS = ("market", "headlines", "system", "learning", "ai_review", "calendar_page")
 
 
 def main() -> int:
