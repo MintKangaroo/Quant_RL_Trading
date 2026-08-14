@@ -24,7 +24,7 @@ DAY1 = datetime(2026, 3, 2, 6, 40, tzinfo=UTC)   # 한국시간 15:40
 DAY2 = DAY1 + timedelta(days=1)
 DAY3 = DAY1 + timedelta(days=2)
 
-KR_INDEX = "KR:IDX:KRX 300"
+KR_INDEX = "KR:IDX:KOSPI"
 US_INDEX = "US:IDX:SP500"
 FX = 1_350.0
 

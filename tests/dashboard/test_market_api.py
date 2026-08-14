@@ -83,7 +83,7 @@ def desk(store):  # type: ignore[no-untyped-def]
         "indices",
         [
             # config.benchmark.kr_index 가 가리키는 이름이다 — 대표 카드가 된다.
-            _row("KR:IDX:KRX 300", day, market="KR", board="KRX", close=close)
+            _row("KR:IDX:KOSPI", day, market="KR", board="KOSPI", close=close)
             for day, close in ((YESTERDAY, 1000.0), (NOW, 1010.0))
         ]
         + [
@@ -172,19 +172,23 @@ def test_두_시장이_같은_모양의_판을_받는다(client) -> None:
 def test_대표_지수는_config_가_정한다(client) -> None:
     markets = client.get("/api/market").get_json()["data"]["markets"]
     # config.benchmark 의 kr_index / us_index 그대로다.
-    assert markets["KR"]["indices"]["headline_id"] == "KR:IDX:KRX 300"
+    assert markets["KR"]["indices"]["headline_id"] == "KR:IDX:KOSPI"
     assert markets["US"]["indices"]["headline_id"] == "US:IDX:SP500"
     assert markets["KR"]["indices"]["headline"]["change"] == pytest.approx(0.01)
     assert markets["US"]["indices"]["headline"]["change"] == pytest.approx(-0.01)
 
 
 def test_대표_지수가_없으면_대용치로_바꿔치기하지_않는다(store) -> None:
-    """코스피가 창고에 없는데 KRX 300 을 코스피라 부르면 화면이 거짓말을 한다."""
+    """대표 지수가 창고에 없으면 다른 지수를 그 이름으로 부르지 않는다.
+
+    빈 창고라 코스피가 없다. 여기서 KRX 300 을 코스피라 부르면 화면이
+    거짓말을 한다 — 없으면 없다고 하고 **무엇이 없는지**를 말한다.
+    """
     store.seed_config_defaults()
     client = _build_app(store=store, clock=ReplayClock(NOW)).test_client()
     kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]["indices"]
     assert kr["headline"] is None
-    assert kr["headline_id"] == "KR:IDX:KRX 300"  # 무엇이 없는지는 말한다
+    assert kr["headline_id"] == "KR:IDX:KOSPI"  # 무엇이 없는지는 말한다
 
 
 def test_대표_지수는_나머지_목록에_다시_안_나온다(client) -> None:

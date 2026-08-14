@@ -171,7 +171,7 @@ def test_화면은_가격지수라는_사실을_말한다(client) -> None:
     assert label["price_return_only"] is True
     # 지수 이름은 config 에서 온다. 화면에 적어 두면 설정을 바꿔도 화면만
     # 옛 지수를 말한다 (불변식 10).
-    assert label["kr_index"] == "KR:IDX:KRX 300"
+    assert label["kr_index"] == "KR:IDX:KOSPI"
     assert label["us_index"] == "US:IDX:SP500"
 
 
@@ -186,7 +186,7 @@ def test_벤치마크가_왜_비었는지를_화면이_말한다(desk) -> None:
                 index_value=100.0, drawdown=0.0, cash_krw=1e8, cash_usd=0.0,
                 equity_kr=0.0, equity_us=0.0, accrued_dividend=0.0, payable=0.0,
                 fx_rate=1_350.0, tax_provision=0.0, nav_after_tax=1e8,
-                benchmark_index=None, benchmark_note="지수 종가 없음: KR:IDX:KRX 300",
+                benchmark_index=None, benchmark_note="지수 종가 없음: KR:IDX:KOSPI",
             )
         ],
         ingest_run_id="nav-gap",
@@ -196,7 +196,7 @@ def test_벤치마크가_왜_비었는지를_화면이_말한다(desk) -> None:
 
     assert curve["benchmark"] == [None]
     assert curve["benchmark_drawdown"] == [None]
-    assert "KR:IDX:KRX 300" in curve["benchmark_note"]
+    assert "KR:IDX:KOSPI" in curve["benchmark_note"]
 
 
 def test_nav_은_회계에서_온다(client) -> None:
