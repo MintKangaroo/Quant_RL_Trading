@@ -464,6 +464,7 @@ def backtest_fitness(
     board: str = "KOSPI",
     l1_penalty: float = 0.0,
     turnover_penalty: float = DEFAULT_TURNOVER_PENALTY,
+    produce_signals: bool = True,
 ) -> FitnessResult:
     """개체 하나를 **실제 백테스트**로 채점한다(selector.md §3 — 점수 상관이
     아니라 비용·라운딩 포함).
@@ -477,6 +478,11 @@ def backtest_fitness(
     모든 폴드의 워밍업 시작일보다 앞서야 한다 — 아니면 dual-time 게이트가
     가중치를 못 보고 후보가 조용히 0건으로 끝난다(워크포워드 규칙,
     backtest.md §7).
+
+    ``produce_signals=False`` 면 Analyst 를 다시 돌리지 않고 **창고에 이미 있는
+    신호**를 쓴다. 신호는 가중치와 무관하므로(가중치는 합성 단계에서만 쓴다)
+    개체마다 다시 계산할 이유가 없다 — 프라이밍 레이어가 한 번 채워 두고
+    개체 레이어가 링크로 보면 된다. 이것이 진화 비용의 대부분이다.
 
     적합도 = median(IR) - λ_L1·Σ|wᵢ| - λ_turn·median(회전율).
     폴드가 하나도 성적을 못 내면(거래일이 없거나 전부 실패) -inf 를 준다 —
@@ -518,7 +524,7 @@ def backtest_fitness(
             capital=capital,
             board=board,
             warmup_days=warmup_days,
-            produce_signals=True,
+            produce_signals=produce_signals,
         )
         if result.performance is None:
             notes.append(f"{fold_start}: 성적 없음({'; '.join(result.notes)})")

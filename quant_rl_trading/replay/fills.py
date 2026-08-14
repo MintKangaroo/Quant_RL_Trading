@@ -63,6 +63,22 @@ class MarketState:
     is_halted: bool = False
     limit_up: float | None = None
     limit_down: float | None = None
+    #: 그날의 저가·고가. **지정가 체결 여부는 종가가 아니라 이 값으로 판단한다.**
+    #: 지정가 주문은 장 중 내내 살아 있으므로, 저가가 매수 지정가를 스쳤으면
+    #: 종가가 그 위에서 끝났어도 채워진 것이다. 모르면(``None``) 종가로 대신
+    #: 판단한다 — 종가만 있는 시계열(지수 등)에서 체결이 통째로 사라지는 것보다
+    #: 낫다.
+    low: float | None = None
+    high: float | None = None
+
+    @property
+    def buy_touch(self) -> float:
+        """매수 지정가가 닿았는지 볼 기준값."""
+        return self.low if self.low is not None else self.close
+
+    @property
+    def sell_touch(self) -> float:
+        return self.high if self.high is not None else self.close
 
 
 @dataclass(frozen=True)
@@ -167,10 +183,22 @@ def simulate_fill(order: Order, state: MarketState, params: FillParams) -> Fill:
     price = _round_to_tick(price, state.tick_size)
 
     if order.limit_price is not None:
-        if order.side is Side.BUY and price > order.limit_price:
-            return _rejected(order, "limit_not_met")
-        if order.side is Side.SELL and price < order.limit_price:
-            return _rejected(order, "limit_not_met")
+        # **지정가 판정은 그날 범위로 한다.** 종가와만 비교하면, 저가가 매수
+        # 지정가 밑을 스치고 올라가 끝난 날이 전부 미체결로 적힌다 — 실제로는
+        # 그 가격에 채워졌다. 그렇게 지운 체결은 백테스트에서 두 번 거짓말을
+        # 한다: 못 산 종목이 오른 만큼 성적이 낮게 나오고, 체결률이 실제보다
+        # 낮게 보여 슬리피지 모형이 멀쩡한데도 유동성 문제로 읽힌다.
+        limit = order.limit_price
+        if order.side is Side.BUY:
+            if state.buy_touch > limit:
+                return _rejected(order, "limit_not_met")
+            # 지정가보다 비싸게 사지는 않는다. 종가+충격이 지정가 아래면 그
+            # 값이 그대로 남는다(더 유리한 쪽을 지어내지 않는다).
+            price = min(price, limit)
+        else:
+            if state.sell_touch < limit:
+                return _rejected(order, "limit_not_met")
+            price = max(price, limit)
 
     if filled * price < params.min_order_value:
         return _rejected(order, "below_min_order_value")

@@ -21,7 +21,7 @@ M2 가 못 박았다 — 뉴스 40건 → 패턴 4건 → LLM 4건 전부 기각
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -45,6 +45,21 @@ _TOKEN_PRICE_FIELDS = (
 #: 최근 목록 패널이 한 화면에 들어가려면 길이를 자른다. 패널 안 스크롤은
 #: 되지만(dashboard.md §2) 무한정 늘리면 창고 조회가 무거워진다.
 RECENT_LIMIT = 40
+
+#: ``entity_id`` 에 시장 접두어가 없을 때의 이름. 빼거나 KR 에 몰아넣지
+#: 않는다 — 접두어 없는 행이 있다는 것 자체가 알아야 할 사실이다.
+UNKNOWN_MARKET = "기타"
+
+
+def _market_of(entity_id: Any) -> str:
+    """``KR:005930`` · ``US:CPI`` 에서 시장을 뗀다.
+
+    합계 하나로 뭉개면 국장 4건이 미장 300건에 묻힌다 — 뉴스·일정 탭에서
+    실제로 겪은 일이다 (dashboard.md §8-2). 여기서도 같은 이유로 나눈다.
+    """
+    text = str(entity_id)
+    head, sep, _ = text.partition(":")
+    return head if sep and head else UNKNOWN_MARKET
 
 
 def _summarize_output(raw: Any) -> str:
@@ -76,7 +91,7 @@ def agent_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str,
     """에이전트·버전별 호출 현황. ``비용`` 은 없다 — 잴 방법이 없다."""
     frame = store.get(CACHE, as_of=as_of, lookback=lookback)
     if frame.empty:
-        return {"agents": [], "total": 0}
+        return {"agents": [], "total": 0, "by_market": []}
 
     rows: list[dict[str, Any]] = []
     for (agent, version), group in frame.groupby(["agent", "agent_version"]):
@@ -90,7 +105,20 @@ def agent_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str,
                 "last_computed_at": group["computed_at"].max().isoformat(),
             }
         )
-    return {"agents": sorted(rows, key=lambda item: str(item["agent"])), "total": len(frame)}
+    market = frame["entity_id"].map(_market_of)
+    by_market = [
+        {
+            "market": str(name),
+            "calls": len(group),
+            "entities": int(frame.loc[group.index, "entity_id"].nunique()),
+        }
+        for name, group in market.groupby(market)
+    ]
+    return {
+        "agents": sorted(rows, key=lambda item: str(item["agent"])),
+        "total": len(frame),
+        "by_market": sorted(by_market, key=lambda item: -int(item["calls"])),
+    }
 
 
 def recent_calls(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
@@ -117,13 +145,29 @@ def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     frame = store.get(VERDICTS, as_of=as_of, lookback=lookback)
     card = scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback)
     if frame.empty:
-        return {"total": 0, "blocked": 0, "by_analyst": [], "recent": [], "scorecard": card}
+        return {
+            "total": 0, "blocked": 0, "by_analyst": [], "by_market": [],
+            "recent": [], "scorecard": card,
+        }
 
     blocked = frame[frame["decision"] == "block"]
     recent = frame.sort_values("valid_from", ascending=False).head(RECENT_LIMIT)
+    market = frame["entity_id"].map(_market_of)
+    blocked_market = market.loc[blocked.index]
     return {
         "total": len(frame),
         "blocked": len(blocked),
+        "by_market": sorted(
+            (
+                {
+                    "market": str(name),
+                    "total": int(count),
+                    "blocked": int((blocked_market == name).sum()),
+                }
+                for name, count in market.value_counts().items()
+            ),
+            key=lambda item: -int(item["total"]),
+        ),
         "by_analyst": [
             {"analyst": str(name), "count": int(count)}
             for name, count in blocked["analyst"].value_counts().items()
@@ -150,11 +194,16 @@ def document_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[s
     """판정의 입력이 된 공시·뉴스."""
     frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback)
     if frame.empty:
-        return {"total": 0, "by_type": [], "recent": []}
+        return {"total": 0, "by_type": [], "by_market": [], "recent": []}
 
     recent = frame.sort_values("valid_from", ascending=False).head(RECENT_LIMIT)
+    market = frame["entity_id"].map(_market_of)
     return {
         "total": len(frame),
+        "by_market": [
+            {"market": str(name), "total": int(count)}
+            for name, count in market.value_counts().items()
+        ],
         "by_type": [
             {"doc_type": str(name), "count": int(count)}
             for name, count in frame["doc_type"].value_counts().items()
@@ -217,6 +266,12 @@ def cost_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
     """
     frame = store.get(USAGE, as_of=as_of, lookback=lookback)
     krw_rate = float(store.config("llm.usd_krw_rate", as_of=as_of))
+    budget_usd = float(store.config("llm.monthly_budget_usd", as_of=as_of))
+    # 예산은 **달** 단위인데 이 화면의 창(lookback)은 아니다. 창이 이달 1일에
+    # 못 미치면 이달 누적은 실제보다 적게 나온다 — 그 사실을 ``month_covered``
+    # 로 알린다. 모자란 채로 "예산의 12%" 라고 말하면 화면이 안심시킨다.
+    month_start = as_of.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_covered = as_of - timedelta(days=lookback) <= month_start
     if frame.empty:
         return {
             "total_calls": 0,
@@ -224,6 +279,10 @@ def cost_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
             "usd_krw_rate": krw_rate,
             "cost_usd": 0.0,
             "cost_krw": 0.0,
+            "budget_usd": budget_usd,
+            "month_start": month_start.isoformat(),
+            "month_covered": month_covered,
+            "month_to_date_usd": 0.0,
             "unpriced_calls": 0,
             "unpriced_models": [],
             "tokens": {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0},
@@ -270,17 +329,51 @@ def cost_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
     by_agent.sort(key=lambda row: -row["cost_usd"])
 
     cost_usd = float(priced["cost_usd"].sum())
+    month_to_date = float(priced.loc[priced["computed_at"] >= month_start, "cost_usd"].sum())
     return {
         "total_calls": len(frame),
         "since": frame["computed_at"].min().isoformat(),
         "usd_krw_rate": krw_rate,
         "cost_usd": round(cost_usd, 6),
         "cost_krw": round(cost_usd * krw_rate),
+        "budget_usd": budget_usd,
+        "month_start": month_start.isoformat(),
+        "month_covered": month_covered,
+        "month_to_date_usd": round(month_to_date, 6),
         "unpriced_calls": len(unpriced),
         "unpriced_models": sorted(unpriced["model"].astype(str).unique().tolist()),
         "tokens": tokens,
         "by_agent": by_agent,
     }
+
+
+def _merge_markets(
+    activity: dict[str, Any], verdicts: dict[str, Any], documents: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """세 표의 시장별 집계를 한 줄씩으로 합친다.
+
+    ``llm_usage`` 는 여기 없다 — **비용은 시장으로 못 나눈다.** 그 표의
+    ``entity_id`` 는 종목이 아니라 에이전트 이름이고, 한 번의 왕복이 여러
+    종목(``items``)을 함께 처리한다(``store/tables.py``). 안분해서 채우면
+    실측이 아닌 추정이 실측 칸에 들어간다.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+
+    def slot(name: str) -> dict[str, Any]:
+        return rows.setdefault(
+            name, {"market": name, "calls": 0, "verdicts": 0, "blocked": 0, "documents": 0}
+        )
+
+    for row in activity.get("by_market", []):
+        slot(str(row["market"]))["calls"] = int(row["calls"])
+    for row in verdicts.get("by_market", []):
+        entry = slot(str(row["market"]))
+        entry["verdicts"] = int(row["total"])
+        entry["blocked"] = int(row["blocked"])
+    for row in documents.get("by_market", []):
+        slot(str(row["market"]))["documents"] = int(row["total"])
+
+    return sorted(rows.values(), key=lambda item: (-int(item["documents"]), str(item["market"])))
 
 
 def summary(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
@@ -298,6 +391,10 @@ def summary(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
         "llm_cost_krw": cost["cost_krw"],
         "llm_usage_calls": cost["total_calls"],
         "llm_usage_since": cost["since"],
+        "llm_budget_usd": cost["budget_usd"],
+        "llm_month_to_date_usd": cost["month_to_date_usd"],
+        "llm_month_covered": cost["month_covered"],
+        "markets": _merge_markets(activity, verdicts, documents),
         "warnings": _warnings(activity, cost),
     }
 
@@ -311,6 +408,13 @@ def _warnings(activity: dict[str, Any], cost: dict[str, Any]) -> list[str]:
             "단가를 모르는 모델이 있다 — 이 모델의 비용은 합계에서 빠졌다: "
             + ", ".join(cost["unpriced_models"])
             + " (config/quant_rl_trading.yaml 의 llm.pricing 에 추가할 것)"
+        )
+    # 예산 경고는 **창이 이달을 다 덮을 때만** 낸다. 창이 짧으면 이달 누적이
+    # 실제보다 작게 나오므로, 그 값으로 "예산 안이다" 라고 말하면 안심시킨다.
+    if cost["month_covered"] and cost["month_to_date_usd"] > cost["budget_usd"]:
+        found.append(
+            f"이달 LLM 지출이 예산을 넘었다 — ${cost['month_to_date_usd']:.2f} / "
+            f"${cost['budget_usd']:.2f} (llm.monthly_budget_usd)"
         )
     return found
 

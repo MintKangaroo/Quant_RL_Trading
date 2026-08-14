@@ -1,6 +1,6 @@
 {
   "ai-review/calls": {
-    "as_of": "2026-08-14T14:21:21.808830+00:00",
+    "as_of": "2026-08-14T15:22:02.320102+00:00",
     "data": {
       "agents": {
         "agents": [
@@ -19,6 +19,18 @@
             "first_computed_at": "2026-08-13T09:33:47.449822+09:00",
             "last_computed_at": "2026-08-14T16:00:00+09:00",
             "version": "news-screen-v0.1.0"
+          }
+        ],
+        "by_market": [
+          {
+            "calls": 84,
+            "entities": 67,
+            "market": "KR"
+          },
+          {
+            "calls": 20,
+            "entities": 14,
+            "market": "US"
           }
         ],
         "total": 104
@@ -358,11 +370,15 @@
     }
   },
   "ai-review/costs": {
-    "as_of": "2026-08-14T14:21:21.921742+00:00",
+    "as_of": "2026-08-14T15:22:02.652152+00:00",
     "data": {
+      "budget_usd": 50.0,
       "by_agent": [],
       "cost_krw": 0.0,
       "cost_usd": 0.0,
+      "month_covered": true,
+      "month_start": "2026-08-01T00:00:00+00:00",
+      "month_to_date_usd": 0.0,
       "since": null,
       "tokens": {
         "cache_read": 0,
@@ -387,8 +403,14 @@
     }
   },
   "ai-review/documents": {
-    "as_of": "2026-08-14T14:21:21.996409+00:00",
+    "as_of": "2026-08-14T15:22:02.819842+00:00",
     "data": {
+      "by_market": [
+        {
+          "market": "KR",
+          "total": 30808
+        }
+      ],
       "by_type": [
         {
           "count": 15124,
@@ -727,16 +749,35 @@
     }
   },
   "ai-review/summary": {
-    "as_of": "2026-08-14T14:21:22.676851+00:00",
+    "as_of": "2026-08-14T15:22:04.682837+00:00",
     "data": {
       "agents": 2,
       "blocked": 212,
       "calls": 104,
       "documents": 30808,
+      "llm_budget_usd": 50.0,
       "llm_cost_krw": 0.0,
       "llm_cost_usd": 0.0,
+      "llm_month_covered": true,
+      "llm_month_to_date_usd": 0.0,
       "llm_usage_calls": 0,
       "llm_usage_since": null,
+      "markets": [
+        {
+          "blocked": 212,
+          "calls": 84,
+          "documents": 30808,
+          "market": "KR",
+          "verdicts": 212
+        },
+        {
+          "blocked": 0,
+          "calls": 20,
+          "documents": 0,
+          "market": "US",
+          "verdicts": 0
+        }
+      ],
       "verdicts_total": 212,
       "warnings": []
     },
@@ -752,13 +793,20 @@
     }
   },
   "ai-review/verdicts": {
-    "as_of": "2026-08-14T14:21:23.443994+00:00",
+    "as_of": "2026-08-14T15:22:06.352301+00:00",
     "data": {
       "blocked": 212,
       "by_analyst": [
         {
           "analyst": "news",
           "count": 212
+        }
+      ],
+      "by_market": [
+        {
+          "blocked": 212,
+          "market": "KR",
+          "total": 212
         }
       ],
       "recent": [

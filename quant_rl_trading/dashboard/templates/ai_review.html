@@ -5,6 +5,21 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='ai_review.css') }}">
 {% endblock %}
 
+{#
+  이 화면의 질문: **LLM 이 무엇을 했고, 얼마가 들었나.**
+
+  두 출처를 합친 화면이다. LS_KR 의 AI 리뷰 탭에서는 레이아웃(머리 배지 ·
+  한 줄 리뷰 · KPI 스트립 · 카드 격자)을 가져왔고, 채우는 값은 전부 이
+  창고의 실측이다. LS_KR 쪽 값(등급 A~F · 종합점수 · 항목별 채점 · 잘한 점 ·
+  자기진화 제안)은 Claude 가 "그날 매매" 를 채점해 만든 것인데 우리에겐 그
+  채점 파이프라인이 없다. **네 개의 빈 카드로 화면 위쪽을 덮는 대신** 아래
+  "아직 없는 것" 카드 하나에 모아 두었다 — 없는 것은 한 번만 말하면 된다.
+
+  경고는 화면 맨 위 `#alerts` 띠 **한 곳에서만** 말한다. 예전에는 같은 문자열이
+  띠 · 문제점 카드 · 우선순위 액션 세 곳에 찍혀서, 경고 하나가 화면에 세 번
+  나왔다. 세 번 보인다고 더 급해 보이지 않는다 — 화면만 좁아진다.
+#}
+
 {% block body %}
 {% with active = 'ai-review' %}{% include "_scope.html" %}{% endwith %}
 
@@ -13,76 +28,52 @@
 
   <div class="air-wrap">
     <div class="air-bar">
-      <h2>🤖 AI 매매 리뷰</h2>
+      <h2>🤖 AI 리뷰</h2>
       <span class="sub" id="air-cost-badge"></span>
+      <div class="air-spacer"></div>
+      <span class="sub" id="air-budget-badge"></span>
     </div>
 
     <div class="air-card" id="air-oneliner"></div>
 
-    {# 점수 게이지·등급·headline — LS_KR 은 Claude 가 "그날 매매" 를 채점해
-       채운다. 우리 창고엔 체결 단위 하루 채점 파이프라인이 없다(agent_cache
-       는 news-screen·macro-brief 호출만 기록한다). 값을 지어내는 대신 무엇이
-       있어야 채울 수 있는지 적는다. #}
     <div class="air-card">
-      <div class="air-hero">
-        <div class="air-gauge-empty" title="점수 미채점">🔒</div>
-        <div>
-          <div class="air-grade">등급 · 종합점수 — 미채점</div>
-          <div class="air-headline">이 창엔 "하루 매매 채점" 이 없다</div>
-          <div class="air-summary">
-            LS_KR 은 그날 체결·성과·NAV·리스크가드를 Claude 에 넘겨 A~F 등급과
-            0~100점을 받는다. 우리 창고엔 그 채점을 만드는 에이전트가 없다
-            (agent_cache 에 있는 건 news-screen · macro-brief 뿐이다).
-          </div>
-          <div class="air-need">
-            <b>채우려면 필요한 것</b> · 하루 체결·NAV·리스크가드 요약을 입력으로
-            받아 채점하는 LLM 에이전트 하나, 그 출력을 저장할 테이블(또는
-            agent_cache 확장), 그리고 이 화면이 그걸 읽을 API.
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="air-card">
-      <div class="air-h">📊 항목별 세부 채점</div>
-      <div class="air-placeholder">
-        <b>채우려면 필요한 것</b> · 위 채점 에이전트가 카테고리별(리스크관리·
-        타이밍·포지션사이징 등) 점수와 코멘트를 함께 반환해야 한다. 지금은
-        종합점수 자체가 없으니 세부 항목도 없다.
-      </div>
-    </div>
-
-    <div class="air-card">
-      <div class="air-h">📈 이 창의 실측치</div>
+      <div class="air-h">📈 이 창의 실측치 <span class="hint">— 전부 창고에서 센 값</span></div>
       <div class="air-kpis" id="air-kpis"></div>
     </div>
 
     <div class="air-grid2">
       <div class="air-card">
-        <div class="air-h">⚠️ 시스템 경고 <span class="hint">— summary.warnings, 실측</span></div>
-        <div id="air-problems"></div>
+        <div class="air-h">🌏 시장별 <span class="hint">— KR · US 를 합계 하나로 뭉개지 않는다</span></div>
+        <div id="air-markets"></div>
+        <p class="note">
+          <strong>비용은 이 표에 없다.</strong> <code>llm_usage</code> 는 HTTP
+          왕복 하나가 한 행이고 그 한 번이 여러 종목(<code>items</code>)을 함께
+          처리한다 — 종목축이 없어 시장으로 나눌 수 없다. 안분해 채우면 추정이
+          실측 칸에 앉는다.
+        </p>
       </div>
-      <div>
-        <div class="air-card">
-          <div class="air-h">✅ 잘한 점</div>
-          <div class="air-placeholder">
-            <b>채우려면 필요한 것</b> · 하루 채점 에이전트의 출력(strengths).
-            지금은 "잘했다/못했다" 를 판단할 채점 자체가 없다.
+
+      {# LS_KR 에 있고 우리에겐 없는 것. 값을 지어내는 대신 무엇이 있어야
+         채워지는지를 적는다 — 이 저장소의 규칙은 "화면이 이유를 말하게 한다" 다. #}
+      <div class="air-card">
+        <div class="air-h">🔒 아직 없는 것 <span class="hint">— LS_KR 화면에는 있다</span></div>
+        <div class="air-placeholder">
+          <b>등급 A~F · 종합점수 · 항목별 채점 · 잘한 점 · 자기진화 제안</b> —
+          LS_KR 은 그날 체결 · 성과 · NAV · 리스크가드를 Claude 에 넘겨 한 번의
+          호출로 이 다섯을 함께 받는다. 이 창고엔 그 호출이 없다:
+          <code>agent_cache</code> 에 있는 건 <code>news-screen</code> ·
+          <code>macro-brief</code> 둘뿐이다.
+          <div style="margin-top:8px">
+            <b>채우려면</b> · ① 하루 체결·NAV·리스크가드 요약을 입력으로 받아
+            채점하는 LLM 에이전트, ② 그 출력을 담을 표, ③ 이 화면이 읽을 API.
+            셋 다 <code>dashboard/</code> 밖의 일이다.
+          </div>
+          <div style="margin-top:8px">
+            LS_KR 의 <b>날짜별 분석 기록 목록</b>과 <b>분석 실행 버튼</b>은
+            가져오지 않았다 — 되감기는 헤더의 타임머신(<code>as_of</code>,
+            불변식 9)이 하고, 화면에서 비용 나가는 버튼을 누르게 하지 않는다.
           </div>
         </div>
-        <div class="air-card">
-          <div class="air-h">🎯 우선순위 액션</div>
-          <ul class="air-list" id="air-actions"></ul>
-        </div>
-      </div>
-    </div>
-
-    <div class="air-card evo">
-      <div class="air-h">🧬 자기진화 제안 <span class="hint">— AI가 스스로 제안하는 지표·전략·실험</span></div>
-      <div class="air-placeholder">
-        <b>채우려면 필요한 것</b> · LS_KR 의 evolution 제안은 하루 채점과 같은
-        호출에서 나온다(추가 지표·전략·검증 실험). 그 호출이 없으니 제안도
-        없다 — 지어내면 검증 안 된 전략이 진짜 제안처럼 보인다.
       </div>
     </div>
   </div>
@@ -97,6 +88,10 @@
       <strong>캐시 읽기는 훨씬 싸다</strong> — 뭉뚱그리지 않고 따로 잡는다.
       이 표(<code>llm_usage</code>)가 생기기 전 호출은 기록이 없다 — 표시된
       비용은 <strong>0원이 아니라 "몰랐다"</strong>다.
+      청구는 달러다. 원화는 <code>llm.usd_krw_rate</code> 로 환산한 참고치일 뿐이라
+      예산 비교는 달러로 한다.
+      모델별 인프라 관점(모델 단위 토큰·비용)은 <a href="/system">시스템 탭</a>에 있다.
+      이 표는 <strong>에이전트 단위</strong>다 — 같은 표를 다르게 묶은 것이지 다른 숫자가 아니다.
     </p>
   </section>
 

@@ -172,9 +172,16 @@ def sector_map(
     as_of: datetime,
     entities: Sequence[str],
     market: str,
+    source: str,
     lookback: int = SECTOR_LOOKBACK_DAYS,
 ) -> dict[str, str]:
     """{entity_id: 섹터}. 종목마다 **as_of 이전 가장 최근** 관측 하나.
+
+    ``source`` 는 기본값이 없다. `sectors` 에는 서로 다른 분류체계가 함께
+    산다 — KRX 소속부(`krx_openapi`)는 업종이 아니라 시장 세부 구분이고,
+    DART 표준산업분류(`dart_company`)가 진짜 업종이다. 섞어서 접으면 종목마다
+    어느 체계의 값이 나왔는지 알 수 없는 dict 이 만들어지고, 그걸로 건 섹터
+    상한은 무엇을 분산시킨 것인지 아무도 말할 수 없다. 그래서 고르게 한다.
 
     이중시간이 핵심이다 — ``store.get`` 이 ``observed_at <= as_of`` 를 이미
     걸러 주므로, 남은 것 중 ``valid_from`` 이 가장 늦은 행을 고르면 그
@@ -191,7 +198,7 @@ def sector_map(
     frame = store.get(SECTORS, as_of=as_of, entity=list(entities), lookback=lookback)
     if frame.empty:
         return {}
-    frame = frame[frame["market"] == market]
+    frame = frame[(frame["market"] == market) & (frame["source"] == source)]
     if frame.empty:
         return {}
     latest = frame.sort_values("valid_from").groupby("entity_id").tail(1)

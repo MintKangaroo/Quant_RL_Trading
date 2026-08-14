@@ -233,6 +233,13 @@ _SPECS: dict[str, TableSpec] = {
         # 과거 시점 조회가 그때의 섹터를 보게 하는 것이 이 테이블의 존재
         # 이유다. 모르는 종목은 행 자체가 없다 — "기타" 로 채우면 그 종목들이
         # 전부 한 섹터가 되어 섹터 상한이 엉뚱하게 걸린다.
+        #
+        # **자연키에 source 가 들어간다.** 한 종목의 같은 날에 서로 다른
+        # 분류체계가 공존한다 — KRX 소속부(`krx_openapi`)와 DART 표준산업분류
+        # (`dart_company`)는 경쟁하는 정정본이 아니라 **다른 사실**이다.
+        # source 를 빼면 게이트가 둘 중 하나를 정정본으로 보고 읽기에서
+        # 지우는데, 파일에는 둘 다 남아 있어서 창고를 봐도 사라진 줄 모른다.
+        natural_key=("entity_id", "valid_from", "source"),
         observation_lag_days=3,
         doc=(
             "일별 섹터 관측. selector 의 섹터 상한(selector.md §5-5)이 이걸 "
@@ -380,7 +387,15 @@ _SPECS: dict[str, TableSpec] = {
             # 세후 성과를 따로 보고한다.
             "tax_provision": pa.float64(),
             "nav_after_tax": pa.float64(),
+            # ⚠️ **가격지수(PR)다, 총수익지수(TR)가 아니다.** TR 은 지금 키로
+            # 못 받는다(KRX·LS·FRED 실측, accounting.md §7.1). 우리는 배당을
+            # 받고 벤치마크는 못 받으므로 이 컬럼으로 잰 초과수익은 배당수익률
+            # 만큼(국내 대형주 연 2~3%p) **우리에게 유리하게 부풀어 있다.**
+            # 계산은 accounting/benchmark.py 한 곳에서만 한다.
             "benchmark_index": pa.float64(),
+            # 위가 null 인 날의 이유. 없으면 화면이 "데이터가 없었다" 와
+            # "벤치마크가 0% 였다" 를 구분하지 못한다.
+            "benchmark_note": pa.string(),
         },
         # 그날 장부를 그날 접는다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
         # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.

@@ -147,6 +147,11 @@ def run(
     # 자본. 회계 한 곳에서만 온다.
     rates = Rates.from_store(store, as_of=as_of)
     book = ledger_module.build_book(store, as_of=as_of, rates=rates)
+    # 여기서 스냅샷을 **쓰지 않는다.** 자본을 알려고 접어 볼 뿐이다. 적재는
+    # 하루의 3단계(`backtest/loop.py`)가 한 번만 하고, 벤치마크도 거기서
+    # 같은 as_of·같은 환율로 함께 실린다. 여기에 두 번째 write 를 넣으면
+    # 같은 날 두 행이 되어 창고가 거부하거나(ingest_run) 벤치마크만 다른
+    # 시점으로 기록된다.
     snapshot = snapshot_module.take(store, clock, as_of=as_of, book=book)
     equity = snapshot.valuation.nav
     log.record("observe", "accounting", {"nav": round(equity, 4)})

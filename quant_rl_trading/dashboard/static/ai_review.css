@@ -6,44 +6,36 @@
  * 자리(예: 보라색 강조)는 --accent 로 합쳤다 — 색을 새로 만들면 다른 탭과
  * 어긋난다.
  *
- * "상승 = 초록" 규칙(dashboard.md §10)은 그대로 지킨다 — LS_KR 쪽도 같은
- * 규칙이라 뒤집을 게 없다.
+ * **상승 = 초록**(dashboard.md §10). LS_KR 의 이 화면도 마침 초록↑ 이라
+ * (`.pos{color:var(--air-grn)}`, --air-grn=--ok) 뒤집을 게 없었다. 다른
+ * LS_KR 화면에서 무언가를 더 가져온다면 그때는 확인하고 뒤집어야 한다.
  *
- * 등급·점수·게이지·headline·problems/strengths/action_items·자기진화 제안은
- * LS_KR 에서 Claude 가 "그날 매매" 를 채점해 만든 값이다. 우리 창고엔 그
- * 개념이 없다(체결 단위 하루 채점 파이프라인이 없다) — 그래서 이 값들은
- * 채우지 않고, 그 자리에 "무엇이 있어야 채울 수 있는지" 를 적는다. 가짜
- * 점수를 그리면 화면이 거짓말을 한다.
+ * 이 화면엔 손익이 없다. **비용은 손실이 아니라 지출이다** — 그래서 값에
+ * 초록·빨강을 칠하지 않고 회색(.mut)과 경고색(.warn)만 쓴다. .pos/.neg 는
+ * 이식한 타일이 tone 을 받을 수 있게 남겨 둔 자리다.
+ *
+ * 등급·점수·게이지·항목별 채점·잘한 점·자기진화 제안은 LS_KR 에서 Claude 가
+ * "그날 매매" 를 채점해 만든 값이다. 우리 창고엔 그 채점이 없어 카드 하나
+ * (.air-placeholder)로 모아 "무엇이 있어야 채울 수 있는지" 만 적는다.
+ * 예전에는 이것들이 빈 카드 네 개로 화면 위쪽을 덮고 있었다 — 없는 것은
+ * 한 번만 말하면 된다.
  */
 
-.air-wrap { max-width: 1180px; margin: 0 auto 18px; }
+/* 아래 .panel 들과 같은 폭이어야 한다. 여기만 max-width 를 주면 화면 위
+   절반이 안쪽으로 들어가 두 벌을 이어 붙인 티가 난다. */
+.air-wrap { margin: 0 0 18px; }
 
 .air-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .air-bar h2 { font-size: 16px; margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text); }
 .air-bar .sub { font-size: 11px; color: var(--muted); }
+.air-bar .warn { color: var(--warn); }
 .air-spacer { flex: 1; }
 
 .air-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
   padding: 16px; margin-bottom: 12px;
 }
-
-/* 점수 헤더 자리 — 채워지지 않은 값이라는 것을 색으로도 말한다(회색). */
-.air-hero { display: grid; grid-template-columns: 160px 1fr; gap: 18px; align-items: center; }
-.air-gauge-empty {
-  width: 160px; height: 130px; border: 1px dashed var(--border); border-radius: 8px;
-  display: flex; align-items: center; justify-content: center; color: var(--dim); font-size: 34px;
-}
-.air-grade { font-size: 12.5px; font-weight: 600; letter-spacing: .3px; color: var(--muted); }
-.air-headline { font-size: 15px; font-weight: 600; line-height: 1.4; margin: 3px 0 6px; color: var(--text); }
-.air-summary { font-size: 12.5px; color: var(--muted); line-height: 1.6; }
-.air-need { font-size: 11.5px; color: var(--dim); margin-top: 8px; line-height: 1.6; }
-.air-need b { color: var(--muted); }
-
-@media (max-width: 820px) {
-  .air-hero { grid-template-columns: 1fr; }
-  .air-gauge-empty { margin: 0 auto; }
-}
+.air-card .note { margin-bottom: 0; }
 
 /* KPI 스트립 (실측치) */
 .air-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
@@ -57,18 +49,9 @@
   color: var(--text); text-transform: uppercase; letter-spacing: .05em;
 }
 .air-h .hint { font-size: 10px; font-weight: 400; color: var(--dim); text-transform: none; letter-spacing: 0; }
-.air-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.air-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.air-grid2 > .air-card { margin-bottom: 0; }
 @media (max-width: 820px) { .air-grid2 { grid-template-columns: 1fr; } }
-
-/* 문제 카드 — warnings 를 심각도(severity)로 나눠 담는다. */
-.prob {
-  border-left: 3px solid var(--accent); background: var(--panel2); border: 1px solid var(--border);
-  border-radius: 6px; padding: 10px 12px; margin-bottom: 8px;
-}
-.prob.high { border-left-color: var(--down); }
-.prob.medium { border-left-color: var(--warn); }
-.prob.low { border-left-color: var(--accent); }
-.prob .pt { font-size: 12.5px; font-weight: 600; color: var(--text); }
 
 /* 빈 자리 — 계산 근거가 없는 위젯. "무엇이 필요한지" 를 말한다. */
 .air-placeholder {
@@ -76,13 +59,4 @@
   font-size: 12px; color: var(--dim); line-height: 1.6; background: var(--panel2);
 }
 .air-placeholder b { color: var(--muted); }
-
-/* 리스트 (잘한 점 / 액션) */
-.air-list { list-style: none; padding: 0; margin: 0; }
-.air-list li {
-  font-size: 12.5px; line-height: 1.5; padding: 7px 9px; border-radius: 6px; background: var(--panel2);
-  border: 1px solid var(--border); margin-bottom: 6px; color: var(--muted);
-}
-
-/* 자기진화 제안 자리 */
-.air-card.evo { border-color: var(--accent); }
+.air-placeholder code { color: var(--muted); }

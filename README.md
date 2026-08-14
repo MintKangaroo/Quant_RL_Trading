@@ -14,7 +14,7 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
-[![tests](https://img.shields.io/badge/tests-385%20passed-2ea44f)](#검증)
+[![tests](https://img.shields.io/badge/tests-715%20passed-2ea44f)](#검증)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
 [![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
 
@@ -169,6 +169,34 @@ IC 측정 파이프라인이 **실제로 누수를 잡는지** 먼저 증명했�
 
 > **백테스트 IC가 0.15처럼 나오면 재능이 아니라 버그다.** 먼저 누수를 의심할 것.
 
+### M3 — Selector + Executor 🚧
+
+완료 기준을 사람이 손으로 켜지 않는다. `uv run python tools/verify_m3.py` 가 실제 창고 위에서 판정한다.
+
+```
+[미측정] shadow 10거래일 무사고
+       2026-08-14 재시작 이후 세션 1일 · 체결 발생일 1일
+       NAV 정체 — 체결이 1일 있었는데 nav_daily 가 10,000,000 로 고정돼 있다
+       → 검증된 무사고 체결일 0/10
+
+[미측정] OOS 백테스트 MDD 20% 이내
+       nav_daily 117행, 2025-09-16 ~ 2026-03-13 (178일), 최신 관측 154일 전
+       워크포워드가 완주하지 못했다 — MDD -32.6% 는 참고치일 뿐 판정에 쓰지 않는다
+
+[PASS]   킬스위치 실제 발동 테스트 통과 — 14 passed
+
+[미측정] 실전 소액 투입 — trades 0행(실전 체결이 아직 없다)
+
+[미측정] 슬리피지 실측이 모델 예측의 ±30% 이내
+       비교할 실제 체결이 없다
+
+PASS 1 · FAIL 0 · 미측정 4 / 5
+```
+
+**`미측정`이 `FAIL`과 다른 상태인 것이 이 검증기의 요점이다.** 넷 다 "고장났다"가 아니라 **"아직 잴 수 없다"**이고, 무엇이 갖춰지면 잴 수 있는지를 함께 출력한다. FAIL로 적으면 고장으로 읽히고 PASS로 적으면 거짓이 된다.
+
+M1 검증기의 교훈이 여기서도 적용된다 — **매매 0건이면 MDD는 언제나 0%다.** 완벽한 성적이 아니라 아무것도 안 한 것이므로, NAV가 고정돼 있으면 통과가 아니라 미측정으로 뺀다.
+
 ---
 
 ## 구조
@@ -189,8 +217,12 @@ quant_rl_trading/
 tools/
   backfill.py     백필 실행기 + 검증 리포트
   measure_ic.py   Analyst IC 측정
-  verify_m1.py    마일스톤 완료 기준 검증
+  measure_slippage.py  슬리피지 실측 vs 모델 예측 (M3 완료 기준 5번)
+  verify_m1.py    M1 완료 기준 검증
+  verify_m3.py    M3 완료 기준 검증 — PASS/FAIL/미측정 3상태
+  verify_live_order.py  실계좌 주문 검증 — 8단계 사람 확인, 기본 드라이런
   invariant_guard.py  불변식 정적 가드 (AST 기반)
+  find_dead_code.py   호출부가 0건인 공개 함수 (배선 누락 탐지)
 ```
 
 ### 데이터 흐름

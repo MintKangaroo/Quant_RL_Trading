@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,19 @@ VOLUME_WINDOW = 20
 
 #: 변동성을 계산할 표본이 없을 때 쓰는 값. 낙관적인 0 보다 낫다.
 DEFAULT_VOLATILITY = 0.02
+
+
+def _positive(value: object) -> float | None:
+    """저가·고가는 결측일 수 있다. 0 이나 NaN 을 그대로 넘기면 매수 지정가가
+    항상 닿은 것이 되어 체결이 공짜가 된다 — 모르면 ``None`` 으로 넘겨
+    시뮬레이터가 종가로 판단하게 둔다."""
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    return number
 
 
 def states(
@@ -47,7 +61,9 @@ def states(
         entity=entities,
         lookback=VOLUME_WINDOW * 3,
         market=market,
-        columns=["close", "volume"],
+        # low·high 는 지정가 체결 판정에 쓴다(replay/fills.py). 종가만 퍼오면
+        # 저가가 지정가를 스친 날이 전부 미체결로 적힌다.
+        columns=["close", "volume", "low", "high"],
     )
     if frame.empty:
         return {}
@@ -77,5 +93,7 @@ def states(
             # 변동성이 없으면 충격비용이 0 이 된다. 그건 공짜 체결이라
             # 백테스트를 실제보다 좋게 만든다 — 그럴 바엔 최근 시장 평균을 쓴다.
             volatility=volatility if volatility > 0 else DEFAULT_VOLATILITY,
+            low=_positive(today["low"].iloc[-1]),
+            high=_positive(today["high"].iloc[-1]),
         )
     return out

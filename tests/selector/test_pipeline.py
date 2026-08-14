@@ -275,12 +275,51 @@ def test_섹터는_이중시간이다(seeded) -> None:
     )
 
     past = candidates_module.sector_map(
-        seeded, as_of=old_day + timedelta(hours=1), entities=[entity], market="KR"
+        seeded, as_of=old_day + timedelta(hours=1), entities=[entity], market="KR", source="test"
     )
-    present = candidates_module.sector_map(seeded, as_of=NOW, entities=[entity], market="KR")
+    present = candidates_module.sector_map(
+        seeded, as_of=NOW, entities=[entity], market="KR", source="test"
+    )
 
     assert past[entity] == "구업종"
     assert present[entity] == "신업종"
+
+
+def test_분류체계가_둘이면_고른_쪽만_나온다(seeded) -> None:
+    """같은 날 같은 종목에 KRX 소속부와 DART 업종이 함께 있어도 섞이지 않는다.
+
+    둘은 경쟁하는 정정본이 아니라 **다른 사실**이다. 자연키에 source 가 없으면
+    게이트가 하나를 정정본으로 보고 읽기에서 지우는데, 파일에는 둘 다 남아
+    있어서 창고를 봐도 사라진 줄 모른다. 그렇게 만들어진 dict 으로 건 섹터
+    상한은 무엇을 분산시킨 것인지 아무도 말할 수 없다.
+    """
+    entity = "KR:000100"
+    day = SESSIONS[395]
+    seeded.append(
+        "sectors",
+        [
+            {
+                "entity_id": entity, "valid_from": day, "observed_at": day,
+                "source": "krx_openapi", "market": "KR", "sector": "우량기업부",
+            },
+            {
+                "entity_id": entity, "valid_from": day, "observed_at": day,
+                "source": "dart_company", "market": "KR", "sector": "KSIC:264",
+            },
+        ],
+        ingest_run_id="sec-two-sources",
+    )
+
+    krx = candidates_module.sector_map(
+        seeded, as_of=NOW, entities=[entity], market="KR", source="krx_openapi"
+    )
+    dart = candidates_module.sector_map(
+        seeded, as_of=NOW, entities=[entity], market="KR", source="dart_company"
+    )
+
+    # 한쪽이 다른 쪽을 지웠다면 둘 중 하나가 비어 있을 것이다.
+    assert krx[entity] == "우량기업부"
+    assert dart[entity] == "KSIC:264"
 
 
 def test_섹터_미상_종목은_한_바구니로_묶이지_않는다(seeded) -> None:

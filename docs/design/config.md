@@ -25,9 +25,13 @@ reward:
 benchmark:
   kr_weight: 0.5
   us_weight: 0.5
-  kr_index: KOSPI_TR         # 총수익지수. 가격지수 쓰면 가짜 알파 발생
-  us_index: SPX_TR
+  # ⚠️ 가격지수(PR)다. TR 은 지금 키로 못 받는다 (accounting.md §7.1).
+  # 이름은 창고에 실제로 있는 entity_id 그대로 — 대용치로 바꿔치기하지 않는다.
+  kr_index: "KR:IDX:KRX 300"
+  us_index: US:IDX:SP500
+  total_return: false
   base_value: 100.0
+  max_staleness_days: 10     # 이보다 오래된 종가는 휴장이 아니라 구멍이라 null
 
 accounting:
   base_currency: KRW

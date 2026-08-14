@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 일일 수집 — 시세·유니버스·수급·거시지표를 창고에 채운다.
+# 일일 수집 — 시세·유니버스·수급·지수·거시지표·환율을 창고에 채운다.
 #
 #   scripts/collect_daily.sh KR
 #
@@ -27,8 +27,17 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     echo "=== $(date '+%F %T') market=${MARKET} sessions=${SESSIONS} ==="
 
     # 1. 시세 + 유니버스. --table 을 안 주면 이 둘이다.
-    .venv/bin/python tools/backfill.py --market "${MARKET}" --sessions "${SESSIONS}"
-    echo "  시세·유니버스 rc=$?"
+    #
+    #    **국장만 부른다.** 미장 시세는 날짜 축이 아니라 **종목 축**이라
+    #    (LS g3204 는 심볼 하나의 전 기간을 준다) `--sessions` 가 먹지 않고,
+    #    `--market US` 는 6,648종목 × 8배치를 통째로 다시 도는 전체 백필이
+    #    된다 — 하루 한 번 도는 스크립트에서 부를 수 있는 물건이 아니다.
+    #    미장 일봉의 일일 증분 수집은 아직 없고, 지금은 사람이 백필 도구를
+    #    돌린다 (2026-08-15 기준 시세가 08-12 에서 멈춰 있다).
+    if [ "${MARKET}" = "KR" ]; then
+        .venv/bin/python tools/backfill.py --market "${MARKET}" --sessions "${SESSIONS}"
+        echo "  시세·유니버스 rc=$?"
+    fi
 
     # 2. 수급. **날짜축(KRX)이다** — 종목축(LS)은 991종목을 한 종목씩 받아
     #    하루에 4시간이 든다. 이쪽은 주체별 한 콜씩, 전 종목이 한 번에 온다.
@@ -37,12 +46,54 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         echo "  수급 rc=$?"
     fi
 
-    # 3. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이
-    #    그날 것을 잡는다.
+    # 2-1. 미장 상장주식수·시가총액. **국장에는 없는 단계다** — 국장은 KRX
+    #      일별매매가 시세와 같은 콜에서 LIST_SHRS·MKTCAP 을 주지만, 미장은
+    #      시세 소스(LS g3204)도 종목마스터(g3101)도 주식수를 주지 않는다.
+    #      그래서 SEC EDGAR 에서 따로 받아 곱한다.
+    #
+    #      두 단계의 주기가 다르다.
+    #      - shares-sec : **주 1회로 충분하다.** 상장주식수는 분기 공시라
+    #        매일 바뀌지 않는다. 다만 회사마다 결산월이 달라 새 공시는 매주
+    #        들어오므로 분기 1회로는 최대 석 달 묵는다. 실행 id 에 ISO 주차가
+    #        박혀 있어 **매일 불러도 그 주 첫 실행만 실제로 돈다** — 별도
+    #        크론을 두지 않는 이유다 (us_shares.refresh_stamp).
+    #      - market-cap : 매일. 시세가 매일 바뀌므로 시가총액도 매일 새로
+    #        만든다. 이미 넣은 세션은 매니페스트가 건너뛴다.
+    if [ "${MARKET}" = "US" ]; then
+        .venv/bin/python tools/backfill.py --market US --table shares-sec
+        echo "  미장 상장주식수 rc=$?"
+        #      **--sessions 를 반드시 준다.** 없으면 5년 전 구간을 다시 훑는데,
+        #      prices 는 관측지연을 선언하지 않아 창을 좁혀도 파티션을 전부
+        #      연다 — 그 비용이 매일 붙는다. 백필은 인자 없이 따로 돌린다.
+        .venv/bin/python tools/backfill.py \
+            --market US --table market-cap --sessions "${SESSIONS}"
+        echo "  미장 시가총액 rc=$?"
+    fi
+
+    # 3. 지수. **여기 없어서 조용히 낡아 있었다** — fx 와 같은 사고다.
+    #    시세는 08-14 까지 들어와 있는데 지수는 08-11 에서 멈춰 있었다
+    #    (2026-08-15 발견). 화면의 수익률 캘린더·지수 대비 패널이 이걸 읽는다.
+    #
+    #    두 패널을 다 부른다. 경로가 달라 응답이 겹치지 않는다.
+    #    - indices-krx   : KRX 통합지수 40개 (KRX 300·KRX 100 …). regime 의 입력
+    #    - indices-board : 시장 대표지수 (코스피·코스닥). "지수 대비" 패널
+    #    **가격지수 · 배당 미반영 — 우리에게 유리하다.** 총수익지수는 유료
+    #    라이선스라 지금 키로는 못 받는다.
+    if [ "${MARKET}" = "KR" ]; then
+        for PANEL in indices-krx indices-board; do
+            .venv/bin/python tools/backfill.py \
+                --market KR --table "${PANEL}" --sessions "${SESSIONS}"
+            echo "  지수(${PANEL}) rc=$?"
+        done
+    fi
+
+    # 4. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이
+    #    그날 것을 잡는다. 미장 지수(S&P500·나스닥)도 여기서 같이 들어온다
+    #    (collect_macro 의 IndexCollector). 역시 가격지수다.
     .venv/bin/python tools/collect_macro.py
     echo "  거시 rc=$?"
 
-    # 4. 환율. **여기 없으면 회계가 멈춘다** — NAV 는 환율 없이 계산을 거부한다
+    # 5. 환율. **여기 없으면 회계가 멈춘다** — NAV 는 환율 없이 계산을 거부한다
     #    (accounting). 예전에 fx 가 0행이라 회계가 테스트 위에서만 돌던 적이
     #    있고, 1,400행을 백필한 뒤로는 **갱신하는 사람이 없어 7일이 밀려 있었다**
     #    (2026-08-14 발견). 백필 도구를 그대로 쓰되 창을 짧게 준다.

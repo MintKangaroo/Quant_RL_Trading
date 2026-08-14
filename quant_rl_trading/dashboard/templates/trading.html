@@ -87,13 +87,22 @@
   <section class="grid-half">
     <div class="panel">
       <h2>Underwater
-        <span class="right"><span class="sub">낙폭 · 12 / 22 / 30% 밴드</span></span>
+        <span class="right">
+          {# 벤치마크가 무엇인지·왜 비었는지를 화면이 스스로 말한다.
+             trading.js 가 config.benchmark 에서 온 값으로 채운다. #}
+          <span class="sub" id="benchmark-badge"></span>
+          <span class="sub">낙폭 · 12 / 22 / 30% 밴드</span>
+        </span>
       </h2>
       <div class="chart" id="chart-underwater"></div>
       <p class="note">
         배경 밴드가 <strong>보상 함수 그 자체다</strong> — 자유 · 페널티 · 급증
         (<code>reward-and-risk.md</code>). 점선은 벤치마크 낙폭이고,
         <strong>우리와 같은 전 기간 고점으로 잰다</strong>.
+        벤치마크는 <strong>가격지수 기준 · 배당 미반영</strong> — 국내 대형주
+        기준 연 2~3%p 만큼 우리가 유리하게 나온다(총수익지수는 지금 키로 받을
+        수 없다, <code>accounting.md §7.1</code>).
+        <span id="benchmark-gap"></span>
       </p>
     </div>
 
@@ -117,8 +126,10 @@
         <strong>빈칸은 0% 가 아니라 장이 없던 날이다.</strong> 전체는
         [표시하기] 로 새 창에서 본다. 지수 대비는 <strong>가격지수 기준 ·
         배당 미반영</strong> — 국내 대형주 기준 연 2~3%p 만큼 우리가 유리하게
-        나온다(<code>config.benchmark</code> 의 공식 벤치마크 KOSPI_TR·SPX_TR
-        은 아직 미구현이라 이건 그 참고용 대체다).
+        나온다(총수익지수는 지금 키로 받을 수 없다). 여기 네 지수는
+        <strong>참고용</strong>이고, 보상 함수가 쓰는 공식 벤치마크는
+        <code>config.benchmark</code> 의 혼합지수다 — Underwater 패널의 배지가
+        그것을 말한다.
       </p>
     </div>
   </section>

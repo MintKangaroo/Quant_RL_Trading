@@ -24,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from quant_rl_trading.collectors import us_shares as us_sh  # noqa: E402
+from quant_rl_trading.collectors import us_universe_panel as up  # noqa: E402
 from quant_rl_trading.collectors.backfill import (  # noqa: E402
     PRICES,
     UNIVERSE,
@@ -51,8 +53,6 @@ from quant_rl_trading.collectors.ls_us_source import (  # noqa: E402
     UsPriceBackfiller,
 )
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
-from quant_rl_trading.collectors import us_universe_panel as up  # noqa: E402
-from quant_rl_trading.collectors.us_universe import UA_ENV, fetch_listings  # noqa: E402
 from quant_rl_trading.collectors.panels import (  # noqa: E402
     OPENAPI_PANELS,
     PANELS,
@@ -61,9 +61,12 @@ from quant_rl_trading.collectors.panels import (  # noqa: E402
 from quant_rl_trading.collectors.panels import SHORTING as SHORTING  # noqa: E402
 from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
 from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
+from quant_rl_trading.collectors.us_universe import UA_ENV, fetch_listings  # noqa: E402
 from quant_rl_trading.dashboard.services import data_quality as dq  # noqa: E402
 from quant_rl_trading.replay.clock import Clock, LiveClock  # noqa: E402
-from quant_rl_trading.settings import load_env  # noqa: E402,F401  (재수출 — 호출부가 여기서 가져간다)
+from quant_rl_trading.settings import (
+    load_env,
+)
 from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
@@ -72,6 +75,12 @@ FLOW_LS = "flows-ls"
 DART = "fundamentals-dart"
 #: DART 공시목록은 날짜 축이다. 재무와 소스는 같고 축이 다르다.
 DART_FILINGS = "documents-dart"
+#: 미장 상장주식수. SEC 벌크 companyfacts 한 벌을 훑는다 (분기 축).
+#: 국장 ``shares``(OPENAPI_PANELS, KRX 일별매매)와 이름을 겹치지 않게 둔다 —
+#: 같은 테이블을 채우지만 소스도 축도 다르다.
+US_SHARES = "shares-sec"
+#: 미장 시가총액. 주식수와 시세를 곱해 만든다 (세션 축). 수집이 아니라 유도다.
+US_MARKET_CAP = "market-cap"
 
 ENV_FILE = REPO_ROOT / ".env"
 
@@ -248,7 +257,7 @@ def run_us_price_backfill(
     market = Market.US
     source = LsUsSource.from_env(clock=clock)
     if not source.usable():
-        print(f"LS_US_APPKEY / LS_US_APPSECRET 이 없다.", file=sys.stderr)
+        print("LS_US_APPKEY / LS_US_APPSECRET 이 없다.", file=sys.stderr)
         return 2
 
     user_agent = os.environ.get(UA_ENV, "")
@@ -405,6 +414,191 @@ def run_us_universe_backfill(
         report.delisted = len(dead)
 
     print(f"\n완료 — {report.render()}")
+    return 0
+
+
+def run_us_shares_backfill(
+    store: Store, clock: Clock, *, years: int, sessions: int | None = None,
+    dry_run: bool = False,
+) -> int:
+    """미장 상장주식수 — SEC 벌크 companyfacts 한 벌.
+
+    소스를 왜 이것으로 골랐는지(그리고 LS·companyconcept·frames 를 왜 버렸는지)
+    는 ``us_shares`` 모듈 docstring 에 실측과 함께 있다.
+
+    **한 번의 append 로 끝낸다.** 종목마다 넣으면 종목당 공시가 서로 다른
+    파티션으로 흩어져 파일이 십수만 개가 된다.
+    """
+    market = Market.US
+    now = clock.now()
+    user_agent = os.environ.get(UA_ENV, "")
+    if not user_agent:
+        print(f"{UA_ENV} 가 없다. SEC 는 신원 없는 요청을 막는다.", file=sys.stderr)
+        return 2
+
+    listings = fetch_listings(user_agent)
+    # 시세가 있는 종목만 대상이다. 명단 전체(7,112)를 넣으면 시가총액을 만들
+    # 수 없는 종목의 주식수만 창고에 쌓인다.
+    traded = store.get(
+        UNIVERSE, as_of=now, lookback=30, market=str(market), columns=["market"]
+    )
+    if traded.empty:
+        print(
+            "미장 명단이 비어 있다. 먼저 --market US --table universe 를 돌린다.",
+            file=sys.stderr,
+        )
+        return 2
+    tickers = {str(entity).partition(":")[2] for entity in traded["entity_id"].unique()}
+    listings = [listing for listing in listings if listing.ticker in tickers]
+
+    facts = us_sh.SecBulkFacts(
+        path=store.root / "raw" / us_sh.SOURCE / "companyfacts.zip",
+        user_agent=user_agent,
+    )
+    stamp = us_sh.refresh_stamp(now)
+    run_id = us_sh.shares_run_id(market, stamp)
+    print(
+        f"{market} 상장주식수 — SEC companyfacts {stamp}  "
+        f"종목 {len(listings):,}개 (시세 있는 것만)"
+    )
+    if store.ingest_run_recorded(us_sh.MARKET_STATS, run_id):
+        print(f"{stamp} 은 이미 적재됐다. 할 일이 없다.")
+        return 0
+    if dry_run:
+        return 0
+
+    print(
+        f"  벌크 파일 확인 (묵은 정도 {facts.age(now=now)}, "
+        f"{facts.max_age_days}일 넘으면 1.4GB 다시 받는다 — 실측 ~3분)…",
+        flush=True,
+    )
+    facts.download(now=now)
+
+    # 이미 들어간 것을 다시 넣지 않는다 — 같은 값을 정정본으로 쌓으면 창고가
+    # "정정이 있었다" 는 거짓을 기록한다.
+    stored = store.get(
+        us_sh.MARKET_STATS,
+        as_of=now,
+        lookback=365 * years + 400,
+        market=str(market),
+        columns=["metric", "value", "valid_from"],
+    )
+    if not stored.empty:
+        stored = stored[stored["metric"] == us_sh.SHARES]
+    known = us_sh.existing_shares(stored.to_dict(orient="records")) if not stored.empty else {}
+    print(f"  이미 적재된 주식수 {len(stored):,}행", flush=True)
+
+    backfiller = us_sh.UsSharesBackfiller(
+        store=store,
+        facts=facts,
+        market=market,
+        cutoff_hour=int(store.config(us_sh.CONFIG_CUTOFF_KEY, as_of=now)),
+        since=now.astimezone(UTC).date() - timedelta(days=365 * years),
+        known=known,
+    )
+    started = time.monotonic()  # invariant-allow: wallclock
+    report = backfiller.run(listings, run_id=run_id)
+    facts.close()
+
+    elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
+    print(f"\n완료 ({_short(elapsed)}) — {report.render()}")
+    return 0
+
+
+def run_us_market_cap_backfill(
+    store: Store, clock: Clock, *, years: int, sessions: int | None = None,
+    dry_run: bool = False,
+) -> int:
+    """미장 시가총액 — **수집이 아니라 유도다.**
+
+    상장주식수는 분기 공시라 매일 바뀌지 않는다. 그래서 그날 시가총액은
+    "그날 종가 × **그날까지 알려진 마지막** 주식수" 다. 어느 것이 '그날까지
+    알려진' 것인지는 ``SharesTimeline.known_at`` 이 봉의 관측시각으로 자른다 —
+    분기 말 공시를 그 분기 첫날에 쓰면 미래를 보는 것이다.
+
+    세션마다 한 번 append 한다. 관측시각이 그 세션 봉의 것이라 한 세션이 한
+    파티션에 들어가고, 파티션당 파일이 하나로 끝난다.
+    """
+    market = Market.US
+    now = clock.now()
+    end = now.astimezone(UTC).date()
+    # 일일 실행은 최근 며칠만 본다. 매일 5년을 훑으면 ``prices`` 가 관측지연을
+    # 선언하지 않아 창을 좁혀도 파티션을 전부 열고, 그 비용이 매일 붙는다.
+    # 백필(sessions 없음)만 전 구간을 돈다.
+    start = (
+        end - timedelta(days=sessions * 2 + 5)
+        if sessions is not None
+        else end - timedelta(days=365 * years)
+    )
+
+    shares = store.get(
+        us_sh.MARKET_STATS,
+        as_of=now,
+        lookback=365 * years + 400,
+        market=str(market),
+        columns=["metric", "value", "revision", "valid_from", "observed_at"],
+    )
+    if not shares.empty:
+        shares = shares[shares["metric"] == us_sh.SHARES]
+    if shares.empty:
+        print(
+            "미장 상장주식수가 없다. 먼저 --market US --table shares-sec 를 돌린다.",
+            file=sys.stderr,
+        )
+        return 2
+    timelines = us_sh.build_timelines(shares.to_dict(orient="records"))
+    print(
+        f"{market} 시가총액 {start} ~ {end} — 주식수 {len(shares):,}행 / "
+        f"종목 {len(timelines):,}개"
+    )
+
+    sessions = 0
+    rows = 0
+    skipped = 0
+    started = time.monotonic()  # invariant-allow: wallclock
+
+    # 창을 옮기며 읽는다. as_of 를 옮기면 뒤늦게 온 정정본을 놓친다.
+    #
+    # **``lookback`` 은 ``until`` 이 아니라 ``as_of`` 에서 거슬러 센다**
+    # (store/reader.py ``_valid_from_floor``). 창 길이를 그대로 넘기면 옛
+    # 창이 통째로 빈다 — 실측에서 5년을 돌렸는데 마지막 1년(250세션)만
+    # 채워졌다. 하한은 언제나 ``as_of`` 기준으로 환산한다.
+    today = now.astimezone(UTC).date()
+    for window_start, window_end in us_sh.year_windows(start, end):
+        frame = store.get(
+            PRICES,
+            as_of=now,
+            lookback=(today - window_start).days,
+            until=datetime(
+                window_end.year, window_end.month, window_end.day, tzinfo=UTC
+            ),
+            market=str(market),
+            columns=["close", "observed_at"],
+        )
+        for day, bars in us_sh.session_bars(frame):
+            run_id = us_sh.market_cap_run_id(market, day)
+            if store.ingest_run_recorded(us_sh.MARKET_STATS, run_id):
+                skipped += 1
+                continue
+            batch = us_sh.market_cap_rows(bars, timelines, market=market)
+            if not batch:
+                # 빈 것을 완료로 기록하면 주식수가 나중에 들어와도 영영 건너뛴다.
+                continue
+            if dry_run:
+                sessions += 1
+                rows += len(batch)
+                continue
+            rows += store.append(us_sh.MARKET_STATS, batch, ingest_run_id=run_id)
+            sessions += 1
+            if sessions % 50 == 0:
+                spent = time.monotonic() - started  # invariant-allow: wallclock
+                elapsed = timedelta(seconds=spent)
+                print(
+                    f"  [{sessions}] {day} rows={len(batch):,}  경과 {_short(elapsed)}",
+                    flush=True,
+                )
+
+    print(f"\n완료 — 세션 {sessions:,}개 (건너뜀 {skipped:,}), 시가총액 {rows:,}행")
     return 0
 
 
@@ -768,6 +962,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=[
             *sorted(PANELS), *sorted(OPENAPI_PANELS),
             FLOW_LS, DART, DART_FILINGS, UNIVERSE,
+            US_SHARES, US_MARKET_CAP,
         ],
         help="패널 테이블 하나만 백필. 생략하면 prices+universe",
     )
@@ -823,6 +1018,21 @@ def main(argv: list[str] | None = None) -> int:
             store, clock, market=market,
             years=args.years or int(store.config("backfill.years", as_of=clock.now())),
             limit=args.symbols,
+        )
+
+    if args.table in (US_SHARES, US_MARKET_CAP):
+        if market is not Market.US:
+            print(f"{args.table} 는 미장 전용이다 (--market US).", file=sys.stderr)
+            return 2
+        runner = (
+            run_us_shares_backfill if args.table == US_SHARES else run_us_market_cap_backfill
+        )
+        return runner(
+            store,
+            clock,
+            years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            sessions=args.sessions,
+            dry_run=args.dry_run,
         )
 
     if market is Market.US and args.table == UNIVERSE:

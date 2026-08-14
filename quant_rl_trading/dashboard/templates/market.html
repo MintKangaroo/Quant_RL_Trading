@@ -8,84 +8,150 @@
 {% block body %}
 {% with active = 'market' %}{% include "_scope.html" %}{% endwith %}
 
+{# 좌우 두 칸이다 — **왼쪽 국장 · 오른쪽 미장.** 두 칸은 같은 패널을 같은
+   순서로 든다. 한쪽에만 있는 패널을 만들면 "미장은 원래 볼 게 없다" 처럼
+   보이는데, 실제로는 없는 것이 아니라 아직 안 받은 것이다.
+
+   두 칸의 id 는 Jinja 로 찍지 않고 손으로 두 벌 적는다. 렌더 테스트가 이
+   파일의 문자열에서 id 를 긁어 가므로({{ }} 를 못 편다), 반복문으로 만들면
+   테스트가 "그 요소는 없다" 로 읽는다. #}
 <main>
   <section class="alerts" id="alerts"></section>
 
-  <!-- 대표 지수 몇 개 + 환율. 나머지 지수는 아래 표에서 스크롤로 본다. -->
+  {# 두 시장의 대표 지수와 환율. 좌우로 갈리기 전의 공통 줄이다. #}
   <section class="kpis" id="kpis"></section>
 
-  <section class="grid2">
-    <div class="panel">
-      <h2>지수 현황
-        <span class="right"><span class="sub" id="indices-count"></span></span>
-      </h2>
-      <div id="indices" class="scroll dense"></div>
-      <p class="note">
-        KRX 업종·테마 지수와 해외 지수(현재 S&amp;P500)다. prices 와 다른
-        테이블이다 — 지수가 종목 유니버스에 섞이면 커버리지 통계가 오염된다.
-      </p>
-    </div>
-    <div class="panel">
-      <h2>원달러 환율</h2>
-      <div class="chart" id="chart-fx"></div>
-    </div>
-  </section>
-
-  <section class="grid2">
-    <div class="panel">
-      <h2>시가총액 상위 — 국장
-        <span class="right"><span class="sub" id="leaders-kr-count"></span></span>
-      </h2>
-      <div id="leaders-kr" class="scroll dense"></div>
-    </div>
-    <div class="panel">
-      <h2>시가총액 상위 — 미장
-        <span class="right"><span class="sub" id="leaders-us-count"></span></span>
-      </h2>
-      <div id="leaders-us" class="scroll dense"></div>
-    </div>
-  </section>
-
+  {# 환율은 어느 한쪽의 지표가 아니라 두 시장 사이의 다리다. 그래서 좌우
+     칸 위에 걸쳐 둔다 — 국장 칸에 넣으면 미장 시총을 원화로 환산하는
+     숫자가 국장 것처럼 보인다. #}
   <section class="panel">
-    <h2>최근 발표된 거시지표
-      <span class="right"><span class="sub">발표 완료 · 최신순</span></span>
+    <h2>원달러 환율
+      <span class="right"><span class="sub">두 시장의 다리 · NAV 평가 환율</span></span>
     </h2>
-    <div id="macro" class="scroll dense"></div>
-    <p class="note">
-      <strong>이미 발표된 것만이다.</strong> 다가오는 일정과 지표당 전체
-      현황은 <a href="/briefing">뉴스·일정</a> 탭이 맡는다. 여기는 "방금 무엇이
-      나왔나" 만 짚는다. 변화에는 색을 쓰지 않는다 — 실업률 상승과 GDP 상승은
-      같은 부호지만 반대 뜻이다.
-    </p>
+    <div class="chart short" id="chart-fx"></div>
   </section>
 
-  <!-- ==================== 시가총액 맵 (finviz 식) ==================== -->
-  <section class="panel">
-    <h2>시가총액 맵
-      <span class="right"><span class="sub" id="treemap-note"></span></span>
-    </h2>
-    <div class="treemap-grid">
-      <div class="treemap-col">
-        <h3>국장 <span class="n" id="treemap-kr-count"></span></h3>
+  <section class="split">
+    <!-- ============================ 국장 (KR) ============================ -->
+    <div class="market-col">
+      <h2 class="col-head"><span class="chip chip-kr">KR</span> 국장
+        <span class="sub" id="col-note-kr"></span>
+      </h2>
+
+      <div class="panel">
+        <h2>지수
+          <span class="right"><span class="sub" id="indices-count-kr"></span></span>
+        </h2>
+        <div id="index-head-kr"></div>
+        <div id="indices-kr" class="scroll short dense"></div>
+      </div>
+
+      <div class="panel">
+        <h2>시장 폭
+          <span class="right"><span class="sub" id="breadth-session-kr"></span></span>
+        </h2>
+        <div id="breadth-kr"></div>
+      </div>
+
+      <div class="panel">
+        <h2>오늘 움직인 종목
+          <span class="right"><span class="sub">거래대금 상위 안에서</span></span>
+        </h2>
+        <div id="movers-kr" class="scroll dense"></div>
+      </div>
+
+      <div class="panel">
+        <h2>시가총액 상위
+          <span class="right"><span class="sub" id="leaders-count-kr"></span></span>
+        </h2>
+        <div id="leaders-kr" class="scroll dense"></div>
+      </div>
+
+      <div class="panel">
+        <h2>시가총액 맵
+          <span class="right"><span class="sub" id="treemap-note-kr"></span></span>
+        </h2>
         <div class="chart tall" id="chart-treemap-kr"></div>
       </div>
-      <div class="treemap-col">
-        <h3>미장 <span class="n" id="treemap-us-count"></span></h3>
-        <div class="chart tall" id="chart-treemap-us"></div>
+
+      <div class="panel">
+        <h2>거시지표 — 발표 완료
+          <span class="right"><span class="sub">최신순</span></span>
+        </h2>
+        <div id="macro-kr" class="scroll dense"></div>
       </div>
     </div>
-    <p class="note">
-      넓이는 시가총액, 색은 <strong>전일 대비 등락률</strong>이다 — 상승 초록·
-      하락 빨강, 이 대시보드의 색 규칙 그대로다(한국식 빨강↑이 아니다). 회색은
-      등락을 못 잰 종목(그날 거래가 없어 직전 종가가 없는 등)이다 — 0% 로
-      칠하면 "보합" 이라는 다른 사실이 된다.
-      <strong>국장·미장을 완전히 다른 맵 둘로 나눈다.</strong> 창고의
-      <code>sectors</code> 테이블은 업종 분류가 아니라 KOSDAQ 소속부라
-      KOSPI 942종목이 전부 미상이다 — 업종으로 묶으면 코스피가 통째로 "미상"
-      한 덩어리가 된다. 한 맵에 두 시장을 나란히 둬도 원·달러 시총 스케일이
-      섞여 읽기 어렵다.
-    </p>
+
+    <!-- ============================ 미장 (US) ============================ -->
+    <div class="market-col">
+      <h2 class="col-head"><span class="chip chip-us">US</span> 미장
+        <span class="sub" id="col-note-us"></span>
+      </h2>
+
+      <div class="panel">
+        <h2>지수
+          <span class="right"><span class="sub" id="indices-count-us"></span></span>
+        </h2>
+        <div id="index-head-us"></div>
+        <div id="indices-us" class="scroll short dense"></div>
+      </div>
+
+      <div class="panel">
+        <h2>시장 폭
+          <span class="right"><span class="sub" id="breadth-session-us"></span></span>
+        </h2>
+        <div id="breadth-us"></div>
+      </div>
+
+      <div class="panel">
+        <h2>오늘 움직인 종목
+          <span class="right"><span class="sub">거래대금 상위 안에서</span></span>
+        </h2>
+        <div id="movers-us" class="scroll dense"></div>
+      </div>
+
+      <div class="panel">
+        <h2>시가총액 상위
+          <span class="right"><span class="sub" id="leaders-count-us"></span></span>
+        </h2>
+        <div id="leaders-us" class="scroll dense"></div>
+      </div>
+
+      <div class="panel">
+        <h2>시가총액 맵
+          <span class="right"><span class="sub" id="treemap-note-us"></span></span>
+        </h2>
+        <div class="chart tall" id="chart-treemap-us"></div>
+      </div>
+
+      <div class="panel">
+        <h2>거시지표 — 발표 완료
+          <span class="right"><span class="sub">최신순</span></span>
+        </h2>
+        <div id="macro-us" class="scroll dense"></div>
+      </div>
+    </div>
   </section>
+
+  {# 두 칸에 같은 말을 두 번 적지 않는다. 규칙은 여기 한 번만. #}
+  <p class="note">
+    <strong>대표 지수는 <code>config.benchmark</code> 가 정한다</strong> — 우리가
+    실제로 견줘 평가받는 지수를 화면도 대표로 삼는다. 그 이름으로 창고에 없으면
+    "아직 안 들어왔다" 고 적을 뿐, 다른 지수로 바꿔치기하지 않는다. 나머지 지수는
+    지운 것이 아니라 <strong>오늘 변동이 큰 순으로 접은 것</strong>이고, 총 개수를
+    패널 머리에 적어 둔다.
+    <br>
+    <strong>시가총액 맵</strong>은 넓이가 시가총액, 색이 전일 대비 등락률이다 —
+    상승 초록 · 하락 빨강(한국식 빨강↑이 아니다). 회색은 등락을 못 잰 종목이다 —
+    0% 로 칠하면 "보합" 이라는 다른 사실이 된다. <strong>국장·미장은 완전히 다른
+    맵 둘</strong>이다. 원·달러 시총을 한 사각형 트리에 나란히 두면 스케일이 섞여
+    읽히고, 창고의 <code>sectors</code> 는 업종 분류가 아니라 KOSDAQ 소속부라
+    (KOSPI 942종목이 전부 미상) 업종 축으로는 묶을 수 없다.
+    <br>
+    <strong>거시지표는 이미 발표된 것만이다.</strong> 다가오는 일정과 지표당 전체
+    현황은 <a href="/briefing">뉴스·일정</a> 탭이 맡는다. 변화에는 색을 쓰지
+    않는다 — 실업률 상승과 GDP 상승은 같은 부호지만 반대 뜻이다.
+  </p>
 </main>
 {% endblock %}
 

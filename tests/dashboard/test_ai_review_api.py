@@ -156,6 +156,69 @@ def test_agent_activity_breaks_down_by_agent_and_version(client) -> None:
         assert "cost" not in row
 
 
+# -- 시장(KR·US)을 합계 하나로 뭉개지 않는다 (dashboard.md §8-2) -----------------
+
+
+@pytest.fixture
+def market_client(seeded):  # type: ignore[no-untyped-def]
+    """기본 시나리오(전부 KR)에 US 항목을 하나씩 섞는다."""
+    seeded.append(
+        "agent_cache",
+        [
+            cache_row(
+                "US:CPI", "macro-brief", "macro-brief-v0.1.0",
+                {"tone": "risk_off", "headline": "CPI 발표", "reading": "중립"},
+            ),
+        ],
+        ingest_run_id="cache-market-seed",
+    )
+    seeded.append(
+        "verdicts",
+        [verdict_row("US:CPI", "macro", "block", "surprise")],
+        ingest_run_id="verdict-market-seed",
+    )
+    seeded.append(
+        "documents",
+        [document_row("US:CPI", "news", "US 기사")],
+        ingest_run_id="doc-market-seed",
+    )
+    return make_app(seeded, ReplayClock(NOW)).test_client()
+
+
+def test_agent_activity_breaks_down_by_market(market_client) -> None:
+    """KR 2건(news-screen·macro-brief) + US 1건 — 하나로 뭉개면 안 된다."""
+    data = body(market_client.get("/api/ai-review/calls"))["data"]
+
+    by_market = {row["market"]: row for row in data["agents"]["by_market"]}
+    assert by_market["KR"]["calls"] == 2
+    assert by_market["US"]["calls"] == 1
+
+
+def test_verdict_activity_breaks_down_by_market(market_client) -> None:
+    data = body(market_client.get("/api/ai-review/verdicts"))["data"]
+
+    by_market = {row["market"]: row for row in data["by_market"]}
+    assert by_market["US"] == {"market": "US", "total": 1, "blocked": 1}
+
+
+def test_document_activity_breaks_down_by_market(market_client) -> None:
+    data = body(market_client.get("/api/ai-review/documents"))["data"]
+
+    by_market = {row["market"]: row["total"] for row in data["by_market"]}
+    assert by_market == {"KR": 1, "US": 1}
+
+
+def test_summary_merges_the_three_tables_into_one_row_per_market(market_client) -> None:
+    data = body(market_client.get("/api/ai-review/summary"))["data"]
+
+    by_market = {row["market"]: row for row in data["markets"]}
+    assert by_market["KR"]["calls"] == 2
+    assert by_market["KR"]["documents"] == 1
+    assert by_market["US"] == {
+        "market": "US", "calls": 1, "verdicts": 1, "blocked": 1, "documents": 1,
+    }
+
+
 def test_recent_calls_summarize_output_without_fabricating_schema(client) -> None:
     data = body(client.get("/api/ai-review/calls"))["data"]
     recent = {row["agent"]: row for row in data["recent"]}
@@ -267,6 +330,80 @@ def test_summary_carries_llm_cost(usage_client) -> None:
     assert data["llm_usage_calls"] == 2
     assert data["llm_cost_usd"] == pytest.approx(7.7)
     assert any("단가를 모르는 모델" in w for w in data["warnings"])
+
+
+# -- 예산은 달 단위, 창(lookback)은 아니다 -----------------------------------------
+
+
+def test_cost_tracks_month_to_date_against_budget(usage_client) -> None:
+    """CALLED_AT(2026-08-13) 은 NOW(2026-08-14) 와 같은 달 — 기본 창(90일)은
+    이달 1일을 덮으므로 month_to_date 는 총액과 같아야 한다."""
+    data = body(usage_client.get("/api/ai-review/costs"))["data"]
+
+    assert data["budget_usd"] == 50.0  # config/quant_rl_trading.yaml llm.monthly_budget_usd
+    assert data["month_covered"] is True
+    assert data["month_to_date_usd"] == pytest.approx(data["cost_usd"])
+
+
+def test_no_budget_warning_when_under_budget(usage_client) -> None:
+    data = body(usage_client.get("/api/ai-review/summary"))["data"]
+
+    assert data["llm_month_to_date_usd"] < data["llm_budget_usd"]
+    assert not any("예산" in w for w in data["warnings"])
+
+
+def test_budget_warning_fires_only_when_window_covers_the_whole_month(seeded) -> None:
+    """예산 초과라도 창이 이달 1일을 못 덮으면 경고를 내지 않는다 — 그 값은
+    실제 이달 누적보다 작을 수 있어서, 경고를 내면 화면이 거짓 안심을 준다."""
+    # opus-5: 10,000,000 input tokens @ $5/1M = $50 그대로, 예산(50)을 살짝 넘긴다.
+    seeded.append(
+        "llm_usage",
+        [usage_row(
+            "news-screen", "claude-opus-5", "req-big",
+            input_tokens=10_100_000, output_tokens=0,
+        )],
+        ingest_run_id="usage-overbudget-seed",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+
+    # 기본 창(90일)은 이달을 덮는다 — 경고가 떠야 한다.
+    covered = body(client.get("/api/ai-review/summary"))["data"]
+    assert covered["llm_month_covered"] is True
+    assert any("예산을 넘었다" in w for w in covered["warnings"])
+
+    # 창을 5일로 좁히면 이달 1일(08-01)을 못 덮는다 — 초과라도 조용해야 한다.
+    narrow = body(client.get("/api/ai-review/summary?lookback=5"))["data"]
+    assert narrow["llm_month_covered"] is False
+    assert not any("예산" in w for w in narrow["warnings"])
+
+
+def test_entity_without_market_prefix_is_not_folded_into_kr(seeded) -> None:
+    """접두어 없는 행을 KR 에 몰아넣으면 국장 건수가 조용히 부풀어 오른다."""
+    seeded.append(
+        "agent_cache",
+        [cache_row("접두어없음", "news-screen", "news-screen-v0.1.0", {"keep": True})],
+        ingest_run_id="odd-seed",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+
+    summary = body(client.get("/api/ai-review/summary"))["data"]
+    markets = {row["market"]: row for row in summary["markets"]}
+
+    assert markets["KR"]["calls"] == 2
+    assert markets["기타"]["calls"] == 1
+
+
+def test_costs_are_not_split_by_market(seeded) -> None:
+    """``llm_usage`` 엔 종목축이 없다 — 한 왕복이 여러 종목을 함께 처리한다.
+
+    안분해서 채우면 추정이 실측 칸에 앉는다. 그래서 시장별 표에 비용 칸을
+    두지 않는다. 이 테스트는 그 칸이 슬쩍 생기는 것을 막는다.
+    """
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+
+    for row in body(client.get("/api/ai-review/summary"))["data"]["markets"]:
+        assert "cost_usd" not in row
+        assert "cost_krw" not in row
 
 
 # -- documents ---------------------------------------------------------------

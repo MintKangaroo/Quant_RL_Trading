@@ -7,8 +7,10 @@ Auditor·dashboard·reporting 이 각자 계산하면 반드시 어긋나고, �
     book.py   체결·배당·입출금을 상태로 접는다 (순수 코드)
     nav.py    NAV 평가, TWR, 낙폭, 혼합 벤치마크
     rates.py  수수료·세금·배당세 — 전부 store.config 에서 온다
+    benchmark.py  창고의 지수로 혼합 벤치마크를 잰다 — NAV 와 같은 시각·환율
 """
 
+from quant_rl_trading.accounting.benchmark import Benchmark, BenchmarkSpec
 from quant_rl_trading.accounting.book import KRW, USD, Book, Position, Side, Trade
 from quant_rl_trading.accounting.nav import (
     BASE_INDEX,
@@ -25,6 +27,8 @@ __all__ = [
     "BASE_INDEX",
     "KRW",
     "USD",
+    "Benchmark",
+    "BenchmarkSpec",
     "Book",
     "Position",
     "Rates",

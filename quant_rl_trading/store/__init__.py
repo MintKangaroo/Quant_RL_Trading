@@ -111,6 +111,38 @@ class Store:
             market=market,
         )
 
+    def latest_by_entity(
+        self,
+        table: str,
+        *,
+        as_of: datetime,
+        entity: str | Sequence[str] | None = None,
+        lookback: timedelta | int | None = None,
+        until: datetime | None = None,
+        columns: Sequence[str] | None = None,
+        market: str | None = None,
+    ) -> pd.DataFrame:
+        """``get`` 과 같은 창을 보되 **종목마다 마지막 한 행**만 돌려준다.
+
+        긴 창이 필요한 이유가 "언제부터 있었나" 하나뿐일 때 쓴다. 창 전체를
+        pandas 로 퍼오지 않고 접기를 DuckDB 안에서 끝내며, 창 안 최초
+        valid_from 을 ``first_valid_from`` 컬럼으로 함께 준다.
+
+        게이트를 우회하는 것이 아니다 — ``observed_at <= as_of`` 도, 정정본
+        선택도 ``get`` 과 같은 규칙으로 그대로 걸린다.
+        """
+        return reader.latest_by_entity(
+            self._cursor(),
+            self.root,
+            table,
+            as_of=as_of,
+            entity=entity,
+            lookback=lookback,
+            until=until,
+            columns=columns,
+            market=market,
+        )
+
     def config(self, name: str, *, as_of: datetime) -> Any:
         """임계치 조회. 하드코딩 금지 — 불변식 10.
 

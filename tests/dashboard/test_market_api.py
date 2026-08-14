@@ -1,13 +1,16 @@
 """마켓 API — 지금 시장이 어떤 상태인가.
 
-여기서 고정하는 사실은 다섯이다.
+화면은 **왼쪽 국장 · 오른쪽 미장**이고, 응답도 시장별로 같은 모양의 판 둘이다.
+여기서 고정하는 사실은 이렇다.
 
 1. **as_of 를 지킨다** — 되감으면 그 시점 이후 값이 안 보인다 (불변식 9)
 2. **없는 것은 null 이다** — 환율·지수가 없으면 0 이 아니라 null
-3. **예정된 거시지표는 여기 없다** — 발표 완료만. 예정은 뉴스·일정 탭의 몫이다
-4. **트리맵은 KR·US 두 맵으로 완전히 갈린다** — sectors 는 업종이 아니라
-   KOSDAQ 소속부라 KOSPI 가 전부 미상이다. 업종으로 묶지 않는다
-5. **등락을 못 잰 종목은 null 이다** — 0% 로 채우면 "보합" 이라는 다른 사실이 된다
+3. **대표 지수는 config 가 정한다** — 화면이 고르지 않는다 (불변식 10).
+   그 이름이 창고에 없으면 대용치로 바꿔치기하지 않고 ``None`` 이다
+4. **KR·US 판은 같은 모양이다** — 한쪽에만 있는 칸을 만들지 않는다
+5. **예정된 거시지표는 여기 없다** — 발표 완료만. 예정은 뉴스·일정 탭의 몫이다
+6. **등락을 못 잰 종목은 null 이다** — 0% 로 채우면 "보합" 이라는 다른 사실이
+   된다. 시장 폭의 보합 칸에도 넣지 않는다
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from quant_rl_trading.store import Store
 NOW = datetime(2026, 8, 12, 6, 40, tzinfo=UTC)
 YESTERDAY = NOW - timedelta(days=1)
 KR_A, KR_B = "KR:000100", "KR:000200"
-US_A = "US:AAPL"
+US_A, US_B = "US:AAPL", "US:MSFT"
 
 
 def _row(entity: str, moment: datetime, **extra: Any) -> dict[str, Any]:
@@ -40,10 +43,18 @@ def _row(entity: str, moment: datetime, **extra: Any) -> dict[str, Any]:
     }
 
 
+def _price(
+    entity: str, moment: datetime, market: str, close: float, value: float
+) -> dict[str, Any]:
+    return _row(
+        entity, moment, market=market, open=close, high=close, low=close,
+        close=close, volume=1.0, value=value,
+    )
+
+
 def _build_app(store: Store, clock: Clock) -> Flask:
-    """``create_app`` 을 안 쓴다. app.py 는 team lead 가 배선한다 — 이 블루프린트는
-    아직 등록되지 않았다. 배선 전에도 API 계약을 검증할 수 있어야 하므로
-    최소한의 앱을 여기서 만든다. app.py 는 건드리지 않는다."""
+    """``create_app`` 을 안 쓴다 — 이 블루프린트 하나의 계약만 본다.
+    앱 전체를 세우면 다른 탭의 배선 상태가 이 테스트를 흔든다."""
     app = Flask(__name__)
     app.json = SafeJSONProvider(app)
     app.config["QUANT_RL_STORE"] = store
@@ -60,7 +71,7 @@ def _build_app(store: Store, clock: Clock) -> Flask:
 
 @pytest.fixture
 def desk(store):  # type: ignore[no-untyped-def]
-    """지수 2종 · 환율 · 시총 상위 KR/US 각 1 · 거시지표 발표완료 1건 + 예정 1건."""
+    """국장·미장 각각 지수·시세·유니버스 + 국장만 시총 + 시장별 거시지표."""
     store.seed_config_defaults()
 
     store.append(
@@ -71,8 +82,13 @@ def desk(store):  # type: ignore[no-untyped-def]
     store.append(
         "indices",
         [
-            _row("KR:IDX:KRX TMI", day, market="KR", board="KRX", close=close)
+            # config.benchmark.kr_index 가 가리키는 이름이다 — 대표 카드가 된다.
+            _row("KR:IDX:KRX 300", day, market="KR", board="KRX", close=close)
             for day, close in ((YESTERDAY, 1000.0), (NOW, 1010.0))
+        ]
+        + [
+            _row("KR:IDX:KRX 반도체", day, market="KR", board="KRX", close=close)
+            for day, close in ((YESTERDAY, 500.0), (NOW, 520.0))
         ]
         + [
             _row("US:IDX:SP500", day, market="US", board="NYSE", close=close)
@@ -87,25 +103,34 @@ def desk(store):  # type: ignore[no-untyped-def]
                  is_tradable=True, delisted_on=None),
             _row(KR_B, NOW, market="KR", name="다라상사", is_listed=True,
                  is_tradable=True, delisted_on=None),
-            _row(US_A, NOW, market="US", name="애플", is_listed=True,
+            _row(US_A, NOW, market="US", name="AAPL", is_listed=True,
+                 is_tradable=True, delisted_on=None),
+            _row(US_B, NOW, market="US", name="MSFT", is_listed=True,
                  is_tradable=True, delisted_on=None),
         ],
         ingest_run_id="universe",
     )
+    # 시총은 국장만 있다 — 미장 상장주식수를 받는 수집기가 아직 없다.
     store.append(
         "market_stats",
         [
             _row(KR_A, NOW, market="KR", metric="market_cap", value=5_000_000_000_000.0),
             _row(KR_B, NOW, market="KR", metric="market_cap", value=1_000_000_000_000.0),
-            _row(US_A, NOW, market="US", metric="market_cap", value=3_000_000_000_000.0),
         ],
         ingest_run_id="stats",
     )
     store.append(
         "prices",
         [
-            _row(KR_A, day, market="KR", open=c, high=c, low=c, close=c, volume=1.0, value=c)
-            for day, c in ((YESTERDAY, 70_000.0), (NOW, 71_400.0))
+            # 국장: KR_A 는 올랐고, KR_B 는 오늘 종가가 아예 없다(등락 미측정).
+            _price(KR_A, YESTERDAY, "KR", 70_000.0, 1e10),
+            _price(KR_A, NOW, "KR", 71_400.0, 1.2e10),
+            _price(KR_B, YESTERDAY, "KR", 10_000.0, 1e9),
+            # 미장: 하나는 오르고 하나는 내린다 — 시장 폭이 1승 1패다.
+            _price(US_A, YESTERDAY, "US", 200.0, 1e10),
+            _price(US_A, NOW, "US", 210.0, 1.1e10),
+            _price(US_B, YESTERDAY, "US", 400.0, 9e9),
+            _price(US_B, NOW, "US", 380.0, 8e9),
         ],
         ingest_run_id="prices",
     )
@@ -115,6 +140,11 @@ def desk(store):  # type: ignore[no-untyped-def]
             _row(
                 "KR:CPI", NOW, market="KR", indicator="CPI", release_name="소비자물가지수",
                 scheduled_at=YESTERDAY, actual=119.8, previous=119.6, unit="2020=100",
+                status="released",
+            ),
+            _row(
+                "US:PPI", NOW, market="US", indicator="PPI", release_name="Producer Price Index",
+                scheduled_at=YESTERDAY, actual=145.2, previous=144.9, unit="index",
                 status="released",
             ),
             _row(
@@ -133,77 +163,128 @@ def client(desk):  # type: ignore[no-untyped-def]
     return _build_app(store=desk, clock=ReplayClock(NOW)).test_client()
 
 
-def test_지수는_직전_세션_대비_등락을_잰다(client) -> None:
-    body = client.get("/api/market").get_json()
-    highlights = {row["entity_id"]: row for row in body["data"]["indices"]["highlights"]}
-    assert highlights["KR:IDX:KRX TMI"]["close"] == 1010.0
-    assert highlights["KR:IDX:KRX TMI"]["change"] == pytest.approx(0.01)
-    assert highlights["US:IDX:SP500"]["change"] == pytest.approx(-0.01)
+def test_두_시장이_같은_모양의_판을_받는다(client) -> None:
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert set(markets) == {"KR", "US"}
+    assert set(markets["KR"]) == set(markets["US"])
+
+
+def test_대표_지수는_config_가_정한다(client) -> None:
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    # config.benchmark 의 kr_index / us_index 그대로다.
+    assert markets["KR"]["indices"]["headline_id"] == "KR:IDX:KRX 300"
+    assert markets["US"]["indices"]["headline_id"] == "US:IDX:SP500"
+    assert markets["KR"]["indices"]["headline"]["change"] == pytest.approx(0.01)
+    assert markets["US"]["indices"]["headline"]["change"] == pytest.approx(-0.01)
+
+
+def test_대표_지수가_없으면_대용치로_바꿔치기하지_않는다(store) -> None:
+    """코스피가 창고에 없는데 KRX 300 을 코스피라 부르면 화면이 거짓말을 한다."""
+    store.seed_config_defaults()
+    client = _build_app(store=store, clock=ReplayClock(NOW)).test_client()
+    kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]["indices"]
+    assert kr["headline"] is None
+    assert kr["headline_id"] == "KR:IDX:KRX 300"  # 무엇이 없는지는 말한다
+
+
+def test_대표_지수는_나머지_목록에_다시_안_나온다(client) -> None:
+    kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]["indices"]
+    assert [row["entity_id"] for row in kr["others"]] == ["KR:IDX:KRX 반도체"]
+    assert kr["total"] == 2  # 접은 것이지 지운 것이 아니다
+
+
+def test_지수는_시장별로_갈린다(client) -> None:
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert markets["US"]["indices"]["total"] == 1
+    assert markets["US"]["indices"]["others"] == []
 
 
 def test_환율에는_시계열과_등락이_같이_온다(client) -> None:
-    body = client.get("/api/market").get_json()
-    fx = body["data"]["fx"]
+    fx = client.get("/api/market").get_json()["data"]["fx"]
     assert fx["rate"] == 1_420.0
     assert fx["change"] == pytest.approx(1_420.0 / 1_400.0 - 1.0)
     assert len(fx["sessions"]) == len(fx["rates"]) == 2
 
 
-def test_시가총액_상위가_시장별로_갈린다(client) -> None:
-    body = client.get("/api/market").get_json()
-    leaders = body["data"]["leaders"]
-    kr_ids = [row["entity_id"] for row in leaders["KR"]]
-    us_ids = [row["entity_id"] for row in leaders["US"]]
-    assert kr_ids == [KR_A, KR_B]  # 시총 내림차순
-    assert us_ids == [US_A]
-    assert leaders["KR"][0]["name"] == "가나전자"
-    assert leaders["KR"][0]["change"] == pytest.approx(71_400.0 / 70_000.0 - 1.0)
+def test_시장_폭은_시세만으로_만들어진다(client) -> None:
+    """미장에 시총이 없어도 이 패널은 국장과 같은 밀도로 찬다."""
+    us = client.get("/api/market").get_json()["data"]["markets"]["US"]["breadth"]
+    assert (us["advancers"], us["decliners"], us["unchanged"]) == (1, 1, 0)
+    assert us["traded"] == 2
+    assert us["currency"] == "USD"
+    assert us["value"] == pytest.approx(1.1e10 + 8e9)
 
 
-def test_예정된_거시지표는_빠진다(client) -> None:
-    body = client.get("/api/market").get_json()
-    macro = body["data"]["macro"]
-    assert [row["indicator"] for row in macro] == ["CPI"]
-    assert macro[0]["market"] == "KR"
+def test_등락을_못_잰_종목은_보합이_아니다(client) -> None:
+    kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]["breadth"]
+    # KR_B 는 오늘 종가가 없다 — 어제 종가만 잡히므로 등락을 못 잰다.
+    assert kr["advancers"] == 1
+    assert kr["unchanged"] == 0
+    assert kr["unmeasured"] == 1
 
 
-def test_트리맵은_KR_US_두_맵으로_갈린다(client) -> None:
-    body = client.get("/api/market").get_json()
-    treemap = body["data"]["treemap"]
-    kr_ids = {row["entity_id"] for row in treemap["KR"]}
-    us_ids = {row["entity_id"] for row in treemap["US"]}
-    assert kr_ids == {KR_A, KR_B}
-    assert us_ids == {US_A}
+def test_많이_움직인_종목이_시장별로_온다(client) -> None:
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    us = markets["US"]["movers"]
+    assert next(row["entity_id"] for row in us["gainers"]) == US_A
+    assert next(row["entity_id"] for row in us["losers"]) == US_B
+    assert us["actives"][0]["entity_id"] == US_A  # 거래대금 1위
+    assert us["gainers"][0]["change"] == pytest.approx(210.0 / 200.0 - 1.0)
+
+
+def test_시가총액은_국장만_찬다(client) -> None:
+    """미장 시총이 빈 것은 조인 버그가 아니라 상장주식수 수집기가 없어서다."""
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert [row["entity_id"] for row in markets["KR"]["leaders"]] == [KR_A, KR_B]
+    assert markets["KR"]["leaders"][0]["name"] == "가나전자"
+    assert markets["KR"]["leaders"][0]["change"] == pytest.approx(71_400.0 / 70_000.0 - 1.0)
+    assert markets["US"]["leaders"] == []
+    assert markets["US"]["treemap"]["rows"] == []
 
 
 def test_트리맵도_등락을_못_잰_종목은_null이다(client) -> None:
-    body = client.get("/api/market").get_json()
-    kr = {row["entity_id"]: row for row in body["data"]["treemap"]["KR"]}
-    assert kr[KR_A]["change"] == pytest.approx(71_400.0 / 70_000.0 - 1.0)
-    assert kr[KR_B]["change"] is None  # 오늘 종가가 아예 없다 — 등락을 잴 수 없다
+    rows = client.get("/api/market").get_json()["data"]["markets"]["KR"]["treemap"]["rows"]
+    by_entity = {row["entity_id"]: row for row in rows}
+    assert by_entity[KR_A]["change"] == pytest.approx(71_400.0 / 70_000.0 - 1.0)
+    assert by_entity[KR_B]["change"] is None  # 오늘 종가가 아예 없다
 
 
 def test_트리맵_상위_n이_응답에_같이_실린다(client) -> None:
-    body = client.get("/api/market").get_json()
-    assert body["data"]["treemap"]["top_n"] == 60
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert markets["KR"]["treemap"]["top_n"] == 60
+    assert markets["US"]["treemap"]["top_n"] == 60
+
+
+def test_거시지표가_시장별로_갈리고_예정은_빠진다(client) -> None:
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert [row["indicator"] for row in markets["KR"]["macro"]] == ["CPI"]
+    # US:CPI 는 예정이라 빠진다 — 발표 완료만 본다.
+    assert [row["indicator"] for row in markets["US"]["macro"]] == ["PPI"]
+
+
+def test_가격지수_배지를_위한_플래그가_실린다(client) -> None:
+    """총수익지수를 못 구해 배당만큼 우리가 유리하게 보인다 — 화면이 그걸 말한다."""
+    assert client.get("/api/market").get_json()["data"]["total_return"] is False
 
 
 def test_없는_데이터는_0이_아니라_null이다(store) -> None:
     store.seed_config_defaults()
     client = _build_app(store=store, clock=ReplayClock(NOW)).test_client()
-    body = client.get("/api/market").get_json()
-    assert body["data"]["fx"]["rate"] is None
-    assert body["data"]["indices"]["highlights"] == []
-    assert body["data"]["leaders"]["KR"] == []
-    assert body["data"]["macro"] == []
-    assert body["data"]["treemap"] == {"KR": [], "US": [], "top_n": 60}
+    data = client.get("/api/market").get_json()["data"]
+    assert data["fx"]["rate"] is None
+    for code in ("KR", "US"):
+        panel = data["markets"][code]
+        assert panel["indices"]["headline"] is None
+        assert panel["leaders"] == []
+        assert panel["macro"] == []
+        assert panel["breadth"]["value"] is None
+        assert panel["breadth"]["traded"] == 0
 
 
 def test_되감으면_그_시점_이후_값이_안_보인다(desk) -> None:
     client = _build_app(store=desk, clock=ReplayClock(NOW)).test_client()
     body = client.get(f"/api/market?as_of={YESTERDAY.isoformat()}").get_json()
-    fx = body["data"]["fx"]
-    assert fx["rate"] == 1_400.0  # NOW 시점 값은 아직 안 보인다
+    assert body["data"]["fx"]["rate"] == 1_400.0  # NOW 시점 값은 아직 안 보인다
 
 
 def test_as_of_에_타임존이_없으면_거부한다(client) -> None:

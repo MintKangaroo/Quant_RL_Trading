@@ -21,6 +21,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from quant_rl_trading.accounting import benchmark as benchmark_module
 from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
@@ -278,7 +279,14 @@ def run(
         rates = Rates.from_store(store, as_of=as_of)
         book = ledger_module.build_book(store, as_of=as_of, rates=rates)
         snapshot = snapshot_module.take(store, clock, as_of=as_of, book=book)
-        snapshot_module.write(store, clock, snapshot=snapshot)
+        # 벤치마크는 NAV 와 **같은 as_of·같은 환율**로 잰다. 시각이 갈리면 그
+        # 차이가 통째로 가짜 초과수익이 된다 (accounting.md §2). 지수가 없는
+        # 날은 null 로 남고 그 이유가 benchmark_note 에 실린다 — 앞 값으로
+        # 채우면 벤치마크 낙폭이 지워진다.
+        benchmark = benchmark_module.level(
+            store, as_of=as_of, fx_rate=snapshot.valuation.fx_rate
+        )
+        snapshot_module.write(store, clock, snapshot=snapshot, benchmark=benchmark)
 
         elapsed["스냅샷"] = perf_counter() - mark
         mark = perf_counter()

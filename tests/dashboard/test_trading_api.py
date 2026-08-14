@@ -163,6 +163,42 @@ def test_벤치마크_낙폭은_창_이전_고점으로_잰다(desk) -> None:
     assert curve["benchmark_drawdown"] == pytest.approx([-0.10, -0.15, -0.19])
 
 
+def test_화면은_가격지수라는_사실을_말한다(client) -> None:
+    """총수익지수가 아니라는 사실이 화면에 없으면, 보는 사람은 배당수익률만큼
+    부풀려진 초과수익을 진짜로 읽는다 (accounting.md §7.1)."""
+    label = client.get("/api/trading").get_json()["data"]["equity"]["benchmark_label"]
+
+    assert label["price_return_only"] is True
+    # 지수 이름은 config 에서 온다. 화면에 적어 두면 설정을 바꿔도 화면만
+    # 옛 지수를 말한다 (불변식 10).
+    assert label["kr_index"] == "KR:IDX:KRX 300"
+    assert label["us_index"] == "US:IDX:SP500"
+
+
+def test_벤치마크가_왜_비었는지를_화면이_말한다(desk) -> None:
+    """null 을 앞 값으로 채우지 않는 대신, 왜 없는지는 말해야 한다. 안 그러면
+    끊긴 점선이 "벤치마크가 안 빠졌다" 로 읽힌다."""
+    desk.append(
+        "nav_daily",
+        [
+            _row(
+                "FUND", NOW, nav=1e8, inflow=0.0, twr_return=0.0,
+                index_value=100.0, drawdown=0.0, cash_krw=1e8, cash_usd=0.0,
+                equity_kr=0.0, equity_us=0.0, accrued_dividend=0.0, payable=0.0,
+                fx_rate=1_350.0, tax_provision=0.0, nav_after_tax=1e8,
+                benchmark_index=None, benchmark_note="지수 종가 없음: KR:IDX:KRX 300",
+            )
+        ],
+        ingest_run_id="nav-gap",
+    )
+    client = create_app(store=desk, clock=ReplayClock(NOW)).test_client()
+    curve = client.get("/api/trading").get_json()["data"]["equity"]
+
+    assert curve["benchmark"] == [None]
+    assert curve["benchmark_drawdown"] == [None]
+    assert "KR:IDX:KRX 300" in curve["benchmark_note"]
+
+
 def test_nav_은_회계에서_온다(client) -> None:
     body = client.get("/api/trading").get_json()
     kpis = body["data"]["kpis"]

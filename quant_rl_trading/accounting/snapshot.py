@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.accounting import benchmark as benchmark_module
 from quant_rl_trading.accounting import ledger
 from quant_rl_trading.accounting.book import Book
 from quant_rl_trading.accounting.nav import BASE_INDEX, Valuation, twr_return, value
@@ -40,8 +41,14 @@ class Snapshot:
     index_value: float
     drawdown: float
 
-    def row(self, *, observed_at: datetime, benchmark_index: float | None = None) -> dict:
+    def row(
+        self,
+        *,
+        observed_at: datetime,
+        benchmark: benchmark_module.Benchmark | None = None,
+    ) -> dict:
         valuation = self.valuation
+        benchmark = benchmark or benchmark_module.Benchmark(index_value=None, note=None)
         return {
             "entity_id": ledger.ACCOUNT,
             "valid_from": self.as_of,
@@ -61,7 +68,8 @@ class Snapshot:
             "fx_rate": valuation.fx_rate,
             "tax_provision": valuation.tax_provision,
             "nav_after_tax": valuation.nav_after_tax,
-            "benchmark_index": benchmark_index,
+            "benchmark_index": benchmark.index_value,
+            "benchmark_note": benchmark.note,
         }
 
 
@@ -148,15 +156,25 @@ def write(
     clock: Clock,
     *,
     snapshot: Snapshot,
-    benchmark_index: float | None = None,
+    benchmark: benchmark_module.Benchmark | None = None,
 ) -> int:
-    """스냅샷 적재. 하루에 한 행이고, 같은 날을 두 번 쓰면 창고가 거부한다."""
+    """스냅샷 적재. 하루에 한 행이고, 같은 날을 두 번 쓰면 창고가 거부한다.
+
+    벤치마크를 안 넘기면 **여기서 계산한다.** 호출부에 맡기면 한 곳만 빠져도
+    그 경로의 ``benchmark_index`` 가 통째로 null 이 되고 — 실제로 그랬다 —
+    화면은 초과수익을 그릴 근거를 잃는다. 여기서 계산하면 NAV 가 쓴 것과
+    **같은 as_of, 같은 환율**이라는 것이 구조로 보장된다 (accounting.md §2).
+    """
+    if benchmark is None:
+        benchmark = benchmark_module.level(
+            store, as_of=snapshot.as_of, fx_rate=snapshot.valuation.fx_rate
+        )
     run_id = f"nav-{snapshot.as_of.date().isoformat()}"
     if store.ingest_run_recorded(ledger.NAV_DAILY, run_id):
         return 0
     return store.append(
         ledger.NAV_DAILY,
-        [snapshot.row(observed_at=clock.now(), benchmark_index=benchmark_index)],
+        [snapshot.row(observed_at=clock.now(), benchmark=benchmark)],
         ingest_run_id=run_id,
         source=SOURCE,
     )

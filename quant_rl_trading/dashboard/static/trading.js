@@ -432,8 +432,34 @@ function renderEquity(body) {
 /* 언더워터 — 보상 함수를 그대로 그린 그림이다 (dashboard-kickoff D-3).
    밴드 12/22/30% 는 store.config 에서 온 값이 risk.bands 로 실려 온다.
    여기서 숫자를 적어 두면 설정을 바꿔도 화면만 옛 임계치를 말한다. */
+/* 벤치마크가 무엇이고 왜 비었는지. **배지를 그리고 나서 차트를 그린다** —
+   데이터가 없어 차트가 빈 날에도 이 문장은 남아야 한다. 그게 없으면 빈 점선이
+   "벤치마크가 안 빠졌다" 로 읽힌다.
+
+   지수 이름·비중은 서버가 config.benchmark 에서 읽어 실어 준다. 여기에 적어
+   두면 설정을 바꿔도 화면만 옛 지수를 말한다 (불변식 10). */
+function renderBenchmarkBadge(e) {
+  const badge = document.getElementById("benchmark-badge");
+  const gap = document.getElementById("benchmark-gap");
+  const label = e.benchmark_label;
+  if (badge && label) {
+    const pct = (w) => (w * 100).toFixed(0);
+    const mix = `${pct(label.kr_weight)}% ${label.kr_index} + ${pct(label.us_weight)}% ${label.us_index}`;
+    badge.textContent = label.price_return_only ? `${mix} · 가격지수` : mix;
+    badge.title = label.price_return_only
+      ? "총수익지수(TR)가 아니라 가격지수(PR)다. 배당수익률만큼 우리가 유리하게 보인다."
+      : "총수익지수(TR)";
+  }
+  if (gap) {
+    // 결측일은 null 로 남긴다. 그 이유를 여기 적지 않으면 끊긴 점선이
+    // 데이터 부재인지 벤치마크가 안 움직인 것인지 구별되지 않는다.
+    gap.textContent = e.benchmark_note ? ` 끊긴 구간: ${e.benchmark_note}.` : "";
+  }
+}
+
 function renderUnderwater(body) {
   const e = body.data.equity;
+  renderBenchmarkBadge(e);
   const target = document.getElementById("chart-underwater");
   if (!target) return;
   if (!e.sessions.length) {

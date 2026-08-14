@@ -276,6 +276,34 @@ class DartSource:
 
         return collected
 
+    # -- 기업 개황 ---------------------------------------------------------------
+
+    def company_info(self, corp_code: str) -> dict[str, Any] | None:
+        """기업 개황. **``induty_code``(표준산업분류 코드)를 준다** — 이게
+        진짜 업종 분류다. KRX 일별매매의 ``SECT_TP_NM`` 은 소속부일 뿐이라
+        (dart_sectors.py 모듈 docstring) 이 필드가 대신한다.
+
+        회사 하나당 한 콜이다(``fnlttMultiAcnt`` 같은 배치 엔드포인트가 없다).
+        데이터 없음(013)은 실패가 아니다 — 상장폐지·조회 대상 외 법인일 수
+        있다. 그때는 ``None`` 을 돌려준다.
+        """
+        response = self._call("/company.json", {"corp_code": corp_code})
+        if response.status_code != 200:
+            raise DartUnavailable(f"company.json HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise DartUnavailable(f"company.json JSON 파싱 실패: {error}") from error
+
+        status = str(payload.get("status"))
+        if status == NO_DATA:
+            return None
+        if status != "000":
+            raise DartUnavailable(
+                f"company.json status={status} msg={payload.get('message')}"
+            )
+        return dict(payload)
+
     def close(self) -> None:
         if self._client is not None:
             self._client.close()

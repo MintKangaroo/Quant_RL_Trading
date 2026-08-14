@@ -53,9 +53,10 @@ UNIVERSE = "universe"
 REALIZED_WEIGHTS = "realized_weights"
 INDICES = "indices"
 
-#: 캘린더 옆 "지수 대비" 패널의 참고용 비교. ``config.benchmark``(KOSPI_TR ·
-#: SPX_TR, 아직 미구현)와는 다른 것이다 — 저건 보상 함수가 쓸 총수익지수고,
-#: 이건 화면이 상시 보여주는 참고 비교다. 실측(2026-08-14) 결과 창고에는
+#: 캘린더 옆 "지수 대비" 패널의 참고용 비교. ``config.benchmark`` 의 혼합
+#: 벤치마크와는 다른 것이다 — 저건 보상 함수가 쓰는 한 줄짜리 지수고, 이건
+#: 화면이 상시 보여주는 지수별 참고 비교다. **둘 다 가격지수다**(총수익지수는
+#: 지금 키로 못 받는다, accounting.md §7.1). 실측(2026-08-14) 결과 창고에는
 #: 코스피·코스닥·나스닥이 그 이름으로 없다. 있는 것은 KRX 100/300 계열과
 #: US:IDX:SP500 뿐이다(regime.py 의 MARKET_PROXIES 도 같은 이유로 KRX 지수를
 #: 대용치로 쓴다). 여기서는 대용치로 바꿔치기하지 않는다 — "코스피" 라고
@@ -166,7 +167,7 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         "today_pnl": today_pnl,
         "total_pnl": total_pnl,
         "win_rate": win_rate,
-        "win_samples": int(len(traded)) if not curve.empty and win_rate is not None else 0,
+        "win_samples": len(traded) if not curve.empty and win_rate is not None else 0,
         "mdd": mdd,
         "cash_krw": valuation.cash_krw,
         "cash_usd": valuation.cash_usd,
@@ -548,6 +549,8 @@ def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, 
             "drawdown": [],
             "benchmark": [],
             "benchmark_drawdown": [],
+            "benchmark_label": _benchmark_label(store, as_of=context.as_of),
+            "benchmark_note": None,
         }
         return empty
     ordered = frame.sort_values(["valid_from", "observed_at"]).tail(EQUITY_SESSIONS)
@@ -555,6 +558,11 @@ def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, 
         float(value) if pd.notna(value) else None for value in ordered["benchmark_index"]
     ]
     return {
+        # 왜 벤치마크가 비어 있는지. 화면이 이걸 못 말하면 "데이터가 없었다" 와
+        # "벤치마크가 0% 였다" 가 같은 그림으로 보인다. 창 안의 **마지막**
+        # 사유를 싣는다 — 여러 날이 같은 이유로 비는 것이 보통이다.
+        "benchmark_note": _last_benchmark_note(ordered),
+        "benchmark_label": _benchmark_label(store, as_of=context.as_of),
         "sessions": [pd.Timestamp(value).date().isoformat() for value in ordered["valid_from"]],
         "nav": [float(value) for value in ordered["nav"]],
         "index": [float(value) for value in ordered["index_value"]],
@@ -563,6 +571,34 @@ def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, 
         "benchmark_drawdown": _benchmark_drawdown(
             store, context, benchmark, since=pd.Timestamp(ordered["valid_from"].iloc[0])
         ),
+    }
+
+
+def _last_benchmark_note(ordered: pd.DataFrame) -> str | None:
+    """창 안에서 벤치마크가 비어 있던 마지막 사유. 다 차 있으면 None."""
+    if "benchmark_note" not in ordered.columns:
+        return None
+    notes = ordered["benchmark_note"].dropna()
+    notes = notes[notes.astype(str) != ""]
+    return str(notes.iloc[-1]) if not notes.empty else None
+
+
+def _benchmark_label(store: Store, *, as_of: datetime) -> dict[str, Any]:
+    """벤치마크 배지. **가격지수라는 사실을 화면이 말하게 한다.**
+
+    ``config.benchmark`` 에서 그대로 읽는다 — 여기에 지수 이름을 적어 두면
+    설정을 바꿨을 때 화면만 옛 지수를 말한다 (불변식 10).
+    """
+    section = store.config("benchmark", as_of=as_of)
+    total_return = bool(section.get("total_return", False))
+    return {
+        "kr_index": str(section["kr_index"]),
+        "us_index": str(section["us_index"]),
+        "kr_weight": float(section["kr_weight"]),
+        "us_weight": float(section["us_weight"]),
+        # 우리는 배당을 받고 가격지수는 못 받는다. 배당수익률만큼(국내 대형주
+        # 연 2~3%p) 우리가 이긴 것처럼 보인다 (accounting.md §7.1).
+        "price_return_only": not total_return,
     }
 
 

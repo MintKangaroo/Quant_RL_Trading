@@ -65,6 +65,13 @@ DEFAULT_SANDBOX = REPO_ROOT / "data" / "_evolution"
 #: 도 쓸 수 있어야 한다(버릴 뿐 다시 읽지는 않는다).
 PRIMING_WRITABLE = JOURNAL_WRITABLE
 
+#: 개체 레이어가 쓰는 테이블. **``signals`` 를 뺀다** — 빼야 오버레이가 그것을
+#: 프라이밍 레이어로 심볼릭 링크하고, 그래야 개체가 프라이밍의 신호를 본다.
+#: ``JOURNAL_WRITABLE`` 을 그대로 주면 ``signals`` 가 **빈 디렉터리**로 생겨
+#: 개체마다 6종 Analyst 피처를 처음부터 다시 계산한다 — 프라이밍 레이어가
+#: 통째로 무용지물이 되고, 그게 이 파일 문서가 없앴다고 주장하는 바로 그 비용이다.
+INDIVIDUAL_WRITABLE = JOURNAL_WRITABLE - {"signals"}
+
 
 def _weight_as_of(earliest_start: date, warmup_days: int) -> datetime:
     """모든 폴드·워밍업보다 확실히 앞선 시각. 넉넉한 버퍼라 정밀할 필요 없다."""
@@ -200,14 +207,25 @@ def main(argv: list[str] | None = None) -> int:
     eval_timings: list[float] = []
     rng_folds = np.random.default_rng(args.seed + 1)  # 폴드 리샘플링 전용 rng — GA 본체와 분리
 
+    #: **세대당 한 번만 뽑는다.** selector.md §4 는 "매 세대 검증 구간을 다른
+    #: 폴드로 교체" 라고 못 박는다 — 개체마다 다시 뽑으면 같은 세대의 16개
+    #: 개체가 서로 **다른 구간**에서 채점되고, 그 적합도 차이는 가중치가 아니라
+    #: 구간 차이다. 그러면 토너먼트 선택이 노이즈를 고르고, 안정성 검사는
+    #: "지형이 평평하다" 는 **거짓 음성**을 낸다(측정이 흔들린 것을 지형
+    #: 탓으로 읽는다).
+    fold_cache: dict[int, list[date]] = {}
+
     def evaluate(
         individual: evolution_module.Individual, generation: int
     ) -> evolution_module.FitnessResult:
-        folds = evolution_module.resample_folds(fold_starts, args.folds_per_eval, rng_folds)
+        folds = fold_cache.get(generation)
+        if folds is None:
+            folds = evolution_module.resample_folds(fold_starts, args.folds_per_eval, rng_folds)
+            fold_cache[generation] = folds
         if individual_root.exists():
             shutil.rmtree(individual_root)
         layer = overlay.build(
-            root=individual_root, source=priming_layer.root, writable=JOURNAL_WRITABLE
+            root=individual_root, source=priming_layer.root, writable=INDIVIDUAL_WRITABLE
         )
         eval_store = Store(root=layer.root)
         started = time.perf_counter()
@@ -217,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
             generation=generation, weight_as_of=weight_as_of, capital=args.capital,
             warmup_days=args.warmup, board=args.board,
             l1_penalty=l1_penalty, turnover_penalty=args.turnover_penalty,
+            # 프라이밍이 이미 구간 전체의 신호를 채웠다. 개체는 읽기만 한다.
+            produce_signals=False,
         )
         eval_timings.append(time.perf_counter() - started)
         return result

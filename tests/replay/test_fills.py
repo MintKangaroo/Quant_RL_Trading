@@ -122,6 +122,71 @@ def test_tiny_order_is_rejected() -> None:
 
 
 def test_limit_order_is_not_filled_through() -> None:
+    """저가도 지정가 위에서 끝났다 — 하루 종일 한 번도 안 닿았으니 미체결이다."""
+    fill = simulate_fill(
+        buy(1_000, limit_price=69_000.0),
+        state(close=70_000.0, low=69_500.0, high=70_500.0),
+        PARAMS,
+    )
+
+    assert fill.reason == "limit_not_met"
+
+
+def test_buy_limit_fills_when_the_low_touched_it() -> None:
+    """**2026-08-14 shadow 사고의 회귀 테스트.**
+
+    KR:030200 을 52,700 지정가로 샀는데 그날 저가가 52,400 이었다. 저가가
+    지정가 밑을 스쳤으니 채워진 것인데, 종가(53,400)와만 비교하던 판정이
+    이걸 전부 미체결로 적었다. 못 산 종목이 오른 만큼 성적이 낮게 나오고,
+    체결률은 유동성 문제처럼 보였다.
+    """
+    fill = simulate_fill(
+        Order(entity_id="KR:030200", side=Side.BUY, quantity=28, limit_price=52_700.0),
+        state(
+            entity_id="KR:030200",
+            close=53_400.0,
+            low=52_400.0,
+            high=54_300.0,
+            volume=698_261.0,
+            adv=436_171.5,
+        ),
+        PARAMS,
+    )
+
+    assert fill.status is FillStatus.FILLED
+    assert fill.filled_quantity == 28
+    # 지정가보다 비싸게 사지는 않는다.
+    assert fill.avg_price == 52_700.0
+
+
+def test_sell_limit_fills_when_the_high_touched_it() -> None:
+    fill = simulate_fill(
+        Order(entity_id="KR:005930", side=Side.SELL, quantity=1_000, limit_price=71_000.0),
+        state(close=70_000.0, low=69_000.0, high=71_500.0),
+        PARAMS,
+    )
+
+    assert fill.status is FillStatus.FILLED
+    assert fill.avg_price == 71_000.0
+
+
+def test_limit_does_not_improve_a_price_that_was_already_better() -> None:
+    """지정가에 닿았다고 해서 지정가로 체결시키지는 않는다 —
+    종가+충격이 이미 더 싸면 그 값이 남는다. 더 유리한 쪽을 지어내면
+    백테스트가 실제보다 좋아진다."""
+    fill = simulate_fill(
+        buy(1_000, limit_price=71_000.0),
+        state(close=70_000.0, low=69_000.0, high=70_500.0),
+        PARAMS,
+    )
+
+    assert fill.status is FillStatus.FILLED
+    assert 70_000.0 < fill.avg_price < 71_000.0
+
+
+def test_missing_low_falls_back_to_close() -> None:
+    """저가를 모르는 시계열은 종가로 판단한다 — 옛 동작 그대로.
+    ``None`` 을 "항상 닿았다"로 읽으면 체결이 공짜가 된다."""
     fill = simulate_fill(buy(1_000, limit_price=69_000.0), state(close=70_000.0), PARAMS)
 
     assert fill.reason == "limit_not_met"

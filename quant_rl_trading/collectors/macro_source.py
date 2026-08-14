@@ -96,8 +96,16 @@ FRED_RELEASES: dict[int, tuple[str, str, str]] = {
 #: 시장 반응을 재려면 지수가 필요하다. 미장 지수는 창고에 없어서(국장 KRX 만
 #: 있다) FRED 에서 같이 받는다. ``indices`` 에 넣는 이유는 ``prices`` 에 지수를
 #: 섞으면 종목 유니버스가 오염되기 때문이다 (tables.py).
+#:
+#: **가격지수(PR)다. 총수익지수가 아니다** — 배당이 빠져 있어 벤치마크로 쓰면
+#: 배당수익률만큼 우리에게 유리하게 나온다.
+#:
+#: 시리즈 ID 는 짐작하지 않고 ``/fred/series`` 로 이름을 대조했다(2026-08-15):
+#: ``NASDAQCOM`` = "NASDAQ Composite" (1971-02-05~, Daily Close),
+#: ``SP500`` = "S&P 500" (2016-08-15~ — FRED 는 10년치만 준다).
 FRED_INDICES: dict[str, tuple[str, str]] = {
     "SP500": ("US:IDX:SP500", "S&P 500"),
+    "NASDAQCOM": ("US:IDX:NASDAQ", "나스닥 종합"),
 }
 
 

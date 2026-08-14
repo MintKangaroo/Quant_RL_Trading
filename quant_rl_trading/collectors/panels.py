@@ -76,6 +76,14 @@ class Panel:
     expand: Expand | None = None
     #: 공표 지연(거래일). 공매도처럼 T+N 에 나오는 것에 쓴다.
     lag_days: int = 0
+    #: 매니페스트(run_id)에 쓸 이름. 기본은 테이블 이름이다. **한 테이블을
+    #: 두 패널이 서로 다른 소스에서 채울 때** 이걸 갈라 줘야 한다 — 안 그러면
+    #: 한쪽이 이미 적재한 세션을 다른 쪽이 완료로 보고 영영 건너뛴다.
+    run_key: str | None = None
+
+    @property
+    def key(self) -> str:
+        return self.run_key or self.table
 
 
 # -----------------------------------------------------------------------------
@@ -220,7 +228,7 @@ class PanelBackfiller:
 
     def _recorded(self, day: date) -> bool:
         return self.store.ingest_run_recorded(
-            self.panel.table, run_id_for(self.panel.table, self.market, day)
+            self.panel.table, run_id_for(self.panel.key, self.market, day)
         )
 
     def run_session(self, day: date) -> PanelResult:
@@ -228,7 +236,7 @@ class PanelBackfiller:
         if self._recorded(day):
             return PanelResult(day=day, table=table, rows=0, skipped=True)
 
-        run_id = run_id_for(table, self.market, day)
+        run_id = run_id_for(self.panel.key, self.market, day)
         latency = LatencyRecorder(
             store=self.store, clock=self.clock, source=self.source.name, ingest_run_id=run_id
         )
@@ -316,6 +324,17 @@ def openapi_index(
     )
 
 
+def openapi_board_index(
+    row: dict[str, Any], market: Market, valid_from: datetime, observed_at: datetime
+) -> list[dict[str, Any]]:
+    """시장 대표지수(코스피·코스닥) → indices 행. 명단 밖은 빈 목록이다."""
+    from quant_rl_trading.collectors.krx_openapi import normalize_board_indices
+
+    return normalize_board_indices(
+        [row], market=str(market), valid_from=valid_from, observed_at=observed_at
+    )
+
+
 def openapi_sectors(
     row: dict[str, Any], market: Market, valid_from: datetime, observed_at: datetime
 ) -> list[dict[str, Any]]:
@@ -367,6 +386,14 @@ OPENAPI_PANELS: dict[str, Panel] = {
         table="indices",
         fetch=lambda source, day: source.indices_on(day),  # type: ignore[attr-defined]
         expand=openapi_index,
+    ),
+    # 대표지수는 경로가 달라 콜이 따로다(kospi/kosdaq 각 1콜). run_key 를
+    # 갈라 놓지 않으면 indices-krx 가 이미 적재한 세션을 전부 건너뛴다.
+    "indices-board": Panel(
+        table="indices",
+        run_key="indices-board",
+        fetch=lambda source, day: source.board_indices_on(day),  # type: ignore[attr-defined]
+        expand=openapi_board_index,
     ),
     "sectors": Panel(
         table="sectors",

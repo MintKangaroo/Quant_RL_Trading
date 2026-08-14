@@ -77,10 +77,20 @@ def main(argv: list[str] | None = None) -> int:
     ).collect()
     print(f"macro_releases 적재: {written}행 (US)")
 
+    # 창 10세션. **기본값 400 을 그대로 두면 매 실행이 조각 파일 400개를 낳는다**
+    # — 적재는 observed_date 파티션마다 파일 하나이고 run_id 는 실행 시각이라
+    # 겹치지 않는다. 실측(2026-08-15) 결과 그렇게 쌓인 파일이 2,310개였고,
+    # 읽기 비용은 데이터 양이 아니라 파일 개수에 붙는다(flows 에서 109만 개로
+    # 겪은 것과 같은 사고).
+    #
+    # 과거는 tools/backfill_indices_us.py 가 (시리즈, 연도) 결정론 run_id 로
+    # 한 번만 넣는다. 라이브는 최근 것만 따라잡으면 된다 — collect_daily 의
+    # SESSIONS=3 과 같은 취지로, 연휴·장애로 며칠 놓쳐도 메워지게 넉넉히 준다.
     written = IndexCollector(
-        store=store, source=source, clock=clock, archive=RawArchive(root=store.root)
+        store=store, source=source, clock=clock,
+        archive=RawArchive(root=store.root), days=10,
     ).collect()
-    print(f"indices 적재: {written}행 (US — 시장 반응 측정용)")
+    print(f"indices 적재: {written}행 (US · 가격지수 — 배당 미반영)")
 
 
     kosis = KosisSource.from_env()

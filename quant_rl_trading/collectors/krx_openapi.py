@@ -48,6 +48,33 @@ BOARDS = {
 
 INDEX_PATH = "/idx/krx_dd_trd"
 
+#: 시장 대표지수 경로. ``INDEX_PATH``(KRX 계열 40개)에는 **코스피·코스닥이
+#: 없다** — KRX 300·KRX 100 같은 통합지수만 들어 있다. 대표지수는 시장별
+#: 경로에 따로 있다 (실측 2026-08-15: kospi 51개 / kosdaq 40개).
+BOARD_INDEX_PATHS = {
+    "KOSPI": "/idx/kospi_dd_trd",
+    "KOSDAQ": "/idx/kosdaq_dd_trd",
+}
+
+#: 대표지수만 골라 **명시적인** entity_id 를 준다. (원본 지수명, 소속) → 우리 이름.
+#:
+#: 전량 적재하지 않는 이유가 둘이다.
+#:
+#: 1. **entity_id 충돌.** 두 경로 모두 '화학'·'제조'·'건설'·'금융'·'통신' 을
+#:    갖는다. 이름만으로 ``KR:IDX:{name}`` 을 만들면 코스피 화학업종과 코스닥
+#:    화학업종이 한 entity_id 로 합쳐져 서로 다른 지수가 뒤섞인다.
+#: 2. 업종지수는 이미 KRX 300 계열(``INDEX_PATH``)로 들어와 있다.
+#:
+#: 화면이 기대하는 이름(``KR:IDX:KOSPI`` 등)은 dashboard/services/trading.py 의
+#: ``BENCHMARK_CANDIDATES`` 가 정한다. 이름을 여기서 맞춘다 — 비슷한 지수로
+#: 대신 채우는 것이 아니라 **같은 지수에 표준 식별자**를 주는 것이다.
+BOARD_INDEX_IDS = {
+    ("코스피", "KOSPI"): "KOSPI",
+    ("코스피 200", "KOSPI"): "KOSPI200",
+    ("코스닥", "KOSDAQ"): "KOSDAQ",
+    ("코스닥 150", "KOSDAQ"): "KOSDAQ150",
+}
+
 #: 응답 필드 → 우리 이름. 대문자 축약을 코드 전체에 퍼뜨리지 않는다.
 #: **주의**: 일별매매의 ``ISU_CD`` 는 단축코드(095570)다. 같은 이름이
 #: 종목기본정보에서는 ISIN(KR7095570008)이라 그대로 옮기면 code 가 None 이
@@ -179,6 +206,21 @@ class KrxOpenApi:
         ]
         return sorted(rows, key=lambda item: str(item.get("name") or ""))
 
+    def board_indices_on(self, day: date) -> list[dict[str, Any]]:
+        """그날 시장 대표지수(코스피·코스닥). 시장마다 한 콜씩.
+
+        ``indices_on`` 과 경로가 다르다. KRX 통합지수 경로에는 대표지수가
+        없어서 화면의 "지수 대비" 패널이 계속 "없음" 이었다.
+        """
+        rows: list[dict[str, Any]] = []
+        for board, path in BOARD_INDEX_PATHS.items():
+            for raw in self._call(path, day):
+                mapped = {name: raw.get(field) for field, name in INDEX_FIELDS.items()}
+                # 응답의 IDX_CLSS 가 이미 소속을 담지만, 경로가 진실이다.
+                mapped["index_class"] = board
+                rows.append(mapped)
+        return sorted(rows, key=lambda item: str(item.get("name") or ""))
+
     def close(self) -> None:
         if self._client is not None:
             self._client.close()
@@ -266,6 +308,50 @@ def normalize_sectors(
                 "source": SOURCE,
                 "market": market,
                 "sector": sector,
+            }
+        )
+    return out
+
+
+def normalize_board_indices(
+    rows: list[dict[str, Any]],
+    *,
+    market: str,
+    valid_from: datetime,
+    observed_at: datetime,
+) -> list[dict[str, Any]]:
+    """시장 대표지수 → indices 행. ``BOARD_INDEX_IDS`` 에 있는 것만 남긴다.
+
+    **가격지수(PR)다. 총수익지수가 아니다** — KRX Open API 는 배당을 반영한
+    지수를 주지 않는다(유료 라이선스). 벤치마크로 쓰면 배당수익률만큼(국내
+    대형주 연 2~3%p) 우리에게 유리하게 나온다.
+
+    이름이 명단에 없으면 버린다. 업종지수는 두 시장이 같은 이름('화학',
+    '제조')을 써서 ``KR:IDX:{name}`` 으로는 서로 다른 지수가 한 entity_id 에
+    합쳐진다 — 조용히 섞이느니 안 받는 편이 낫다.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        board = str(row.get("index_class") or "").strip()
+        symbol = BOARD_INDEX_IDS.get((name, board))
+        close = _number(row.get("close"))
+        if symbol is None or close is None:
+            continue
+        out.append(
+            {
+                "entity_id": f"{market}:IDX:{symbol}",
+                "valid_from": valid_from,
+                "observed_at": observed_at,
+                "source": SOURCE,
+                "market": market,
+                "board": board,
+                "open": _number(row.get("open")),
+                "high": _number(row.get("high")),
+                "low": _number(row.get("low")),
+                "close": close,
+                "volume": _number(row.get("volume")),
+                "value": _number(row.get("value")),
             }
         )
     return out
