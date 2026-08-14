@@ -249,8 +249,15 @@ _SPECS: dict[str, TableSpec] = {
             "주고(942 종목 전부 커버리지 0), KOSDAQ 만 우량기업부·벤처기업부· "
             "중견기업부·기술성장기업부 등으로 갈린다. 즉 지금 섹터 상한은 "
             "**업종 분산이 아니라 KOSDAQ 시장 구분에만** 걸린다 — KOSPI 대형주는 "
-            "섹터 미상으로 남아 상한 자체가 적용되지 않는다. 진짜 업종 분류는 "
-            "다른 KRX 엔드포인트(예: 업종분류현황)가 필요하다."
+            "섹터 미상으로 남아 상한 자체가 적용되지 않는다."
+            "\n\n**2026-08-15 갱신:** 진짜 업종 분류를 KRX 에서 받을 수 있는지 "
+            "실제 호출로 확인했다 — KRX 정식 Open API(data-dbg.krx.co.kr) 에는 "
+            "업종분류 상품 자체가 없다(종목기본정보 3개 엔드포인트 전부 "
+            "``SECT_TP_NM`` 뿐). 대신 DART ``company.json`` 의 ``induty_code``"
+            "(표준산업분류)로 받았다 — ``source=dart_company`` 로 KR "
+            "2,761/2,874종목(96.1%) 적재 완료 (``collectors/dart_sectors.py``). "
+            "**다만 섹터 상한은 아직 켜지 않았다** — 커버리지를 본 뒤 별도로 "
+            "판단한다(selector.md §5-5, ``selector/pipeline.py`` 의 훅 참고)."
         ),
     ),
     "signals": TableSpec(

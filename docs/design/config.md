@@ -63,6 +63,10 @@ execution:
   slice_interval_sec: 60
   retry_after_sec: 300
   max_retries: 3
+  # 매도 대금이 예수금이 되기까지의 거래일. 국내 주식은 D+2.
+  # **0 으로 두면 오늘 판 돈으로 오늘 사게 된다.** 이게 없던 동안 백테스트가
+  # 레버리지 3.2배까지 갔다 — 가용 현금을 보는 코드가 아예 없었다 (2026-08-15).
+  settlement_days: 2
 
 analyst:
   ic_threshold: 0.03
