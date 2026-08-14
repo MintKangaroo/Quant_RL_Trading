@@ -16,6 +16,7 @@ from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.dashboard.api.common import clock, envelope, scope, store
 from quant_rl_trading.dashboard.services import trading as service
+from quant_rl_trading.executor import guards
 
 bp = Blueprint("trading_api", __name__, url_prefix="/api/trading")
 
@@ -43,6 +44,50 @@ def overview() -> Any:
             lookback=current.lookback,
             entity_id=request.args.get("entity") or None,
         ),
+    )
+
+
+@bp.post("/killswitch")
+def killswitch() -> Any:
+    """EMERGENCY STOP — 화면에서 매매를 멈춘다.
+
+    **읽기 전용 대시보드에서 유일한 쓰기다.** 그 예외를 두는 이유는, 멈추는
+    수단이 터미널에만 있으면 정작 멈춰야 할 순간에 못 멈추기 때문이다
+    (runbook.md 킬스위치).
+
+    발동은 ``guards.engage`` 를 그대로 부른다. 화면이 자기 로직을 갖지 않는다 —
+    Executor 가 보는 상태와 화면이 미는 상태가 갈라지면 안전장치가 아니다.
+
+    **해제도 여기서 가능하지만 이유를 요구한다.** 이유 없는 해제는 운영
+    기록에서 "왜 풀었나" 를 영영 답할 수 없게 만든다.
+    """
+    current = scope()
+    if not current.live:
+        # 과거 시점으로 되감은 채 발동하면 기록의 valid_from 이 과거가 된다.
+        raise BadRequest("킬스위치는 라이브에서만 조작한다 (as_of 를 비울 것)")
+
+    payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").lower()
+    reason = str(payload.get("reason") or "").strip()
+    by = str(payload.get("by") or "dashboard")
+    if action not in {"engage", "release"}:
+        raise BadRequest("action 은 engage 또는 release 여야 한다")
+    if not reason:
+        raise BadRequest("reason 이 필요하다. 이유 없는 발동·해제는 운영할 수 없다")
+
+    now = clock().now()
+    if action == "engage":
+        written = guards.engage(
+            store(), as_of=now, observed_at=now, reason=reason, by=by
+        )
+    else:
+        written = guards.release(
+            store(), as_of=now, observed_at=now, by=by, reason=reason
+        )
+    state, current_reason = guards.killswitch_state(store(), as_of=now)
+    return envelope(
+        current,
+        {"action": action, "written": written, "state": str(state), "reason": current_reason},
     )
 
 

@@ -19,6 +19,61 @@ function selectEntity(entityId) {
   window.location.search = query.toString();
 }
 
+/* -- 상태 바 -------------------------------------------------------------- */
+
+function renderStatus(body) {
+  const s = body.data.system;
+  const target = document.getElementById("statusbar");
+  if (!s) return;
+  target.hidden = false;
+  const engaged = body.data.risk && body.data.risk.killswitch.engaged;
+  target.innerHTML = `
+    <span class="badge mode-${s.mode.toLowerCase()}" title="${s.store_root}">${s.mode}</span>
+    <span class="badge dim">${s.mode_note}</span>
+    <span class="badge dim">엔진 ${s.engine}</span>
+    <span class="badge dim">브로커 ${s.broker}</span>
+    <span class="badge ${engaged ? "stop" : "dim"}">킬스위치 ${engaged ? "발동" : "정상"}</span>
+    <span class="badge dim">신호 ${s.last_signal ? s.last_signal.slice(0, 16).replace("T", " ") : "없음"}</span>`;
+}
+
+/* EMERGENCY STOP — 화면에서 매매를 멈춘다.
+ *
+ * 확인 없이 도는 정지 버튼은 오조작으로 하루를 날린다. 그래서 이유를 받는다 —
+ * 서버도 이유 없는 발동을 거부하므로, 여기서 막는 것은 왕복 한 번을 아끼는
+ * 것뿐이고 규칙 자체는 서버가 지킨다.
+ */
+function bindEmergencyStop() {
+  const button = document.getElementById("emergency-stop");
+  if (!button) return;
+  button.addEventListener("click", async () => {
+    const engaged = button.dataset.engaged === "true";
+    const action = engaged ? "release" : "engage";
+    const label = engaged ? "킬스위치를 해제" : "킬스위치를 발동";
+    const reason = window.prompt(
+      `${label}합니다. 이유를 적으세요.\n\n` +
+        (engaged
+          ? "해제하면 다음 세션부터 신규매수가 다시 열립니다."
+          : "발동하면 신규매수가 차단됩니다. 매도는 막지 않습니다.")
+    );
+    if (!reason) return;
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/trading/killswitch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason, by: "dashboard" }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      window.location.reload();
+    } catch (error) {
+      document.getElementById("alerts").innerHTML +=
+        `<div class="alert critical">킬스위치 조작 실패: ${error.message}</div>`;
+      button.disabled = false;
+    }
+  });
+}
+
 /* -- KPI 스트립 ---------------------------------------------------------- */
 
 function renderKpis(body) {
@@ -72,15 +127,21 @@ function renderWatchlist(body) {
     return;
   }
   const head = `<tr><th>종목</th><th class="r">현재가</th><th class="r">등락</th>
-                <th class="r">점수</th><th class="r">보유</th></tr>`;
+                <th>신호</th><th class="r">점수</th><th class="r">보유</th>
+                <th class="r">손익</th></tr>`;
   const cells = rows
     .map(
       (row) => `<tr class="click${row.entity_id === selected ? " on" : ""}" data-entity="${row.entity_id}">
         <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
         <td class="r mono">${num(row.price)}</td>
         <td class="r mono ${signClass(row.change)}">${pct(row.change)}</td>
+        <td><span class="sig ${row.signal.toLowerCase()}">${row.signal}</span>
+            <span class="code">${row.target_weight === null || row.target_weight === undefined
+              ? "" : "목표 " + pct(row.target_weight, 1)}</span></td>
         <td class="r mono">${dec(row.score, 3)}</td>
         <td class="r mono">${row.position ? num(row.position) : "—"}</td>
+        <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}
+            <span class="code">${row.pnl_pct === null ? "" : pct(row.pnl_pct)}</span></td>
       </tr>`
     )
     .join("");
@@ -280,7 +341,7 @@ function renderEquity(body) {
   });
 }
 
-async function renderCandles(entityId) {
+async function renderCandles(entityId, positions) {
   if (!entityId) return;
   const body = await fetchJson(`trading/chart?entity=${encodeURIComponent(entityId)}`);
   const c = body.data;
@@ -299,6 +360,14 @@ async function renderCandles(entityId) {
     itemStyle: { color: SIDE_COLOR[t.side] },
     label: { show: false },
   }));
+
+  // 평균단가 선. 보유 중일 때만 그린다 — 없는 선을 그리면 "샀다" 로 읽힌다.
+  const held = (positions || []).find((row) => row.entity_id === entityId);
+  const guides = held
+    ? [{ yAxis: held.avg_price, name: "평균단가",
+         lineStyle: { color: COLOR.warn, type: "dashed", width: 1 },
+         label: { color: COLOR.warn, formatter: "평균단가", position: "insideEndTop" } }]
+    : [];
 
   chart("chart-candle").setOption({
     ...BASE,
@@ -323,6 +392,7 @@ async function renderCandles(entityId) {
         itemStyle: { color: COLOR.up, color0: COLOR.down,
                      borderColor: COLOR.up, borderColor0: COLOR.down },
         markPoint: { data: marks },
+        markLine: { symbol: "none", data: guides, silent: true },
       },
       { name: "MA5", type: "line", data: c.ma.ma5, showSymbol: false,
         lineStyle: { width: 1, color: "#f5a524" } },
@@ -342,6 +412,7 @@ async function loadTrading() {
   const entity = currentEntity();
   const body = await fetchJson(`trading${entity ? "?entity=" + encodeURIComponent(entity) : ""}`);
   showScope(body);
+  renderStatus(body);
 
   // 회계가 평가를 거부한 경우(예: 환율 미수집). **가짜 숫자를 그리지 않는다** —
   // 화면이 죽은 것과 데이터가 빠진 것은 다른 사건이고, 그 구분이 복구를 가른다.
@@ -364,7 +435,17 @@ async function loadTrading() {
   renderPositions(body);
   renderOrders(body);
   renderEquity(body);
-  await renderCandles(body.data.decision.entity_id);
+
+  const button = document.getElementById("emergency-stop");
+  if (button) {
+    const engaged = body.data.risk.killswitch.engaged;
+    button.dataset.engaged = String(engaged);
+    button.textContent = engaged ? "킬스위치 해제" : "EMERGENCY STOP";
+    button.classList.toggle("engaged", engaged);
+  }
+
+  await renderCandles(body.data.decision.entity_id, body.data.positions);
 }
 
+bindEmergencyStop();
 runAll([loadTrading]);

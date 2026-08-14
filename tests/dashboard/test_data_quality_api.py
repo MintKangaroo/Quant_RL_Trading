@@ -128,8 +128,13 @@ def test_every_api_route_accepts_as_of(client, seeded) -> None:
     타임머신이 깨지고, 그 사실은 몇 달 뒤 이상한 백테스트로 드러난다.
     """
     app = create_app(store=seeded, clock=ReplayClock(NOW))
+    # GET 라우트만 본다. 쓰기 라우트(POST)는 as_of 를 **거부**하는 것이 규약이라
+    # (되감은 채로 상태를 바꾸면 기록의 valid_from 이 과거가 된다) 여기서 같은
+    # 잣대로 잴 수 없다. 그쪽은 test_trading_api 가 따로 고정한다.
     rules = [
-        rule for rule in app.url_map.iter_rules() if str(rule.rule).startswith("/api/")
+        rule
+        for rule in app.url_map.iter_rules()
+        if str(rule.rule).startswith("/api/") and "GET" in rule.methods
     ]
     assert rules, "검사할 API 라우트가 없다"
 

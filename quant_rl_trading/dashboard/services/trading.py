@@ -260,6 +260,19 @@ def positions(store: Store, context: Context) -> list[dict[str, Any]]:
     return rows
 
 
+def _signal_of(target: float | None, held: float) -> str:
+    """화면에 찍는 신호. **결정을 여기서 다시 내리지 않는다** — 기록된 목표
+    비중과 보유를 읽어 이름만 붙인다.
+
+    BUY  : 목표가 있는데 아직 덜 샀다
+    HOLD : 목표만큼 들고 있다
+    SELL : 들고 있는데 목표에서 빠졌다
+    """
+    if target is None or target <= 0:
+        return "SELL" if held > 0 else "—"
+    return "HOLD" if held > 0 else "BUY"
+
+
 def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
     """오늘의 후보 상위 N. **합성 점수 순이다** — 등락률 순이 아니다.
 
@@ -276,22 +289,55 @@ def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
     names = _names(store, as_of=as_of, entities=entities)
     quotes = _quotes(store, as_of=as_of, entities=entities, market=context.market)
     held = {
-        entity: position.quantity
+        entity: position
         for entity, position in context.book.positions.items()
         if position.quantity > 0
     }
-    return [
-        {
-            "entity_id": entity,
-            "name": names.get(entity, entity),
-            "score": score,
-            "price": quotes.get(entity, {}).get("close"),
-            "change": quotes.get(entity, {}).get("change"),
-            "value": quotes.get(entity, {}).get("value"),
-            "position": held.get(entity, 0.0),
-        }
-        for entity, score in top
-    ]
+    targets = _target_weights(store, as_of=as_of)
+
+    rows: list[dict[str, Any]] = []
+    for entity, score in top:
+        position = held.get(entity)
+        price = quotes.get(entity, {}).get("close")
+        quantity = position.quantity if position else 0.0
+        pnl = (
+            (price - position.avg_cost) * quantity
+            if position is not None and price is not None
+            else None
+        )
+        rows.append(
+            {
+                "entity_id": entity,
+                "name": names.get(entity, entity),
+                "score": score,
+                "price": price,
+                "change": quotes.get(entity, {}).get("change"),
+                "value": quotes.get(entity, {}).get("value"),
+                "position": quantity,
+                "target_weight": targets.get(entity),
+                "signal": _signal_of(targets.get(entity), quantity),
+                "pnl": pnl,
+                "pnl_pct": (
+                    (price / position.avg_cost - 1.0)
+                    if position is not None and price is not None and position.avg_cost > 0
+                    else None
+                ),
+            }
+        )
+    return rows
+
+
+def _target_weights(store: Store, *, as_of: datetime) -> dict[str, float]:
+    """마지막 세션의 목표 비중. 없으면 빈 dict — 0 으로 채우지 않는다."""
+    frame = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=5)
+    if frame.empty:
+        return {}
+    latest_session = frame.sort_values("valid_from")["session_id"].iloc[-1]
+    rows = frame[frame["session_id"] == latest_session]
+    return {
+        str(row["entity_id"]): float(row["target_weight"])
+        for row in rows.to_dict(orient="records")
+    }
 
 
 # -- 결정 ----------------------------------------------------------------------
@@ -563,6 +609,45 @@ def _quotes(
     return out
 
 
+def system(store: Store, context: Context) -> dict[str, Any]:
+    """상단 상태 바. **모드와 창고를 화면이 항상 말한다.**
+
+    shadow 창고를 보면서 실전이라고 착각하는 것이 이 화면에서 가능한 가장
+    비싼 오해다. 그래서 창고 경로에서 모드를 유도해 배지로 띄운다 — 사람이
+    설정을 기억하게 두지 않는다.
+    """
+    root = str(store.root)
+    if root.endswith("_shadow"):
+        mode, mode_note = "SHADOW", "모의 운용 — 돈이 오가지 않는다"
+    elif "_backtest" in root:
+        mode, mode_note = "BACKTEST", "백테스트 샌드박스"
+    else:
+        mode, mode_note = "LIVE", "실전 창고"
+
+    as_of = context.as_of
+    latency = store.get("ingest_latency", as_of=as_of, lookback=2)
+    last_ingest = None
+    if not latency.empty:
+        last_ingest = pd.Timestamp(latency["observed_at"].max()).isoformat()
+
+    signals = store.get(SIGNALS, as_of=as_of, lookback=3, columns=["observed_at"])
+    return {
+        "mode": mode,
+        "mode_note": mode_note,
+        "store_root": root,
+        "broker": "LS · 미연결",  # 브로커 어댑터는 실전 투입 때 붙는다
+        "engine": f"룰 베이스라인 ({AllocatorParams.from_store(store, as_of=as_of).baseline})",
+        "last_ingest": last_ingest,
+        # **신호가 언제 것인지**가 이 화면에서 가장 자주 묻는 질문이다.
+        "last_signal": (
+            pd.Timestamp(signals["observed_at"].max()).isoformat()
+            if not signals.empty
+            else None
+        ),
+        "signals_rows": len(signals),
+    }
+
+
 def payload(
     store: Store,
     clock: Any,
@@ -584,6 +669,16 @@ def payload(
     except LookupError as error:
         return {
             "market": market,
+            "system": {
+                "mode": "LIVE" if not str(store.root).endswith("_shadow") else "SHADOW",
+                "mode_note": "평가 불가",
+                "store_root": str(store.root),
+                "broker": "—",
+                "engine": "—",
+                "last_ingest": None,
+                "last_signal": None,
+                "signals_rows": 0,
+            },
             "unavailable": str(error),
             "kpis": None,
             "risk": None,
@@ -598,6 +693,7 @@ def payload(
     risk_state = risk(store, context)
     return {
         "market": market,
+        "system": system(store, context),
         "kpis": kpi,
         "risk": risk_state,
         "alerts": alerts(kpi, risk_state),

@@ -197,3 +197,49 @@ def test_리스크_임계치는_설정에서_온다(client) -> None:
 
 def test_알_수_없는_시장은_거부한다(client) -> None:
     assert client.get("/api/trading?market=JP").status_code == 400
+
+
+# -- EMERGENCY STOP ------------------------------------------------------------
+
+
+def test_킬스위치는_이유를_요구한다(client) -> None:
+    """이유 없는 발동·해제는 나중에 '왜 그랬나' 를 답할 수 없게 만든다."""
+    assert client.post("/api/trading/killswitch", json={"action": "engage"}).status_code == 400
+    assert client.post(
+        "/api/trading/killswitch", json={"action": "engage", "reason": ""}
+    ).status_code == 400
+    assert client.post(
+        "/api/trading/killswitch", json={"action": "무엇", "reason": "테스트"}
+    ).status_code == 400
+
+
+def test_킬스위치를_걸면_화면과_executor_가_같은_상태를_본다(client, desk) -> None:
+    from quant_rl_trading.executor import guards
+
+    response = client.post(
+        "/api/trading/killswitch", json={"action": "engage", "reason": "손으로 정지"}
+    )
+    assert response.status_code == 200
+    assert response.get_json()["data"]["state"] == "engaged"
+
+    # **화면이 자기 상태를 따로 들지 않는다.** Executor 가 보는 것과 같아야 한다.
+    assert not guards.check_killswitch(desk, as_of=NOW)
+    body = client.get("/api/trading").get_json()
+    assert body["data"]["risk"]["killswitch"]["engaged"] is True
+    assert any(item["level"] == "critical" for item in body["data"]["alerts"])
+
+
+def test_되감은_채로는_킬스위치를_못_건다(client) -> None:
+    """과거 시점으로 발동하면 기록의 valid_from 이 과거가 된다."""
+    response = client.post(
+        f"/api/trading/killswitch?as_of={NOW.isoformat()}",
+        json={"action": "engage", "reason": "테스트"},
+    )
+    assert response.status_code == 400
+
+
+def test_모드가_창고에서_유도된다(client) -> None:
+    """shadow 창고를 실전으로 착각하는 것이 가장 비싼 오해다."""
+    system = client.get("/api/trading").get_json()["data"]["system"]
+    assert system["mode"] in {"LIVE", "SHADOW", "BACKTEST"}
+    assert system["store_root"]

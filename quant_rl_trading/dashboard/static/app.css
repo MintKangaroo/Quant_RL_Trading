@@ -405,3 +405,48 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
 
 .alert.warning { border-left-color: var(--warn); color: var(--warn); }
 .alert.critical { border-left-color: var(--up); color: var(--up); }
+
+/* 상태 바 — 모드를 화면이 항상 말한다. shadow 창고를 보면서 실전이라고
+   착각하는 것이 이 화면에서 가능한 가장 비싼 오해다. */
+.statusbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.badge {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.badge.dim { color: var(--dim); }
+.badge.mode-live { color: var(--up); border-color: var(--up); }
+.badge.mode-shadow { color: var(--warn); border-color: var(--warn); }
+.badge.mode-backtest { color: var(--down); border-color: var(--down); }
+.badge.stop { color: var(--up); border-color: var(--up); }
+
+/* EMERGENCY STOP — 항상 같은 자리에 있어야 한다. 찾아야 하는 정지 버튼은
+   정지 버튼이 아니다. */
+button.danger {
+  background: #3a1417;
+  border-color: var(--up);
+  color: #ff8a8f;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+button.danger:hover { background: #4d191d; }
+button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: var(--warn); }
+
+/* AI 신호 배지. **결정을 화면이 다시 내리지 않는다** — 기록된 목표 비중과
+   보유를 읽어 이름만 붙인 것이다. */
+.sig {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--muted);
+}
+.sig.buy { color: var(--up); border-color: var(--up); }
+.sig.sell { color: var(--down); border-color: var(--down); }
+.sig.hold { color: var(--muted); }
