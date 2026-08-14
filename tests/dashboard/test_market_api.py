@@ -1,10 +1,13 @@
 """마켓 API — 지금 시장이 어떤 상태인가.
 
-여기서 고정하는 사실은 셋이다.
+여기서 고정하는 사실은 다섯이다.
 
 1. **as_of 를 지킨다** — 되감으면 그 시점 이후 값이 안 보인다 (불변식 9)
 2. **없는 것은 null 이다** — 환율·지수가 없으면 0 이 아니라 null
 3. **예정된 거시지표는 여기 없다** — 발표 완료만. 예정은 뉴스·일정 탭의 몫이다
+4. **트리맵은 KR·US 두 맵으로 완전히 갈린다** — sectors 는 업종이 아니라
+   KOSDAQ 소속부라 KOSPI 가 전부 미상이다. 업종으로 묶지 않는다
+5. **등락을 못 잰 종목은 null 이다** — 0% 로 채우면 "보합" 이라는 다른 사실이 된다
 """
 
 from __future__ import annotations
@@ -164,6 +167,27 @@ def test_예정된_거시지표는_빠진다(client) -> None:
     assert macro[0]["market"] == "KR"
 
 
+def test_트리맵은_KR_US_두_맵으로_갈린다(client) -> None:
+    body = client.get("/api/market").get_json()
+    treemap = body["data"]["treemap"]
+    kr_ids = {row["entity_id"] for row in treemap["KR"]}
+    us_ids = {row["entity_id"] for row in treemap["US"]}
+    assert kr_ids == {KR_A, KR_B}
+    assert us_ids == {US_A}
+
+
+def test_트리맵도_등락을_못_잰_종목은_null이다(client) -> None:
+    body = client.get("/api/market").get_json()
+    kr = {row["entity_id"]: row for row in body["data"]["treemap"]["KR"]}
+    assert kr[KR_A]["change"] == pytest.approx(71_400.0 / 70_000.0 - 1.0)
+    assert kr[KR_B]["change"] is None  # 오늘 종가가 아예 없다 — 등락을 잴 수 없다
+
+
+def test_트리맵_상위_n이_응답에_같이_실린다(client) -> None:
+    body = client.get("/api/market").get_json()
+    assert body["data"]["treemap"]["top_n"] == 60
+
+
 def test_없는_데이터는_0이_아니라_null이다(store) -> None:
     store.seed_config_defaults()
     client = _build_app(store=store, clock=ReplayClock(NOW)).test_client()
@@ -172,6 +196,7 @@ def test_없는_데이터는_0이_아니라_null이다(store) -> None:
     assert body["data"]["indices"]["highlights"] == []
     assert body["data"]["leaders"]["KR"] == []
     assert body["data"]["macro"] == []
+    assert body["data"]["treemap"] == {"KR": [], "US": [], "top_n": 60}
 
 
 def test_되감으면_그_시점_이후_값이_안_보인다(desk) -> None:

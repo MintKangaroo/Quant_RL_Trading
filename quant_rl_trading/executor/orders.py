@@ -45,6 +45,14 @@ def client_order_id(*, session: str, entity_id: str, slice_seq: int) -> str:
     해시를 쓰는 이유는 길이 때문이다. 종목코드와 세션을 그대로 이으면 증권사
     필드 길이를 넘길 수 있다. 같은 입력이 같은 출력을 주는 성질은 유지된다.
     """
+    # **매수/매도가 씨앗에 없다.** 지금은 그래도 되는데, 그건
+    # `sizing.py` 가 목표비중 차이(delta)의 부호로 방향을 정해
+    # **한 세션에 한 종목은 한 방향뿐**이기 때문이다. 그 불변식이 이 함수를
+    # 떠받치고 있다 — 언젠가 같은 세션에서 같은 종목을 사고팔 수 있게 되면
+    # 두 주문의 id 가 같아지고, 멱등 처리가 뒤엣것을 앞엣것으로 착각해
+    # **조용히 삼킨다**(실제로 검증 도구에서 그 증상이 났다). 그때는 side 를
+    # 씨앗에 넣어야 하는데, 그러면 기존 주문의 id 가 전부 바뀌므로
+    # `submit-{order_id}` 매니페스트도 같이 옮겨야 한다.
     seed = f"{session}|{entity_id}|{slice_seq}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
     return digest[:ORDER_ID_LENGTH]

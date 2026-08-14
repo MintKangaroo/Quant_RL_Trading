@@ -15,6 +15,35 @@ NAV·낙폭·손익은 여기 없다. 그건 트레이딩 탭의 것이고 회�
   채우면 "그 종목은 시총이 0" 이라는 다른 사실이 된다.
 - 거시지표 실측이 아직 없는(예정) 건은 이 화면에 올리지 않는다 — 그건
   뉴스·일정 탭의 "예정" 패널이 하는 일이다. 여기는 **이미 일어난 것**만 본다.
+- 트리맵에서 등락률을 못 잰 종목(그날 거래가 없어 직전 종가가 없는 등)은
+  ``change`` 를 ``null`` 로 둔다. 화면이 그걸 회색으로 그린다 — 0% 로 채우면
+  "보합" 이라는 다른 사실이 된다.
+
+## 트리맵의 묶는 축 — 왜 업종이 아니라 시장인가, 왜 KR/US 두 맵인가
+
+finviz 식 맵은 보통 섹터로 묶는다. 이 창고에도 `sectors` 테이블이 있지만
+**업종 분류가 아니다.** `SECT_TP_NM`(KRX Open API 일별매매) 은 소속부 —
+KOSDAQ 만 우량기업부·벤처기업부 등으로 갈리고, **KOSPI 942 종목은 전부
+빈 문자열(미상)** 이다 (`store/tables.py` sectors TableSpec 참고). 이 축으로
+묶으면 코스피가 통째로 "미상" 한 덩어리가 되어, 없는 업종 분류를 있는 것처럼
+그리게 된다. 그래서 확실히 아는 축 — **시장(KR/US)** — 으로 나눈다. 한 맵
+안에 두 시장을 그룹으로 넣는 대신 KR·US 를 **완전히 다른 맵 둘로** 쪼갠다 —
+원·달러가 섞인 시가총액 크기를 한 사각형 트리에 나란히 두면 두 시장의
+스케일이 뒤섞여 읽힌다(원화 시총이 절대적으로 더 크다).
+
+## 미장 시가총액 — 아직 못 그린다
+
+`leaders(market="US")` 와 `market_treemap()` 이 참조하는 `market_stats` 는
+**시가총액 = 주가 × 상장주식수** 로 계산된 값인데, 이 창고에서 상장주식수
+(shares outstanding)를 수집하는 곳은 `collectors/krx_openapi.py`
+(KRX Open API, KR 전용) 하나뿐이다. `market_stats` 를 시장별로 세어 보면
+KR 675만 행·US 0행이다 — US 종목은 시세(`prices`)와 유니버스(`universe`)는
+있어도 상장주식수가 없어 market_cap 자체가 만들어지지 않는다. 지어내지
+않고 US 리더·트리맵을 빈 목록으로 둔다 — 화면이 그 이유를 문구로 말한다.
+**필요한 수집 작업**: US 상장주식수(shares outstanding) 소스를 찾아
+`market_stats`(market="US", metric="shares"/"market_cap") 를 채우는 새
+수집기. LS 해외주식 API 든 다른 소스든, `collectors/*` 는 이 탭의 소유가
+아니라 여기서 만들지 않는다.
 """
 
 from __future__ import annotations
@@ -43,6 +72,11 @@ INDEX_HIGHLIGHTS = ("KR:IDX:KRX TMI", "KR:IDX:KRX 300", "US:IDX:SP500")
 
 #: 시가총액 상위 표의 행수. 화면은 한눈에 보는 것이지 전종목 스크리너가 아니다.
 LEADER_ROWS = 15
+
+#: 트리맵 시장별 상위 종목 수. **화면 상수다 — store.config 임계치가 아니다**
+#: (LEADER_ROWS 와 같은 이유). 수천 종목을 다 그리면 사각형이 1픽셀이 되어
+#: 브라우저가 느려진다. 60은 finviz 가 한 섹터 타일에 보통 담는 규모다.
+TREEMAP_TOP_N = 60
 
 #: 최근 거시지표 발표 카드 개수. 지표별 전체 현황은 뉴스·일정 탭이 맡는다 —
 #: 여기는 "방금 무엇이 발표됐나" 만 짚는다.
@@ -135,8 +169,10 @@ def fx(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
 # -- 시가총액 상위 -------------------------------------------------------------
 
 
-def leaders(store: Store, *, as_of: datetime, market: str) -> list[dict[str, Any]]:
-    """시가총액 상위 종목. 순위는 오늘 알 수 있는 마지막 시총 기준이다.
+def _leaders(store: Store, *, as_of: datetime, market: str, limit: int) -> list[dict[str, Any]]:
+    """시가총액 상위 ``limit`` 종목. `leaders()`(LEADER_ROWS) 와
+    `market_treemap()`(TREEMAP_TOP_N) 이 같은 조인을 다른 상한으로 쓴다 —
+    행수만 다르고 로직은 하나다.
 
     `market_stats` 는 종목마다 하루 두 행(market_cap·shares)이라 KR 만 해도
     수천 종목이다. 창을 짧게 열고(RECENT_DAYS) market 으로 SQL 단계에서
@@ -153,7 +189,7 @@ def leaders(store: Store, *, as_of: datetime, market: str) -> list[dict[str, Any
     if caps.empty:
         return []
     latest = caps.sort_values("valid_from").groupby("entity_id").tail(1)
-    top = latest.sort_values("value", ascending=False).head(LEADER_ROWS)
+    top = latest.sort_values("value", ascending=False).head(limit)
     entities = [str(e) for e in top["entity_id"]]
 
     names = _names(store, as_of=as_of, entities=entities)
@@ -173,6 +209,8 @@ def leaders(store: Store, *, as_of: datetime, market: str) -> list[dict[str, Any
             if len(closes) >= 2:
                 changes[str(entity)] = float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1.0
             elif len(closes) == 1:
+                # 종가는 있는데 직전이 없다 — 등락을 잴 수 없다. None 을 그대로
+                # 둔다. 0 으로 채우면 "보합" 이라는 다른 사실이 된다.
                 changes[str(entity)] = None
 
     rows: list[dict[str, Any]] = []
@@ -183,10 +221,40 @@ def leaders(store: Store, *, as_of: datetime, market: str) -> list[dict[str, Any
                 "entity_id": entity,
                 "name": names.get(entity, entity),
                 "market_cap": float(row["value"]),
+                # 종가 자체가 없는 종목(오늘 거래정지 등)은 changes 에 키가
+                # 없다 — .get() 이 None 을 돌려준다. 거래는 있었는데 직전이
+                # 없는 경우와 같은 값(None)이지만, 둘 다 "등락을 못 잰다" 라는
+                # 같은 사실이라 화면에서 구분할 필요가 없다.
                 "change": changes.get(entity),
             }
         )
     return rows
+
+
+def leaders(store: Store, *, as_of: datetime, market: str) -> list[dict[str, Any]]:
+    """시가총액 상위 종목. 순위는 오늘 알 수 있는 마지막 시총 기준이다."""
+    return _leaders(store, as_of=as_of, market=market, limit=LEADER_ROWS)
+
+
+# -- 시가총액 트리맵 -------------------------------------------------------------
+
+
+def market_treemap(store: Store, *, as_of: datetime) -> dict[str, Any]:
+    """시가총액 트리맵 — finviz 식. 넓이는 시총, 색은 등락률.
+
+    **KR·US 두 맵으로 완전히 나눈다** — 모듈 docstring "트리맵의 묶는 축"
+    참고. 시장마다 상위 ``TREEMAP_TOP_N`` 종목만 담는다 — 전 종목을 그리면
+    사각형이 안 보이는 크기가 된다. 화면이 "상위 N 만" 이라고 말해야 하므로
+    ``top_n`` 을 응답에 함께 싣는다.
+
+    US 는 지금 항상 빈 리스트다 — `market_stats` 에 US 상장주식수가 없어
+    market_cap 자체가 없다(모듈 docstring "미장 시가총액 — 아직 못 그린다").
+    """
+    return {
+        "KR": _leaders(store, as_of=as_of, market="KR", limit=TREEMAP_TOP_N),
+        "US": _leaders(store, as_of=as_of, market="US", limit=TREEMAP_TOP_N),
+        "top_n": TREEMAP_TOP_N,
+    }
 
 
 # -- 거시지표 ------------------------------------------------------------------
@@ -250,4 +318,5 @@ def payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
             "US": leaders(store, as_of=as_of, market="US"),
         },
         "macro": macro_recent(store, as_of=as_of),
+        "treemap": market_treemap(store, as_of=as_of),
     }

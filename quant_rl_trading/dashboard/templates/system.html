@@ -1,24 +1,78 @@
 {% extends "base.html" %}
 {% block title %}System · Quant_RL_Trading{% endblock %}
 
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='system.css') }}">
+{% endblock %}
+
 {% block body %}
 {% with active = 'system' %}{% include "_scope.html" %}{% endwith %}
 
-<main>
+<main class="sys-wrap">
+  <div class="sys-bar">
+    <h2>🖥️ 시스템 모니터</h2>
+    <span class="sub" id="sys-updated">-</span>
+  </div>
+
   <section class="alerts" id="alerts"></section>
 
   <section class="kpis" id="kpis"></section>
 
-  <section class="panel">
-    <h2>서버 리소스 <span class="right sub" id="resources-total-rss"></span></h2>
-    <div class="kpis" id="resources" style="margin-bottom: 10px"></div>
-    <div class="scroll" id="processes"></div>
-    <p class="note">
+  <div class="sys-bar" style="margin-top:18px"><h2 style="font-size:15px">💻 서버 리소스</h2></div>
+  <div class="sys-grid">
+    <div class="sys-card">
+      <h3>CPU <span id="cpu-cores" class="sub"></span></h3>
+      <div class="big"><span id="cpu-load">-</span><span class="u"> load1</span></div>
+      <div class="sys-sub" id="cpu-detail">-</div>
+      <div class="sys-bar-track"><div id="cpu-bar" style="width:0"></div></div>
+    </div>
+    <div class="sys-card">
+      <h3>메모리</h3>
+      <div class="big"><span id="mem-used">-</span><span class="u"> / <span id="mem-total">-</span> GB</span></div>
+      <div class="sys-sub" id="mem-detail">-</div>
+      <div class="sys-bar-track"><div id="mem-bar" style="width:0"></div></div>
+    </div>
+    <div class="sys-card">
+      <h3>디스크</h3>
+      <div class="big"><span id="disk-used">-</span><span class="u"> / <span id="disk-total">-</span> GB</span></div>
+      <div class="sys-sub" id="disk-detail">-</div>
+      <div class="sys-bar-track"><div id="disk-bar" style="width:0"></div></div>
+    </div>
+    <div class="sys-card">
+      <h3>워커 메모리 합</h3>
+      <div class="big"><span id="proc-rss">-</span><span class="u"> MB</span></div>
+      <div class="sys-sub">이 레포 밑 프로세스 RSS 총합(대시보드 포함)</div>
+    </div>
+  </div>
+
+  <div class="sys-card" style="margin-bottom:14px">
+    <h3>프로세스</h3>
+    <div class="sys-tscroll">
+    <table id="proc-tbl">
+      <colgroup><col class="c-cmd"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
+      <thead><tr><th>PID / 명령</th><th class="num">CPU%</th><th class="num">RSS(MB)</th><th class="num">가동(h)</th></tr></thead>
+      <tbody id="proc-rows"></tbody>
+    </table>
+    </div>
+    <p class="note" style="margin:10px 11px 0">
       <code>/proc</code> 실측이다. <strong>as_of 로 되감기지 않는다</strong> —
-      이 기계의 지금 상태이지 창고의 과거 사실이 아니다. 프로세스는 작업
-      디렉터리가 이 레포 밑인 것만 잡는다(대시보드 자신 포함).
+      이 기계의 지금 상태이지 창고의 과거 사실이 아니다. 저장소(디렉터리별
+      용량) 표는 여기 없다 — <code>flows</code> 는 파일 109만 개라 전체를
+      훑으면(<code>du</code>) 실측 11~20초가 걸려, 이 화면이 막으려는
+      바로 그 사고이기 때문이다(services/system.py 모듈 docstring).
     </p>
-  </section>
+  </div>
+
+  <div class="sys-rec">
+    <h3>🏠 홈서버 사이징 가이드 (이 워크로드 기준)</h3>
+    <div id="rec-body">측정 중…</div>
+    <p class="note" style="margin-top:10px">
+      실측 리소스에서 계산한 <strong>참고용 권장치</strong>다 — 경고 임계치가
+      아니라 색을 칠하지 않는다(불변식 10). RL 학습(<code>train_*.py</code>)은
+      일시적으로 CPU·메모리를 크게 쓰지만 상시 부하가 아니다. 상시 운영
+      (워커+대시보드)은 가볍다.
+    </p>
+  </div>
 
   <section class="panel">
     <h2>크론 작업 — 최근 성공/실패</h2>

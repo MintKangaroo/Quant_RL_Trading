@@ -1,0 +1,31 @@
+/* 마켓 탭 전용 — 시가총액 트리맵(finviz 식).
+ *
+ * 다른 탭이 공유하는 app.css 는 건드리지 않는다(다른 에이전트들이 동시
+ * 작업 중). .panel·.chart·.tall·.note 등 공통 클래스는 app.css 것을 그대로
+ * 쓰고, 여기서는 트리맵 두 개(국장·미장)를 나란히 두는 레이아웃만 추가한다.
+ */
+
+.treemap-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.treemap-col h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.treemap-col h3 .n {
+  font-weight: 400;
+  color: var(--dim);
+}
+
+@media (max-width: 900px) {
+  .treemap-grid { grid-template-columns: 1fr; }
+}

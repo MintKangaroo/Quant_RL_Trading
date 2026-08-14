@@ -623,6 +623,150 @@ function bindCalendarPopout() {
   });
 }
 
+/* -- 지수 대비 -------------------------------------------------------------- */
+
+/* 캘린더 오른쪽 공백에 앉는다. **여기서 대용치를 쓰지 않는다** — 코스피가
+ * 창고에 없으면 "없다" 고 말한다. KRX 300 을 대신 보여주고 이름만 코스피라고
+ * 붙이면 그게 더 큰 거짓말이다 (regime Analyst 는 이유가 있어 대용치를
+ * 쓰지만 이 화면은 그 이유를 공유하지 않는다).
+ */
+function renderBenchmarkCompare(body) {
+  const target = document.getElementById("bench-compare");
+  if (!target) return;
+  const bc = body.data.benchmark_compare;
+  if (!bc || !bc.benchmarks || !bc.benchmarks.length) {
+    target.innerHTML = `<p class="empty">비교할 지수가 없다.</p>`;
+    return;
+  }
+
+  const rows = bc.benchmarks
+    .map((b) => {
+      if (!b.available) {
+        return `<div class="bench-row unavailable">
+          <span class="label">${b.label}</span>
+          <span>없음 — ${b.reason}</span>
+        </div>`;
+      }
+      const excess = b.cumulative_excess;
+      const bars = b.daily
+        .map((day) => {
+          if (day.excess === null || day.excess === undefined) {
+            return `<span class="bar na" title="${day.session} · 지수 데이터 없음"></span>`;
+          }
+          // 막대 높이는 그 달 안에서의 상대 크기다. 절대 기준을 두면 변동이
+          // 작은 달이 통째로 안 보인다 (calendar.js scaleOf 와 같은 이유).
+          const scale = Math.max(...b.daily.map((d) => Math.abs(d.excess || 0)), 1e-9);
+          const height = Math.max(8, (Math.abs(day.excess) / scale) * 100);
+          return `<span class="bar ${day.excess >= 0 ? "up" : "down"}" style="height:${height}%"
+            title="${day.session} · 우리 ${pct(day.ours)} · 지수 ${pct(day.index)} · 초과 ${pct(day.excess)}"></span>`;
+        })
+        .join("");
+      return `<div class="bench-row">
+        <div class="head">
+          <span class="label">${b.label} <span class="sub">${bc.month}</span></span>
+          <span class="num ${signClass(excess)}">${arrow(excess)}${pct(excess)}</span>
+        </div>
+        <div class="head">
+          <span class="label">우리 ${pct(b.cumulative_ours)} · 지수 ${pct(b.cumulative_index)}</span>
+        </div>
+        <div class="bench-daily">${bars}</div>
+      </div>`;
+    })
+    .join("");
+  target.innerHTML = rows;
+}
+
+/* -- Positions 파이 --------------------------------------------------------- */
+
+/* 보유 종목 비중 + 현금. **현금을 빼면 익스포저가 100% 로 보인다** — 위
+ * Risk Monitor 의 "익스포저" 행과 이 파이가 같은 사실을 말해야 한다.
+ * 종목이 많으면 상위 N + 기타로 접되, 접었다는 사실 자체를 라벨에 남긴다.
+ */
+const POSITIONS_PIE_TOP_N = 6;
+
+function renderPositionsPie(body) {
+  const target = document.getElementById("chart-positions-pie");
+  if (!target) return;
+  const rows = body.data.positions || [];
+  const k = body.data.kpis;
+  if (!rows.length && !(k && k.cash_krw)) {
+    target.innerHTML = `<p class="empty">보유도 현금도 없다.</p>`;
+    return;
+  }
+
+  const nav = k.nav;
+  const cashValue = (k.cash_krw || 0) + (k.cash_usd || 0) * (k.fx_rate || 0);
+  const sorted = [...rows].sort((a, b) => (b.value || 0) - (a.value || 0));
+  const top = sorted.slice(0, POSITIONS_PIE_TOP_N);
+  const rest = sorted.slice(POSITIONS_PIE_TOP_N);
+  const restValue = rest.reduce((sum, row) => sum + (row.value || 0), 0);
+
+  // 색은 이 화면의 규칙을 그대로 쓴다 — 손익 부호(초록↑·빨강↓). 파이는
+  // 구성이 아니라 "그 조각이 지금 벌고 있나" 를 같이 말한다. 현금은
+  // 손익이 없으니 중립색이다.
+  const sliceColor = (row) =>
+    row.pnl_pct === null || row.pnl_pct === undefined
+      ? COLOR.muted
+      : row.pnl_pct > 0
+      ? COLOR.up
+      : row.pnl_pct < 0
+      ? COLOR.down
+      : COLOR.muted;
+
+  const data = [
+    ...top.map((row) => ({
+      name: `${row.name} (${row.entity_id})`,
+      value: row.value || 0,
+      itemStyle: { color: sliceColor(row) },
+    })),
+    ...(rest.length
+      ? [
+          {
+            // 접었다는 사실을 라벨에 남긴다 — 숫자만 보면 종목 하나로 보인다.
+            name: `기타 ${rest.length}종목`,
+            value: restValue,
+            itemStyle: { color: COLOR.border },
+          },
+        ]
+      : []),
+    { name: "현금", value: cashValue, itemStyle: { color: COLOR.bench } },
+  ].filter((slice) => slice.value > 0);
+
+  chart("chart-positions-pie").setOption({
+    backgroundColor: "transparent",
+    animation: false,
+    tooltip: {
+      trigger: "item",
+      backgroundColor: COLOR.panel,
+      borderColor: COLOR.border,
+      textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
+      formatter: (p) => `${p.name}<br/>${num(Math.round(p.value))} KRW · ${p.percent.toFixed(1)}%`,
+    },
+    legend: {
+      type: "scroll",
+      orient: "vertical",
+      right: 4,
+      top: "middle",
+      textStyle: { color: COLOR.muted, fontSize: 10 },
+      itemWidth: 10,
+      itemHeight: 10,
+    },
+    series: [
+      {
+        type: "pie",
+        radius: ["38%", "70%"],
+        center: ["36%", "50%"],
+        avoidLabelOverlap: true,
+        itemStyle: { borderColor: COLOR.panel, borderWidth: 1 },
+        label: { show: false },
+        labelLine: { show: false },
+        data,
+      },
+    ],
+  });
+  target.title = nav ? `NAV ${num(Math.round(nav))} 기준` : "";
+}
+
 /* -- 진입 ----------------------------------------------------------------- */
 
 async function loadTrading() {
@@ -637,7 +781,7 @@ async function loadTrading() {
     renderAlerts(body);
     document.getElementById("kpis").innerHTML =
       kpi("평가 불가", "—", body.data.unavailable, true);
-    ["watchlist", "decision", "risk", "positions", "orders"].forEach((id) => {
+    ["watchlist", "decision", "risk", "positions", "orders", "bench-compare"].forEach((id) => {
       document.getElementById(id).innerHTML =
         `<p class="empty">회계가 평가를 거부했다. 위 사유를 먼저 해결한다.</p>`;
     });
@@ -660,10 +804,12 @@ async function loadTrading() {
   renderDecision(body);
   renderRisk(body);
   renderPositions(body);
+  renderPositionsPie(body);
   renderOrders(body);
   renderEquity(body);
   renderUnderwater(body);
   renderCalendarPanel(body);
+  renderBenchmarkCompare(body);
   bindCalendarPopout();
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.

@@ -19,18 +19,13 @@
 - `events` 는 이 창고에서 현재 0행이다 (replay/live 파이프라인이 아직 이
   창고에 이벤트를 안 남겼다). 지어내지 않고 빈 패널로 둔다 — 채워지면
   관측→Signal→Selector→Allocator→주문 단계가 그대로 화면에 뜬다.
-- 트리맵에서 등락률을 못 잰 종목(그날 거래가 없어 직전 종가가 없는 등)은
-  ``change`` 를 ``null`` 로 둔다. 화면이 그걸 회색으로 그린다 — 0% 로 채우면
-  "보합" 이라는 다른 사실이 된다.
 
-## 트리맵의 묶는 축 — 왜 업종이 아니라 시장인가
+## 시가총액 트리맵은 여기 없다
 
-finviz 식 맵은 보통 섹터로 묶는다. 이 창고에도 `sectors` 테이블이 있지만
-**업종 분류가 아니다.** `SECT_TP_NM`(KRX Open API 일별매매) 은 소속부 —
-KOSDAQ 만 우량기업부·벤처기업부 등으로 갈리고, **KOSPI 942 종목은 전부
-빈 문자열(미상)** 이다 (`store/tables.py` sectors TableSpec 참고). 이 축으로
-묶으면 코스피가 통째로 "미상" 한 덩어리가 되어, 없는 업종 분류를 있는 것처럼
-그리게 된다. 그래서 확실히 아는 축 — **시장(KR/US)** — 으로만 묶는다.
+전에는 이 탭에 finviz 식 시총 트리맵이 있었다. 지금 시장이 어떤 상태인가는
+"우리와 관련해 무슨 일이 벌어졌나"(이 탭의 질문)가 아니라 마켓 탭의 질문이라
+`services/market.py` 의 `market_treemap()` 으로 옮겼다 — 마켓 탭 화면
+맨 아래에 있다.
 """
 
 from __future__ import annotations
@@ -46,8 +41,6 @@ DOCUMENTS = "documents"
 VERDICTS = "verdicts"
 EVENTS = "events"
 UNIVERSE = "universe"
-MARKET_STATS = "market_stats"
-PRICES = "prices"
 
 #: dart 공시 11,414건의 분포를 보고 골랐다(모듈 docstring). "ownership"·
 #: "other"·"earnings" 는 부피가 커서 뺐다 — 통상적 신고가 대부분이다.
@@ -58,16 +51,6 @@ IMPORTANT_DOC_TYPES = frozenset(
 DOCUMENT_ROWS = 30
 VERDICT_ROWS = 40
 EVENT_ROWS = 30
-
-#: 트리맵 시장별 상위 종목 수. **화면 상수다 — store.config 임계치가 아니다**
-#: (다른 화면의 WATCHLIST_ROWS·LEADER_ROWS 와 같은 이유, 모듈 docstring).
-#: 2,871개 KR 종목을 다 그리면 사각형이 1픽셀이 되어 브라우저가 느려진다.
-#: 60은 finviz 가 한 섹터 타일에 보통 담는 규모다.
-TREEMAP_TOP_N = 60
-
-#: 시총·등락 계산에 쓰는 창. 화면의 lookback(타임머신 창)과 다르다 — "어제
-#: 대비" 하나만 있으면 된다. market.py 의 RECENT_DAYS 와 같은 값이다.
-RECENT_DAYS = 5
 
 
 def _names(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
@@ -204,88 +187,6 @@ def system_events(store: Store, *, as_of: datetime, lookback: int) -> list[dict[
     ]
 
 
-# -- 트리맵 --------------------------------------------------------------------
-
-
-def _market_cap_leaders(
-    store: Store, *, as_of: datetime, market: str, limit: int
-) -> list[dict[str, Any]]:
-    """시가총액 상위 N. market.py 의 leaders() 와 같은 조인(market_stats ×
-    universe × prices)이지만, 그 파일은 다른 에이전트가 동시에 고치고 있어
-    임포트로 묶지 않고 여기서 다시 짠다 — 서로 건드리지 않아도 되게.
-    """
-    stats = store.get(
-        MARKET_STATS,
-        as_of=as_of,
-        lookback=RECENT_DAYS,
-        market=market,
-        columns=["entity_id", "metric", "value", "valid_from"],
-    )
-    caps = stats[stats["metric"] == "market_cap"]
-    if caps.empty:
-        return []
-    latest = caps.sort_values("valid_from").groupby("entity_id").tail(1)
-    top = latest.sort_values("value", ascending=False).head(limit)
-    entities = [str(e) for e in top["entity_id"]]
-
-    names = _names(store, as_of=as_of, entities=entities)
-    prices = store.get(
-        PRICES,
-        as_of=as_of,
-        entity=entities,
-        lookback=RECENT_DAYS,
-        market=market,
-        columns=["entity_id", "close", "valid_from"],
-    )
-    changes: dict[str, float | None] = {}
-    if not prices.empty:
-        for entity, group in prices.sort_values("valid_from").groupby("entity_id"):
-            closes = group["close"].astype(float)
-            closes = closes[closes > 0]
-            if len(closes) >= 2:
-                changes[str(entity)] = float(closes.iloc[-1]) / float(closes.iloc[-2]) - 1.0
-            elif len(closes) == 1:
-                # 종가는 있는데 직전이 없다 — 등락을 잴 수 없다. None 을 그대로
-                # 둔다. 0 으로 채우면 "보합" 이라는 다른 사실이 된다.
-                changes[str(entity)] = None
-
-    rows: list[dict[str, Any]] = []
-    for row in top.to_dict(orient="records"):
-        entity = str(row["entity_id"])
-        rows.append(
-            {
-                "entity_id": entity,
-                "name": names.get(entity, entity),
-                "market_cap": float(row["value"]),
-                # 종가 자체가 없는 종목(오늘 거래정지 등)은 changes 에 키가
-                # 없다 — .get() 이 None 을 돌려준다. 거래는 있었는데 직전이
-                # 없는 경우와 같은 값(None)이지만, 둘 다 "등락을 못 잰다" 라는
-                # 같은 사실이라 화면에서 구분할 필요가 없다.
-                "change": changes.get(entity),
-            }
-        )
-    return rows
-
-
-def market_treemap(store: Store, *, as_of: datetime) -> dict[str, Any]:
-    """시가총액 트리맵 — finviz 식. 넓이는 시총, 색은 등락률.
-
-    묶는 축은 **시장(KR/US)** 이다. 이유는 모듈 docstring "트리맵의 묶는
-    축" 참고 — sectors 테이블이 업종이 아니라 KOSDAQ 소속부이고 KOSPI 는
-    전 종목 미상이라, 업종으로 묶으면 코스피가 통째로 "미상" 덩어리가 된다.
-
-    시장마다 상위 ``TREEMAP_TOP_N`` 종목만 담는다 — 전 종목을 그리면 사각형이
-    안 보이는 크기가 된다. 화면이 "상위 N 만" 이라고 말해야 하므로 ``top_n``
-    을 응답에 함께 싣는다.
-    """
-    groups: list[dict[str, Any]] = []
-    for market in ("KR", "US"):
-        rows = _market_cap_leaders(store, as_of=as_of, market=market, limit=TREEMAP_TOP_N)
-        if rows:
-            groups.append({"market": market, "children": rows})
-    return {"groups": groups, "top_n": TREEMAP_TOP_N}
-
-
 # -- 한 판 ---------------------------------------------------------------------
 
 
@@ -296,5 +197,4 @@ def payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
         "active_verdicts": sum(1 for row in verdict_rows if row["active"]),
         "documents": important_documents(store, as_of=as_of, lookback=lookback),
         "events": system_events(store, as_of=as_of, lookback=lookback),
-        "treemap": market_treemap(store, as_of=as_of),
     }

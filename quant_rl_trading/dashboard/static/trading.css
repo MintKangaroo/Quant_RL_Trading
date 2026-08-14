@@ -1,0 +1,103 @@
+/* 트레이딩 탭 전용 스타일. app.css 는 건드리지 않는다 — 다른 탭 셋이 동시에
+ * 그 파일을 고치고 있다. 여기 있는 것은 이 화면에만 생긴 두 패널
+ * (지수 대비 · Positions 파이) 이다.
+ */
+
+/* -- 캘린더 옆 지수 대비 --------------------------------------------------- */
+
+/* 달력이 패널 폭의 일부만 쓴다(cal-month 는 flex 1 1 260px). 그 오른쪽
+   공백을 지수 대비 패널이 가져간다. 폭이 좁아지면 세로로 쌓는다 — 나란히
+   욱여넣으면 달력 칸이 다시 찌그러진다. */
+.cal-compare {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.cal-compare > .cal { flex: 1 1 280px; }
+
+.bench-compare {
+  flex: 1 1 320px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bench-row {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+
+.bench-row .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bench-row .label { color: var(--muted); font-size: 12px; }
+
+.bench-row .num {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13px;
+}
+
+.bench-row .num.up { color: var(--up); }
+.bench-row .num.down { color: var(--down); }
+
+/* 없는 지수는 칸을 지우지 않고 자리를 지킨다 — 넷 중 하나만 있다는 사실이
+   화면에서 사라지면 안 된다(다른 셋은 창고에 없다). */
+.bench-row.unavailable {
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.bench-row.unavailable .label { color: var(--dim); }
+
+/* 일별 초과수익 막대. 축·눈금 없는 스파크 막대다 — 정확한 값은 title 로 본다. */
+.bench-daily {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 28px;
+  margin-top: 6px;
+}
+
+.bench-daily .bar {
+  flex: 1 1 auto;
+  min-width: 2px;
+  background: var(--dim);
+  opacity: 0.85;
+}
+
+.bench-daily .bar.up { background: var(--up); }
+.bench-daily .bar.down { background: var(--down); }
+.bench-daily .bar.na { background: transparent; }
+
+/* -- Positions 파이 --------------------------------------------------------- */
+
+.positions-body {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.positions-body > #positions { flex: 1 1 60%; min-width: 0; }
+
+.positions-pie {
+  flex: 1 1 260px;
+  min-width: 220px;
+  height: 260px;
+}
+
+@media (max-width: 1400px) {
+  .positions-body { flex-direction: column; }
+  .positions-pie { width: 100%; }
+}

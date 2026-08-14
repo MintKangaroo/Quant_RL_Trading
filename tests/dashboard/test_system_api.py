@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from typing import Any
 import pytest
 
 from quant_rl_trading.dashboard import create_app
+from quant_rl_trading.dashboard.services import system as system_service
 from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 14, 11, 0, tzinfo=UTC)  # 2026-08-14 20:00 KST
@@ -73,10 +75,28 @@ def test_live_request_marks_itself(client) -> None:
 # -- 크론 작업 이력 — 창고가 아니라 로그 ----------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _isolate_logs(tmp_path, monkeypatch):
+    """테스트가 **레포의 진짜 로그**를 읽지 않게 격리한다.
+
+    격리하지 않으면 개발 기계에서는 통과하고 CI 에서는 실패한다(또는 그 반대).
+    기본값은 없는 디렉터리라 "로그가 없다" 가 기본 상태다 — 로그를 심는
+    테스트만 `write_log` 로 덮는다.
+    """
+    monkeypatch.setenv(system_service.LOGS_DIR_ENV, str(tmp_path / "no-logs"))
+
+
 def write_log(repo_root: Path, name: str, text: str) -> None:
+    """가짜 크론 로그를 심고 서비스가 그걸 보게 한다.
+
+    로그 위치는 창고가 아니라 **레포**에 딸린 것이라 store 경로에서 유도하지
+    않는다(그렇게 하면 data/_demo 같은 창고에서 엉뚱한 곳을 뒤진다). 대신
+    환경변수로 덮는다 — 시험할 수 없는 파서는 형식이 바뀐 날 조용히 틀린다.
+    """
     logs = repo_root / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     (logs / name).write_text(text, encoding="utf-8")
+    os.environ[system_service.LOGS_DIR_ENV] = str(logs)
 
 
 def test_jobs_are_parsed_from_logs(seeded) -> None:

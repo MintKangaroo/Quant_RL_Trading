@@ -1,0 +1,100 @@
+/* 시스템 탭 전용 스타일 — LS_KR ls_kr_rl_trader/dashboard/templates/system.html
+ * 화면 구성을 그대로 옮기고 색만 우리 팔레트(app.css 상단 CSS 변수)로 바꿨다.
+ * app.css 는 건드리지 않는다 — 이 파일만 system 탭에서 로드된다(base.html
+ * {% block styles %}), 그래서 .panel/.kpi 같은 공용 클래스를 이 안에서
+ * 다시 칠해도 다른 탭에는 새지 않는다.
+ *
+ * 색 대응(LS_KR → 우리):
+ *   --fg-mute/--fg-sub → --muted    --ok → --up(#22c55e, 초록)
+ *   --crit             → --down(#ef4444, 빨강)   --peach/--yellow → --warn
+ *   --bg-2 → --panel2   --blue → --accent
+ * "상승=초록" 규칙은 이 화면엔 손익 방향이 없어 직접 걸리지 않지만, 상태
+ * 배색(정상=초록/위험=빨강)을 그 규칙과 같은 방향으로 맞춰 뒤집지 않았다.
+ */
+
+.sys-wrap { max-width: 1100px; margin: 0 auto; }
+
+.sys-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.sys-bar h2 { font-size: 18px; margin: 0; }
+.sys-bar .sub { font-size: 11px; color: var(--muted); }
+
+.sys-section-title { font-size: 15px; margin: 18px 0 10px; }
+
+.sys-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+/* 카드 — LS_KR 의 sys-card. 이 페이지에서만 .panel 을 다시 칠한다. */
+.sys-wrap .panel,
+.sys-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.sys-wrap .panel { padding: 0 0 8px; }
+.sys-wrap .panel h2 {
+  border-radius: 12px 12px 0 0;
+  background: var(--head);
+}
+.sys-card h3 {
+  font-size: 12px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}
+
+.big { font-size: 30px; font-weight: 800; font-family: "IBM Plex Mono", monospace; line-height: 1; }
+.big .u { font-size: 13px; color: var(--muted); font-weight: 400; }
+.sys-sub { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+/* 진행률 막대 — 무채색 고정. LS_KR 원본은 70/90% 에서 색이 바뀌지만, 그
+ * 경고선이 store.config 에 없어 코드에 숫자를 박는 셈이라 이식하지 않았다
+ * (services/system.py summary() 의 "임계치를 안 둔다" 주석과 같은 이유,
+ * 불변식 10). 막대는 값만 보여주고 판정은 하지 않는다. */
+.sys-bar-track {
+  height: 10px;
+  border-radius: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-top: 10px;
+}
+.sys-bar-track > div { height: 100%; border-radius: 6px; background: var(--accent); }
+
+.sys-tscroll { overflow-x: auto; max-width: 100%; }
+
+/* 프로세스 표 열 폭 — 명령 열은 넓게, 숫자 3열은 좁게 고정해 좁은 화면에서도
+ * 안 삐져나간다. */
+#proc-tbl col.c-cmd { width: 46%; }
+#proc-tbl col.c-num { width: 18%; }
+
+/* 홈서버 사이징 가이드 — 실측 리소스에서 계산한 권장치일 뿐 판정이 아니다. */
+.sys-rec {
+  background: linear-gradient(135deg, rgba(56, 189, 248, .08), rgba(56, 189, 248, .03));
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-top: 4px;
+}
+.sys-rec h3 { margin: 0 0 10px; font-size: 14px; color: var(--accent); }
+.sys-rec .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 5px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.sys-rec .row:last-child { border-bottom: none; }
+.sys-rec .row b { font-family: "IBM Plex Mono", monospace; }
+.sys-rec .row .note { text-align: right; }
+
+@media (max-width: 760px) {
+  .sys-rec .row { flex-direction: column; gap: 2px; }
+  .sys-rec .row .note { text-align: left; }
+}

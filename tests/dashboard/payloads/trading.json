@@ -11,6 +11,94 @@
         "text": "주문 거부율 33.3%"
       }
     ],
+    "benchmark_compare": {
+      "benchmarks": [
+        {
+          "available": false,
+          "key": "kospi",
+          "label": "코스피",
+          "reason": "KR:IDX:KOSPI 이름의 지수가 창고에 없다"
+        },
+        {
+          "available": false,
+          "key": "kosdaq",
+          "label": "코스닥",
+          "reason": "KR:IDX:KOSDAQ 이름의 지수가 창고에 없다"
+        },
+        {
+          "available": false,
+          "key": "nasdaq",
+          "label": "나스닥",
+          "reason": "US:IDX:NASDAQ 이름의 지수가 창고에 없다"
+        },
+        {
+          "available": true,
+          "cumulative_excess": 0.009110617036409696,
+          "cumulative_index": 0.04129259838819044,
+          "cumulative_ours": 0.050403215424600134,
+          "daily": [
+            {
+              "excess": 0.021158084192047344,
+              "index": 0.014790940115251283,
+              "ours": 0.03594902430729863,
+              "session": "2026-08-03"
+            },
+            {
+              "excess": -0.028852501493068394,
+              "index": 0.017896191040063236,
+              "ours": -0.010956310453005158,
+              "session": "2026-08-04"
+            },
+            {
+              "excess": 0.010517401480004573,
+              "index": -0.00167646435348201,
+              "ours": 0.008840937126522563,
+              "session": "2026-08-05"
+            },
+            {
+              "excess": 0.007499488439983826,
+              "index": -0.0017595535731625978,
+              "ours": 0.005739934866821228,
+              "session": "2026-08-06"
+            },
+            {
+              "excess": -0.014342993579380847,
+              "index": 0.006184208478383857,
+              "ours": -0.00815878510099699,
+              "session": "2026-08-07"
+            },
+            {
+              "excess": -0.001888932854661518,
+              "index": -0.000583940476743039,
+              "ours": -0.002472873331404557,
+              "session": "2026-08-10"
+            },
+            {
+              "excess": -0.001399345252865336,
+              "index": 0.0026267436142957123,
+              "ours": 0.0012273983614303763,
+              "session": "2026-08-12"
+            },
+            {
+              "excess": 0.0030943352685541825,
+              "index": 0.00651609989030133,
+              "ours": 0.009610435158855513,
+              "session": "2026-08-13"
+            },
+            {
+              "excess": null,
+              "index": null,
+              "ours": 0.01027676927119292,
+              "session": "2026-08-14"
+            }
+          ],
+          "key": "sp500",
+          "label": "S&P500"
+        }
+      ],
+      "month": "2026-08",
+      "price_return_only": true
+    },
     "calendar": {
       "days": [
         {
@@ -863,7 +951,7 @@
       }
     ]
   },
-  "live": true,
+  "live": false,
   "lookback_days": 90,
   "thresholds": {
     "coverage_warn": 0.98,

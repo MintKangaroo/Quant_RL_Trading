@@ -65,6 +65,16 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     # 빠진다 — 그건 고장이 아니라 침묵이라 아무도 눈치채지 못한다.
     load_env()
     app = Flask(__name__)
+    # **템플릿을 캐싱하지 않는다.** Flask 는 debug 가 아니면 첫 렌더에서 템플릿을
+    # 붙잡아 두는데, 그러면 `.html` 을 고쳐도 서버를 재시작하기 전까지 옛 화면이
+    # 나온다. 정적 파일(.js/.css)은 매 요청 디스크에서 읽으므로 **새 JS + 옛 HTML**
+    # 조합이 되고, 화면에는 이렇게 뜬다:
+    #
+    #     renderResources: Cannot set properties of null (setting 'textContent')
+    #
+    # 코드는 멀쩡한데 화면만 죽어서 원인을 엉뚱한 데서 찾게 된다 — 실제로 두 번
+    # 겪었다. 이 화면은 로컬 운영 도구라 매 렌더의 stat() 한 번이 아깝지 않다.
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.json = SafeJSONProvider(app)
     app.config["QUANT_RL_STORE"] = store if store is not None else Store()
     app.config["QUANT_RL_CLOCK"] = clock if clock is not None else LiveClock()

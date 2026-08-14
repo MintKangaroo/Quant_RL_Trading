@@ -8,9 +8,10 @@ M3 의 룰 베이스라인이 곧 이것이다.
     candidates.py  6단계 선정 파이프라인
     weights.py     IC 측정 결과에서 온 Analyst 가중치
     pipeline.py    창고에 붙여 한 번에 돌린다
+    evolution.py   가중치 진화(selector.md §4) — GA + 실제 백테스트 적합도
 
-가중치 진화(selector.md §4)는 아직이다. 먼저 고정 가중치로 도는 것을 만든다 —
-진화는 작동하는 파이프라인 위에서만 의미가 있다.
+진화는 작동하는 파이프라인 위에서만 의미가 있다. 룰 베이스라인이 먼저 돈
+뒤에야 진화가 그 위에서 뭘 개선하는지 말할 수 있다.
 """
 
 from quant_rl_trading.selector.candidates import (
@@ -22,6 +23,22 @@ from quant_rl_trading.selector.candidates import (
     select,
 )
 from quant_rl_trading.selector.combine import Contribution, combined_scores, contributions
+from quant_rl_trading.selector.evolution import (
+    EvolutionResult,
+    FitnessResult,
+    GenerationRecord,
+    Individual,
+    StabilityReport,
+    backtest_fitness,
+    evolve,
+    gaussian_mutate,
+    initial_population,
+    next_generation,
+    resample_folds,
+    sbx_crossover,
+    stability_report,
+    tournament_select,
+)
 from quant_rl_trading.selector.filters import (
     FilterParams,
     FilterResult,
@@ -33,16 +50,30 @@ from quant_rl_trading.selector.weights import analyst_weights
 __all__ = [
     "Candidate",
     "Contribution",
+    "EvolutionResult",
     "FilterParams",
     "FilterResult",
+    "FitnessResult",
+    "GenerationRecord",
+    "Individual",
     "SelectionParams",
     "SelectionTrace",
+    "StabilityReport",
     "analyst_weights",
+    "backtest_fitness",
     "combined_scores",
     "contributions",
     "correlation_matrix",
     "distressed",
+    "evolve",
+    "gaussian_mutate",
+    "initial_population",
+    "next_generation",
     "rejected_entities",
+    "resample_folds",
+    "sbx_crossover",
     "select",
+    "stability_report",
+    "tournament_select",
     "tradable_universe",
 ]

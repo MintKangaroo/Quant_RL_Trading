@@ -181,49 +181,103 @@ async function renderLlmUsage() {
     </tr>`).join("")}</tbody></table>`;
 }
 
-/* 서버 리소스 · 프로세스 — LS_KR system 탭에서 가져왔다. 창고를 안 거치고
- * /proc 만 읽으므로 as_of 와 무관하다 (services/system.py 모듈 docstring). */
+/* 서버 리소스 · 프로세스 — LS_KR system.html 의 카드형 화면 구성을 그대로
+ * 옮겼다(색만 우리 팔레트). 창고를 안 거치고 /proc 만 읽으므로 as_of 와
+ * 무관하다 (services/system.py 모듈 docstring). */
+
+let lastResources = null;
+let lastProcesses = null;
 
 async function renderResources() {
   const { data } = await fetchJson("system/resources");
-  const c = data.cpu, m = data.memory, disk = data.disk;
-  document.getElementById("resources").innerHTML = [
-    c
-      ? kpi("CPU", dec(c.load1, 2), `load1/5/15 · 코어 ${num(c.cores)}개 · 코어당 ${dec(c.load1_pct, 1)}%`)
-      : kpi("CPU", "—", "측정 불가(리눅스 /proc 없음)"),
-    m
-      ? kpi("메모리", `${dec(m.used_gb, 1)}`, `/ ${dec(m.total_gb, 1)}GB · 여유 ${dec(m.avail_gb, 1)}GB`,
-            false, { unit: "GB" })
-      : kpi("메모리", "—", "측정 불가"),
-    disk
-      ? kpi("디스크", `${dec(disk.used_gb, 0)}`, `/ ${dec(disk.total_gb, 0)}GB · 여유 ${dec(disk.free_gb, 0)}GB`,
-            false, { unit: "GB" })
-      : kpi("디스크", "—", "측정 불가"),
-  ].join("");
+  lastResources = data;
+  const c = data.cpu, m = data.memory, d = data.disk;
+
+  if (c) {
+    document.getElementById("cpu-cores").textContent = `${num(c.cores)} cores`;
+    document.getElementById("cpu-load").textContent = dec(c.load1, 2);
+    document.getElementById("cpu-detail").textContent =
+      `load 1/5/15 = ${dec(c.load1, 2)} / ${dec(c.load5, 2)} / ${dec(c.load15, 2)} · 코어당 ${dec(c.load1_pct, 1)}%`;
+    document.getElementById("cpu-bar").style.width = `${c.load1_pct ?? 0}%`;
+  } else {
+    document.getElementById("cpu-detail").textContent = "측정 불가(리눅스 /proc 없음)";
+  }
+
+  if (m) {
+    document.getElementById("mem-used").textContent = dec(m.used_gb, 1);
+    document.getElementById("mem-total").textContent = dec(m.total_gb, 1);
+    document.getElementById("mem-detail").textContent =
+      `사용 ${dec(m.used_pct, 1)}% · 여유 ${dec(m.avail_gb, 1)}GB`;
+    document.getElementById("mem-bar").style.width = `${m.used_pct ?? 0}%`;
+  } else {
+    document.getElementById("mem-detail").textContent = "측정 불가";
+  }
+
+  if (d) {
+    document.getElementById("disk-used").textContent = dec(d.used_gb, 0);
+    document.getElementById("disk-total").textContent = dec(d.total_gb, 0);
+    document.getElementById("disk-detail").textContent =
+      `사용 ${dec(d.used_pct, 1)}% · 여유 ${dec(d.free_gb, 0)}GB`;
+    document.getElementById("disk-bar").style.width = `${d.used_pct ?? 0}%`;
+  } else {
+    document.getElementById("disk-detail").textContent = "측정 불가";
+  }
+
+  renderSizingGuide();
 }
 
 async function renderProcesses() {
   const { data } = await fetchJson("system/processes");
-  document.getElementById("resources-total-rss").textContent =
-    data.total_rss_mb !== null ? `워커 RSS 합 ${num(data.total_rss_mb)}MB` : "";
-  const target = document.getElementById("processes");
-  if (!data.processes.length) {
-    target.innerHTML = `<div class="empty">이 레포 아래에서 도는 프로세스가 없다.</div>`;
+  lastProcesses = data;
+  document.getElementById("proc-rss").textContent = data.total_rss_mb ?? "—";
+  const target = document.getElementById("proc-rows");
+  target.innerHTML = data.processes.length
+    ? data.processes.map((p) => `<tr>
+        <td>${num(p.pid)} · ${esc(p.command)}</td>
+        <td class="num">${dec(p.cpu_pct, 1)}</td>
+        <td class="num">${num(p.rss_mb)}</td>
+        <td class="num">${dec(p.uptime_h, 1)}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" class="empty">이 레포 아래에서 도는 프로세스가 없다.</td></tr>`;
+
+  renderSizingGuide();
+}
+
+/* 홈서버 사이징 가이드 — LS_KR system.html 의 renderRec() 이식. 실측 워커
+ * RSS·디스크 사용량에서 계산한 참고용 권장치이지 판정이 아니다(불변식 10
+ * 이 막는 것은 임계치 없는 경고 색이지, 이런 안내 문구가 아니다). 두
+ * 리소스 호출이 둘 다 끝나야 계산할 수 있어 양쪽에서 다 부른다. */
+function renderSizingGuide() {
+  const target = document.getElementById("rec-body");
+  if (!target || !lastResources || !lastProcesses) return;
+  const workerRss = lastProcesses.total_rss_mb;
+  const disk = lastResources.disk;
+  if (workerRss === null || !disk || disk.used_gb === null) {
+    target.innerHTML = `<div class="empty">측정치가 모자라 권장치를 계산할 수 없다.</div>`;
     return;
   }
-  target.innerHTML = `<table>
-    <thead><tr><th>PID · 명령</th><th class="num">CPU%</th>
-      <th class="num">RSS(MB)</th><th class="num">가동(h)</th></tr></thead>
-    <tbody>${data.processes.map((p) => `<tr>
-      <td><span class="lead"><span class="sub">${num(p.pid)}</span>
-        <span class="trunc">${esc(p.command)}</span></span></td>
-      <td class="num">${dec(p.cpu_pct, 1)}</td>
-      <td class="num">${num(p.rss_mb)}</td>
-      <td class="num">${dec(p.uptime_h, 1)}</td>
-    </tr>`).join("")}</tbody></table>`;
+  const baseGb = Math.max(1, Math.ceil((workerRss / 1024 + 0.5) * 2) / 2); // 워커×2 버퍼
+  const recMemTrain = Math.max(4, Math.ceil(workerRss / 1024 + 2));        // 학습 동시 고려
+  const recDisk = Math.max(64, Math.ceil((disk.used_gb + 10) / 16) * 16);  // 현재+여유, 16GB 단위
+  const rows = [
+    ["CPU", "최소 2코어 / 권장 <b>4코어</b>", "상시 운영은 1코어로도 충분, RL 학습 병렬·여유가 남는 코어"],
+    ["메모리", `상시 <b>${baseGb}GB</b> / 학습 포함 권장 <b>${recMemTrain}GB</b>`, `현재 워커 RSS ${num(workerRss)}MB`],
+    ["디스크", `권장 <b>${recDisk}GB</b> SSD`, `현재 사용 ${dec(disk.used_gb, 0)}GB`],
+    ["네트워크", "상시 인터넷(LS API·시세)", "대역폭 요구 낮음, 안정성 중요"],
+    ["전력/형태", "미니PC(N100/소형 x86) 적합", "24/7 가동, 저전력·팬리스 권장"],
+  ];
+  target.innerHTML = rows.map(([k, v, note]) =>
+    `<div class="row"><span>${k}</span><span class="note">${v}<br><span class="sub" style="font-size:11px">${note}</span></span></div>`
+  ).join("");
+}
+
+function renderClock() {
+  document.getElementById("sys-updated").textContent =
+    "갱신 " + new Date().toLocaleTimeString("ko-KR");
 }
 
 runAll([
   renderSummary, renderResources, renderProcesses, renderJobs, renderTables,
-  renderLatency, renderSafety, renderCache, renderLlmUsage,
+  renderLatency, renderSafety, renderCache, renderLlmUsage, renderClock,
 ]);
+setInterval(() => { renderResources(); renderProcesses(); renderClock(); }, 8000);

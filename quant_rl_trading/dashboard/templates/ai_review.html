@@ -1,13 +1,91 @@
 {% extends "base.html" %}
 {% block title %}AI 리뷰 · Quant_RL_Trading{% endblock %}
 
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='ai_review.css') }}">
+{% endblock %}
+
 {% block body %}
 {% with active = 'ai-review' %}{% include "_scope.html" %}{% endwith %}
 
 <main>
   <section class="alerts" id="alerts"></section>
 
-  <section class="kpis" id="kpis"></section>
+  <div class="air-wrap">
+    <div class="air-bar">
+      <h2>🤖 AI 매매 리뷰</h2>
+      <span class="sub" id="air-cost-badge"></span>
+    </div>
+
+    <div class="air-card" id="air-oneliner"></div>
+
+    {# 점수 게이지·등급·headline — LS_KR 은 Claude 가 "그날 매매" 를 채점해
+       채운다. 우리 창고엔 체결 단위 하루 채점 파이프라인이 없다(agent_cache
+       는 news-screen·macro-brief 호출만 기록한다). 값을 지어내는 대신 무엇이
+       있어야 채울 수 있는지 적는다. #}
+    <div class="air-card">
+      <div class="air-hero">
+        <div class="air-gauge-empty" title="점수 미채점">🔒</div>
+        <div>
+          <div class="air-grade">등급 · 종합점수 — 미채점</div>
+          <div class="air-headline">이 창엔 "하루 매매 채점" 이 없다</div>
+          <div class="air-summary">
+            LS_KR 은 그날 체결·성과·NAV·리스크가드를 Claude 에 넘겨 A~F 등급과
+            0~100점을 받는다. 우리 창고엔 그 채점을 만드는 에이전트가 없다
+            (agent_cache 에 있는 건 news-screen · macro-brief 뿐이다).
+          </div>
+          <div class="air-need">
+            <b>채우려면 필요한 것</b> · 하루 체결·NAV·리스크가드 요약을 입력으로
+            받아 채점하는 LLM 에이전트 하나, 그 출력을 저장할 테이블(또는
+            agent_cache 확장), 그리고 이 화면이 그걸 읽을 API.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="air-card">
+      <div class="air-h">📊 항목별 세부 채점</div>
+      <div class="air-placeholder">
+        <b>채우려면 필요한 것</b> · 위 채점 에이전트가 카테고리별(리스크관리·
+        타이밍·포지션사이징 등) 점수와 코멘트를 함께 반환해야 한다. 지금은
+        종합점수 자체가 없으니 세부 항목도 없다.
+      </div>
+    </div>
+
+    <div class="air-card">
+      <div class="air-h">📈 이 창의 실측치</div>
+      <div class="air-kpis" id="air-kpis"></div>
+    </div>
+
+    <div class="air-grid2">
+      <div class="air-card">
+        <div class="air-h">⚠️ 시스템 경고 <span class="hint">— summary.warnings, 실측</span></div>
+        <div id="air-problems"></div>
+      </div>
+      <div>
+        <div class="air-card">
+          <div class="air-h">✅ 잘한 점</div>
+          <div class="air-placeholder">
+            <b>채우려면 필요한 것</b> · 하루 채점 에이전트의 출력(strengths).
+            지금은 "잘했다/못했다" 를 판단할 채점 자체가 없다.
+          </div>
+        </div>
+        <div class="air-card">
+          <div class="air-h">🎯 우선순위 액션</div>
+          <ul class="air-list" id="air-actions"></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="air-card evo">
+      <div class="air-h">🧬 자기진화 제안 <span class="hint">— AI가 스스로 제안하는 지표·전략·실험</span></div>
+      <div class="air-placeholder">
+        <b>채우려면 필요한 것</b> · LS_KR 의 evolution 제안은 하루 채점과 같은
+        호출에서 나온다(추가 지표·전략·검증 실험). 그 호출이 없으니 제안도
+        없다 — 지어내면 검증 안 된 전략이 진짜 제안처럼 보인다.
+      </div>
+    </div>
+  </div>
 
   <section class="panel">
     <h2>LLM 비용 <span class="sub" id="cost-since"></span></h2>

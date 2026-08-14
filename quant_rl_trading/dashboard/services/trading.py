@@ -51,6 +51,21 @@ SIGNALS = "signals"
 PRICES = "prices"
 UNIVERSE = "universe"
 REALIZED_WEIGHTS = "realized_weights"
+INDICES = "indices"
+
+#: 캘린더 옆 "지수 대비" 패널의 참고용 비교. ``config.benchmark``(KOSPI_TR ·
+#: SPX_TR, 아직 미구현)와는 다른 것이다 — 저건 보상 함수가 쓸 총수익지수고,
+#: 이건 화면이 상시 보여주는 참고 비교다. 실측(2026-08-14) 결과 창고에는
+#: 코스피·코스닥·나스닥이 그 이름으로 없다. 있는 것은 KRX 100/300 계열과
+#: US:IDX:SP500 뿐이다(regime.py 의 MARKET_PROXIES 도 같은 이유로 KRX 지수를
+#: 대용치로 쓴다). 여기서는 대용치로 바꿔치기하지 않는다 — "코스피" 라고
+#: 이름 붙여 놓고 실은 KRX 300 을 보여주면 그게 더 큰 거짓말이다.
+BENCHMARK_CANDIDATES = (
+    {"key": "kospi", "label": "코스피", "entity_id": "KR:IDX:KOSPI"},
+    {"key": "kosdaq", "label": "코스닥", "entity_id": "KR:IDX:KOSDAQ"},
+    {"key": "nasdaq", "label": "나스닥", "entity_id": "US:IDX:NASDAQ"},
+    {"key": "sp500", "label": "S&P500", "entity_id": "US:IDX:SP500"},
+)
 
 #: 주문·체결 표에 싣는 최대 행수. 화면은 한 눈에 보는 것이지 원장이 아니다.
 ORDER_ROWS = 40
@@ -657,6 +672,104 @@ def calendar_payload(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     }
 
 
+def benchmark_compare(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """캘린더 옆 "지수 대비" 패널. 이번 달 누적과 일별 초과수익.
+
+    **가격지수다, 총수익지수가 아니다.** KRX Open API·LS·FRED 세 곳 다 배당을
+    반영한 총수익지수를 안 준다(실측). 배당수익률만큼(국내 대형주 연 2~3%p)
+    우리가 유리하게 나온다 — 화면이 이 사실을 ``price_return_only`` 로 실어
+    보내고, 그 문구를 화면이 지운 채 보여주지 않는다.
+
+    달은 **캘린더 패널과 같은 달**을 고른다(데이터에 있는 마지막 달). 실제
+    달력의 이번 달을 쓰면 데모 창고처럼 최근 데이터가 며칠 전에서 끝나는
+    창고에서 패널이 통째로 빈다.
+    """
+    nav = store.get(NAV_DAILY, as_of=as_of, entity=ledger_module.ACCOUNT, lookback=lookback)
+    if nav.empty:
+        return {
+            "month": None,
+            "price_return_only": True,
+            "benchmarks": [
+                {"key": c["key"], "label": c["label"], "available": False,
+                 "reason": "nav_daily 가 비어 있다"}
+                for c in BENCHMARK_CANDIDATES
+            ],
+        }
+    ordered = nav.sort_values(["valid_from", "observed_at"])
+    our_by_day = {
+        pd.Timestamp(row["valid_from"]).date().isoformat(): float(row["twr_return"])
+        for row in ordered.to_dict(orient="records")
+    }
+    month = sorted({day[:7] for day in our_by_day})[-1]
+    month_days = sorted(day for day in our_by_day if day.startswith(month))
+    cumulative_ours = 1.0
+    for day in month_days:
+        cumulative_ours *= 1.0 + our_by_day[day]
+    cumulative_ours -= 1.0
+
+    benchmarks: list[dict[str, Any]] = []
+    for candidate in BENCHMARK_CANDIDATES:
+        frame = store.get(INDICES, as_of=as_of, entity=candidate["entity_id"], lookback=lookback)
+        if frame.empty:
+            benchmarks.append(
+                {
+                    "key": candidate["key"],
+                    "label": candidate["label"],
+                    "available": False,
+                    "reason": f"{candidate['entity_id']} 이름의 지수가 창고에 없다",
+                }
+            )
+            continue
+        idx_ordered = frame.sort_values("valid_from")
+        idx_dates = [pd.Timestamp(v).date().isoformat() for v in idx_ordered["valid_from"]]
+        closes = idx_ordered["close"].astype(float).tolist()
+        idx_returns: dict[str, float] = {}
+        previous_close = None
+        for date, close in zip(idx_dates, closes, strict=True):
+            if previous_close is not None and previous_close > 0:
+                idx_returns[date] = close / previous_close - 1.0
+            previous_close = close
+
+        # 지수 쪽 누적은 **지수 자기 거래일**로 잰다. 우리 거래일에 맞춰 자르면
+        # 미국장은 코리아 휴장일만큼 손실을 보고 시작한다 — 두 시장의 달력이
+        # 다르다는 사실 자체를 지워버리는 것이다.
+        index_month_days = sorted(d for d in idx_returns if d.startswith(month))
+        cumulative_index = None
+        if index_month_days:
+            cumulative_index = 1.0
+            for day in index_month_days:
+                cumulative_index *= 1.0 + idx_returns[day]
+            cumulative_index -= 1.0
+
+        daily = [
+            {
+                "session": day,
+                "ours": our_by_day.get(day),
+                "index": idx_returns.get(day),
+                "excess": (
+                    our_by_day[day] - idx_returns[day]
+                    if day in our_by_day and day in idx_returns
+                    else None
+                ),
+            }
+            for day in month_days
+        ]
+        benchmarks.append(
+            {
+                "key": candidate["key"],
+                "label": candidate["label"],
+                "available": True,
+                "cumulative_ours": cumulative_ours,
+                "cumulative_index": cumulative_index,
+                "cumulative_excess": (
+                    cumulative_ours - cumulative_index if cumulative_index is not None else None
+                ),
+                "daily": daily,
+            }
+        )
+    return {"month": month, "price_return_only": True, "benchmarks": benchmarks}
+
+
 def candles(
     store: Store, *, as_of: datetime, entity_id: str, market: str, lookback: int
 ) -> dict[str, Any]:
@@ -877,6 +990,7 @@ def payload(
             "orders": [],
             "equity": {"sessions": [], "nav": [], "index": [], "drawdown": [], "benchmark": []},
             "calendar": {"days": [], "months": []},
+            "benchmark_compare": {"month": None, "price_return_only": True, "benchmarks": []},
         }
     kpi = kpis(store, context)
     risk_state = risk(store, context)
@@ -892,4 +1006,5 @@ def payload(
         "orders": orders(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
         "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback),
+        "benchmark_compare": benchmark_compare(store, as_of=context.as_of, lookback=lookback),
     }

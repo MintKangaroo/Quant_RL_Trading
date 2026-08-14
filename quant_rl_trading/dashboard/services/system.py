@@ -53,6 +53,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from time import monotonic
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -150,18 +151,37 @@ def _to_utc(local_stamp: str) -> str:
     return naive.replace(tzinfo=KST).isoformat()
 
 
-def _log_files(repo_root: Path, prefix: str) -> list[Path]:
-    logs_dir = repo_root / "logs"
-    if not logs_dir.is_dir():
+#: 레포 뿌리. **창고 경로에서 유도하지 않는다.**
+#: `store.root.parent` 로 잡으면 실전 창고(`data/`)일 때만 우연히 맞고,
+#: `data/_demo`·`data/_shadow` 에서는 `data/logs` 를 찾다가 못 찾는다. 그러면
+#: 화면이 작업 넷을 전부 "완주 여부를 로그에서 확인할 수 없음" 으로 띄운다 —
+#: 크론은 멀쩡히 도는데 화면만 고장으로 보이고, 그 오판이 제일 비싸다.
+#: 로그는 창고가 아니라 레포에 딸린 운영 기록이므로 모듈 위치에서 잡는다.
+#:
+#: 환경변수로 덮을 수 있게 둔 이유는 **테스트가 가짜 로그를 심어야 하기**
+#: 때문이다. 위치를 상수로 굳히면 로그 해석 로직을 시험할 방법이 없어지고,
+#: 시험할 수 없는 파서는 형식이 바뀐 날 조용히 틀린다.
+LOGS_DIR_ENV = "QUANT_RL_LOGS_DIR"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def logs_dir() -> Path:
+    override = os.environ.get(LOGS_DIR_ENV)
+    return Path(override) if override else REPO_ROOT / "logs"
+
+
+def _log_files(prefix: str) -> list[Path]:
+    directory = logs_dir()
+    if not directory.is_dir():
         return []
-    return sorted(logs_dir.glob(f"{prefix}-*.log"))
+    return sorted(directory.glob(f"{prefix}-*.log"))
 
 
-def _read_runs(repo_root: Path, prefix: str) -> list[Run]:
+def _read_runs(prefix: str) -> list[Run]:
     # 최근 두 파일(이번 달 + 지난달)이면 충분하다 — 로그는 매달 새 파일로
     # 갈리고, 표에는 최근 실행 몇 건만 싣는다.
     runs: list[Run] = []
-    for path in _log_files(repo_root, prefix)[-2:]:
+    for path in _log_files(prefix)[-2:]:
         try:
             runs.extend(_parse_runs(path.read_text(encoding="utf-8", errors="replace")))
         except OSError:
@@ -175,10 +195,9 @@ def job_history(store: Store) -> list[dict[str, Any]]:
 
     **as_of 로 되감기지 않는다** — 운영 로그이지 창고가 아니다 (모듈 docstring).
     """
-    repo_root = store.root.parent
     out: list[dict[str, Any]] = []
     for job in JOB_DEFS:
-        runs = _read_runs(repo_root, job.log_prefix)
+        runs = _read_runs(job.log_prefix)
         recent = runs[-RUN_HISTORY_LIMIT:]
         last_success = next((run for run in reversed(runs) if run.ok), None)
         out.append(
@@ -203,14 +222,40 @@ def job_history(store: Store) -> list[dict[str, Any]]:
     return out
 
 
+#: 최신성 계산 결과를 잠깐 들고 있는다. **한 화면이 이걸 두 번 계산하기 때문이다** —
+#: `summary()` 가 안에서 부르고, 화면이 `/api/system/tables` 로 또 부른다. 등록된
+#: 표를 전부 여는 계산이라 한 번에 2.5초쯤 걸리고, 그게 두 번이면 시스템 탭만
+#: 5초를 쓴다.
+#:
+#: **되감은 화면에는 절대 쓰지 않는다.** `live=True` — 즉 사용자가 as_of 를 주지
+#: 않아 "지금" 을 보는 경우 — 에만 공유한다. 타임머신은 언제나 그 시점을 다시
+#: 계산한다. as_of 를 열쇠에 넣는 것만으로는 부족한데, 라이브 요청의 as_of 는
+#: 매 요청마다 달라서(그 순간의 시각) 열쇠가 늘 빗나가기 때문이다.
+#: 수명이 짧은 이유는 이 값이 "지금 배관이 도는가" 라서다 — 오래 들고 있으면
+#: 크론이 방금 채운 것을 화면이 모른다.
+_FRESHNESS_TTL_SEC = 20.0
+_freshness_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}
+
+
 def table_freshness(
-    store: Store, *, as_of: datetime, lookback: int = TABLE_LOOKBACK_DAYS
+    store: Store,
+    *,
+    as_of: datetime,
+    lookback: int = TABLE_LOOKBACK_DAYS,
+    live: bool = False,
 ) -> list[dict[str, Any]]:
     """등록된 테이블마다 최근 창의 행수와 최신 ``valid_from``.
 
     전체 행수가 아니다 — "얼마나 큰가"가 아니라 "오늘 것이 들어왔나"를 답한다.
     아직 한 행도 없는 테이블(M3 회계·집행)은 0/None 으로 정직하게 남긴다.
     """
+    key = (str(store.root), lookback)
+    now = monotonic()
+    if live:
+        hit = _freshness_cache.get(key)
+        if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC:
+            return hit[1]
+
     out: list[dict[str, Any]] = []
     for name in table_names():
         if name == CONFIG_TABLE:
@@ -240,6 +285,8 @@ def table_freshness(
                 "stale_days": (as_of - latest.to_pydatetime()).days,
             }
         )
+    if live:
+        _freshness_cache[key] = (now, out)
     return out
 
 
@@ -530,11 +577,16 @@ def project_processes(root: Path) -> dict[str, Any]:
 
 
 def summary(
-    store: Store, *, as_of: datetime, lookback: int, thresholds: dict[str, Any]
+    store: Store,
+    *,
+    as_of: datetime,
+    lookback: int,
+    thresholds: dict[str, Any],
+    live: bool = False,
 ) -> dict[str, Any]:
     """KPI 스트립. 경고 판정도 여기서 한다 (불변식 10)."""
     jobs = job_history(store)
-    tables = table_freshness(store, as_of=as_of)
+    tables = table_freshness(store, as_of=as_of, live=live)
     cache = cache_stats(store, as_of=as_of, lookback=int(thresholds["cache_lookback_days"]))
     usage = llm_usage_summary(store, as_of=as_of, lookback=int(thresholds["cache_lookback_days"]))
     safety = safety_summary(store, as_of=as_of)

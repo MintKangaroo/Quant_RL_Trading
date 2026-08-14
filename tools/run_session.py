@@ -13,6 +13,22 @@
 어제 낸 주문이 오늘 체결되고, 회계 스냅샷이 남고, 오늘 종가로 내일 주문이
 만들어진다.
 
+## 체결은 전날이 있어야 돈다
+
+``loop.run`` 은 그 호출 **안에서** 겪은 이전 세션의 주문만 체결시킨다
+(``previous_session`` 은 호출마다 새로 ``None`` 에서 시작한다 — backtest.md
+§1). 구간을 하루(``start == end``)로만 잡으면 그 하루가 첫 세션이 되어
+``previous_session`` 이 끝까지 ``None`` 이고, 체결 단계는 **한 번도 불리지
+않는다.** 화면에는 "체결 0" 으로 뜨는데, 그건 유동성이 없어서도 지정가가
+안 맞아서도 아니라 체결 코드 자체가 실행되지 않은 것이다.
+
+그래서 전날 하루를 ``warmup_days=1`` 로 같이 굴린다. 전날의 결정·신호는
+이미 창고에 있으므로(ingest_run_id 로 중복이 막힌다) 다시 써도 아무 일도
+안 나고, 전날이 이번 호출의 ``previous_session`` 이 되어 오늘 이터레이션에서
+비로소 체결이 돈다. 성적 집계에는 전날을 넣지 않는다 — warmup 이 하는 일과
+같다.
+
+
 ## 왜 샌드박스인가
 
 shadow 는 **돈이 오가지 않는 운용**이다. 그 체결을 실전 창고의 ``trades`` 에
@@ -107,7 +123,9 @@ def main(argv: list[str] | None = None) -> int:
         end=day,
         market=args.market,
         capital=args.capital,
-        warmup_days=0,
+        # 전날을 워밍업으로 같이 굴려야 체결 단계가 돈다 — 위 "체결은 전날이
+        # 있어야 돈다" 참고. 0 이면 체결 코드가 아예 불리지 않는다.
+        warmup_days=1,
         # 신호는 일일 실행기가 실전 창고에 이미 쌓았다. 여기서 또 만들지 않는다.
         produce_signals=False,
     )
@@ -117,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         print("세션이 돌지 않았다 (거래일이 아니다).", file=sys.stderr)
         return 1
 
-    entry = result.days[0]
+    # 워밍업(전날)도 result.days 에 들어간다 — 우리가 보고할 날은 마지막이다.
+    entry = result.days[-1]
     print(
         f"  NAV {entry.nav:,.0f} · 지수 {entry.index_value:.2f} · 낙폭 {entry.drawdown:.2%}\n"
         f"  후보 {len(entry.candidates)} · 주문 {entry.planned_orders} · 체결 {entry.filled}"

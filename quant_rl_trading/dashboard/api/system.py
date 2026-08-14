@@ -41,6 +41,7 @@ def summary() -> Any:
             as_of=current.as_of,
             lookback=current.lookback,
             thresholds=_system_thresholds(current.as_of),
+            live=current.live,
         ),
     )
 
@@ -56,7 +57,10 @@ def jobs() -> Any:
 @bp.get("/tables")
 def tables() -> Any:
     current = scope()
-    return envelope(current, service.table_freshness(store(), as_of=current.as_of))
+    return envelope(
+        current,
+        service.table_freshness(store(), as_of=current.as_of, live=current.live),
+    )
 
 
 @bp.get("/latency")

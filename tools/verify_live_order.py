@@ -1,0 +1,665 @@
+"""LS 증권 실계좌 배선 검증 — **최소 수량 1주를 사고 즉시 판다.**
+
+    uv run python tools/verify_live_order.py --symbol 005930           # 드라이런(기본)
+    uv run python tools/verify_live_order.py --symbol 005930 --live    # 실전, 매 단계 확인
+
+## 왜 이 도구가 필요한가
+
+모의투자 appkey 로는 주문 TR(CSPAT*)·잔고(t0424) 자체가 막힌다
+(``collectors/ls_client.py`` ``PAPER_ALLOWED_TR``). ``broker/ls_order.py``·
+``broker/fills.py``·``executor/pipeline.py`` 의 배선은 전부 단위 테스트로
+검증됐지만, **LS 가 실제로 그 TR 을 어떻게 받아주는지**는 실계좌 없이는
+알 수 없다. 이 도구는 그 마지막 구간 하나를 사람이 지켜보는 자리에서
+확인하기 위한 것이다.
+
+## 안전장치
+
+1. **매 단계마다 사람 확인.** ``input()`` 으로 y 를 눌러야 다음 단계로
+   간다. 자동으로 쭉 진행되지 않는다.
+2. **두 게이트를 이 도구도 그대로 지킨다.** ``--live`` 없이 실행하면
+   ``LSClient.live_trading=False`` 로 만들어서, 브로커 계층이 이미
+   막아준다(``broker/ls_order.py`` 모듈 docstring). ``--live`` 를 줘도
+   ``execution.live_trading`` store 설정이 꺼져 있으면 여기서 멈추고
+   무엇을 켜야 하는지 알려준다.
+3. **드라이런은 별도 스위치다.** ``--dry-run`` 을 주면(``--live`` 여부와
+   무관하게) 주문·정정·취소 TR 은 **전송하지 않고 본문만 출력**한다.
+   ``--live`` 없이 돌리면 자동으로 드라이런이 켜진다 — 실수로 뭔가
+   나가는 경로가 없다.
+4. **주문 금액 상한.** ``--max-order-value`` (기본 10만원)를 넘으면
+   주문 직전에 거부한다.
+5. **호가단위.** ``executor/ticks.py`` 의 ``round_to_tick`` 을 그대로
+   쓴다 — 안 쓰면 거래소가 거부한다.
+
+## 이 도구가 확인하려는 것 둘 (docs/live-order-checklist.md 참고)
+
+- CSPAT00801(취소)의 ``OrdQty`` 가 "이번에 취소할 수량"인지 "잔량 전체"
+  인지 — 5단계에서 부분체결 상태를 만들고, 취소 수량을 사람이 직접
+  입력하게 해서 관찰한다.
+- 재호가(``lifecycle.decide`` 의 ``market_price``)에 어떤 가격을 먹여야
+  하는지 — 6단계에서 미체결 상태의 새 호가를 조회해 정정을 내고 결과를
+  본다.
+
+## .env
+
+키를 읽어 쓰지만(``LSCredentials.from_env``) **출력하지 않는다.** 존재
+여부만 화면에 남긴다.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from quant_rl_trading.broker import BrokerError, RejectedOrder  # noqa: E402
+from quant_rl_trading.broker.fills import PendingFill, sync_fills  # noqa: E402
+from quant_rl_trading.broker.ls_order import (  # noqa: E402
+    ORD_CNDI_NONE,
+    ORD_PTN_LIMIT,
+    LSBroker,
+    _order_body,
+)
+from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials  # noqa: E402
+from quant_rl_trading.collectors.ls_client import (  # noqa: E402
+    PATH_ACCNO,
+    PATH_MARKET,
+    LSClient,
+    LSCredentials,
+    isu_code,
+)
+from quant_rl_trading.collectors.market_hours import Market, is_regular_session  # noqa: E402
+from quant_rl_trading.executor import guards  # noqa: E402
+from quant_rl_trading.executor.orders import PlannedOrder, client_order_id  # noqa: E402
+from quant_rl_trading.executor.ticks import round_to_tick  # noqa: E402
+from quant_rl_trading.replay.clock import Clock, LiveClock  # noqa: E402
+from quant_rl_trading.schemas.order import Order, Side  # noqa: E402
+from quant_rl_trading.settings import load_env  # noqa: E402
+from quant_rl_trading.store import Store  # noqa: E402
+from tools.backfill import build_store  # noqa: E402
+
+TR_BALANCE = "t0424"
+TR_QUOTE = "t1102"
+
+#: 기본 주문 금액 상한. **아주 작게** — 실수로 큰 금액이 나가는 문을 좁힌다.
+DEFAULT_MAX_ORDER_VALUE = 100_000.0
+
+
+# -----------------------------------------------------------------------------
+# 사람 확인 — 기본 구현은 input(). 테스트는 이 자리에 가짜를 넣는다.
+# -----------------------------------------------------------------------------
+
+
+def default_confirm(prompt: str) -> bool:
+    try:
+        answer = input(f"{prompt} [y/N] ").strip().lower()
+    except EOFError:
+        return False
+    return answer in {"y", "yes"}
+
+
+def default_prompt(prompt: str) -> str:
+    try:
+        return input(f"{prompt}: ").strip()
+    except EOFError:
+        return ""
+
+
+# -----------------------------------------------------------------------------
+# 순수 계산 — 확인/시세와 무관하게 테스트할 수 있는 부분
+# -----------------------------------------------------------------------------
+
+
+def _shcode(symbol: str) -> str:
+    """t1102/t0424 가 쓰는 순수 6자리 코드. 주문용 ``isu_code`` 와 다르게
+    "A" 접두어가 없다 (LS_KR ls_client.py get_current_price/get_account_balance)."""
+    return symbol.strip().lstrip("A")
+
+
+def _num(row: dict[str, Any], key: str) -> float:
+    value = row.get(key)
+    if value is None or value == "":
+        return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@dataclass(frozen=True)
+class Quote:
+    price: float
+    bid: float
+    ask: float
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+def reference_price(quote: Quote, side: Side) -> float:
+    """주문에 쓸 기준가. 매수는 매도호가1(즉시 체결 가능한 쪽), 매도는
+    매수호가1을 우선한다 — 이 검증은 배선 확인이 목적이라 체결이 빨리
+    나야 다음 단계(체결조회)를 바로 밟을 수 있다. 호가가 비어 있으면
+    현재가로 물러선다."""
+    if side is Side.BUY:
+        return quote.ask if quote.ask > 0 else quote.price
+    return quote.bid if quote.bid > 0 else quote.price
+
+
+@dataclass(frozen=True)
+class OrderSummary:
+    symbol: str
+    side: Side
+    quantity: int
+    price: float
+    amount: float
+    ok: bool
+    reason: str = ""
+
+    def render(self) -> str:
+        return (
+            f"  종목 {self.symbol} · {self.side.value} · {self.quantity}주 · "
+            f"지정가 {self.price:,.0f} · 예상금액 {self.amount:,.0f}"
+        )
+
+
+def build_order_summary(
+    *, symbol: str, side: Side, quantity: int, raw_reference_price: float, max_order_value: float
+) -> OrderSummary:
+    """주문 직전 요약. **호가단위 반올림을 여기서 강제한다** — 안 거치면
+    거래소가 거부한다(``executor/ticks.py``)."""
+    price = round_to_tick(raw_reference_price, side=side)
+    amount = price * quantity
+    if amount > max_order_value:
+        return OrderSummary(
+            symbol, side, quantity, price, amount, False,
+            f"예상금액 {amount:,.0f} 이 상한 {max_order_value:,.0f} 을 넘는다",
+        )
+    return OrderSummary(symbol, side, quantity, price, amount, True)
+
+
+# -----------------------------------------------------------------------------
+# 네트워크 — 읽기 (잔고 · 시세)
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class BalanceSummary:
+    net_asset: float
+    positions: tuple[dict[str, Any], ...]
+    paper: bool
+
+
+def fetch_balance(client: LSClient) -> BalanceSummary:
+    """t0424. paper 모드(``LSClient.live_trading=False``)면 애초에 나가지
+    않는다 — ``PAPER_ALLOWED_TR`` 에 없다(``collectors/ls_client.py``)."""
+    body = {
+        "t0424InBlock": {
+            "prcgb": "1",
+            "chegb": "2",
+            "dangb": "0",
+            "charge": "1",
+            "cts_expcode": "",
+        }
+    }
+    data = client.request_tr(PATH_ACCNO, TR_BALANCE, body)
+    if data.get("paper"):
+        return BalanceSummary(net_asset=0.0, positions=(), paper=True)
+    summary = data.get("t0424OutBlock") or {}
+    positions = tuple(data.get("t0424OutBlock1") or [])
+    return BalanceSummary(net_asset=_num(summary, "sunamt"), positions=positions, paper=False)
+
+
+def fetch_quote(client: LSClient, symbol: str) -> Quote | None:
+    """t1102. paper 모드에서도 허용되는 TR 이라 ``--live`` 없이도 실제로
+    나간다(``PAPER_ALLOWED_TR``) — 키가 있으면."""
+    body = {"t1102InBlock": {"shcode": _shcode(symbol)}}
+    data = client.request_tr(PATH_MARKET, TR_QUOTE, body)
+    if data.get("paper"):
+        return None
+    block = data.get("t1102OutBlock") or {}
+    return Quote(
+        price=_num(block, "price"),
+        bid=_num(block, "bidho1"),
+        ask=_num(block, "offerho1"),
+        raw=block,
+    )
+
+
+# -----------------------------------------------------------------------------
+# 네트워크 — 쓰기 (주문 · 정정 · 취소) 와 그 드라이런 미리보기
+# -----------------------------------------------------------------------------
+
+
+def preview_cancel_body(*, symbol: str, order_no: str, quantity: int) -> dict[str, Any]:
+    """CSPAT00801 본문 미리보기. ``ls_order.LSBroker.cancel`` 과 같은 모양 —
+    거기는 메서드 안에 인라인돼 있어 미리보기용으로 여기서 다시 짠다."""
+    return {
+        "CSPAT00801InBlock1": {
+            "OrgOrdNo": int(order_no),
+            "IsuNo": isu_code(symbol),
+            "OrdQty": int(quantity),
+        }
+    }
+
+
+def preview_modify_body(
+    *, symbol: str, order_no: str, quantity: int, price: float
+) -> dict[str, Any]:
+    """CSPAT00701 본문 미리보기. ``ls_order.LSBroker.modify`` 와 같은 모양."""
+    return {
+        "CSPAT00701InBlock1": {
+            "OrgOrdNo": int(order_no),
+            "IsuNo": isu_code(symbol),
+            "OrdQty": int(quantity),
+            "OrdprcPtnCode": ORD_PTN_LIMIT,
+            "OrdCndiTpCode": ORD_CNDI_NONE,
+            "OrdPrc": int(price),
+        }
+    }
+
+
+def make_planned_order(
+    *, symbol: str, side: Side, quantity: int, price: float, clock: Clock
+) -> PlannedOrder:
+    """검증 전용 주문 하나. 세션에 실행 시각과 방향을 같이 넣어 매 실행·매
+    방향마다 새 ``order_id`` 가 나오게 한다. 시각만 쓰면 매수·매도가 같은
+    초에 나갈 때(리플레이 시계는 아예 안 흐른다) ``client_order_id`` 가
+    entity_id·slice_seq 까지 같아 **같은 order_id** 가 되고, ``LSBroker`` 의
+    멱등 캐시(§멱등성, ``broker/ls_order.py``)가 매도를 매수 결과로
+    덮어써 버린다 — 재전송이 아니라 두 번째 전송 자체가 씹힌다."""
+    session = f"verify-{clock.now():%Y%m%dT%H%M%S}-{side.value}"
+    order = Order(
+        entity_id=symbol, side=side, quantity=quantity, limit_price=price,
+        reason="verify_live_order",
+    )
+    return PlannedOrder(
+        order=order,
+        order_id=client_order_id(session=session, entity_id=symbol, slice_seq=0),
+        session_id=session,
+        slice_seq=0,
+        target_weight=0.0,
+    )
+
+
+# -----------------------------------------------------------------------------
+# 실행 — 8단계
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class RunConfig:
+    symbol: str
+    quantity: int
+    max_order_value: float
+    live: bool
+    dry_run: bool
+
+
+def run(
+    config: RunConfig,
+    *,
+    store: Store,
+    client: LSClient,
+    clock: Clock,
+    confirm: Callable[[str], bool] = default_confirm,
+    prompt: Callable[[str], str] = default_prompt,
+    out: Callable[[str], None] = print,
+) -> int:
+    """전체 절차. 반환값은 종료코드 — 0 이 아니면 사람이 봐야 한다.
+
+    **여기서 만드는 ``LSClient`` 는 호출자가 넘긴다.** 이 함수 자체는
+    실전 여부를 판단만 하지 스스로 파일·환경을 읽지 않는다 — 그래야
+    테스트에서 진짜 네트워크·자격증명 없이 이 함수를 그대로 돌릴 수 있다.
+    """
+    dry_run = config.dry_run or not config.live
+    out(f"검증 대상: {config.symbol} · {config.quantity}주 · 상한 {config.max_order_value:,.0f}원")
+    out(f"모드: {'실전' if config.live else '페이퍼(--live 없음)'}"
+        f" · {'드라이런(전송 안 함)' if dry_run else '실제 전송'}")
+
+    # -- 사전 점검 --------------------------------------------------------
+    if not client.credentials.usable():
+        out("자격증명 없음 — LS_APPKEY/LS_APPSECRET 이 .env 에 없거나 템플릿 값이다.")
+        out("(값 자체는 여기서 읽지도 출력하지도 않는다 — 존재 여부만 본다.)")
+        return 1
+    out("자격증명 존재 확인 — .env 에 LS_APPKEY/LS_APPSECRET 있음")
+
+    if config.live:
+        live_cfg = bool(store.config("execution.live_trading", as_of=clock.now()))
+        if not live_cfg:
+            out("execution.live_trading 이 꺼져 있다 — 이 상태로는 진행하지 않는다.")
+            out("config/quant_rl_trading.yaml 의 execution.live_trading 을 true 로 켜거나,")
+            out("store.config 오버라이드로 as_of 시점 값을 켜야 한다.")
+            return 1
+        if not client.live_trading:
+            out(
+                "LSClient.live_trading 이 꺼져 있다 — 이 도구를 만든 쪽이 "
+                "client=LSClient(..., live_trading=True) 로 넘겨야 한다."
+            )
+            return 1
+        out("게이트 둘 다 열림 — execution.live_trading=True · LSClient.live_trading=True")
+    else:
+        out(
+            "--live 없음 — execution.live_trading 확인을 건너뛴다. "
+            "주문 TR 은 client 단에서부터 막혀 있다."
+        )
+
+    switch = guards.check_killswitch(store, as_of=clock.now())
+    if not switch:
+        out(f"⚠️  킬스위치 발동 중 — {switch.reason}. 진행해도 되는지 사람이 먼저 판단해야 한다.")
+        if not confirm("킬스위치가 걸려 있다. 그래도 계속할까?"):
+            out("중단.")
+            return 1
+
+    if not is_regular_session(Market.KR, clock.now()):
+        out("⚠️  지금은 KR 정규장 시간이 아니다 — 시세·체결이 기대와 다를 수 있다.")
+        if not confirm("정규장 시간이 아니다. 그래도 계속할까?"):
+            out("중단.")
+            return 1
+
+    symbol = config.symbol.strip()
+    quantity = config.quantity
+
+    # -- 1. 토큰 발급 ------------------------------------------------------
+    if not confirm("1단계 — 토큰을 발급받는다. 계속할까?"):
+        out("중단.")
+        return 1
+    try:
+        token = client.ensure_token(allow_paper=True)
+    except (LSAPIError, MissingCredentials) as error:
+        out(f"토큰 발급 실패: {error}")
+        return 1
+    out(f"  토큰 확보 ({'PAPER' if token.access_token == 'PAPER_PLACEHOLDER' else '실전'})")
+
+    # -- 2. 잔고 조회 ------------------------------------------------------
+    if not confirm("2단계 — 잔고를 조회한다 (t0424). 계속할까?"):
+        out("중단.")
+        return 1
+    try:
+        balance = fetch_balance(client)
+    except (LSAPIError, MissingCredentials) as error:
+        out(f"잔고 조회 실패: {error}")
+        return 1
+    if balance.paper:
+        out("  잔고 조회 생략 — paper 모드(t0424 는 PAPER_ALLOWED_TR 밖이다)")
+    else:
+        out(f"  추정순자산 {balance.net_asset:,.0f} · 보유종목 {len(balance.positions)}개")
+
+    # -- 3. 시세 조회 ------------------------------------------------------
+    if not confirm(f"3단계 — {symbol} 현재가를 조회한다 (t1102). 계속할까?"):
+        out("중단.")
+        return 1
+    try:
+        quote = fetch_quote(client, symbol)
+    except (LSAPIError, MissingCredentials) as error:
+        out(f"시세 조회 실패: {error}")
+        return 1
+    if quote is None:
+        out("  시세를 못 받았다 (paper 응답이거나 빈 응답) — 중단한다.")
+        return 1
+    out(f"  현재가 {quote.price:,.0f} · 매도호가1 {quote.ask:,.0f} · 매수호가1 {quote.bid:,.0f}")
+
+    # -- 4. 주문 직전 요약 · 확인 · 매수 ------------------------------------
+    buy_price = reference_price(quote, Side.BUY)
+    buy_summary = build_order_summary(
+        symbol=symbol, side=Side.BUY, quantity=quantity,
+        raw_reference_price=buy_price, max_order_value=config.max_order_value,
+    )
+    out("4단계 — 매수 주문 요약")
+    out(buy_summary.render())
+    if not buy_summary.ok:
+        out(f"  {buy_summary.reason} — 중단한다.")
+        return 1
+
+    if dry_run:
+        body = _order_body(
+            symbol=symbol, side=Side.BUY, quantity=quantity, limit_price=buy_summary.price
+        )
+        out(f"  드라이런 — 전송하지 않는다. 보낼 본문: {body}")
+        out(
+            "드라이런이라 이후 단계(체결조회·정정·취소·매도)도 실물 없이는 "
+            "진행할 수 없다. 여기서 끝낸다."
+        )
+        return 0
+
+    if not confirm("위 내용으로 매수 주문을 실제로 낸다. 계속할까?"):
+        out("중단.")
+        return 1
+
+    planned = make_planned_order(
+        symbol=symbol, side=Side.BUY, quantity=quantity, price=buy_summary.price, clock=clock
+    )
+    broker = LSBroker(client=client, store=store)
+    try:
+        buy_ack = broker.submit(planned, as_of=clock.now())
+    except RejectedOrder as error:
+        out(f"  거부됨 — {error}")
+        return 1
+    except BrokerError as error:
+        out(f"  전송 결과를 모른다(BrokerError) — {error}")
+        out("  재전송하지 말고 잔고·체결 화면을 직접 확인해야 한다.")
+        return 1
+
+    out(f"  전송 결과: sent={buy_ack.sent} broker_order_no={buy_ack.broker_order_no} "
+        f"rsp_cd={buy_ack.rsp_cd} msg={buy_ack.rsp_msg}")
+    if not buy_ack.sent or buy_ack.broker_order_no is None:
+        out("  주문번호가 없다 — 이후 단계(체결조회)를 이 도구가 자동으로 이어갈 수 없다.")
+        out("  LS 화면에서 직접 확인해야 한다.")
+        return 1
+
+    # -- 5. 체결 조회 · (필요하면) 부분취소 테스트 --------------------------
+    if not confirm("5단계 — 체결을 확인한다 (t0425). 계속할까?"):
+        out("중단.")
+        return 0
+
+    filled = _poll_fill(
+        store=store, client=client, clock=clock, order_id=planned.order_id,
+        symbol=symbol, side=Side.BUY, broker_order_no=buy_ack.broker_order_no,
+        requested_quantity=quantity, out=out,
+    )
+    remaining = quantity - filled
+
+    if remaining > 0 and confirm(
+        f"미체결 잔량이 {remaining}주 남았다. 부분취소 테스트를 해볼까?"
+        " (CSPAT00801 의 OrdQty 의미를 여기서 직접 관찰한다)"
+    ):
+        answer = prompt(f"취소할 수량 (1~{remaining}, 그냥 Enter 면 {remaining} 전체)")
+        try:
+            cancel_qty = int(answer) if answer else remaining
+        except ValueError:
+            cancel_qty = remaining
+        cancel_qty = max(1, min(cancel_qty, remaining))
+        body = preview_cancel_body(
+            symbol=symbol, order_no=buy_ack.broker_order_no, quantity=cancel_qty
+        )
+        out(f"  보낼 취소 본문: {body}")
+        if confirm(f"{cancel_qty}주 취소를 실제로 보낸다. 계속할까?"):
+            cancel_ack = broker.cancel(
+                broker_order_no=buy_ack.broker_order_no, entity_id=symbol, quantity=cancel_qty
+            )
+            out(
+                f"  취소 결과: sent={cancel_ack.sent} rsp_cd={cancel_ack.rsp_cd} "
+                f"msg={cancel_ack.rsp_msg}"
+            )
+            out(
+                "  → docs/live-order-checklist.md 에 관찰 결과(정확히 cancel_qty 만 줄었는지,"
+                " 초과 요청 시 01443 거부가 뜨는지)를 적어 둔다."
+            )
+
+    # -- 6. 정정(재호가) 테스트 — 선택 --------------------------------------
+    # 취소 성공 여부와 무관하게 최신 조회로 다시 확인하는 것이 정확하지만,
+    # 여기서는 간단히 남은 목표수량 - 체결량으로 근사한다.
+    remaining_after_cancel = quantity - filled
+    if remaining_after_cancel > 0 and confirm(
+        "미체결이 남아 있다. 재호가(정정) 테스트를 해볼까?"
+        " (lifecycle.decide 의 market_price 로 무엇을 먹여야 하는지 여기서 관찰한다)"
+    ):
+        try:
+            fresh = fetch_quote(client, symbol)
+        except (LSAPIError, MissingCredentials) as error:
+            out(f"  재호가용 시세 조회 실패: {error}")
+            fresh = None
+        if fresh is not None:
+            new_price = round_to_tick(reference_price(fresh, Side.BUY), side=Side.BUY)
+            out(
+                f"  최우선 매도호가 {fresh.ask:,.0f} · 현재가 {fresh.price:,.0f} "
+                f"→ 새 지정가 후보 {new_price:,.0f}"
+            )
+            body = preview_modify_body(
+                symbol=symbol, order_no=buy_ack.broker_order_no,
+                quantity=remaining_after_cancel, price=new_price,
+            )
+            out(f"  보낼 정정 본문: {body}")
+            if confirm("이 가격으로 정정을 실제로 보낸다. 계속할까?"):
+                modify_ack = broker.modify(
+                    broker_order_no=buy_ack.broker_order_no, entity_id=symbol,
+                    quantity=remaining_after_cancel, price=new_price,
+                )
+                out(
+                    f"  정정 결과: sent={modify_ack.sent} rsp_cd={modify_ack.rsp_cd} "
+                    f"msg={modify_ack.rsp_msg}"
+                )
+                out(
+                    "  → docs/live-order-checklist.md 에 어떤 가격(최우선호가/현재가)이 "
+                    "받아들여졌는지 적어 둔다."
+                )
+
+    # -- 7. 매도로 되돌리기 --------------------------------------------------
+    if filled <= 0:
+        out("체결된 수량이 없어 되팔 것이 없다. 남은 미체결은 취소해서 정리해야 한다.")
+        return 0
+
+    if not confirm(f"7단계 — 체결된 {filled}주를 되판다. 계속할까?"):
+        out(f"중단 — {filled}주가 계좌에 남아 있다. 직접 정리해야 한다.")
+        return 1
+
+    try:
+        sell_quote = fetch_quote(client, symbol)
+    except (LSAPIError, MissingCredentials) as error:
+        out(f"매도 시세 조회 실패: {error}")
+        return 1
+    if sell_quote is None:
+        out("매도 시세를 못 받았다 — 중단한다. 포지션이 남아 있다.")
+        return 1
+
+    sell_summary = build_order_summary(
+        symbol=symbol, side=Side.SELL, quantity=filled,
+        raw_reference_price=reference_price(sell_quote, Side.SELL),
+        # 매도는 이미 산 것을 되파는 것 — 상한을 막을 이유가 없다.
+        max_order_value=config.max_order_value * 2,
+    )
+    out(sell_summary.render())
+    if not confirm("위 내용으로 매도 주문을 실제로 낸다. 계속할까?"):
+        out(f"중단 — {filled}주가 계좌에 남아 있다.")
+        return 1
+
+    sell_planned = make_planned_order(
+        symbol=symbol, side=Side.SELL, quantity=filled, price=sell_summary.price, clock=clock
+    )
+    try:
+        sell_ack = broker.submit(sell_planned, as_of=clock.now())
+    except (RejectedOrder, BrokerError) as error:
+        out(f"매도 전송 실패 — {error}. {filled}주가 계좌에 남아 있을 수 있다.")
+        return 1
+
+    out(f"  매도 전송 결과: sent={sell_ack.sent} broker_order_no={sell_ack.broker_order_no}")
+    if sell_ack.sent and sell_ack.broker_order_no:
+        _poll_fill(
+            store=store, client=client, clock=clock, order_id=sell_planned.order_id,
+            symbol=symbol, side=Side.SELL, broker_order_no=sell_ack.broker_order_no,
+            requested_quantity=filled, out=out,
+        )
+
+    out("8단계 — 결과. 위 로그와 LS 화면(잔고·체결내역)을 대조해 배선이 맞는지 확인한다.")
+    return 0
+
+
+def _poll_fill(
+    *,
+    store: Store,
+    client: LSClient,
+    clock: Clock,
+    order_id: str,
+    symbol: str,
+    side: Side,
+    broker_order_no: str,
+    requested_quantity: int,
+    out: Callable[[str], None],
+    attempts: int = 5,
+) -> int:
+    """t0425 를 몇 번 조회해 누적 체결수량을 본다. 새 체결은 ``trades`` 에
+    적힌다(``broker/fills.py``) — 여기서 지어내지 않는다."""
+    filled = 0
+    for attempt in range(1, attempts + 1):
+        pending = [
+            PendingFill(
+                order_id=order_id, entity_id=symbol, side=side, market="KR",
+                broker_order_no=broker_order_no, requested_quantity=requested_quantity,
+            )
+        ]
+        result = sync_fills(store, client, clock, as_of=clock.now(), pending=pending)
+        outcome = result.outcomes[0]
+        cumulative = outcome.cumulative_quantity
+        if cumulative is not None:
+            filled = int(cumulative)
+        detail = f" · {outcome.detail}" if outcome.detail else ""
+        out(
+            f"  [{attempt}/{attempts}] {outcome.state.value} · "
+            f"누적체결 {filled}/{requested_quantity}{detail}"
+        )
+        if filled >= requested_quantity:
+            break
+    return filled
+
+
+# -----------------------------------------------------------------------------
+# CLI
+# -----------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--symbol", required=True, help="6자리 종목코드 (예: 005930)")
+    parser.add_argument("--quantity", type=int, default=1, help="검증 수량 (기본 1주)")
+    parser.add_argument(
+        "--max-order-value", type=float, default=DEFAULT_MAX_ORDER_VALUE,
+        help=f"주문 금액 상한, 원 (기본 {DEFAULT_MAX_ORDER_VALUE:,.0f})",
+    )
+    parser.add_argument(
+        "--live", action="store_true",
+        help="실전 게이트를 켠다 (execution.live_trading 확인 포함)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="--live 여부와 무관하게 주문·정정·취소는 전송하지 않고 본문만 출력",
+    )
+    parser.add_argument("--data-root", type=Path, help="창고 루트 (기본: 표준 위치)")
+    args = parser.parse_args(argv)
+
+    load_env()
+    store = build_store(args.data_root)
+    credentials = LSCredentials.from_env(prefix="LS_")
+    client = LSClient(credentials=credentials, live_trading=args.live)
+    clock = LiveClock()
+
+    config = RunConfig(
+        symbol=args.symbol,
+        quantity=args.quantity,
+        max_order_value=args.max_order_value,
+        live=args.live,
+        dry_run=args.dry_run,
+    )
+    try:
+        return run(config, store=store, client=client, clock=clock)
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

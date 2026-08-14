@@ -105,8 +105,14 @@ function renderFxChart(body) {
   });
 }
 
-function leaderTable(rows) {
-  if (!rows.length) return `<p class="empty">market_stats 에 오늘 시총이 없다.</p>`;
+function leaderTable(rows, marketCode) {
+  if (!rows.length) {
+    return marketCode === "US"
+      ? `<p class="empty">미장 시가총액은 아직 수집되지 않았다 — market_cap = 주가 ×
+          상장주식수인데, 미장 상장주식수(shares outstanding) 를 받는 수집기가 아직
+          없다. 국장은 KRX Open API 로 채운다.</p>`
+      : `<p class="empty">market_stats 에 오늘 시총이 없다.</p>`;
+  }
   const head = `<thead><tr><th>종목</th><th class="r">시가총액</th><th class="r">등락률</th></tr></thead>`;
   const body_ = rows
     .map(
@@ -124,8 +130,8 @@ function renderLeaders(body) {
   const l = body.data.leaders;
   document.getElementById("leaders-kr-count").textContent = `${l.KR.length}종목`;
   document.getElementById("leaders-us-count").textContent = `${l.US.length}종목`;
-  document.getElementById("leaders-kr").innerHTML = leaderTable(l.KR);
-  document.getElementById("leaders-us").innerHTML = leaderTable(l.US);
+  document.getElementById("leaders-kr").innerHTML = leaderTable(l.KR, "KR");
+  document.getElementById("leaders-us").innerHTML = leaderTable(l.US, "US");
 }
 
 function renderMacro(body) {
@@ -158,6 +164,90 @@ function renderMacro(body) {
   target.innerHTML = `<table>${head}<tbody>${body_}</tbody></table>`;
 }
 
+/* -- 시가총액 트리맵 (finviz map) ------------------------------------------ */
+
+/* 등락률 → 색. **상승 초록 · 하락 빨강** — 이 대시보드의 고정 색 규칙이다
+ * (scope.js COLOR.up/down). 한국식(빨강↑)을 쓰면 다른 탭과 색이 갈리고,
+ * 한 화면 안에서 색 규칙이 갈리는 것이 제일 위험하다(dashboard.md §10).
+ *
+ * 등락을 못 잰 종목은 회색(COLOR.dim)이다 — 0% 로 칠하면 "보합" 이라는
+ * 다른 사실이 된다.
+ */
+function treemapColor(change) {
+  if (change === null || change === undefined) return COLOR.dim;
+  // ±5%에서 색이 꽉 찬다. finviz 도 비슷한 폭으로 채도를 준다 — 상폐 임박
+  // 종목의 ±30% 한 건이 나머지 전부를 흐리게 만들면 맵을 못 읽는다.
+  const cap = 0.05;
+  const ratio = Math.min(1, Math.abs(change) / cap);
+  const base = change >= 0 ? [34, 197, 94] : [239, 68, 68]; // COLOR.up / COLOR.down
+  const panel = [20, 27, 36]; // --panel2 근사 — 옅은 등락은 배경에 가깝게
+  const mix = panel.map((c, i) => Math.round(c + (base[i] - c) * (0.2 + ratio * 0.8)));
+  return `rgb(${mix.join(",")})`;
+}
+
+/* 국장·미장을 완전히 다른 맵 둘로 그린다(같은 맵 안 그룹이 아니다) — 원·달러
+ * 시총 스케일이 섞이면 두 시장을 나란히 비교하기 어렵다. */
+function renderTreemapFor(elId, rows, isUs) {
+  const target = document.getElementById(elId);
+  if (!rows.length) {
+    target.innerHTML = isUs
+      ? `<p class="empty">미장 시가총액은 아직 수집되지 않았다 — 상장주식수(shares
+          outstanding) 소스가 없어 market_cap 자체가 안 만들어진다. 국장은 KRX
+          Open API 로 상장주식수를 받지만 미장은 아직 그런 수집기가 없다.</p>`
+      : `<p class="empty">market_stats 에 오늘 시총이 없다.</p>`;
+    return;
+  }
+  const data = rows.map((row) => ({
+    name: row.name,
+    value: row.market_cap,
+    change: row.change,
+    entityId: row.entity_id,
+    itemStyle: { color: treemapColor(row.change) },
+  }));
+
+  chart(elId).setOption({
+    ...BASE,
+    tooltip: {
+      ...BASE.tooltip,
+      formatter: (info) => {
+        const d = info.data;
+        if (!d) return "";
+        const changeText = d.change === null || d.change === undefined
+          ? "등락 미측정(거래 없음)"
+          : `${arrow(d.change)}${pct(d.change)}`;
+        return `<b>${esc(d.name)}</b> <span class="sub">${esc(d.entityId)}</span><br>`
+          + `시총 ${num(Math.round(d.value / 1e8))}억<br>${changeText}`;
+      },
+    },
+    series: [
+      {
+        type: "treemap",
+        roam: false,
+        nodeClick: false,
+        breadcrumb: { show: false },
+        label: {
+          color: "#fff", fontFamily: "IBM Plex Mono", fontSize: 11, overflow: "truncate",
+        },
+        itemStyle: { borderColor: COLOR.panel, gapWidth: 1 },
+        levels: [
+          { itemStyle: { borderColor: COLOR.border, borderWidth: 1, gapWidth: 1 } },
+        ],
+        data,
+      },
+    ],
+  });
+}
+
+function renderTreemap(body) {
+  const t = body.data.treemap;
+  const note = document.getElementById("treemap-note");
+  if (note) note.textContent = `시장별 상위 ${t.top_n}종목`;
+  document.getElementById("treemap-kr-count").textContent = t.KR.length ? `${t.KR.length}종목` : "";
+  document.getElementById("treemap-us-count").textContent = t.US.length ? `${t.US.length}종목` : "";
+  renderTreemapFor("chart-treemap-kr", t.KR, false);
+  renderTreemapFor("chart-treemap-us", t.US, true);
+}
+
 async function loadMarket() {
   const body = await fetchJson("market");
   showScope(body);
@@ -166,11 +256,13 @@ async function loadMarket() {
   renderFxChart(body);
   renderLeaders(body);
   renderMacro(body);
+  renderTreemap(body);
 
   const warnings = [];
   if (!body.data.indices.table.length) warnings.push("지수가 비어 있다");
   if (body.data.fx.rate === null) warnings.push("환율이 비어 있다 — NAV 평가에도 영향을 준다");
   if (!body.data.macro.length) warnings.push("거시지표가 비어 있다");
+  if (!body.data.treemap.US.length) warnings.push("미장 시가총액 미수집 — 상장주식수 소스가 없다");
   showAlerts(warnings);
 }
 

@@ -9,6 +9,10 @@
   <link rel="stylesheet"
         href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  {# 탭 전용 CSS 자리. app.css 는 공통이라 여러 화면이 동시에 고치면 서로 덮는다.
+     탭마다 자기 파일(static/<탭>.css)을 여기에 건다. 공통 규칙(색·간격·밀도)은
+     app.css 에 두고, 여기에는 그 탭에서만 쓰는 것만 둔다. #}
+  {% block styles %}{% endblock %}
   <!-- 차트는 ECharts 하나로 끝낸다. 라이브러리를 더하지 않는다 (dashboard.md §6). -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
 </head>

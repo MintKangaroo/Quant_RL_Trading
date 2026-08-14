@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}트레이딩 · Quant_RL_Trading{% endblock %}
 
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='trading.css') }}">
+{% endblock %}
+
 {% block body %}
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
 
@@ -94,7 +98,7 @@
     </div>
 
     <div class="panel">
-      <h2>수익률 캘린더
+      <h2>수익률 캘린더 · 지수 대비
         <span class="right">
           <span class="sub">최근 달 · 일별 TWR</span>
           {# 새 창은 as_of 를 물려받는다 (trading.js). 안 물려주면 달력만
@@ -102,10 +106,19 @@
           <button type="button" id="calendar-popout" title="새 창에서 크게 보기">표시하기</button>
         </span>
       </h2>
-      <div id="calendar" class="cal"></div>
+      {# 달력이 패널 폭의 일부만 쓴다 — 그 오른쪽 공백에 지수 대비를 붙인다.
+         같은 달·같은 nav_daily 에서 나온 값이라 두 패널이 서로 다른 시점을
+         말할 일이 없다. #}
+      <div class="cal-compare">
+        <div id="calendar" class="cal"></div>
+        <div id="bench-compare" class="bench-compare"></div>
+      </div>
       <p class="note">
         <strong>빈칸은 0% 가 아니라 장이 없던 날이다.</strong> 전체는
-        [표시하기] 로 새 창에서 본다.
+        [표시하기] 로 새 창에서 본다. 지수 대비는 <strong>가격지수 기준 ·
+        배당 미반영</strong> — 국내 대형주 기준 연 2~3%p 만큼 우리가 유리하게
+        나온다(<code>config.benchmark</code> 의 공식 벤치마크 KOSPI_TR·SPX_TR
+        은 아직 미구현이라 이건 그 참고용 대체다).
       </p>
     </div>
   </section>
@@ -115,7 +128,12 @@
       <h2>Positions
         <span class="right"><span class="sub" id="positions-count"></span></span>
       </h2>
-      <div id="positions" class="scroll dense"></div>
+      <div class="positions-body">
+        <div id="positions" class="scroll dense"></div>
+        {# 현금도 한 조각이다. 주식 비중만 100% 로 그리면 실제 익스포저가
+           가려진다 — 익스포저 KPI 가 말하는 것과 이 파이가 어긋나면 안 된다. #}
+        <div class="chart positions-pie" id="chart-positions-pie"></div>
+      </div>
     </div>
 
     <div class="panel">
