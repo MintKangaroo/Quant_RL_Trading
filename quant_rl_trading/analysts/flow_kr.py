@@ -27,7 +27,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -68,6 +68,19 @@ WEIGHTS = {
 #: Analyst 가 영원히 침묵하고, 그건 "수급이 안 먹혔다" 가 아니라 "잰 적이
 #: 없다" 다. 잡아야 할 것은 낮은 커버리지가 아니라 **커버리지의 붕괴**다.
 MIN_COVERAGE = 0.5
+
+#: 뒤에서 잘라낼 수 있는 부분 세션의 최대 개수.
+#:
+#: 수급은 종목 축으로 들어와서 (`ls_flow`) 991종목을 다 받기 전에 실행이 끊기면
+#: 마지막 하루가 168종목짜리로 남는다. 그 하루 때문에 창 전체를 버리면
+#: Analyst 가 **영구히** 침묵한다 — 실제로 그렇게 매일 "신호 0건" 이었다.
+#: 덜 찬 꼬리는 잘라내고 완결된 창으로 잰다. 과거만 쓰는 것이라 미래를 보지
+#: 않는다.
+#:
+#: 다만 무한정 뒤로 물러나지는 않는다. 사흘째 덜 차 있다면 그것은 "오늘 수집이
+#: 아직 안 끝났다" 가 아니라 **수집이 멈춘 것**이고, 그때 나오는 점수는 낡은
+#: 것을 오늘 것처럼 말하게 된다.
+MAX_PARTIAL_TAIL = 2
 
 
 class FlowKrAnalyst(Analyst):
@@ -123,43 +136,60 @@ class FlowKrAnalyst(Analyst):
         이길 수 있다.
         """
         # 컬럼을 좁힌다. flows 는 하루 3.6MB × 45일이고, 무게의 대부분이
-        # 안 쓰는 문자열 컬럼이다.
+        # 안 쓰는 문자열 컬럼이다. 시장은 질의에서 거른다 — pandas 로 거르면
+        # 안 쓸 시장을 통째로 퍼온 뒤 버린다.
         frame = self.store.get(
             FLOWS,
             as_of=as_of,
             lookback=LOOKBACK_DAYS,
+            market=str(self.market),
             columns=["market", "net_value", "is_final", "revision"],
         )
         if frame.empty:
             return None
 
-        frame = frame[
-            (frame["market"] == str(self.market)) & frame["entity_id"].isin(universe)
-        ]
+        frame = frame[frame["entity_id"].isin(universe)]
         if frame.empty:
             return None
 
         frame = frame.copy()
         frame["session"] = frame["valid_from"].dt.date
-        if not self._coverage_intact(frame):
+        cutoff = self._last_complete_session(frame)
+        if cutoff is None:
             return None
+        frame = frame[frame["session"] <= cutoff]
 
         # 확정치가 뒤에 오도록 정렬한 뒤 마지막을 남긴다.
         frame = frame.sort_values(["session", "is_final", "revision"])
         return frame.groupby(["session", "entity_id", "investor"], as_index=False).last()
 
     @staticmethod
-    def _coverage_intact(frame: pd.DataFrame) -> bool:
-        """마지막 세션의 커버리지가 창의 중앙값 대비 정상인가.
+    def _last_complete_session(frame: pd.DataFrame) -> date | None:
+        """어느 세션까지 쓸 수 있나. 쓸 창이 없으면 None.
 
-        중앙값을 쓰는 이유는 이상치에 끌려가지 않기 위해서다 — 창 안에 이미
-        붕괴한 날이 하나 있어도 기준선이 흔들리면 안 된다.
+        커버리지 기준선은 창의 **중앙값**이다. 이상치에 끌려가지 않기 위해서다
+        — 창 안에 이미 붕괴한 날이 하나 있어도 기준선이 흔들리면 안 된다.
+
+        덜 찬 세션은 뒤에서부터 잘라낸다. 잘라낸 개수가 ``MAX_PARTIAL_TAIL`` 을
+        넘으면 그건 수집이 멈춘 것이므로 아무것도 내지 않는다.
         """
         per_session = frame.groupby("session")["entity_id"].nunique()
         if len(per_session) < 2:
-            return False
-        latest = per_session.iloc[-1]
-        return bool(latest >= MIN_COVERAGE * per_session.median())
+            return None
+
+        floor = MIN_COVERAGE * per_session.median()
+        complete = per_session[per_session >= floor]
+        if complete.empty:
+            return None
+
+        cutoff = complete.index[-1]
+        dropped = int((per_session.index > cutoff).sum())
+        if dropped > MAX_PARTIAL_TAIL:
+            return None
+        # 자른 뒤에도 창이 남아야 한다. 한 세션만으로는 누적도 지속성도 없다.
+        if len(complete) < 2:
+            return None
+        return cutoff
 
     @staticmethod
     def _cumulative(flows: pd.DataFrame, investor: str, window: int) -> pd.Series:
