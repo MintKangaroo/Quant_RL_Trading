@@ -28,6 +28,10 @@ _SPECS: dict[str, TableSpec] = {
             # 수정주가에는 미래의 분할·증자가 이미 반영돼 있기 때문이다.
             "adj_factor": pa.float64(),
         },
+        # 그날의 사실을 그날보다 먼저 관측할 수는 없다. 늦게 오는 쪽(백필·
+        # 정정본)은 하한 **위**에 있으므로 안 잘린다. 선언이 없으면 하한
+        # 프루닝이 통째로 꺼져 창을 좁혀도 파티션을 전부 연다 (flows 참조).
+        observation_lag_days=3,
         doc="일봉. 원주가 기준.",
     ),
     "flows": TableSpec(
@@ -61,6 +65,9 @@ _SPECS: dict[str, TableSpec] = {
             "total_volume": pa.float64(),
             "short_ratio": pa.float64(),
         },
+        # 공매도 잔고는 사후 공시다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "공매도. **T+1~2 에 공표된다** — observed_at 이 세션 당일이면 "
             "flow_kr 이 통째로 미래를 본다. backfill.shorting_lag_days 로 "
@@ -79,6 +86,9 @@ _SPECS: dict[str, TableSpec] = {
             "volume": pa.float64(),
             "value": pa.float64(),
         },
+        # 지수 종가도 종가다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "지수 일봉. regime Analyst 의 입력. prices 와 섞지 않는다 — "
             "지수가 종목 유니버스에 끼면 커버리지 통계와 횡단면 z 가 오염된다."
@@ -99,6 +109,9 @@ _SPECS: dict[str, TableSpec] = {
     "fx": TableSpec(
         name="fx",
         columns={"rate": pa.float64()},
+        # 환율도 그날 값이다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc="환율. entity_id 예: FX:USDKRW",
     ),
     "universe": TableSpec(
@@ -110,6 +123,9 @@ _SPECS: dict[str, TableSpec] = {
             "is_tradable": pa.bool_(),
             "delisted_on": pa.timestamp("us", tz="UTC"),
         },
+        # 명단 스냅샷은 그날 찍는다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc="매 거래일 상장종목 명단 스냅샷. 상폐 종목을 지우지 않는다.",
     ),
     "documents": TableSpec(
@@ -137,6 +153,9 @@ _SPECS: dict[str, TableSpec] = {
             "detail": pa.string(),
         },
         natural_key=("entity_id", "valid_from", "stage"),
+        # 수집한 뒤에 재는 값이다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "파이프라인 단계별 실측 지연. entity_id = 수집 소스. "
             "백테스트 지연은 이 실측의 p90 을 쓴다 — 가정한 지연과 실제 지연의 "
@@ -192,6 +211,9 @@ _SPECS: dict[str, TableSpec] = {
             "value": pa.float64(),
         },
         natural_key=("entity_id", "valid_from", "metric"),
+        # 그날 통계를 그날보다 먼저 알 수 없다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "일별 시장 관측 — 상장주식수·시가총액. **fundamentals 와 나눈다.** "
             "분기에 4번 바뀌는 공시와 매일 바뀌는 관측을 한 테이블에 두면, "
@@ -212,6 +234,9 @@ _SPECS: dict[str, TableSpec] = {
             "latency_ms": pa.float64(),
         },
         natural_key=("entity_id", "valid_from", "analyst", "analyst_version"),
+        # as_of 시점에 계산한다. 계산이 사실보다 앞설 수 없다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "Analyst 점수. valid_from = as_of(신호가 유효해진 시점), "
             "observed_at = 계산해서 알게 된 시점. analyst_version 이 자연키에 "
@@ -274,6 +299,9 @@ _SPECS: dict[str, TableSpec] = {
             "order_id": pa.string(),
         },
         natural_key=("entity_id", "valid_from", "order_id"),
+        # 우리 체결이다. 체결 전에 기록될 수 없다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "체결. **발생주의(trade-date)** — 결제일이 아니라 체결 시점에 "
             "손익·수수료를 인식한다 (accounting.md §1). 수수료와 세금은 "
@@ -329,6 +357,9 @@ _SPECS: dict[str, TableSpec] = {
             "nav_after_tax": pa.float64(),
             "benchmark_index": pa.float64(),
         },
+        # 그날 장부를 그날 접는다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "일간 회계 스냅샷. 한국시간 15:40 하루 한 번, 미장은 직전 종가 "
             "(accounting.md §2). **낙폭은 NAV 원금액이 아니라 TWR 누적지수로 "
@@ -353,6 +384,9 @@ _SPECS: dict[str, TableSpec] = {
         # 결정론적으로 만들므로, 재시작 후 같은 주문을 다시 만들어도 같은 키가
         # 나오고 창고가 중복을 거부한다 — 그것이 멱등성의 마지막 방어선이다.
         natural_key=("entity_id", "session_id", "slice_seq"),
+        # 우리 주문이다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "집행한 주문. 프로세스는 반드시 죽었다 살아난다 — 그때 중복 주문이 "
             "나가지 않게 하는 것이 이 테이블의 존재 이유다."
@@ -379,6 +413,9 @@ _SPECS: dict[str, TableSpec] = {
             "realized_weight": pa.float64(),
         },
         natural_key=("entity_id", "valid_from", "session_id"),
+        # 집행 결과다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.
+        # 선언이 없으면 하한 프루닝이 꺼져 창을 좁혀도 파티션을 전부 연다.
+        observation_lag_days=3,
         doc=(
             "목표 비중과 **실제 체결된 비중** (불변식 7). 빠지면 RL 은 자기가 "
             "하지 않은 행동으로 보상받고 학습이 망가진다. 소액 구간에서는 정수 "

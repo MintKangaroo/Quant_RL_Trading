@@ -369,12 +369,43 @@ async function renderCandles(entityId, positions) {
          label: { color: COLOR.warn, formatter: "평균단가", position: "insideEndTop" } }]
     : [];
 
+  // 처음에는 최근 120세션만 보여준다. 5년을 한 화면에 밀어 넣으면 봉이
+  // 선이 되어 아무것도 안 보인다. 나머지는 스크롤로 간다.
+  const span = c.sessions.length;
+  const startPct = span > 120 ? Math.max(0, (1 - 120 / span) * 100) : 0;
+
   chart("chart-candle").setOption({
     ...BASE,
     legend: { ...BASE.legend, data: ["봉", "MA5", "MA20", "MA60"] },
     grid: [
-      { left: 52, right: 52, top: 18, height: "62%" },
-      { left: 52, right: 52, top: "76%", height: "16%" },
+      { left: 52, right: 52, top: 18, height: "56%" },
+      { left: 52, right: 52, top: "70%", height: "14%" },
+    ],
+    // 좌우 스크롤·확대축소. 두 grid 를 함께 움직여야 봉과 거래량이 어긋나지
+    // 않는다. inside 는 휠·드래그, slider 는 아래 손잡이다.
+    dataZoom: [
+      {
+        type: "inside", xAxisIndex: [0, 1], start: startPct, end: 100,
+        zoomOnMouseWheel: true, moveOnMouseMove: true,
+        // filterMode "filter" 라야 보이는 구간만 남아 Y축이 그 구간으로
+        // 다시 잡힌다. "none" 이면 5년 최고가에 눌려 최근 봉이 납작해진다.
+        filterMode: "filter",
+      },
+      {
+        type: "slider", xAxisIndex: [0, 1], start: startPct, end: 100,
+        filterMode: "filter",
+        bottom: 6, height: 18,
+        backgroundColor: "transparent",
+        borderColor: COLOR.border,
+        fillerColor: "rgba(62,123,250,0.12)",
+        handleStyle: { color: COLOR.muted, borderColor: COLOR.border },
+        moveHandleStyle: { color: COLOR.border },
+        textStyle: { color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono" },
+        dataBackground: {
+          lineStyle: { color: COLOR.dim, opacity: 0.5 },
+          areaStyle: { color: COLOR.dim, opacity: 0.15 },
+        },
+      },
     ],
     xAxis: [
       { type: "category", data: c.sessions, ...AXIS, gridIndex: 0 },
@@ -382,6 +413,8 @@ async function renderCandles(entityId, positions) {
         axisLine: AXIS.axisLine, splitLine: { show: false } },
     ],
     yAxis: [
+      // scale + 확대 구간 기준 재계산. 없으면 5년 최고가에 눌려 최근 봉이
+      // 납작해진다.
       { type: "value", scale: true, ...AXIS, gridIndex: 0 },
       { type: "value", gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false },
         axisLine: AXIS.axisLine },
