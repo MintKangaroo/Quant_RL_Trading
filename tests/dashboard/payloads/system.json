@@ -1,6 +1,6 @@
 {
   "system/cache": {
-    "as_of": "2026-08-14T11:31:53.985313+00:00",
+    "as_of": "2026-08-14T12:09:51.987781+00:00",
     "data": {
       "rows": [
         {
@@ -30,7 +30,7 @@
     }
   },
   "system/jobs": {
-    "as_of": "2026-08-14T11:31:54.100898+00:00",
+    "as_of": "2026-08-14T12:09:52.111395+00:00",
     "data": [
       {
         "key": "collect_daily",
@@ -207,7 +207,7 @@
     }
   },
   "system/latency": {
-    "as_of": "2026-08-14T11:31:54.157060+00:00",
+    "as_of": "2026-08-14T12:09:52.164405+00:00",
     "data": {
       "overall": {
         "p50": 39.072,
@@ -265,8 +265,144 @@
       "missing_warn": 0.01
     }
   },
+  "system/processes": {
+    "as_of": "2026-08-14T12:09:53.365949+00:00",
+    "data": {
+      "processes": [
+        {
+          "command": "/home/mintkangaroo/Project/Quant_RL_Trading/.venv/bin/python3 tools/measure_ic.py --analyst chart event flow_kr fundamen",
+          "cpu_pct": 134.2,
+          "pid": 1731160,
+          "rss_mb": 4166.2,
+          "uptime_h": 1.9
+        },
+        {
+          "command": ".venv/bin/python tools/capture_tab_payloads.py",
+          "cpu_pct": 219.5,
+          "pid": 1950656,
+          "rss_mb": 732.6,
+          "uptime_h": 0.0
+        },
+        {
+          "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5057",
+          "cpu_pct": 2.7,
+          "pid": 1938716,
+          "rss_mb": 502.4,
+          "uptime_h": 0.1
+        },
+        {
+          "command": "claude --dangerously-skip-permissions -c",
+          "cpu_pct": 7.0,
+          "pid": 1425,
+          "rss_mb": 481.6,
+          "uptime_h": 44.6
+        },
+        {
+          "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5058",
+          "cpu_pct": 0.6,
+          "pid": 1938718,
+          "rss_mb": 165.1,
+          "uptime_h": 0.1
+        },
+        {
+          "command": "ugrep -G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude",
+          "cpu_pct": 0.0,
+          "pid": 1801007,
+          "rss_mb": 4.6,
+          "uptime_h": 1.3
+        },
+        {
+          "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
+          "cpu_pct": 0.0,
+          "pid": 1916857,
+          "rss_mb": 3.3,
+          "uptime_h": 0.3
+        },
+        {
+          "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
+          "cpu_pct": 0.0,
+          "pid": 1950634,
+          "rss_mb": 3.3,
+          "uptime_h": 0.0
+        },
+        {
+          "command": "bash ./scripts/walk_forward.sh 2026-01-02 2026-03-31",
+          "cpu_pct": 0.0,
+          "pid": 1731056,
+          "rss_mb": 3.2,
+          "uptime_h": 1.9
+        },
+        {
+          "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
+          "cpu_pct": 0.0,
+          "pid": 1800985,
+          "rss_mb": 3.2,
+          "uptime_h": 1.3
+        },
+        {
+          "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
+          "cpu_pct": 0.0,
+          "pid": 1863216,
+          "rss_mb": 3.2,
+          "uptime_h": 0.8
+        },
+        {
+          "command": "uv run python tools/measure_ic.py --analyst chart event flow_kr fundamental regime risk --market KR --sessions 300 --as-",
+          "cpu_pct": 0.0,
+          "pid": 1731157,
+          "rss_mb": 2.8,
+          "uptime_h": 1.9
+        }
+      ],
+      "total_rss_mb": 6095.1
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/resources": {
+    "as_of": "2026-08-14T12:09:53.429176+00:00",
+    "data": {
+      "cpu": {
+        "cores": 12,
+        "load1": 2.96,
+        "load15": 2.35,
+        "load1_pct": 24.6,
+        "load5": 2.67
+      },
+      "disk": {
+        "free_gb": 896.6,
+        "total_gb": 1081.1,
+        "used_gb": 184.5,
+        "used_pct": 17.1
+      },
+      "memory": {
+        "avail_gb": 2.4,
+        "total_gb": 9.48,
+        "used_gb": 7.08,
+        "used_pct": 74.7
+      }
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
   "system/safety": {
-    "as_of": "2026-08-14T11:31:55.386564+00:00",
+    "as_of": "2026-08-14T12:09:53.482828+00:00",
     "data": {
       "config_version": 1,
       "killswitch_engaged": false,
@@ -285,17 +421,19 @@
     }
   },
   "system/summary": {
-    "as_of": "2026-08-14T11:31:55.487911+00:00",
+    "as_of": "2026-08-14T12:09:53.568992+00:00",
     "data": {
       "cache_recent_entries": 102,
       "config_version": 1,
+      "disk_used_pct": 17.1,
       "job_count": 4,
       "job_failed_count": 0,
       "job_silent_count": 0,
       "killswitch_engaged": false,
       "killswitch_reason": "",
       "llm_monthly_budget_usd": 50.0,
-      "table_count": 24,
+      "mem_used_pct": 76.6,
+      "table_count": 25,
       "table_stale_count": 1,
       "warnings": [
         "fx 최신 데이터가 7일 지연"
@@ -313,7 +451,7 @@
     }
   },
   "system/tables": {
-    "as_of": "2026-08-14T11:32:01.017317+00:00",
+    "as_of": "2026-08-14T12:09:58.763745+00:00",
     "data": [
       {
         "latest_valid_from": "2026-08-14T18:40:04.024065+09:00",
@@ -386,6 +524,12 @@
         "rows_recent": 0,
         "stale_days": null,
         "table": "killswitch"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "llm_usage"
       },
       {
         "latest_valid_from": "2026-08-14T19:10:54.206632+09:00",

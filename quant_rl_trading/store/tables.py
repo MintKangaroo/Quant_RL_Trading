@@ -464,6 +464,38 @@ _SPECS: dict[str, TableSpec] = {
             "실제 계산 시각은 computed_at 에 따로 남긴다."
         ),
     ),
+    "llm_usage": TableSpec(
+        name="llm_usage",
+        columns={
+            "agent": pa.string(),
+            "agent_version": pa.string(),
+            "model": pa.string(),
+            # anthropic 응답의 request_id. 실제 HTTP 왕복 하나를 식별하는
+            # 유일한 값이라 자연키에 넣는다 — 없으면 재시도가 같은 행으로 뭉갠다.
+            "request_id": pa.string(),
+            # 한 번의 호출이 여러 항목(뉴스 여러 건, 지표 여러 건)을 함께
+            # 묻는다. 몇 건을 같이 물었는지 남겨야 "호출당 평균 비용" 을 잰다.
+            "items": pa.int32(),
+            "input_tokens": pa.int64(),
+            "output_tokens": pa.int64(),
+            "cache_creation_input_tokens": pa.int64(),
+            "cache_read_input_tokens": pa.int64(),
+            "computed_at": pa.timestamp("us", tz="UTC"),
+        },
+        natural_key=("entity_id", "valid_from", "agent", "agent_version", "request_id"),
+        doc=(
+            "LLM 호출 하나(HTTP 왕복)당 실제 토큰 사용량 — 비용을 재기 위한 표다. "
+            "``agent_cache`` 는 판정·해설을 **항목별로** 캐싱하는 표라, 한 번의 "
+            "호출이 뉴스 여러 건·지표 여러 건을 함께 묻고도 항목 수만큼 행으로 "
+            "갈라진다. 토큰을 그 표에 붙이면 배치 크기만큼 비용이 부풀려진다 "
+            "— 그래서 별도 표로 뺐다. entity_id = agent 이름. valid_from· "
+            "observed_at 은 agent_cache 와 같은 이유로 as_of 다(호출 결과가 "
+            "그 시점 데이터만의 함수이므로). 실제 계산 시각(벽시계)은 "
+            "computed_at 에 남긴다. 단가는 여기 없다 — store.config 에서 읽는다 "
+            "(불변식 10). 이 표가 생기기 전 호출은 기록이 없다. 그건 '0원' 이 "
+            "아니라 '몰랐다' 다 — 대시보드가 그 경계를 명시해야 한다."
+        ),
+    ),
     CONFIG_TABLE: TableSpec(
         name=CONFIG_TABLE,
         columns={"value_json": pa.string()},

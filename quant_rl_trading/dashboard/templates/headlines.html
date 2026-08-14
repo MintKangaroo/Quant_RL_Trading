@@ -10,6 +10,23 @@
   <section class="kpis" id="kpis"></section>
 
   <section class="panel">
+    <h2>시가총액 맵
+      <span class="right"><span class="sub" id="treemap-note"></span></span>
+    </h2>
+    <div class="chart tall" id="chart-treemap"></div>
+    <p class="note">
+      넓이는 시가총액, 색은 <strong>전일 대비 등락률</strong>이다 — 상승 초록·
+      하락 빨강, 이 대시보드의 색 규칙 그대로다(한국식 빨강↑이 아니다).
+      회색은 등락을 못 잰 종목(그날 거래가 없어 직전 종가가 없는 등)이다 —
+      0% 로 칠하면 "보합" 이라는 다른 사실이 된다.
+      <strong>업종이 아니라 시장(KR/US)으로 묶는다.</strong> 창고의
+      <code>sectors</code> 테이블은 업종 분류가 아니라 KOSDAQ 소속부라
+      KOSPI 942종목이 전부 미상이다 — 업종으로 묶으면 코스피가 통째로
+      "미상" 한 덩어리가 된다.
+    </p>
+  </section>
+
+  <section class="panel">
     <h2>매수 차단 — News · SNS 판정
       <span class="right"><span class="sub" id="verdicts-count"></span></span>
     </h2>

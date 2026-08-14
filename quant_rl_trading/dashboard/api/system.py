@@ -84,3 +84,18 @@ def cache() -> Any:
 def safety() -> Any:
     current = scope()
     return envelope(current, service.safety_summary(store(), as_of=current.as_of))
+
+
+@bp.get("/resources")
+def resources() -> Any:
+    """CPU·메모리·디스크. **as_of 로 되감기지 않는다** — 이 기계 자체의 지금
+    상태이지 창고의 과거 사실이 아니다(services/system.py 모듈 docstring)."""
+    current = scope()
+    return envelope(current, service.server_resources(store().root))
+
+
+@bp.get("/processes")
+def processes() -> Any:
+    """이 프로젝트 아래에서 도는 프로세스. **as_of 로 되감기지 않는다.**"""
+    current = scope()
+    return envelope(current, service.project_processes(store().root))

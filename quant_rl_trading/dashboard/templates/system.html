@@ -10,6 +10,17 @@
   <section class="kpis" id="kpis"></section>
 
   <section class="panel">
+    <h2>서버 리소스 <span class="right sub" id="resources-total-rss"></span></h2>
+    <div class="kpis" id="resources" style="margin-bottom: 10px"></div>
+    <div class="scroll" id="processes"></div>
+    <p class="note">
+      <code>/proc</code> 실측이다. <strong>as_of 로 되감기지 않는다</strong> —
+      이 기계의 지금 상태이지 창고의 과거 사실이 아니다. 프로세스는 작업
+      디렉터리가 이 레포 밑인 것만 잡는다(대시보드 자신 포함).
+    </p>
+  </section>
+
+  <section class="panel">
     <h2>크론 작업 — 최근 성공/실패</h2>
     <div id="jobs"></div>
     <p class="note">

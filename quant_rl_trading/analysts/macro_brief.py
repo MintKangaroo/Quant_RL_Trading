@@ -315,6 +315,7 @@ class MacroBrief:
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False, indent=2)}
             ],
         )
+        self._record_usage(response, item_count=len(items), as_of=as_of)
 
         out: dict[str, dict[str, Any]] = {}
         for block in response.content:
@@ -334,6 +335,50 @@ class MacroBrief:
             if item["_fp"] in out:
                 self._remember(item, out[item["_fp"]], as_of=as_of)
         return out
+
+    def _record_usage(self, response: Any, *, item_count: int, as_of: datetime) -> None:
+        """실제 토큰 사용량을 ``llm_usage`` 에 남긴다.
+
+        비용 계산(단가 곱셈)은 여기서 안 한다 — 단가는 store.config 소관이다
+        (불변식 10). usage 가 없으면(테스트 스텁 등) 조용히 넘어간다 — 기록
+        실패가 해설 경로를 막으면 안 된다.
+        """
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        request_id = str(getattr(response, "_request_id", None) or getattr(response, "id", None) or "")
+        if not request_id:
+            return
+        run_id = f"{AGENT}-usage-{as_of:%Y%m%dT%H%M%S}-{request_id}"
+        if self.store.ingest_run_recorded("llm_usage", run_id):
+            return
+        self.store.append(
+            "llm_usage",
+            [
+                {
+                    "entity_id": AGENT,
+                    "valid_from": as_of,
+                    # 벽시계가 아니라 as_of. 이유는 agent_cache 와 같다.
+                    "observed_at": as_of,
+                    "source": AGENT,
+                    "agent": AGENT,
+                    "agent_version": VERSION,
+                    "model": self.model,
+                    "request_id": request_id,
+                    "items": item_count,
+                    "input_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+                    "output_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+                    "cache_creation_input_tokens": int(
+                        getattr(usage, "cache_creation_input_tokens", 0) or 0
+                    ),
+                    "cache_read_input_tokens": int(
+                        getattr(usage, "cache_read_input_tokens", 0) or 0
+                    ),
+                    "computed_at": self.clock.now(),
+                }
+            ],
+            ingest_run_id=run_id,
+        )
 
     def _client(self) -> Any:
         import anthropic

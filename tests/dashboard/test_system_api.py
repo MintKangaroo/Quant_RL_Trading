@@ -1,14 +1,15 @@
 """시스템 탭 API 계약 테스트.
 
 이 화면의 질문은 하나다 — **지금 이 시스템이 제대로 돌고 있는가.** 그래서
-여기서 고정하는 사실은 세 가지다.
+여기서 고정하는 사실은 네 가지다.
 
 1. 모든 GET 라우트가 ``as_of`` 를 받고 되돌려준다 (불변식 9)
 2. 크론 작업 이력은 **로그**에서 온다 — 창고가 아니므로 as_of 로 안 되감긴다
 3. 킬스위치·설정 판번호·테이블 최신성은 **창고**에서 오므로 정직하게 되감긴다
+4. CPU·메모리·디스크·프로세스는 **이 기계**에서 온다 — 창고도 로그도 아니다
 
-``create_app`` 을 쓰지 않는다 — ``system`` 블루프린트는 아직 배선(app.py)
-전이라, 이 테스트 자신이 최소 앱을 만들어 등록한다. 배선이 끝나면
+``system`` 블루프린트는 ``app.py`` 에 배선돼 있으므로 다른 탭 테스트와 같이
+``create_app(store=..., clock=...)`` 을 쓴다.
 ``test_data_quality_api.py::test_every_api_route_accepts_as_of`` 가 전체
 ``/api/`` 라우트를 훑을 때 이 블루프린트도 자동으로 검사받는다.
 """
@@ -20,20 +21,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from flask import Flask
 
-from quant_rl_trading.dashboard.api import system as system_api
+from quant_rl_trading.dashboard import create_app
 from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 14, 11, 0, tzinfo=UTC)  # 2026-08-14 20:00 KST
-
-
-def make_app(store: Any, clock: ReplayClock) -> Flask:
-    app = Flask(__name__)
-    app.config["QUANT_RL_STORE"] = store
-    app.config["QUANT_RL_CLOCK"] = clock
-    app.register_blueprint(system_api.bp)
-    return app
 
 
 @pytest.fixture
@@ -42,18 +34,22 @@ def seeded(store):  # type: ignore[no-untyped-def]
     return store
 
 
-@pytest.fixture
-def client(seeded):  # type: ignore[no-untyped-def]
-    app = make_app(seeded, ReplayClock(NOW))
+def client_for(seeded_store: Any) -> Any:
+    app = create_app(store=seeded_store, clock=ReplayClock(NOW))
     app.config.update(TESTING=True)
     return app.test_client()
+
+
+@pytest.fixture
+def client(seeded):  # type: ignore[no-untyped-def]
+    return client_for(seeded)
 
 
 def body(response: Any) -> dict[str, Any]:
     return response.get_json()  # type: ignore[no-any-return]
 
 
-API_PATHS = ["summary", "jobs", "tables", "latency", "cache", "safety"]
+API_PATHS = ["summary", "jobs", "tables", "latency", "cache", "safety", "resources", "processes"]
 
 
 # -- 불변식 9 -----------------------------------------------------------------
@@ -96,8 +92,7 @@ def test_jobs_are_parsed_from_logs(seeded) -> None:
         "  수급 rc=0\n"
         "  거시 rc=0\n",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    data = body(client.get("/api/system/jobs"))["data"]
+    data = body(client_for(seeded).get("/api/system/jobs"))["data"]
 
     collect = next(job for job in data if job["key"] == "collect_daily")
     assert collect["last_run_ok"] is True
@@ -119,8 +114,7 @@ def test_job_with_no_rc_line_is_unconfirmed_not_failed(seeded) -> None:
         "daily-202608.log",
         "=== 2026-08-14 16:10:01 market=KR ===\nTraceback (most recent call last):\n  OOM\n",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    data = body(client.get("/api/system/jobs"))["data"]
+    data = body(client_for(seeded).get("/api/system/jobs"))["data"]
 
     daily = next(job for job in data if job["key"] == "run_daily")
     assert daily["runs"][0]["ok"] is None
@@ -134,9 +128,8 @@ def test_jobs_route_ignores_as_of(seeded) -> None:
         "shadow-202608.log",
         "=== 2026-08-14 16:30:00 market=KR ===\nrc=0\n",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
     past = (NOW - timedelta(days=30)).isoformat()
-    data = body(client.get(f"/api/system/jobs?as_of={past}"))["data"]
+    data = body(client_for(seeded).get(f"/api/system/jobs?as_of={past}"))["data"]
 
     shadow = next(job for job in data if job["key"] == "run_shadow")
     assert shadow["last_run_ok"] is True
@@ -162,8 +155,7 @@ def test_table_freshness_reflects_the_warehouse(seeded) -> None:
         }],
         ingest_run_id="t-prices",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    data = body(client.get("/api/system/tables"))["data"]
+    data = body(client_for(seeded).get("/api/system/tables"))["data"]
 
     prices = next(row for row in data if row["table"] == "prices")
     assert prices["rows_recent"] == 1
@@ -185,8 +177,7 @@ def test_killswitch_state_is_read_from_the_warehouse(seeded) -> None:
         }],
         ingest_run_id="t-ks",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    data = body(client.get("/api/system/safety"))["data"]
+    data = body(client_for(seeded).get("/api/system/safety"))["data"]
 
     assert data["killswitch_engaged"] is True
     assert data["killswitch_reason"] == "낙폭 30% 초과"
@@ -203,8 +194,7 @@ def test_summary_warns_when_killswitch_is_engaged(seeded) -> None:
         }],
         ingest_run_id="t-ks2",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    data = body(client.get("/api/system/summary"))["data"]
+    data = body(client_for(seeded).get("/api/system/summary"))["data"]
 
     assert data["killswitch_engaged"] is True
     assert any("킬스위치" in w for w in data["warnings"])
@@ -227,8 +217,7 @@ def test_cache_stats_count_entries_not_hits(seeded) -> None:
         ],
         ingest_run_id="t-cache",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    data = body(client.get("/api/system/cache"))["data"]
+    data = body(client_for(seeded).get("/api/system/cache"))["data"]
 
     assert data["total"] == 2
     assert data["rows"][0]["agent"] == "news"
@@ -247,8 +236,7 @@ def test_thresholds_come_from_store_config(seeded) -> None:
         }],
         ingest_run_id="t-prices-fresh",
     )
-    client = make_app(seeded, ReplayClock(NOW)).test_client()
-    before = body(client.get("/api/system/summary"))["data"]
+    before = body(client_for(seeded).get("/api/system/summary"))["data"]
     assert before["table_stale_count"] == 0  # 방금 들어온 데이터라 기본 임계치(3일)로는 안 걸린다
 
     # 임계치를 -1로 낮추면 같은 창고에서 경고 판정이 바뀐다는 것을 확인한다.
@@ -262,5 +250,30 @@ def test_thresholds_come_from_store_config(seeded) -> None:
         }],
         ingest_run_id="t-config-tighten",
     )
-    after = body(client.get("/api/system/summary"))["data"]
+    after = body(client_for(seeded).get("/api/system/summary"))["data"]
     assert after["table_stale_count"] >= 1
+
+
+# -- 서버 리소스 — 창고도 로그도 아니라 이 기계 --------------------------------
+
+
+def test_resources_reports_this_machine(client) -> None:
+    """CPU/메모리/디스크는 리눅스 /proc·statvfs 실측이다. 못 재면 None 이지
+    0 으로 채우지 않는다."""
+    data = body(client.get("/api/system/resources"))["data"]
+
+    assert set(data) == {"cpu", "memory", "disk"}
+    for key in ("cpu", "memory", "disk"):
+        assert data[key] is None or isinstance(data[key], dict)
+    if data["disk"] is not None:
+        assert data["disk"]["used_pct"] is None or 0 <= data["disk"]["used_pct"] <= 100
+
+
+def test_processes_only_match_this_repo(seeded) -> None:
+    """cwd 가 창고 루트 밖인 프로세스(테스트 러너 자체 등)는 안 잡힌다 —
+    이 fixture 의 store 루트는 tmp_path 라 실제로 도는 어떤 프로세스의
+    cwd 도 아니다."""
+    data = body(client_for(seeded).get("/api/system/processes"))["data"]
+
+    assert data["processes"] == []
+    assert data["total_rss_mb"] in (0.0, None)

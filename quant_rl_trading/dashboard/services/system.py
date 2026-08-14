@@ -23,10 +23,21 @@ Data Quality 가 "데이터가 썩고 있나", Agent Health 가 "에이전트가
 파티션만 열리고, 선언이 없는 몇 개(fundamentals·documents·events·
 verdicts·analyst_weights·agent_cache)는 통째로 열리지만 전부 합쳐도
 150MB 남짓이라 문제되지 않는다.
+
+## 서버 리소스는 창고를 아예 거치지 않는다
+
+``server_resources`` · ``project_processes`` 는 ``/proc`` 만 읽는다 — CPU
+load·메모리·프로세스는 창고의 사실이 아니라 **이 기계의 사실**이라
+불변식 1(store.get 경유)과 무관하다. 디스크 사용량은 ``os.statvfs`` 로
+파일시스템 통계만 묻는다 — 파일을 열거나 파티션을 나열하지 않는다.
+``flows`` 디렉터리 전체 크기를 재려면 ``du``/``os.walk`` 로 109만 개
+파일을 훑어야 하는데(실측 11~20초), 그건 이 탭이 막으려는 바로 그 사고라
+**테이블별 저장소 크기는 만들지 않는다.**
 """
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -41,6 +52,9 @@ from quant_rl_trading.store import Store
 from quant_rl_trading.store.tables import CONFIG_TABLE, table_names
 
 AGENT_CACHE = "agent_cache"
+
+#: 프로세스 표에 실을 최대 행수.
+PROCESS_ROWS = 12
 
 #: 로그 타임스탬프의 출처. run_daily.sh 등이 ``date '+%F %T'`` 로 찍는 값은
 #: 이 머신의 지역시각(KST)이다 — 벽시계를 여기서 읽는 것이 아니라 이미 파일에
@@ -264,6 +278,122 @@ def safety_summary(store: Store, *, as_of: datetime) -> dict[str, Any]:
     }
 
 
+def server_resources(root: Path) -> dict[str, Any]:
+    """CPU load·메모리·디스크 — 이 기계 자체의 상태 (모듈 docstring).
+
+    LS_KR 참고 구현(``system-stats``)의 이식이다. 못 읽으면(리눅스가 아니거나
+    권한이 없으면) 그 항목만 ``None`` — 나머지는 살아 있어야 한다.
+    """
+    cpu: dict[str, Any] | None
+    try:
+        cores = os.cpu_count() or 1
+        load1, load5, load15 = os.getloadavg()
+        cpu = {
+            "cores": cores,
+            "load1": round(load1, 2),
+            "load5": round(load5, 2),
+            "load15": round(load15, 2),
+            "load1_pct": round(min(100.0, load1 / cores * 100), 1),
+        }
+    except OSError:
+        cpu = None
+
+    memory: dict[str, Any] | None
+    try:
+        fields: dict[str, float] = {}
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            key, _, value = line.partition(":")
+            parts = value.strip().split()
+            if parts:
+                fields[key.strip()] = float(parts[0])
+        total = fields.get("MemTotal", 0.0) / 1024 / 1024
+        avail = fields.get("MemAvailable", 0.0) / 1024 / 1024
+        used = total - avail
+        memory = {
+            "total_gb": round(total, 2),
+            "used_gb": round(used, 2),
+            "avail_gb": round(avail, 2),
+            "used_pct": round(used / total * 100, 1) if total else None,
+        }
+    except OSError:
+        memory = None
+
+    disk: dict[str, Any] | None
+    try:
+        # 통계만 묻는다 — 파일을 열지 않으므로 파티션이 몇 개든 O(1)이다.
+        stats = os.statvfs(str(root))
+        total = stats.f_blocks * stats.f_frsize / 1e9
+        free = stats.f_bavail * stats.f_frsize / 1e9
+        used = total - free
+        disk = {
+            "total_gb": round(total, 1),
+            "used_gb": round(used, 1),
+            "free_gb": round(free, 1),
+            "used_pct": round(used / total * 100, 1) if total else None,
+        }
+    except OSError:
+        disk = None
+
+    return {"cpu": cpu, "memory": memory, "disk": disk}
+
+
+def project_processes(root: Path) -> dict[str, Any]:
+    """이 프로젝트 아래에서 도는 프로세스 — ``cwd`` 가 레포 루트 밑인 것만.
+
+    자기 자신(대시보드)도 포함한다 — 뺄 이유가 없다. jobs.py 의
+    ``_running_commands`` 가 자기 자신을 빼는 것은 "돌고 있는지" 라는 예/아니오
+    판정에 쓰기 때문이고, 여기는 "지금 뭐가 도는가" 를 있는 그대로 보여주는
+    것이 목적이라 다르다.
+    """
+    repo_root = str(root.parent)
+    try:
+        page = os.sysconf("SC_PAGE_SIZE")
+        clk = os.sysconf("SC_CLK_TCK")
+        uptime = float(Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+    except (OSError, ValueError):
+        return {"processes": [], "total_rss_mb": None}
+
+    procs: list[dict[str, Any]] = []
+    try:
+        pids = [entry.name for entry in Path("/proc").iterdir() if entry.name.isdigit()]
+    except OSError:
+        return {"processes": [], "total_rss_mb": None}
+
+    for pid in pids:
+        entry = Path("/proc") / pid
+        try:
+            cwd = os.readlink(entry / "cwd")
+        except OSError:
+            continue
+        if repo_root not in cwd:
+            continue
+        try:
+            raw_cmdline = (entry / "cmdline").read_bytes()
+            cmdline = raw_cmdline.replace(b"\x00", b" ").decode(errors="replace").strip()
+            stat_fields = (entry / "stat").read_text(encoding="utf-8").split()
+        except OSError:
+            continue
+        if len(stat_fields) < 24:
+            continue
+        rss_mb = int(stat_fields[23]) * page / 1024 / 1024
+        utime, stime, starttime = int(stat_fields[13]), int(stat_fields[14]), int(stat_fields[21])
+        proc_uptime = uptime - starttime / clk
+        cpu_pct = ((utime + stime) / clk / proc_uptime * 100) if proc_uptime > 0 else 0.0
+        procs.append(
+            {
+                "pid": int(pid),
+                "command": (cmdline or "?")[:120],
+                "rss_mb": round(rss_mb, 1),
+                "cpu_pct": round(cpu_pct, 1),
+                "uptime_h": round(proc_uptime / 3600, 1),
+            }
+        )
+
+    procs.sort(key=lambda p: -p["rss_mb"])
+    total_rss = round(sum(p["rss_mb"] for p in procs), 1)
+    return {"processes": procs[:PROCESS_ROWS], "total_rss_mb": total_rss}
+
+
 def summary(
     store: Store, *, as_of: datetime, lookback: int, thresholds: dict[str, Any]
 ) -> dict[str, Any]:
@@ -272,6 +402,7 @@ def summary(
     tables = table_freshness(store, as_of=as_of)
     cache = cache_stats(store, as_of=as_of, lookback=int(thresholds["cache_lookback_days"]))
     safety = safety_summary(store, as_of=as_of)
+    resources = server_resources(store.root)
 
     table_warn_days = int(thresholds["table_stale_warn_days"])
     stale_tables = [
@@ -312,6 +443,8 @@ def summary(
         "table_count": len(tables),
         "table_stale_count": len(stale_tables),
         "cache_recent_entries": cache["total"],
+        "mem_used_pct": (resources["memory"] or {}).get("used_pct"),
+        "disk_used_pct": (resources["disk"] or {}).get("used_pct"),
         "warnings": warnings,
     }
 
@@ -320,7 +453,9 @@ __all__ = [
     "JOB_DEFS",
     "cache_stats",
     "job_history",
+    "project_processes",
     "safety_summary",
+    "server_resources",
     "summary",
     "table_freshness",
 ]

@@ -38,6 +38,10 @@ async function renderSummary() {
         "최근 파티션 기준", d.table_stale_count > 0),
     kpi("LLM 캐시 적재", num(d.cache_recent_entries), "최근 창 · agent_cache"),
     kpi("LLM 월 예산", `$${num(d.llm_monthly_budget_usd)}`, "참고값 — 실제 지출 미집계"),
+    // 임계치를 안 둔다 — store.config 에 CPU/메모리/디스크 경고선이 아직
+    // 없다. 없는 임계치로 색을 칠하면 코드에 숫자를 박는 것과 같다(불변식 10).
+    kpi("메모리 사용률", pct(d.mem_used_pct !== null ? d.mem_used_pct / 100 : null, 1), "이 기계 전체"),
+    kpi("디스크 사용률", pct(d.disk_used_pct !== null ? d.disk_used_pct / 100 : null, 1), "창고 파티션"),
   ].join("");
 
   showAlerts(d.warnings);
@@ -138,4 +142,49 @@ async function renderCache() {
     </tr>`).join("")}</tbody></table>`;
 }
 
-runAll([renderSummary, renderJobs, renderTables, renderLatency, renderSafety, renderCache]);
+/* 서버 리소스 · 프로세스 — LS_KR system 탭에서 가져왔다. 창고를 안 거치고
+ * /proc 만 읽으므로 as_of 와 무관하다 (services/system.py 모듈 docstring). */
+
+async function renderResources() {
+  const { data } = await fetchJson("system/resources");
+  const c = data.cpu, m = data.memory, disk = data.disk;
+  document.getElementById("resources").innerHTML = [
+    c
+      ? kpi("CPU", dec(c.load1, 2), `load1/5/15 · 코어 ${num(c.cores)}개 · 코어당 ${dec(c.load1_pct, 1)}%`)
+      : kpi("CPU", "—", "측정 불가(리눅스 /proc 없음)"),
+    m
+      ? kpi("메모리", `${dec(m.used_gb, 1)}`, `/ ${dec(m.total_gb, 1)}GB · 여유 ${dec(m.avail_gb, 1)}GB`,
+            false, { unit: "GB" })
+      : kpi("메모리", "—", "측정 불가"),
+    disk
+      ? kpi("디스크", `${dec(disk.used_gb, 0)}`, `/ ${dec(disk.total_gb, 0)}GB · 여유 ${dec(disk.free_gb, 0)}GB`,
+            false, { unit: "GB" })
+      : kpi("디스크", "—", "측정 불가"),
+  ].join("");
+}
+
+async function renderProcesses() {
+  const { data } = await fetchJson("system/processes");
+  document.getElementById("resources-total-rss").textContent =
+    data.total_rss_mb !== null ? `워커 RSS 합 ${num(data.total_rss_mb)}MB` : "";
+  const target = document.getElementById("processes");
+  if (!data.processes.length) {
+    target.innerHTML = `<div class="empty">이 레포 아래에서 도는 프로세스가 없다.</div>`;
+    return;
+  }
+  target.innerHTML = `<table>
+    <thead><tr><th>PID · 명령</th><th class="num">CPU%</th>
+      <th class="num">RSS(MB)</th><th class="num">가동(h)</th></tr></thead>
+    <tbody>${data.processes.map((p) => `<tr>
+      <td><span class="lead"><span class="sub">${num(p.pid)}</span>
+        <span class="trunc">${esc(p.command)}</span></span></td>
+      <td class="num">${dec(p.cpu_pct, 1)}</td>
+      <td class="num">${num(p.rss_mb)}</td>
+      <td class="num">${dec(p.uptime_h, 1)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+runAll([
+  renderSummary, renderResources, renderProcesses, renderJobs, renderTables,
+  renderLatency, renderSafety, renderCache,
+]);
