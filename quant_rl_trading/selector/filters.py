@@ -90,6 +90,16 @@ def tradable_universe(
     alive: list[str] = []
     for row in universe.to_dict(orient="records"):
         entity = str(row["entity_id"])
+        # 2026-08-15 사고: KR 백필의 상폐 감지가 시장을 안 가려서 US 종목
+        # 6,648개에 market="KR" 이 잘못 찍혔다. 위 latest_by_entity 의
+        # market=market 필터는 **저장된 market 컬럼값**을 보므로, 이미
+        # 오염된 행은 그 필터를 그대로 통과한다. entity_id 는 이 사고로
+        # 안 깨졌으므로("US:AA" 그대로) 접두어로 다시 확인한다 — 쓰기 시점
+        # 방어(schema.validate_batch)는 이후 재발만 막을 뿐 이미 들어간
+        # 행은 append-only 라 지울 수 없다.
+        if not entity.startswith(f"{market}:"):
+            dropped[entity] = "시장 불일치"
+            continue
         if not (bool(row["is_listed"]) and bool(row["is_tradable"])):
             dropped[entity] = "상장폐지·거래불가"
             continue

@@ -13,11 +13,17 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from quant_rl_trading.selector import filters
+from quant_rl_trading.store import paths
+from quant_rl_trading.store.schema import compute_row_hash
+from quant_rl_trading.store.tables import get_spec
 
 NOW = datetime(2026, 8, 12, 6, 40, tzinfo=UTC)
 #: 창(400일)보다 길게 깔아야 "창 끝에 닿았다" 와 "진짜 신규주" 가 구분된다.
@@ -76,6 +82,59 @@ def seeded(store):  # type: ignore[no-untyped-def]
     store.append("universe", universe_rows, ingest_run_id="u-seed")
     store.append("prices", price_rows, ingest_run_id="p-seed")
     return store
+
+
+def _seed_legacy_row(store, table: str, row: dict, *, ingest_run_id: str) -> None:
+    """schema.validate_batch 를 안 거치고 parquet 을 직접 쓴다.
+
+    2026-08-15 이전에 이미 들어간 오염 행(entity_id 의 시장 접두어와
+    market 컬럼이 다른 행)을 재현하기 위해서다 — 그 사고 이후로는
+    ``store.append()`` 자체가 이런 행을 거부하므로, 정상 경로로는 이미
+    창고에 있는 낡은 오염을 흉내낼 수 없다.
+    """
+    spec = get_spec(table)
+    full = {"revision": 0, **row, "ingest_run_id": ingest_run_id}
+    full["row_hash"] = compute_row_hash(full)
+    columns = {name: [full.get(name)] for name in spec.all_columns}
+    table_arrow = pa.Table.from_pydict(columns, schema=spec.arrow_schema)
+
+    observed = paths.observed_date(row["observed_at"])
+    target = paths.data_file(store.root, table, observed, ingest_run_id)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table_arrow, target)
+
+    manifest = paths.manifest_path(store.root, table, ingest_run_id)
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "table": table, "ingest_run_id": ingest_run_id, "rows": 1,
+                "files": [str(target.relative_to(store.root))],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_시장_접두어가_다른_기존_오염행은_걸러진다(seeded) -> None:
+    """**실측 사고 재현(2026-08-15).** KR 백필의 상폐 감지가 시장을 안
+    가려서 US 종목에 market="KR" 이 잘못 찍힌 적이 있다. 쓰기 시점 방어
+    (schema.validate_batch)는 그 뒤로 재발만 막을 뿐, 이미 들어간 행은
+    append-only 라 지울 수 없다 — tradable_universe 가 entity_id 접두어로
+    다시 걸러야 한다.
+    """
+    _seed_legacy_row(
+        seeded, "universe",
+        {**_universe_row("US:AA", NOW), "market": "KR"},
+        ingest_run_id="legacy-contamination",
+    )
+
+    result = _run(seeded)
+
+    assert "US:AA" not in result.kept
+    assert result.dropped["US:AA"] == "시장 불일치"
+    # 진짜 KR 종목은 이 방어에 안 걸려야 한다.
+    assert "KR:000100" in result.kept
 
 
 def _run(store, *, equity: float = 100_000_000.0):

@@ -180,6 +180,16 @@ def _scope(
         # 시장을 pandas 로 거르면 안 쓸 시장을 통째로 퍼온 뒤 버리게 된다.
         # 한 테이블에 여러 시장이 같이 사는 순간(미장 백필) 그 낭비가 국장
         # 질의를 죽인다 — 실제로 그렇게 죽었다.
+        #
+        # **이 술어는 정정본으로 못 가린다.** ``scoped`` CTE(여기)가
+        # ``ranked`` CTE(정정본 선택, query() 참고)보다 먼저 걸리기 때문에,
+        # 잘못된 market 값으로 들어간 행을 바로잡으려고 새 revision 을
+        # 얹어도 그 정정 행 자체가 이 WHERE 에서 걸러진다 — 원래의 잘못된
+        # 행만 살아남는다. 그래서 market 오염은 여기서 못 고친다. 유일한
+        # 방어선은 쓰기 시점이다: schema.py 의 ``validate_batch`` 가
+        # entity_id 의 시장 접두어와 market 값이 다르면 애초에 append 를
+        # 거부한다(TableSpec.market_prefixed_entity, 2026-08-15 사고 이후
+        # 추가 — KR 백필이 US 종목 6,648개를 market="KR" 로 찍었었다).
         if "market" not in spec.all_columns:
             raise SchemaViolation(f"{spec.name} 에는 market 컬럼이 없다")
         predicates.append("market = ?")

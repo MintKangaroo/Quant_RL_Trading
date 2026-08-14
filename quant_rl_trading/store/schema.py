@@ -50,6 +50,20 @@ class TableSpec:
     #: 관측이 유효시점보다 이만큼 늦게까지 도착한다고 선언된 테이블만
     #: 하한 파티션 프루닝을 허용한다. None 이면 하한을 자르지 않는다(느리지만 안전).
     observation_lag_days: int | None = None
+    #: ``market`` 컬럼이 있는 테이블은 기본적으로 ``entity_id`` 의 첫 세그먼트가
+    #: 그 값과 같아야 한다("KR:005930"·"KR:IDX:KOSPI" 는 KR, "US:AA" 는 US).
+    #: 실제로 이게 깨져서 KR 백필이 미장 종목 6,648개를 market="KR" 로
+    #: 잘못 찍은 사고가 났다(2026-08-15, backfill.py 의
+    #: ``Backfiller._known_listed()``). append-only 창고에서는 이런 값은
+    #: 쓰기 시점에 막는 것 말고 되돌릴 방법이 없다 — 정정본을 얹어도
+    #: ``market`` 으로 거르는 조회에서는 그 필터가 정정본 선택보다 먼저
+    #: 걸려서 잘못된 행이 계속 살아남는다(reader.py ``_scope`` 참고).
+    #:
+    #: 예외를 두는 이유: ``analyst_weights`` 처럼 ``entity_id`` 가 종목이
+    #: 아니라 analyst 이름인 테이블은 이 규칙이 아예 안 맞는다. 그런
+    #: 테이블만 명시적으로 ``False`` 를 준다 — 조용히 넘어가면 다음 사람이
+    #: "이 테이블은 검증 안 하나?" 를 코드에서 못 찾는다.
+    market_prefixed_entity: bool = True
     doc: str = ""
 
     @property
@@ -99,6 +113,32 @@ def _check_timestamp(column: str, value: object) -> datetime:
     return value
 
 
+def _check_market_prefix(spec: TableSpec, index: int, row: dict[str, object]) -> None:
+    """``entity_id`` 의 시장 접두어가 ``market`` 값과 같은지 확인한다.
+
+    **쓰기 시점에만 막을 수 있다.** ``market`` 은 조회의 WHERE 절에서 정정본
+    선택보다 먼저 걸리므로(reader.py ``_scope``), 한 번 잘못 들어간 값은
+    나중에 정정 행을 더 넣어도 그 필터로는 절대 가려지지 않는다 — 2026-08-15
+    사고(KR 백필이 US 종목 6,648개를 market="KR" 로 찍은 것)가 그렇게 났다.
+
+    ``entity_id`` 가 ``"KR:IDX:KOSPI"`` 처럼 세그먼트가 셋인 것도 있어서
+    **첫 세그먼트만** 본다. ``market`` 이 비어 있으면(일부 테이블은 항상
+    채우지 않는다) 비교할 게 없으므로 건너뛴다.
+    """
+    market = row.get("market")
+    if market is None or market == "":
+        return
+    entity_id = str(row.get("entity_id") or "")
+    prefix = entity_id.split(":", 1)[0]
+    if prefix != str(market):
+        raise SchemaViolation(
+            f"{spec.name}[{index}] entity_id={entity_id!r} 의 시장 접두어"
+            f"({prefix!r})가 market={market!r} 과 다르다. entity_id 는 "
+            f"'{market}:...' 이어야 한다 — 다른 시장 데이터가 이 market 으로 "
+            "찍히면 정정본으로도 되돌릴 수 없다 (TableSpec.market_prefixed_entity 참고)"
+        )
+
+
 def validate_batch(
     spec: TableSpec,
     records: Sequence[Mapping[str, object]],
@@ -145,6 +185,9 @@ def validate_batch(
 
         for column in TIMESTAMP_COLUMNS:
             row[column] = _check_timestamp(column, row[column])
+
+        if spec.market_prefixed_entity and "market" in spec.columns:
+            _check_market_prefix(spec, index, row)
 
         revision = row["revision"]
         if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:

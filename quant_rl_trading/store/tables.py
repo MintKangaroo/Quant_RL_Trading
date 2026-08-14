@@ -306,6 +306,11 @@ _SPECS: dict[str, TableSpec] = {
             "market": pa.string(),
         },
         natural_key=("entity_id", "valid_from", "analyst_version"),
+        # entity_id 가 종목이 아니라 analyst 이름("risk"·"chart"…)이라 시장
+        # 접두어 규칙(TableSpec.market_prefixed_entity)이 안 맞는다. market
+        # 은 그 analyst 가 어느 시장을 대상으로 측정됐는지를 말하는 별도
+        # 값이다 — entity_id 를 파생시킬 수 있는 값이 아니다.
+        market_prefixed_entity=False,
         doc=(
             "IC 검증 결과와 그에 따른 가중치. entity_id = analyst 이름. "
             "가중치를 손으로 켜고 끄면 언젠가 검증 안 된 것이 켜져 있다. "
