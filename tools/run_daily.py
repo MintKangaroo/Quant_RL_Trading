@@ -27,12 +27,15 @@ IC 를 통과하지 못한 Analyst 의 신호도 저장한다. 가중치가 0이
 ## confidence 는 스스로 매기지 않는다
 
 최근 60일 롤링 IC 로 계산해 넣는다 (agents.md §1). 스스로 매기면 과신한다.
-신호가 쌓이기 전에는 0 이고, **0 은 "확신 없음" 이지 "쓸모없음" 이 아니다.**
+**잴 표본이 없으면 감쇠하지 않는다** — 0 으로 두면 합성의 분모가 0 이 되어
+후보가 통째로 비고, 그 침묵이 "오늘 살 게 없다" 와 구분되지 않는다
+(`analysts/ic.py` NO_EVIDENCE_CONFIDENCE).
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -92,7 +95,7 @@ def last_published(store: Store, market: Market, now: datetime) -> datetime | No
 
 
 def run_scorers(
-    store: Store, *, market: Market, as_of: datetime, dry_run: bool
+    store: Store, *, market: Market, as_of: datetime, dry_run: bool, revision: int = 0
 ) -> tuple[int, list[str]]:
     """Analyst 점수 → signals. (적재 행수, 경고)
 
@@ -100,7 +103,9 @@ def run_scorers(
     백테스트 루프도 같은 함수를 부르므로, 로직이 이 파일에 남으면 백테스트는
     그것을 못 본다.
     """
-    result = signals_module.produce(store, market=market, as_of=as_of, dry_run=dry_run)
+    result = signals_module.produce(
+        store, market=market, as_of=as_of, dry_run=dry_run, revision=revision
+    )
     for name, count in result.counts.items():
         print(f"    {name:12s} {count:>5}건  confidence {result.confidence[name]:.4f}")
     return result.written, result.warnings
@@ -139,7 +144,7 @@ def run_filters(
             analyst.screen = screen
         try:
             verdicts = analyst.run(entities, as_of)
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             warnings.append(f"{name}: {type(error).__name__}: {error}")
             continue
 
@@ -147,10 +152,8 @@ def run_filters(
         if not verdicts or dry_run:
             continue
         rows = analyst.rows(verdicts, observed_at=as_of)
-        try:
+        with contextlib.suppress(DuplicateIngestRun):
             written += int(store.append(VERDICTS, rows, ingest_run_id=run_id))
-        except DuplicateIngestRun:
-            pass
     return written, warnings
 
 
@@ -159,6 +162,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--market", default="KR", choices=[m.value for m in Market])
     parser.add_argument("--as-of", help="기준 시각 (ISO8601). 생략하면 마지막 거래일")
     parser.add_argument("--dry-run", action="store_true", help="계산만 하고 저장하지 않는다")
+    parser.add_argument(
+        "--revision",
+        type=int,
+        default=0,
+        help="같은 세션의 정정본을 넣는다. 계산 규칙이 바뀌었을 때만 쓴다 (불변식 4)",
+    )
     args = parser.parse_args(argv)
 
     load_env()
@@ -181,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print("  [1/2] Analyst 점수 → signals")
     signals_written, signal_warnings = run_scorers(
-        store, market=market, as_of=as_of, dry_run=args.dry_run
+        store, market=market, as_of=as_of, dry_run=args.dry_run, revision=args.revision
     )
     print("  [2/2] News · SNS 판정 → verdicts")
     verdicts_written, filter_warnings = run_filters(

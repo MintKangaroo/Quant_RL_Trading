@@ -67,7 +67,12 @@ def run_id_for(table: str, market: Market, moment: datetime, name: str) -> str:
 
 
 def produce(
-    store: Store, *, market: Market, as_of: datetime, dry_run: bool = False
+    store: Store,
+    *,
+    market: Market,
+    as_of: datetime,
+    dry_run: bool = False,
+    revision: int = 0,
 ) -> ScoringResult:
     """그 세션의 Analyst 점수를 창고에 남긴다.
 
@@ -76,14 +81,21 @@ def produce(
     ``analyst_weights`` 가 들고 있으므로 여기서 거를 이유가 없다.
 
     ``confidence`` 는 스스로 매기지 않고 최근 60일 롤링 IC 로 계산해 넣는다
-    (agents.md §1). 신호가 쌓이기 전에는 0 이고, **0 은 "확신 없음" 이지
-    "쓸모없음" 이 아니다.**
+    (agents.md §1). 잴 표본이 없으면 감쇠하지 않는다
+    (`ic.NO_EVIDENCE_CONFIDENCE`).
+
+    ``revision`` 을 올리면 **같은 세션의 정정본**을 넣는다. UPDATE 가 아니라
+    새 행이고(불변식 4), 조회는 자연키마다 최신 revision 을 고른다. 계산
+    규칙이 바뀌어 과거 세션의 값이 틀린 것이 된 경우에 쓴다 — 지어낸 값을
+    덮는 용도가 아니다.
     """
     result = ScoringResult()
     clock = ReplayClock(as_of)
 
     for name, factory in SCORERS[market].items():
         run_id = run_id_for(SIGNALS, market, as_of, name)
+        if revision:
+            run_id = f"{run_id}-rev{revision}"
         if store.ingest_run_recorded(SIGNALS, run_id):
             continue
 
@@ -110,6 +122,9 @@ def produce(
         if dry_run:
             continue
         rows = [signal.row(observed_at=as_of, source="daily") for signal in signals]
+        if revision:
+            for row in rows:
+                row["revision"] = revision
         with contextlib.suppress(DuplicateIngestRun):
             result.written += int(store.append(SIGNALS, rows, ingest_run_id=run_id))
     return result
