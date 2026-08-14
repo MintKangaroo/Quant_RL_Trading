@@ -74,16 +74,21 @@ class EventLog:
         return seq
 
     def flush(self) -> int:
+        """버퍼를 한 배치로 적재한다. **같은 run 을 다시 돌리면 아무것도 안 쓴다.**
+
+        run_id 가 결정론적이라(세션 하나 = run 하나) 재실행은 같은 이벤트를
+        다시 만든다. 그때 창고가 중복으로 거부하면 재실행 자체가 예외로 끝나고,
+        백테스트 이어 돌리기와 크론 재시도가 모두 막힌다. 이미 적재된 배치는
+        **이미 같은 내용**이므로 건너뛰는 것이 옳다.
+        """
         if not self._buffer:
             return 0
         batch, self._buffer = self._buffer, []
-        written = self.store.append(
-            EVENTS_TABLE,
-            batch,
-            ingest_run_id=f"events-{self.run_id}-{self._flushes:04d}",
-        )
+        run_id = f"events-{self.run_id}-{self._flushes:04d}"
         self._flushes += 1
-        return written
+        if self.store.ingest_run_recorded(EVENTS_TABLE, run_id):
+            return 0
+        return self.store.append(EVENTS_TABLE, batch, ingest_run_id=run_id)
 
     @property
     def pending(self) -> int:

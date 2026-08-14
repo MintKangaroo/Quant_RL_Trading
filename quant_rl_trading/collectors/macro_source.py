@@ -202,6 +202,22 @@ class FredSource:
         rows = payload.get("releases") or []
         return str(rows[0].get("name")) if rows else ""
 
+    def observations(
+        self, series_id: str, *, start: date, end: date
+    ) -> list[dict[str, Any]]:
+        """구간 관측값. 백필은 limit 이 아니라 날짜로 자른다 — limit 으로 자르면
+        구간 끝이 언제인지가 호출 시점에 따라 달라져 재현이 안 된다.
+        """
+        payload = self._get(
+            "/series/observations",
+            {
+                "series_id": series_id,
+                "observation_start": start.isoformat(),
+                "observation_end": end.isoformat(),
+            },
+        )
+        return list(payload.get("observations") or [])
+
     def latest_observations(self, series_id: str, *, limit: int = 2) -> list[dict[str, Any]]:
         """최근 관측값. 직전 값까지 받아야 화면에 변화를 보여줄 수 있다."""
         payload = self._get(
@@ -603,3 +619,89 @@ class IndexCollector:
             ingest_run_id=run_id, label=f"idx-US-{observed_at:%Y%m%d}",
         )
         return int(self.store.append("indices", rows, ingest_run_id=run_id))
+
+
+# -----------------------------------------------------------------------------
+# 환율 — 회계의 전제
+# -----------------------------------------------------------------------------
+#
+# NAV 는 달러 자산을 원화로 환산해 합친다(accounting.md §1). 환율이 없으면
+# 회계가 **계산을 거부한다** — 1.0 으로 때우면 해외분이 1/1350 로 평가되어
+# NAV 가 통째로 무너지고 그 낙폭이 킬스위치를 건다.
+
+#: FRED 일별 원/달러. entity_id 는 accounting.ledger.FX_USDKRW 와 같아야 한다.
+FRED_FX: dict[str, str] = {"DEXKOUS": "FX:USDKRW"}
+
+#: 환율 관측을 알 수 있게 되는 시각(UTC). 그날 뉴욕장 마감 뒤에 확정되므로
+#: **다음 날 아침**으로 찍는다. 같은 날로 찍으면 그날 15:40 스냅샷이 아직
+#: 나오지 않은 값을 보게 된다 — 미래 훔쳐보기다.
+FX_PUBLICATION_HOUR = 22
+
+
+def fx_rows(
+    series_id: str,
+    observations: list[dict[str, Any]],
+    *,
+    source: str = FRED_SOURCE,
+) -> list[dict[str, Any]]:
+    """FRED 관측값 → fx 행. 값이 없는 날(휴장)은 버린다.
+
+    ``observed_at`` 은 관측일 당일 22:00 UTC — 한국시간 다음 날 아침이다.
+    """
+    entity_id = FRED_FX[series_id]
+    rows: list[dict[str, Any]] = []
+    for item in observations:
+        try:
+            day = date.fromisoformat(str(item.get("date")))
+        except (TypeError, ValueError):
+            continue
+        rate = _number(item.get("value"))
+        if rate is None or rate <= 0:
+            continue
+        rows.append(
+            {
+                "entity_id": entity_id,
+                "valid_from": datetime(day.year, day.month, day.day, tzinfo=UTC),
+                "observed_at": datetime(
+                    day.year, day.month, day.day, FX_PUBLICATION_HOUR, tzinfo=UTC
+                ),
+                "source": source,
+                "rate": rate,
+            }
+        )
+    return rows
+
+
+@dataclass
+class FxCollector:
+    """원/달러 백필. 회계가 실제 데이터 위에서 돌게 하는 최소 조건이다."""
+
+    store: Any
+    source: FredSource
+    clock: Clock
+    archive: Any
+    start: date
+    end: date
+
+    def collect(self) -> int:
+        observed_at = self.clock.now().astimezone(UTC)
+        run_id = f"fx-{self.start:%Y%m%d}-{self.end:%Y%m%d}"
+        if self.store.ingest_run_recorded("fx", run_id):
+            return 0
+
+        rows: list[dict[str, Any]] = []
+        payloads: dict[str, Any] = {}
+        for series_id in FRED_FX:
+            observations = self.source.observations(
+                series_id, start=self.start, end=self.end
+            )
+            payloads[series_id] = observations
+            rows.extend(fx_rows(series_id, observations))
+
+        if not rows:
+            return 0
+        self.archive.save(
+            self.source.name, payloads, observed_at=observed_at,
+            ingest_run_id=run_id, label=run_id,
+        )
+        return int(self.store.append("fx", rows, ingest_run_id=run_id))

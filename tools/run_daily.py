@@ -41,16 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from quant_rl_trading.analysts import ic  # noqa: E402
-from quant_rl_trading.analysts.base import Analyst  # noqa: E402
-from quant_rl_trading.analysts.chart import ChartAnalyst  # noqa: E402
-from quant_rl_trading.analysts.event import EventAnalyst  # noqa: E402
-from quant_rl_trading.analysts.flow_kr import FlowKrAnalyst  # noqa: E402
-from quant_rl_trading.analysts.flow_us import FlowUsAnalyst  # noqa: E402
-from quant_rl_trading.analysts.fundamental import FundamentalAnalyst  # noqa: E402
 from quant_rl_trading.analysts.news_screen import NewsScreen  # noqa: E402
-from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
-from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
 from quant_rl_trading.analysts.verdicts import NewsAnalyst, SnsAnalyst, VerdictAnalyst  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import (  # noqa: E402
@@ -58,6 +49,7 @@ from quant_rl_trading.collectors.publication import (  # noqa: E402
     publication_policy,
 )
 from quant_rl_trading.replay.clock import LiveClock, ReplayClock  # noqa: E402
+from quant_rl_trading.session import signals as signals_module  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import DuplicateIngestRun, Store  # noqa: E402
 from tools.backfill import build_store  # noqa: E402
@@ -65,25 +57,8 @@ from tools.backfill import build_store  # noqa: E402
 SIGNALS = "signals"
 VERDICTS = "verdicts"
 
-#: 점수를 내는 Analyst. 시장별로 돌릴 수 있는 것이 다르다.
-SCORERS: dict[Market, dict[str, type[Analyst]]] = {
-    Market.KR: {
-        "chart": ChartAnalyst,
-        "event": EventAnalyst,
-        "flow_kr": FlowKrAnalyst,
-        "fundamental": FundamentalAnalyst,
-        "regime": RegimeAnalyst,
-        "risk": RiskAnalyst,
-    },
-    # 미장은 가격 기반만 돌린다. 재무·이벤트·수급 데이터가 없어서, 돌려봤자
-    # 나오는 것은 신호가 아니라 빈 프레임이다.
-    Market.US: {
-        "chart": ChartAnalyst,
-        "regime": RegimeAnalyst,
-        "risk": RiskAnalyst,
-        "flow_us": FlowUsAnalyst,
-    },
-}
+#: 점수를 내는 Analyst 는 ``session/signals.py`` 가 들고 있다. 백테스트 루프가
+#: 같은 목록을 봐야 하기 때문이다 — 여기 한 벌 더 두면 언젠가 갈라진다.
 
 #: 판정만 내는 Analyst. 매수 금지만 가능하다.
 FILTERS: dict[str, type[VerdictAnalyst]] = {"news": NewsAnalyst, "sns": SnsAnalyst}
@@ -119,42 +94,16 @@ def last_published(store: Store, market: Market, now: datetime) -> datetime | No
 def run_scorers(
     store: Store, *, market: Market, as_of: datetime, dry_run: bool
 ) -> tuple[int, list[str]]:
-    """Analyst 점수 → signals. (적재 행수, 경고)"""
-    written, warnings = 0, []
-    clock = ReplayClock(as_of)
+    """Analyst 점수 → signals. (적재 행수, 경고)
 
-    for name, factory in SCORERS[market].items():
-        run_id = run_id_for(SIGNALS, market, as_of, name)
-        if store.ingest_run_recorded(SIGNALS, run_id):
-            continue
-
-        analyst = factory(store, clock, market=market)
-        # confidence 를 먼저 구한다. 나중에 구하면 Analyst 를 두 번 돌리게 되고,
-        # 그건 국장 6종에 대해 피처 계산을 통째로 두 번 하는 것이다.
-        confidence = ic.rolling_confidence(
-            store, analyst=name, as_of=as_of, market=str(market)
-        )
-        try:
-            signals = analyst.run(as_of, confidence=confidence)
-        except Exception as error:  # noqa: BLE001
-            # 하나가 죽어도 나머지는 남긴다. 조용히 넘어가지 않고 경고로 올린다.
-            warnings.append(f"{name}: {type(error).__name__}: {error}")
-            continue
-
-        if not signals:
-            # 빈 것을 완료로 기록하면 데이터가 생겨도 영영 건너뛴다.
-            warnings.append(f"{name}: 신호 0건")
-            continue
-
-        rows = [signal.row(observed_at=as_of, source="daily") for signal in signals]
-        print(f"    {name:12s} {len(rows):>5}건  confidence {confidence:.4f}")
-        if dry_run:
-            continue
-        try:
-            written += int(store.append(SIGNALS, rows, ingest_run_id=run_id))
-        except DuplicateIngestRun:
-            pass
-    return written, warnings
+    계산은 ``session.signals`` 가 한다. 여기는 화면에 찍는 일만 한다 —
+    백테스트 루프도 같은 함수를 부르므로, 로직이 이 파일에 남으면 백테스트는
+    그것을 못 본다.
+    """
+    result = signals_module.produce(store, market=market, as_of=as_of, dry_run=dry_run)
+    for name, count in result.counts.items():
+        print(f"    {name:12s} {count:>5}건  confidence {result.confidence[name]:.4f}")
+    return result.written, result.warnings
 
 
 def run_filters(

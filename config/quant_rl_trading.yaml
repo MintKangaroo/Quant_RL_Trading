@@ -107,6 +107,14 @@ killswitch:
   order_fail_rate: 0.10
   liquidate_on_trigger: false     # 기본은 신규매수만 차단
 
+backtest:
+  # OOS 백테스트 MDD 상한. 킬스위치(0.30)보다 낮게 잡는 이유는 백테스트 MDD 가
+  # 실전에서 거의 항상 더 나쁘기 때문이다 (reward-and-risk.md §승격 게이트).
+  mdd_promotion_gate: 0.20
+  # 성적에 넣지 않고 신호만 쌓는 선행 구간. confidence 가 60거래일 롤링 IC 라
+  # 이력이 없으면 0 이고, 0 이면 합성 점수가 비어 아무것도 사지 않는다.
+  warmup_days: 70
+
 capital:
   gate_min_trading_days: 60
   gate_max_order_fail_rate: 0.01
