@@ -1,4 +1,4 @@
-"""수집자 ×2 — market_collector / document_collector.
+"""수집자 — 데이터가 창고로 들어오는 유일한 통로.
 
 데이터를 수집하는 유일한 계층이다. 점수를 내지 않는다.
 원본 응답은 ``data/raw/`` 에 그대로 남기고, 정규화 후 curated 에 적재한다.
@@ -8,7 +8,6 @@ LS_KR / LS_USA 에서 이식한 것과 이식하지 않은 것은 각 모듈 doc
 """
 
 from quant_rl_trading.collectors.backfill import Backfiller, BackfillReport, ProgressLog
-from quant_rl_trading.collectors.document_collector import DocumentCollector, normalize_filings
 from quant_rl_trading.collectors.errors import CollectorError, LSAPIError, MissingCredentials
 from quant_rl_trading.collectors.krx_source import HistoricalSource, KrxSource, KRXUnavailable
 from quant_rl_trading.collectors.latency import LatencyRecorder
@@ -33,7 +32,6 @@ __all__ = [
     "BackfillReport",
     "Backfiller",
     "CollectorError",
-    "DocumentCollector",
     "FetchTimePolicy",
     "HistoricalSource",
     "KRXUnavailable",
@@ -55,7 +53,6 @@ __all__ = [
     "is_regular_session",
     "is_trading_day",
     "isu_code",
-    "normalize_filings",
     "normalize_master",
     "normalize_ohlcv",
     "publication_policy",

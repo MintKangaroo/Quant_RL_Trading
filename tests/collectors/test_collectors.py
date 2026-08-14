@@ -12,8 +12,6 @@ import json
 import httpx
 import pytest
 
-from quant_rl_trading.collectors.document_collector import DocumentCollector, normalize_filings
-from quant_rl_trading.collectors.errors import CollectorError, MissingCredentials
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
 from quant_rl_trading.collectors.market_collector import (
     SUJUNG_RAW,
@@ -38,20 +36,6 @@ MASTER = [
     {"shcode": "069500", "hname": "KODEX 200", "etfgubun": "1", "spac_gubun": "N"},
     {"shcode": "", "hname": "빈 코드"},
 ]
-
-FILINGS = [
-    {
-        "rcept_no": "20240305000123",
-        "corp_code": "00126380",
-        "corp_name": "삼성전자",
-        "stock_code": "005930",
-        "report_nm": "주요사항보고서",
-        "rcept_dt": "20240305",
-        "flr_nm": "삼성전자",
-    },
-    {"rcept_no": "", "rcept_dt": "20240305"},
-]
-
 
 # -- 정규화 -------------------------------------------------------------------
 
@@ -94,23 +78,6 @@ def test_master_marks_etf_as_not_tradable(ts) -> None:  # type: ignore[no-untype
     tradable = {row["entity_id"]: row["is_tradable"] for row in rows}
 
     assert tradable == {"KR:005930": True, "KR:069500": False}
-
-
-def test_filings_use_receipt_date_as_valid_from(ts) -> None:  # type: ignore[no-untyped-def]
-    rows = normalize_filings(FILINGS, observed_at=ts(2024, 3, 5, 18))
-
-    assert len(rows) == 1
-    assert rows[0]["valid_from"] == ts(2024, 3, 5)
-    assert rows[0]["observed_at"] == ts(2024, 3, 5, 18)
-    assert rows[0]["entity_id"] == "KR:005930"
-
-
-def test_filing_without_stock_code_falls_back_to_corp_code(ts) -> None:  # type: ignore[no-untyped-def]
-    rows = normalize_filings(
-        [{**FILINGS[0], "stock_code": ""}], observed_at=ts(2024, 3, 5, 18)
-    )
-
-    assert rows[0]["entity_id"] == "DART:00126380"
 
 
 # -- 수집 파이프라인 -----------------------------------------------------------
@@ -185,51 +152,6 @@ def test_universe_snapshot_is_written(collector, store, ts) -> None:  # type: ig
     seen = store.get("universe", as_of=ts(2024, 3, 5, 18))
 
     assert set(seen["entity_id"]) == {"KR:005930", "KR:069500"}
-
-
-# -- 문서 수집 ----------------------------------------------------------------
-
-
-def _dart(store, tmp_path, ts, payload, status=200):  # type: ignore[no-untyped-def]
-    return DocumentCollector(
-        store=store,
-        clock=ReplayClock(ts(2024, 3, 5, 18)),
-        archive=RawArchive(root=tmp_path / "data"),
-        api_key="dart-key",
-        transport=httpx.MockTransport(lambda _: httpx.Response(status, json=payload)),
-    )
-
-
-def test_dart_filings_land_in_the_store(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
-    collector = _dart(store, tmp_path, ts, {"status": "000", "list": FILINGS})
-
-    collector.collect_filings(ingest_run_id="dart-1", begin="20240305", end="20240305")
-
-    seen = store.get("documents", as_of=ts(2024, 3, 5, 19))
-    assert list(seen["doc_id"]) == ["20240305000123"]
-
-
-def test_dart_empty_result_is_not_an_error(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
-    """013 = 조회 결과 없음. 휴일에 공시가 없는 것은 실패가 아니다."""
-    collector = _dart(store, tmp_path, ts, {"status": "013", "message": "no data"})
-
-    assert collector.collect_filings(ingest_run_id="dart-1", begin="20240309", end="20240309") == 0
-
-
-def test_dart_error_status_raises(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
-    """DART 는 HTTP 200 에 실패를 싣는다. 200 이라고 성공으로 읽으면 안 된다."""
-    collector = _dart(store, tmp_path, ts, {"status": "020", "message": "요청 제한 초과"})
-
-    with pytest.raises(CollectorError, match="020"):
-        collector.collect_filings(ingest_run_id="dart-1", begin="20240305", end="20240305")
-
-
-def test_dart_without_key_refuses(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
-    collector = _dart(store, tmp_path, ts, {"status": "000", "list": []})
-    collector.api_key = "YOUR_KEY"
-
-    with pytest.raises(MissingCredentials):
-        collector.collect_filings(ingest_run_id="dart-1", begin="20240305", end="20240305")
 
 
 # -- 장 운영시간 ---------------------------------------------------------------

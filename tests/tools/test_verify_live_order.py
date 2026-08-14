@@ -87,6 +87,7 @@ class FakeStore:
         "accounting.dividend_tax_kr": 0.0,
         "accounting.dividend_tax_us": 0.0,
         "accounting.capital_gains_us": 0.0,
+        "accounting.capital_gains_allowance_krw": 2_500_000.0,
     }
 
     def config(self, name: str, *, as_of: datetime):  # type: ignore[no-untyped-def]

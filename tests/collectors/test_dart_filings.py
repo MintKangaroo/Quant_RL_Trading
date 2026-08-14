@@ -15,11 +15,14 @@ from typing import Any
 
 from quant_rl_trading.collectors.dart_filings import (
     OTHER,
+    FilingsBackfiller,
+    FilingsReport,
     classify,
     filings_run_id,
     normalize_filings,
     parse_receipt_date,
 )
+from quant_rl_trading.collectors.publication import NotYetPublished
 
 
 def observed(day: date) -> datetime:
@@ -114,3 +117,82 @@ def test_재개_단위는_날짜와_시장구분() -> None:
     assert filings_run_id("KR", date(2024, 5, 16), "K") != filings_run_id(
         "KR", date(2024, 5, 16), "Y"
     )
+
+
+# -- 당일치 --------------------------------------------------------------------
+
+
+class _Store:
+    """매니페스트만 흉내낸다. 여기서 검증하는 것은 적재가 아니라 분기다."""
+
+    def __init__(self) -> None:
+        self.appended: list[list[dict[str, Any]]] = []
+
+    def ingest_run_recorded(self, table: str, run_id: str) -> bool:
+        return False
+
+    def append(self, table: str, rows: list[dict[str, Any]], **_: Any) -> int:
+        self.appended.append(rows)
+        return len(rows)
+
+
+class _Source:
+    def filings(self, *, day: date, corp_class: str) -> list[dict[str, Any]]:
+        return [filing(rcept_dt=day.strftime("%Y%m%d"))]
+
+
+class _TodayPolicy:
+    """실제 ``FilingPolicy`` 와 같은 계약 — 아직인 날은 예외를 던진다."""
+
+    def __init__(self, cutoff: date) -> None:
+        self.cutoff = cutoff
+
+    def for_filing(self, received: date) -> datetime:
+        if received >= self.cutoff:
+            raise NotYetPublished(f"{received} 는 아직")
+        return observed(received)
+
+
+def _backfiller(cutoff: date) -> tuple[FilingsBackfiller, _Store]:
+    store = _Store()
+    return (
+        FilingsBackfiller(store=store, source=_Source(), policy=_TodayPolicy(cutoff)),
+        store,
+    )
+
+
+def test_아직_공표_전인_날은_대기지_실패가_아니다() -> None:
+    """일일 수집(15:55)이 당일치를 긁으면 관측시각(18:00)이 아직 미래다.
+
+    이걸 예외로 흘리면 스케줄러가 **매일** 트레이스백으로 죽는다. 창을
+    오늘까지 잡는 한 이 상황은 정상 경로다.
+    """
+    backfiller, store = _backfiller(date(2024, 5, 16))
+
+    result = backfiller.run_day(date(2024, 5, 16), "Y")
+
+    assert result.deferred
+    assert result.ok
+    assert store.appended == []
+
+
+def test_대기한_날은_적재로_기록되지_않는다() -> None:
+    """매니페스트에 안 남아야 다음 실행(22:40)이 다시 받는다."""
+    backfiller, _ = _backfiller(date(2024, 5, 16))
+    report = FilingsReport()
+
+    report.absorb(backfiller.run_day(date(2024, 5, 16), "Y"))
+
+    assert report.deferred == 1
+    assert report.failures == []
+    assert report.rows == 0
+
+
+def test_공표된_날은_그대로_적재된다() -> None:
+    backfiller, store = _backfiller(date(2024, 5, 17))
+
+    result = backfiller.run_day(date(2024, 5, 16), "Y")
+
+    assert not result.deferred
+    assert result.rows == 1
+    assert store.appended

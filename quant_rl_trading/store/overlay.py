@@ -44,7 +44,12 @@ class Overlay:
                 raise StoreError(f"{table}: 쓰기 테이블이 링크다. 지우면 원본이 사라진다")
             shutil.rmtree(target, ignore_errors=True)
             target.mkdir(parents=True, exist_ok=True)
-        _reset_manifests(self.root, self.writable)
+        # **적재 이력도 같이 지운다.** 데이터만 비우면 ``ingest_run_id`` 가
+        # 남고, run_id 는 결정론적이라(``backtest-seed-2025-09-15``) 다시 돌린
+        # 실행이 통째로 "이미 적재됨" 으로 건너뛰어진다. 그때 증상은 예외가
+        # 아니라 **NAV 0 원인 백테스트**다 — 자본 입금 한 행이 조용히 씹히고,
+        # 후보 0 · 매매 0 으로 며칠이 지나간다. 실측으로 확인했다.
+        _reset_manifests(self.root, self.writable, wipe=True)
 
 
 def build(*, root: Path, source: Path, writable: set[str] | frozenset[str]) -> Overlay:
@@ -80,12 +85,19 @@ def build(*, root: Path, source: Path, writable: set[str] | frozenset[str]) -> O
     return Overlay(root=root, source=source, writable=frozenset(writable))
 
 
-def _reset_manifests(root: Path, writable: set[str] | frozenset[str]) -> None:
+def _reset_manifests(
+    root: Path, writable: set[str] | frozenset[str], *, wipe: bool = False
+) -> None:
     """적재 이력. 쓰기 테이블만 새 것을 쓰고, 나머지는 원본을 본다.
 
     ``ingest_run_id`` 중복 판정이 이 파일들로 이뤄진다. 쓰기 테이블의 이력을
     원본에서 물려받으면, 백테스트가 낸 첫 주문이 "이미 적재됨" 으로 조용히
     건너뛰어진다.
+
+    ``wipe`` 는 **이 오버레이가 스스로 쌓은 이력까지** 지운다(``clear``).
+    링크만 끊는 것으로는 부족하다 — 이어 돌리기(``build``)는 그 이력이
+    남아야 하고, 새로 돌리기는 남으면 안 된다. 둘이 같은 함수를 쓰되
+    갈리는 지점이 여기다.
     """
     manifests = root / paths.CURATED / paths.MANIFESTS
     manifests.mkdir(parents=True, exist_ok=True)
@@ -93,4 +105,6 @@ def _reset_manifests(root: Path, writable: set[str] | frozenset[str]) -> None:
         directory = manifests / table
         if directory.is_symlink():
             directory.unlink()
+        elif wipe:
+            shutil.rmtree(directory, ignore_errors=True)
         directory.mkdir(parents=True, exist_ok=True)

@@ -110,3 +110,59 @@ def test_창고에_없는_테이블은_거부한다(origin, tmp_path: Path) -> N
         overlay.build(
             root=tmp_path / "sandbox", source=origin.root, writable={"없는테이블"}
         )
+
+
+def test_비우기는_적재_이력까지_지운다(origin, tmp_path: Path) -> None:
+    """``--fresh`` 가 데이터만 비우고 이력을 남기면 **다시 돌린 실행이 통째로 씹힌다.**
+
+    ``ingest_run_id`` 는 결정론적이다(``backtest-seed-2025-09-15``). 그래서
+    이력이 남으면 같은 run_id 의 재적재가 "이미 했음" 으로 조용히 건너뛰어지고,
+    예외 대신 **NAV 0 원인 백테스트**가 나온다 — 자본 입금 한 행이 씹혀서
+    후보 0 · 매매 0 으로 며칠이 지나간다. 실측으로 겪은 뒤 못 박는다.
+    """
+    layer = overlay.build(
+        root=tmp_path / "sandbox", source=origin.root, writable=WRITABLE
+    )
+    row = {
+        "entity_id": "KR:000100", "valid_from": NOW, "observed_at": NOW,
+        "source": "backtest", "market": "KR", "side": "buy", "quantity": 1.0,
+        "price": 100.0, "currency": "KRW", "fee": 0.0, "tax": 0.0,
+        "order_id": "sim-3",
+    }
+    Store(root=layer.root).append("trades", [row], ingest_run_id="sim-3")
+    assert Store(root=layer.root).ingest_run_recorded("trades", "sim-3")
+
+    layer.clear()
+
+    assert not Store(root=layer.root).ingest_run_recorded("trades", "sim-3")
+    # 그리고 같은 run_id 로 다시 넣으면 이번에는 실제로 들어가야 한다.
+    written = Store(root=layer.root).append("trades", [row], ingest_run_id="sim-3")
+    assert written == 1
+    assert len(Store(root=layer.root).get("trades", as_of=NOW)) == 1
+
+
+def test_이어_돌리기는_적재_이력을_지우지_않는다(origin, tmp_path: Path) -> None:
+    """``build`` 를 다시 불러도 이력은 남는다 — 그게 이어 돌리기의 뜻이다.
+
+    ``clear`` 와 갈리는 지점이다. 여기서까지 지우면 중간에 끊긴 백테스트를
+    이어 돌릴 때 이미 적재된 세션이 두 번 들어간다.
+    """
+    layer = overlay.build(
+        root=tmp_path / "sandbox", source=origin.root, writable=WRITABLE
+    )
+    Store(root=layer.root).append(
+        "trades",
+        [{
+            "entity_id": "KR:000100", "valid_from": NOW, "observed_at": NOW,
+            "source": "backtest", "market": "KR", "side": "buy", "quantity": 1.0,
+            "price": 100.0, "currency": "KRW", "fee": 0.0, "tax": 0.0,
+            "order_id": "sim-4",
+        }],
+        ingest_run_id="sim-4",
+    )
+
+    again = overlay.build(
+        root=tmp_path / "sandbox", source=origin.root, writable=WRITABLE
+    )
+
+    assert Store(root=again.root).ingest_run_recorded("trades", "sim-4")

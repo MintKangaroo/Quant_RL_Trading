@@ -154,7 +154,25 @@ def run(
     # 시점으로 기록된다.
     snapshot = snapshot_module.take(store, clock, as_of=as_of, book=book)
     equity = snapshot.valuation.nav
-    log.record("observe", "accounting", {"nav": round(equity, 4)})
+    # **자본과 주문가능금액은 다른 숫자다** (accounting.md §1). 자본은 목표
+    # 비중을 금액으로 바꾸는 데 쓰고, 살 수 있는 한도는 결제가 끝난 현금이다.
+    # 둘을 같다고 보면 미결제 대금까지 쓰게 된다 — 그게 이 백테스트를
+    # 레버리지 2.83배로 끌고 간 길이다.
+    #
+    # **출처는 장부다.** 실전에서 증권사 주문가능금액(LS `t0424`)을 쓰는 것이
+    # 더 정확하지만, 그러면 백테스트와 라이브가 다른 숫자를 보게 된다
+    # (불변식 5). 지금은 양쪽 다 장부에서 접는다.
+    settlement_days = int(store.config("execution.settlement_days", as_of=as_of))
+    cash = ledger_module.available_cash(
+        store,
+        as_of=as_of,
+        book=book,
+        settlement_days=settlement_days,
+        market=market,
+    )
+    log.record(
+        "observe", "accounting", {"nav": round(equity, 4), "available_cash": round(cash, 4)}
+    )
 
     result = DailySession(as_of=as_of, market=market, equity=equity)
     if equity <= 0:
@@ -219,6 +237,7 @@ def run(
         targets=targets,
         holdings=holdings,
         equity=equity,
+        cash=cash,
         market_open=market_open,
         board=board,
     )

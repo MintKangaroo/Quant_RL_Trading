@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -35,6 +35,8 @@ class SizingParams:
     max_liquidation_days: int
     min_order_value: float
     max_price_ratio: float
+    #: 매도 대금이 예수금이 되기까지의 거래일. 주문가능금액을 잴 때만 쓴다.
+    settlement_days: int = 2
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> SizingParams:
@@ -45,6 +47,7 @@ class SizingParams:
             ),
             min_order_value=float(store.config("execution.min_order_value", as_of=as_of)),
             max_price_ratio=float(store.config("universe.max_price_ratio", as_of=as_of)),
+            settlement_days=int(store.config("execution.settlement_days", as_of=as_of)),
         )
 
 
@@ -83,11 +86,18 @@ def size_orders(
     holdings: dict[str, int],
     equity: float,
     params: SizingParams,
+    cash: float | None = None,
 ) -> tuple[list[Sized], list[Skipped]]:
     """목표비중과 현재 보유에서 주문을 만든다.
 
     ``holdings`` 는 현재 주식 수. 목표 수량과의 **차이**만 주문한다 — 전량
     청산 후 재매수하면 왕복 비용이 두 배가 된다.
+
+    ``cash`` 는 **주문가능금액**이다(`accounting.ledger.available_cash`).
+    매수 금액의 합이 이 값을 넘지 않는다. ``None`` 이면 제약을 걸지 않는데,
+    **그 길로 이 저장소는 레버리지 2.83배까지 갔다** — 호출부는 언제나 값을
+    준다. None 을 남겨 둔 것은 순수 함수 테스트가 한 종목의 라운딩만 보려고
+    할 때를 위해서지, 운용 경로를 위해서가 아니다.
     """
     orders: list[Sized] = []
     skipped: list[Skipped] = []
@@ -155,7 +165,92 @@ def size_orders(
             )
         )
 
+    if cash is not None:
+        orders, cash_skipped = _fit_to_cash(
+            orders,
+            cash=cash,
+            equity=equity,
+            holdings=holdings,
+            lots={target.entity_id: target.lot_size for target in targets},
+            params=params,
+        )
+        skipped.extend(cash_skipped)
+
     return orders, skipped
+
+
+def _fit_to_cash(
+    orders: list[Sized],
+    *,
+    cash: float,
+    equity: float,
+    holdings: dict[str, int],
+    lots: dict[str, int],
+    params: SizingParams,
+) -> tuple[list[Sized], list[Skipped]]:
+    """매수 합계를 주문가능금액 안으로 자른다. **매도는 건드리지 않는다.**
+
+    매도를 자르면 빠져나올 길을 막는 것이고, 매도는 돈을 쓰지 않는다.
+
+    ``오늘 판 돈은 오늘 못 쓴다`` — 그 판단은 ``cash`` 를 만든 쪽
+    (`accounting.ledger.available_cash`)이 이미 했다. 여기서는 받은 예산만 쓴다.
+
+    **자르는 순서는 목표 비중이 큰 것부터**다. 확신이 큰 자리를 먼저 채우는
+    것이 비중을 고르게 깎는 것보다 전략의 뜻에 가깝고, 무엇보다 **결정론적**
+    이어야 한다(불변식 5) — 같은 as_of 로 두 번 돌리면 같은 주문이 나와야
+    한다. 비중이 같으면 ``entity_id`` 오름차순으로 가른다. 파이썬 정렬은
+    안정적이지만 입력 순서에 기대지 않는다. 입력은 dict 순서에서 오고,
+    그것까지 계약으로 삼으면 호출부가 바뀔 때 조용히 깨진다.
+    """
+    budget = max(0.0, cash)
+    skipped: list[Skipped] = []
+    #: 종목 → 잘린 뒤의 주문. 없으면 통째로 빠진 것이다.
+    resolved: dict[str, Sized] = {}
+
+    buys = sorted(
+        [item for item in orders if item.side is Side.BUY],
+        key=lambda item: (-item.target_weight, item.entity_id),
+    )
+    for item in buys:
+        value = item.quantity * item.price
+        if value <= budget:
+            budget -= value
+            resolved[item.entity_id] = item
+            continue
+
+        # 예산에 맞게 줄여 본다. 통째로 버리면 남은 현금이 놀고, 다음 세션에
+        # 같은 주문이 다시 나와 같은 자리에서 또 잘린다.
+        affordable = _floor_lot(budget / item.price, lots.get(item.entity_id, 1))
+        trimmed_value = affordable * item.price
+        if affordable <= 0 or trimmed_value < params.min_order_value:
+            skipped.append(
+                Skipped(item.entity_id, item.target_weight, "주문가능금액 부족")
+            )
+            continue
+
+        budget -= trimmed_value
+        note = f"주문가능금액으로 {item.quantity}→{affordable}"
+        held = holdings.get(item.entity_id, 0)
+        resolved[item.entity_id] = replace(
+            item,
+            quantity=affordable,
+            # 되먹임은 **실제로 내는 주문** 기준이어야 한다. 줄인 수량을 두고
+            # 옛 비중을 남기면 Allocator 가 하지 않은 행동으로 보상받는다
+            # (불변식 7).
+            realized_weight=(
+                (held + affordable) * item.price / equity if equity > 0 else 0.0
+            ),
+            reason=f"{item.reason} · {note}" if item.reason else note,
+        )
+
+    # **입력 순서를 지킨다.** 매도·매수를 갈라 붙이면 주문 기록의 줄 순서가
+    # 바뀌고, 그건 이 수정이 건드릴 이유가 없는 것이다.
+    kept = [
+        resolved.get(item.entity_id, item) if item.side is Side.BUY else item
+        for item in orders
+        if item.side is not Side.BUY or item.entity_id in resolved
+    ]
+    return kept, skipped
 
 
 def liquidation_plan(

@@ -53,6 +53,10 @@ class Valuation:
     def nav_after_tax(self) -> float:
         """세후. **학습·보상은 세전을 쓴다** — 양도세는 연간 정산이라 일간에
         넣으면 매도할 때마다 튄다. 리포트에만 양쪽을 싣는다 (accounting.md §5).
+
+        충당금은 `ledger.build_book` 이 미장 실현손익에서 연도별로 쌓는다
+        (§5.1). 미장 매도가 없으면 0 이라 세전과 같은 값이 나오는데, 그건
+        정상이다 — 세금이 없는 게 아니라 **낼 일이 아직 없는 것**이다.
         """
         return self.nav - self.tax_provision
 

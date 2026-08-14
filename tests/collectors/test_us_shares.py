@@ -467,3 +467,51 @@ def test_창은_구간을_빠짐없이_덮는다() -> None:
     assert windows[-1][1] == date(2026, 8, 15)
     for earlier, later in pairwise(windows):
         assert later[0] == earlier[1] + timedelta(days=1), "틈이 없어야 한다"
+
+
+def test_창_경계의_세션도_적재된다(store: Any) -> None:
+    """``year_windows`` 는 틈이 없는데 **읽기가 틈을 만든다.**
+
+    ``store.get`` 의 ``until`` 은 열린 끝(``valid_from < ?``)이고
+    ``year_windows`` 의 ``window_end`` 는 닫힌 끝이다. 창 끝을 그대로 넘기면
+    경계 하루가 어느 창에도 안 걸려 사라진다 — 위 테스트가 통과하는데도
+    사라진다, 창이 아니라 창을 쓰는 쪽의 결함이기 때문이다.
+
+    실측(2026-08-15, 5년 적재): NYSE 거래일 1,252일 중 1,249일만 시가총액이
+    있었고 빠진 셋은 2023-08-14 · 2024-08-13 · 2025-08-13 — 전부 창 경계였다.
+    """
+    from quant_rl_trading.replay.clock import ReplayClock
+    from tools.backfill import run_us_market_cap_backfill
+
+    today = date(2026, 8, 14)
+    now = datetime(2026, 8, 14, 12, tzinfo=UTC)
+    # years=2 이면 창은 [today-730, today-366], [today-365, today] 로 갈린다.
+    boundary = today - timedelta(days=366)
+
+    store.append(
+        "market_stats",
+        [
+            {
+                "entity_id": "US:AAPL",
+                "valid_from": datetime(2024, 1, 1, tzinfo=UTC),
+                "observed_at": datetime(2024, 1, 2, tzinfo=UTC),
+                "source": SOURCE,
+                "market": str(Market.US),
+                "metric": SHARES,
+                "value": 1_000.0,
+            }
+        ],
+        ingest_run_id="test-shares",
+    )
+    sessions = [boundary - timedelta(days=1), boundary, boundary + timedelta(days=1)]
+    store.append(
+        "prices",
+        [dict(bar("AAPL", day, 10.0), source="ls_us", market=str(Market.US)) for day in sessions],
+        ingest_run_id="test-prices",
+    )
+
+    assert run_us_market_cap_backfill(store, ReplayClock(now), years=2) == 0
+
+    caps = store.get("market_stats", as_of=now, lookback=800, market=str(Market.US))
+    caps = caps[caps["metric"] == MARKET_CAP]
+    assert set(caps["valid_from"].dt.date) == set(sessions), "경계 세션이 빠졌다"

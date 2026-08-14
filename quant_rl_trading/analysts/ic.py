@@ -328,8 +328,18 @@ def rolling_confidence(
     잴 수 있는데 IC 가 0 이하면 그때는 0 이다. 그건 **증거가 있는 배제**다.
     음수 IC 를 뒤집어 쓰지 않는 이유는 표본에 사후로 맞추는 것이기 때문이다.
     """
+    # **컬럼을 좁힌다.** 이 창은 백테스트에서 하루가 갈수록 차오른다 — 자기가
+    # 쌓은 신호를 자기가 다시 읽기 때문이다. 전체 컬럼으로 퍼오면 114일치가
+    # 1.1M행 · 798MB 가 되고, 그 중 73% 가 여기서 쓰지도 않는 ``evidence_json``
+    # 같은 문자열이다. 2026-02-20 세션이 신호 단계 0초 → 96초, RSS 1.6GB →
+    # 6.2GB 로 튄 자리이며 그 뒤 OOM 으로 죽었다.
+    # 남는 **행**은 좁혀도 바뀌지 않는다 (정정본 선택은 프루닝 전에 끝난다).
     frame = store.get(
-        "signals", as_of=as_of, lookback=int(window * 7 / 5) + 30, market=None
+        "signals",
+        as_of=as_of,
+        lookback=int(window * 7 / 5) + 30,
+        market=None,
+        columns=["entity_id", "analyst", "score"],
     )
     if frame.empty:
         return NO_EVIDENCE_CONFIDENCE

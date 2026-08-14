@@ -15,17 +15,41 @@
 ``dividends`` 의 ``valid_from`` 이 배당락일이다. as_of 까지의 배당락은 전부
 미수배당으로 계상하고, ``pay_date`` 가 지난 것만 현금으로 옮긴다 — NAV 는
 그 이동으로 변하지 않는다 (accounting.md §4).
+
+## 해외 양도세 충당
+
+미장 매도로 실현손익이 나면 그때 충당금을 다시 계산한다. **NAV 에서 빼지는
+않는다** (accounting.md §5) — `Book.tax_provision` 에만 쌓이고, 세후 NAV 는
+`nav.Valuation.nav_after_tax` 가 따로 보고한다.
+
+세 가지를 못 박는다. 설계서(§5)가 "연간 정산·250만원 공제" 까지만 말하므로
+나머지는 여기서 정한다:
+
+1. **과세연도는 한국시간 기준 역년(1/1~12/31)** 이다. 체결의 ``valid_from``
+   을 서울 시각으로 옮겨 연도를 가른다. UTC 연도로 가르면 12/31 밤 체결이
+   다음 해로 새고, 그 해의 공제를 한 번 더 받는다.
+2. **공제는 해마다 새로 준다.** 그래서 전 기간 누적이 아니라 연도별 누적
+   실현손익에 각각 공제를 적용하고, 연도별 충당액을 더한다.
+3. **환산 환율은 체결 시점 환율** 이다 (accounting.md §3 "체결 → 체결 시점
+   환율"). 평가일 환율로 소급하면 과거 스냅샷의 충당금이 오늘 환율에 따라
+   흔들려서 리플레이가 깨진다.
+
+실제 세법은 취득·양도를 각각 그날의 기준환율로 환산해 환차손익까지 과세하지만,
+장부는 평균단가를 달러로 들고 있어 그 분해가 불가능하다. **달러 실현손익을
+체결일 환율로 환산**하는 근사이고, 충당금은 신고서가 아니라 추정치다.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from quant_rl_trading.accounting.book import KRW, USD, Book, Side, Trade
 from quant_rl_trading.accounting.rates import Rates
+from quant_rl_trading.collectors.market_hours import Market, trading_days
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -41,6 +65,9 @@ ACCOUNT = "FUND"
 
 #: 환율 entity_id. accounting.md §3 — 평가는 스냅샷 시각의 매매기준율.
 FX_USDKRW = "FX:USDKRW"
+
+#: 과세연도를 가르는 시간대. 양도세는 한국 역년 기준이다.
+SEOUL = ZoneInfo("Asia/Seoul")
 
 
 def fx_rate(store: Store, *, as_of: datetime, lookback: int = 10) -> float:
@@ -81,18 +108,47 @@ def build_book(
             currency=currency, amount=float(row["amount"]), fx_rate=rate
         )
 
+    # 과세연도별 누적 실현손익(원화)과 그 해에 이미 쌓아 둔 충당액.
+    # 뒤에 손실이 나면 그 해 충당액이 줄어야 하므로 둘 다 들고 있어야 한다.
+    realized_by_year: dict[int, float] = {}
+    provisioned_by_year: dict[int, float] = {}
+    #: 체결 시각별 환율. 장부는 매 세션 처음부터 다시 접히므로, 같은 체결의
+    #: 환율을 창고에 다시 물어보면 백테스트에서 그 조회가 세션 수만큼 곱해진다.
+    fx_at: dict[datetime, float] = {}
+
     for row in _ordered(trades):
-        book = book.with_trade(
-            Trade(
-                entity_id=str(row["entity_id"]),
-                side=Side(str(row["side"])),
-                quantity=float(row["quantity"]),
-                price=float(row["price"]),
-                currency=str(row["currency"]),
-                fee=float(row["fee"]),
-                tax=float(row["tax"]),
-            )
+        trade = Trade(
+            entity_id=str(row["entity_id"]),
+            side=Side(str(row["side"])),
+            quantity=float(row["quantity"]),
+            price=float(row["price"]),
+            currency=str(row["currency"]),
+            fee=float(row["fee"]),
+            tax=float(row["tax"]),
         )
+        before = book.realized_pnl.get(USD, 0.0)
+        book = book.with_trade(trade)
+
+        # 양도세는 **해외분에만** 붙는다. 국내 주식 양도차익은 대주주가 아닌
+        # 한 비과세이고, 국내 매도분에는 이미 증권거래세가 체결 시점에 붙었다.
+        if trade.currency != USD:
+            continue
+        realized_usd = book.realized_pnl.get(USD, 0.0) - before
+        if realized_usd == 0.0:
+            continue
+
+        moment = pd.Timestamp(row["valid_from"]).to_pydatetime()
+        if moment not in fx_at:
+            fx_at[moment] = fx_rate(store, as_of=moment)
+        year = moment.astimezone(SEOUL).year
+        realized_by_year[year] = (
+            realized_by_year.get(year, 0.0) + realized_usd * fx_at[moment]
+        )
+        provision = rates.capital_gains_provision(realized_usd_krw=realized_by_year[year])
+        delta = provision - provisioned_by_year.get(year, 0.0)
+        provisioned_by_year[year] = provision
+        if delta != 0.0:
+            book = book.with_tax_provision(delta)
 
     for row in _ordered(dividends):
         currency = str(row["currency"])
@@ -109,6 +165,76 @@ def build_book(
             book = book.with_dividend_paid(currency=currency, net_amount=net)
 
     return book
+
+
+def available_cash(
+    store: Store,
+    *,
+    as_of: datetime,
+    book: Book,
+    settlement_days: int,
+    market: str = "KR",
+    currency: str = KRW,
+) -> float:
+    """**주문가능금액.** NAV 도 아니고 장부 현금도 아니다.
+
+    accounting.md §1 이 못 박은 것을 실제로 계산하는 자리다 — "실제 주문가능
+    금액은 NAV와 별개로 추적한다. 미결제 대금 때문에 NAV가 있어도 못 산다."
+    이게 없던 동안 백테스트는 **없는 돈으로 샀다.** 1억으로 시작한 장부가
+    현금 -1억 9,900만원 · 레버리지 2.83배까지 갔고, 시장이 하루 -8.7% 빠진 날
+    NAV 는 -27% 빠졌다. 그 -32.6% 는 전략의 낙폭이 아니라 레버리지의 낙폭이다.
+
+    장부 현금은 **발생주의**라 체결 즉시 증감한다(accounting.md §1). 그건
+    NAV 를 위해 옳다. 그런데 실제 예수금은 D+2 에 들어오므로, 오늘 판 돈으로
+    오늘 사면 그것도 없는 돈으로 사는 것이다. 그래서 **최근
+    ``settlement_days`` 거래일 안의 매도 대금을 빼고** 돌려준다.
+
+    빼는 것은 매도 대금뿐이다. 매수 지출은 장부에 이미 반영된 것을 그대로
+    둔다 — 양쪽을 다 되돌리면 어제 쓴 돈이 오늘 되살아나 같은 돈을 두 번 쓰게
+    된다. **한쪽으로만 보수적인 것이 이 함수의 요점이다.**
+
+    증권사가 매도대금을 담보로 당일 매수를 허용하는 것은 별개의 편의이고,
+    설계서에 없다. 없는 것을 가정하면 지금 결함의 축소판이 남는다.
+    """
+    cash = float(book.cash.get(currency, 0.0))
+    if settlement_days <= 0:
+        return max(0.0, cash)
+
+    # 결제가 끝난 경계. **거래일로 센다** — 달력일로 세면 금요일 매도가
+    # 화요일이 아니라 월요일에 풀려 실제보다 이르게 쓸 수 있게 된다.
+    span = timedelta(days=settlement_days * 4 + 14)
+    sessions = trading_days(Market(market), (as_of - span).date(), as_of.date())
+    recent = [day for day in sessions if day <= as_of.date()][-settlement_days:]
+    if not recent:
+        return max(0.0, cash)
+    cutoff = min(recent)
+
+    trades = store.get(
+        TRADES,
+        as_of=as_of,
+        lookback=settlement_days * 4 + 14,
+        columns=["side", "quantity", "price", "currency", "fee", "tax"],
+    )
+    if trades.empty:
+        return max(0.0, cash)
+
+    unsettled = 0.0
+    for row in _ordered(trades):
+        if str(row["currency"]) != currency:
+            continue
+        if Side(str(row["side"])) is not Side.SELL:
+            continue
+        session = pd.Timestamp(row["valid_from"]).tz_convert(SEOUL).date()
+        if session < cutoff:
+            continue
+        # 손에 들어오는 돈은 세금·수수료를 뺀 뒤다.
+        unsettled += (
+            float(row["quantity"]) * float(row["price"])
+            - float(row["fee"])
+            - float(row["tax"])
+        )
+
+    return max(0.0, cash - unsettled)
 
 
 def _ordered(frame: pd.DataFrame) -> list[dict[str, object]]:

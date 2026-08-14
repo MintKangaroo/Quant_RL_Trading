@@ -44,8 +44,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any
 
-from quant_rl_trading.collectors.dart_source import DartUnavailable
 from quant_rl_trading.collectors.errors import CollectorError
+from quant_rl_trading.collectors.publication import NotYetPublished
 
 DOCUMENTS = "documents"
 SOURCE = "dart"
@@ -171,6 +171,7 @@ class FilingsResult:
     corp_class: str
     rows: int
     skipped: bool = False
+    deferred: bool = False
     error: str | None = None
 
     @property
@@ -183,12 +184,16 @@ class FilingsReport:
     days: int = 0
     rows: int = 0
     skipped: int = 0
+    deferred: int = 0
     failures: list[tuple[str, str]] = field(default_factory=list)
     by_type: dict[str, int] = field(default_factory=dict)
 
     def absorb(self, result: FilingsResult) -> None:
         if result.skipped:
             self.skipped += 1
+            return
+        if result.deferred:
+            self.deferred += 1
             return
         if result.error:
             self.failures.append((f"{result.day} {result.corp_class}", result.error))
@@ -198,7 +203,8 @@ class FilingsReport:
     def render(self) -> str:
         return (
             f"날짜 {self.days}개 · 공시 {self.rows:,}행 "
-            f"(건너뜀 {self.skipped}, 실패 {len(self.failures)})"
+            f"(건너뜀 {self.skipped}, 미공표 대기 {self.deferred}, "
+            f"실패 {len(self.failures)})"
         )
 
 
@@ -245,9 +251,18 @@ class FilingsBackfiller:
             # 창고는 빈 배치를 매니페스트에 남기지 않으므로 여기서 끝낸다.
             return FilingsResult(day, corp_class, 0)
 
-        rows = normalize_filings(
-            raw, market=self.market, observed_at_for=self.policy.for_filing
-        )
+        try:
+            rows = normalize_filings(
+                raw, market=self.market, observed_at_for=self.policy.for_filing
+            )
+        except NotYetPublished:
+            # **당일치다.** observed_at 은 그날 18:00 KST 인데 일일 수집은 15:55
+            # 에 돈다 — 아직 알 수 있었다고 말할 수 없는 사실이다. 실패가
+            # 아니므로 매니페스트에 남기지 않고 다음 실행(22:40)이 다시 받는다.
+            #
+            # 이걸 잡지 않으면 일일 수집이 매일 트레이스백으로 죽는다. 창을
+            # 오늘까지 잡는 한 이 예외는 **정상 경로**다.
+            return FilingsResult(day, corp_class, 0, deferred=True)
         if not rows:
             return FilingsResult(day, corp_class, 0)
         written = self.store.append(

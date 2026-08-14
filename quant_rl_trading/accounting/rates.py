@@ -30,6 +30,8 @@ class Rates:
     dividend_tax_kr: float
     dividend_tax_us: float
     capital_gains_us: float
+    #: 해외 양도세 기본공제(연간, 원화). 과세연도마다 새로 주어진다.
+    capital_gains_allowance_krw: float
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> Rates:
@@ -42,6 +44,9 @@ class Rates:
             dividend_tax_kr=float(store.config("accounting.dividend_tax_kr", as_of=as_of)),
             dividend_tax_us=float(store.config("accounting.dividend_tax_us", as_of=as_of)),
             capital_gains_us=float(store.config("accounting.capital_gains_us", as_of=as_of)),
+            capital_gains_allowance_krw=float(
+                store.config("accounting.capital_gains_allowance_krw", as_of=as_of)
+            ),
         )
 
     # -- 비용 계산 --------------------------------------------------------------
@@ -84,11 +89,20 @@ class Rates:
         rate = self.dividend_tax_us if currency == USD else self.dividend_tax_kr
         return gross * (1.0 - rate)
 
-    def capital_gains_provision(self, *, realized_usd_krw: float, allowance: float) -> float:
+    def capital_gains_provision(
+        self, *, realized_usd_krw: float, allowance: float | None = None
+    ) -> float:
         """해외 양도세 충당액. 연간 실현이익에서 공제액을 뺀 뒤 세율.
+
+        ``allowance`` 를 안 주면 설정값(``accounting.capital_gains_allowance_krw``)
+        을 쓴다. **공제는 과세연도마다 새로 주어지므로 호출자가 "그 해의 누적
+        실현손익" 을 넘겨야 한다** — 전 기간 누적을 넘기면 공제를 한 번만 받은
+        셈이 되어 세금이 과대계상된다 (ledger.build_book 이 연도별로 접는다).
 
         음수면 0 이다 — 손실인 해에 세금을 돌려받지는 않는다(이월공제는 별도
         주제이고, 지어내지 않는다).
         """
+        if allowance is None:
+            allowance = self.capital_gains_allowance_krw
         taxable = max(0.0, realized_usd_krw - allowance)
         return taxable * self.capital_gains_us

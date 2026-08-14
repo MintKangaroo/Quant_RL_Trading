@@ -565,13 +565,19 @@ def run_us_market_cap_backfill(
     # 채워졌다. 하한은 언제나 ``as_of`` 기준으로 환산한다.
     today = now.astimezone(UTC).date()
     for window_start, window_end in us_sh.year_windows(start, end):
+        # **``until`` 은 열린 끝이다** (store/reader.py: ``valid_from < ?``)
+        # 반면 ``year_windows`` 의 ``window_end`` 는 닫힌 끝이고 다음 창은
+        # 그 다음날부터 시작한다. 그래서 ``window_end`` 를 그대로 넘기면 창
+        # 경계의 세션 하나가 어느 창에도 안 걸려 통째로 사라진다 — 실측:
+        # 5년 적재에서 2023-08-14 · 2024-08-13 · 2025-08-13 세 세션만
+        # 시가총액이 없었다(1,252 거래일 중 1,249). 하루를 더해 닫힌 끝을
+        # 열린 끝으로 옮긴다.
+        stop = window_end + timedelta(days=1)
         frame = store.get(
             PRICES,
             as_of=now,
             lookback=(today - window_start).days,
-            until=datetime(
-                window_end.year, window_end.month, window_end.day, tzinfo=UTC
-            ),
+            until=datetime(stop.year, stop.month, stop.day, tzinfo=UTC),
             market=str(market),
             columns=["close", "observed_at"],
         )
@@ -603,13 +609,27 @@ def run_us_market_cap_backfill(
 
 
 def run_dart_filings_backfill(
-    store: Store, clock: Clock, *, market: Market, years: int, dry_run: bool = False
+    store: Store,
+    clock: Clock,
+    *,
+    market: Market,
+    years: int,
+    sessions: int | None = None,
+    dry_run: bool = False,
 ) -> int:
     """DART 공시 목록 — `event` Analyst 의 입력.
 
     **날짜 축으로 돈다.** 회사 축이면 2,700종목 × 5년이라 콜이 폭발한다.
     휴장일도 도는 이유는 공시가 휴일에도 접수되기 때문이다 — 거래일로 자르면
     그 공시를 영영 못 받는다.
+
+    ``sessions`` 는 **거래일이 아니라 달력일**이다. 이 표의 축이 달력일이라
+    그렇다. 일일 수집이 이 인자를 준다.
+
+    **일일 수집이 창을 좁혀야 하는 이유가 다른 표와 다르다.** 여기서는 읽기
+    비용이 아니라 **API 콜**이 문제다. 공시가 없는 날(주말·연휴)은 창고에
+    남길 배치가 없어 매니페스트에 기록되지 않고, 그래서 영원히 "남은" 상태로
+    있는다 — ``--years 1`` 로 매일 돌리면 그 244일을 매일 다시 물어본다.
     """
     source = DartSource()
     if not source.api_key:
@@ -618,7 +638,8 @@ def run_dart_filings_backfill(
 
     now = clock.now()
     end = now.astimezone(UTC).date()
-    start = end - timedelta(days=365 * years)
+    span = sessions - 1 if sessions is not None else 365 * years
+    start = end - timedelta(days=max(span, 0))
 
     backfiller = FilingsBackfiller(
         store=store,
@@ -1010,6 +1031,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_dart_filings_backfill(
             store, clock, market=market,
             years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            sessions=args.sessions,
             dry_run=args.dry_run,
         )
 

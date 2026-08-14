@@ -33,6 +33,7 @@ RATES = Rates(
     dividend_tax_kr=0.154,
     dividend_tax_us=0.15,
     capital_gains_us=0.22,
+    capital_gains_allowance_krw=2_500_000.0,
 )
 
 

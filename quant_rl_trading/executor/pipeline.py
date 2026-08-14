@@ -92,6 +92,7 @@ def run(
     targets: list[Target],
     holdings: dict[str, int],
     equity: float,
+    cash: float | None = None,
     market_open: datetime | None = None,
     board: str = "KOSPI",
     liquidation_only: bool = False,
@@ -155,8 +156,14 @@ def run(
 
     # 5~6. 수량 변환과 상한
     sizing_params = SizingParams.from_store(store, as_of=as_of)
+    # ``cash`` 는 주문가능금액이다. NAV 로 대신하면 미결제 대금까지 쓸 수 있게
+    # 되고, 그 길로 이 저장소는 레버리지 2.83배까지 갔다 (accounting.md §1).
     sized, skipped = size_orders(
-        targets=targets, holdings=holdings, equity=equity, params=sizing_params
+        targets=targets,
+        holdings=holdings,
+        equity=equity,
+        params=sizing_params,
+        cash=cash,
     )
     if liquidation_only:
         held_back = [item for item in sized if item.side is Side.BUY]
