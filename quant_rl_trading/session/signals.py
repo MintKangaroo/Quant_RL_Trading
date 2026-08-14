@@ -27,6 +27,7 @@ from quant_rl_trading.analysts.risk import RiskAnalyst
 from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.store import DuplicateIngestRun
+from quant_rl_trading.store.memo import MemoStore
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -59,6 +60,10 @@ class ScoringResult:
     counts: dict[str, int] = field(default_factory=dict)
     confidence: dict[str, float] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    #: 창고 조회를 몇 번 아꼈나. 0 이면 캐시가 안 걸린 것이다 — 조용히
+    #: 느려지는 것을 알아채는 유일한 표시다.
+    cache_hits: int = 0
+    cache_misses: int = 0
 
 
 def run_id_for(table: str, market: Market, moment: datetime, name: str) -> str:
@@ -91,6 +96,11 @@ def produce(
     """
     result = ScoringResult()
     clock = ReplayClock(as_of)
+    # **여섯이 같은 창을 여섯 번 읽지 않게 한다.** Analyst 마다 prices·universe
+    # 를 각자 조회하는데, 같은 as_of·같은 창이라 질의도 같다. 캐시는 이 세션이
+    # 쓰고 버린다 (store/memo.py — Store 자체에 붙이면 오래 뜬 프로세스가
+    # 낡은 데이터를 계속 보게 된다).
+    cached = MemoStore(store)
 
     for name, factory in SCORERS[market].items():
         run_id = run_id_for(SIGNALS, market, as_of, name)
@@ -99,11 +109,11 @@ def produce(
         if store.ingest_run_recorded(SIGNALS, run_id):
             continue
 
-        analyst = factory(store, clock, market=market)
+        analyst = factory(cached, clock, market=market)
         # confidence 를 먼저 구한다. 나중에 구하면 Analyst 를 두 번 돌리게 되고,
         # 그건 국장 6종에 대해 피처 계산을 통째로 두 번 하는 것이다.
         confidence = ic.rolling_confidence(
-            store, analyst=name, as_of=as_of, market=str(market)
+            cached, analyst=name, as_of=as_of, market=str(market)
         )
         try:
             signals = analyst.run(as_of, confidence=confidence)
@@ -127,4 +137,6 @@ def produce(
                 row["revision"] = revision
         with contextlib.suppress(DuplicateIngestRun):
             result.written += int(store.append(SIGNALS, rows, ingest_run_id=run_id))
+    result.cache_hits = cached.hits
+    result.cache_misses = cached.misses
     return result
