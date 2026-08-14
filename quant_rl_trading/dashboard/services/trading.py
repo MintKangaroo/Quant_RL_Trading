@@ -515,22 +515,76 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
 
 
 def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, Any]:
-    """NAV·누적지수·낙폭 시계열. 회계가 남긴 것을 그대로 읽는다."""
+    """NAV·누적지수·낙폭 시계열. 회계가 남긴 것을 그대로 읽는다.
+
+    벤치마크 낙폭만 여기서 **계산한다.** 장부에는 벤치마크 지수만 있고 그
+    낙폭은 없기 때문이다. 우리 낙폭과 같은 규칙(전 기간 고점)으로 재려고
+    창 이전의 벤치마크 고점을 따로 물어본다 — 창 안에서만 재면 창 첫날이
+    고점이 되어 벤치마크가 실제보다 덜 빠진 것처럼 보인다.
+    """
     frame = store.get(
         NAV_DAILY, as_of=context.as_of, entity=ledger_module.ACCOUNT, lookback=lookback
     )
     if frame.empty:
-        return {"sessions": [], "nav": [], "index": [], "drawdown": [], "benchmark": []}
+        empty: dict[str, Any] = {
+            "sessions": [],
+            "nav": [],
+            "index": [],
+            "drawdown": [],
+            "benchmark": [],
+            "benchmark_drawdown": [],
+        }
+        return empty
     ordered = frame.sort_values(["valid_from", "observed_at"]).tail(EQUITY_SESSIONS)
+    benchmark = [
+        float(value) if pd.notna(value) else None for value in ordered["benchmark_index"]
+    ]
     return {
         "sessions": [pd.Timestamp(value).date().isoformat() for value in ordered["valid_from"]],
         "nav": [float(value) for value in ordered["nav"]],
         "index": [float(value) for value in ordered["index_value"]],
         "drawdown": [float(value) for value in ordered["drawdown"]],
-        "benchmark": [
-            float(value) if pd.notna(value) else None for value in ordered["benchmark_index"]
-        ],
+        "benchmark": benchmark,
+        "benchmark_drawdown": _benchmark_drawdown(
+            store, context, benchmark, since=pd.Timestamp(ordered["valid_from"].iloc[0])
+        ),
     }
+
+
+def _benchmark_drawdown(
+    store: Store,
+    context: Context,
+    benchmark: list[float | None],
+    *,
+    since: pd.Timestamp,
+) -> list[float | None]:
+    """창 안의 벤치마크 낙폭. 고점은 **창 이전까지 포함해서** 잡는다.
+
+    벤치마크가 아직 한 번도 안 들어온 구간에서는 ``None`` 을 그대로 흘린다.
+    0 으로 채우면 "그날 낙폭이 없었다" 가 되어, 벤치마크가 없다는 사실이
+    좋은 성적으로 둔갑한다.
+    """
+    if not any(value is not None for value in benchmark):
+        return [None] * len(benchmark)
+
+    # NAV_DAILY 는 계좌 하나에 하루 한 행이라 전 기간을 읽어도 수백 행이다.
+    history = store.get(NAV_DAILY, as_of=context.as_of, entity=ledger_module.ACCOUNT)
+    peak = float("-inf")
+    if not history.empty:
+        prior = history[pd.to_datetime(history["valid_from"]) < since]
+        if not prior.empty:
+            earlier = prior["benchmark_index"].dropna()
+            if not earlier.empty:
+                peak = float(earlier.max())
+
+    out: list[float | None] = []
+    for value in benchmark:
+        if value is None:
+            out.append(None)
+            continue
+        peak = max(peak, value)
+        out.append(value / peak - 1.0 if peak > 0 else 0.0)
+    return out
 
 
 def returns_calendar(store: Store, context: Context, *, lookback: int) -> dict[str, Any]:

@@ -129,6 +129,40 @@ def client(desk):  # type: ignore[no-untyped-def]
     return create_app(store=desk, clock=ReplayClock(NOW)).test_client()
 
 
+def test_벤치마크_낙폭은_창_이전_고점으로_잰다(desk) -> None:
+    """언더워터 차트의 점선이 실선과 **같은 규칙으로** 재져야 한다.
+
+    우리 낙폭은 전 기간 고점 기준으로 장부에 적혀 있다. 벤치마크 낙폭만
+    창 안에서 재면 창 첫날이 고점이 되어 0 에서 시작하고, 같은 그림에서
+    벤치마크가 덜 빠진 것처럼 보인다. 여기서는 고점(100)이 창 밖에 있다.
+    """
+    days = [NOW - timedelta(days=offset) for offset in range(4, -1, -1)]
+    benchmarks = [100.0, 95.0, 90.0, 85.0, 81.0]
+    desk.append(
+        "nav_daily",
+        [
+            _row(
+                "FUND", day, nav=1e8, inflow=0.0, twr_return=0.0,
+                index_value=1.0, drawdown=0.0, cash_krw=1e8, cash_usd=0.0,
+                equity_kr=0.0, equity_us=0.0, accrued_dividend=0.0, payable=0.0,
+                fx_rate=1_350.0, tax_provision=0.0, nav_after_tax=1e8,
+                benchmark_index=value,
+            )
+            for day, value in zip(days, benchmarks, strict=True)
+        ],
+        ingest_run_id="nav",
+    )
+
+    client = create_app(store=desk, clock=ReplayClock(NOW)).test_client()
+    # 창을 이틀로 좁힌다 — 고점 100 은 이 창 밖에 있다.
+    body = client.get("/api/trading?lookback=2").get_json()
+    curve = body["data"]["equity"]
+
+    assert curve["benchmark"] == [90.0, 85.0, 81.0]
+    # 창만 봤다면 [0.0, -0.056, -0.10] 이 나왔을 자리다. 고점은 창 밖의 100 이다.
+    assert curve["benchmark_drawdown"] == pytest.approx([-0.10, -0.15, -0.19])
+
+
 def test_nav_은_회계에서_온다(client) -> None:
     body = client.get("/api/trading").get_json()
     kpis = body["data"]["kpis"]

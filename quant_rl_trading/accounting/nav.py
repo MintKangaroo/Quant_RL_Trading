@@ -133,13 +133,17 @@ def compound(returns: Sequence[float], *, base: float = BASE_INDEX) -> list[floa
     return out
 
 
-def drawdown(index_values: Sequence[float]) -> list[float]:
+def drawdown(index_values: Sequence[float], *, peak: float = float("-inf")) -> list[float]:
     """누적지수 기준 낙폭. **NAV 원금액으로 계산하지 않는다.**
 
     원금액으로 하면 입금이 낙폭을 지운다 — 30% 빠진 다음 날 큰돈을 넣으면
     장부상 낙폭이 사라지고, MDD 예산이 무의미해진다 (accounting.md §6).
+
+    ``peak`` 은 **창 이전의 고점** 이다. 창만 보고 재면 그 창의 첫날이 늘
+    고점이 되어 낙폭이 0 에서 시작한다. 장부의 낙폭은 전 기간 고점 기준이라
+    (``snapshot._peak_index``), 창 기준으로 잰 선을 그 옆에 겹쳐 그리면
+    **얕은 쪽이 이겨 보인다.** 겹쳐 그릴 선은 같은 고점을 물려받아야 한다.
     """
-    peak = float("-inf")
     out: list[float] = []
     for value_ in index_values:
         peak = max(peak, value_)

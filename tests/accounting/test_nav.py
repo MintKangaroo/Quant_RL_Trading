@@ -75,6 +75,26 @@ def test_낙폭은_누적지수로_잰다_입금이_지우지_못한다() -> Non
     assert worst == pytest.approx(-0.30)
 
 
+def test_창_이전_고점을_물려받지_않으면_낙폭이_얕게_나온다() -> None:
+    """언더워터 차트가 벤치마크 낙폭을 겹쳐 그릴 때 걸리는 함정이다.
+
+    장부의 낙폭은 **전 기간 고점** 기준이다 (``snapshot._peak_index``). 같은
+    그림에 창 안에서만 잰 선을 겹치면 그 선은 창 첫날을 고점으로 삼아 0 에서
+    시작하고, **덜 빠진 것처럼 보인다.** 여기서 재는 것은 그 차이다.
+    """
+    # 고점 100 은 창 이전에 있었다. 창 안에서는 90 → 81 로만 보인다.
+    window = [90.0, 81.0]
+
+    naive = drawdown(window)
+    seeded = drawdown(window, peak=100.0)
+
+    # 창만 보면 첫날이 고점이라 낙폭 0 에서 시작한다 — 실제로는 이미 -10% 다.
+    assert naive[0] == pytest.approx(0.0)
+    assert seeded[0] == pytest.approx(-0.10)
+    assert min(seeded) == pytest.approx(-0.19)
+    assert min(naive) > min(seeded)
+
+
 # -- §4 배당 ----------------------------------------------------------------------
 
 

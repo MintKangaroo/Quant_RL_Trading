@@ -429,6 +429,67 @@ function renderEquity(body) {
   });
 }
 
+/* 언더워터 — 보상 함수를 그대로 그린 그림이다 (dashboard-kickoff D-3).
+   밴드 12/22/30% 는 store.config 에서 온 값이 risk.bands 로 실려 온다.
+   여기서 숫자를 적어 두면 설정을 바꿔도 화면만 옛 임계치를 말한다. */
+function renderUnderwater(body) {
+  const e = body.data.equity;
+  const target = document.getElementById("chart-underwater");
+  if (!target) return;
+  if (!e.sessions.length) {
+    target.innerHTML = `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
+    return;
+  }
+  const bands = body.data.risk.bands;
+
+  // 아래로 갈수록 깊다. 축을 데이터에만 맞추면 낙폭이 얕은 날 밴드가
+  // 화면 밖으로 나가 "한계가 없는 것처럼" 보인다 — 항상 hard 까지 잡아둔다.
+  const deepest = Math.min(
+    0,
+    ...e.drawdown,
+    ...e.benchmark_drawdown.filter((v) => v !== null),
+    -bands.hard,
+  );
+  const band = (from, to, color, label) => [
+    { yAxis: -from, itemStyle: { color }, label: { show: true, position: "insideEndTop",
+      color: COLOR.dim, fontSize: 9, fontFamily: "IBM Plex Mono", formatter: label } },
+    { yAxis: -to },
+  ];
+
+  chart("chart-underwater").setOption({
+    ...BASE,
+    grid: { ...BASE.grid, left: 44, right: 16 },
+    legend: { ...BASE.legend, data: ["낙폭", "벤치마크 낙폭"] },
+    xAxis: { type: "category", data: e.sessions, ...AXIS },
+    yAxis: {
+      type: "value", max: 0, min: Math.min(deepest * 1.08, -bands.hard * 1.08),
+      axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(0) + "%" },
+      splitLine: { show: false }, axisLine: AXIS.axisLine,
+    },
+    series: [
+      {
+        name: "낙폭", type: "line", data: e.drawdown, showSymbol: false,
+        lineStyle: { color: COLOR.text, width: 1.4 },
+        areaStyle: { color: COLOR.accent, opacity: 0.10 },
+        markArea: {
+          silent: true,
+          data: [
+            band(0, bands.free, "rgba(34,197,94,0.07)", `자유 ${(bands.free * 100).toFixed(0)}%`),
+            band(bands.free, bands.warn, "rgba(245,165,36,0.10)", `페널티 ${(bands.warn * 100).toFixed(0)}%`),
+            band(bands.warn, bands.hard, "rgba(239,68,68,0.13)", `급증 ${(bands.hard * 100).toFixed(0)}%`),
+          ],
+        },
+      },
+      {
+        // 벤치마크는 점선이다. 실선 두 개면 어느 쪽이 우리 것인지 매번 범례를 봐야 한다.
+        name: "벤치마크 낙폭", type: "line", data: e.benchmark_drawdown, showSymbol: false,
+        connectNulls: false,
+        lineStyle: { color: COLOR.bench, width: 1, type: "dashed" },
+      },
+    ],
+  });
+}
+
 async function renderCandles(entityId, positions) {
   if (!entityId) return;
   const body = await fetchJson(`trading/chart?entity=${encodeURIComponent(entityId)}`);
@@ -616,6 +677,7 @@ async function loadTrading() {
   renderPositions(body);
   renderOrders(body);
   renderEquity(body);
+  renderUnderwater(body);
   renderCalendar(body);
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
