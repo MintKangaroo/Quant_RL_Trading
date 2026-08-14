@@ -221,6 +221,22 @@ FAIL 로 적으면 고장으로 읽히고 PASS 로 적으면 거짓이 되므로
    공존한다. **다만 섹터 상한은 여전히 꺼져 있다** — 데이터가 들어온 것과
    상한을 켤지는 별개 판단이라, 커버리지를 본 뒤 따로 결정한다
    (`selector/pipeline.py` 에 훅은 파여 있다).
+6. **`executor/supervise.py` 는 호출부가 없다.** `register`·`step`·
+   `cumulative_from_sync` 를 부르는 프로덕션 코드가 0건이다(재수출뿐이라
+   `find_dead_code.py` 도 못 잡았다). 미체결 재호가·최대 재시도 취소·부분체결
+   잔량 재호가 — 이 모듈이 판단은 하지만 그 판단을 실행에 옮기는 곳이
+   없다. **지금은 무해하다** — 백테스트·shadow 둘 다 `PaperBroker` 를 쓰는데
+   `register()` 는 `broker_order_no` 없는 주문(paper)을 자동으로 걸러서
+   아무것도 등록하지 않는다(`tests/executor/test_supervise.py::
+   test_register_skips_paper_acks`). 그래서 지금 당장의 성적에는 영향이
+   없지만, **`LSBroker`(실전 appkey)가 붙는 순간부터는 이 배선 없이는
+   재호가·취소가 실제로 나가지 않는다.** 실계좌 소액 투입과 같은 작업으로
+   묶는다 — `LSBroker` 가 있어야 "진짜 도는지" 를 유닛 테스트 너머로 증명할
+   수 있다(2026-08-15 조사, `docs/live-order-checklist.md` 에 단계 추가함).
+   장중을 반복해서 도는 루프 자체가 지금 이 저장소에 없다는 것도 같이
+   확인했다 — `tools/run_session.py` 는 cron 으로 한 번 뜨고 끝난다.
+   `docs/runbook.md` §7 은 "워커 프로세스는 상시 실행" 을 이미 전제하고
+   있으니, 배선할 때는 그 모양(상시 워커)으로 가는 것이 맞다.
 
 ### 진행 (2026-08-14)
 
