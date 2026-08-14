@@ -147,6 +147,25 @@ window.addEventListener("resize", () => {
   Object.values(charts).forEach((instance) => instance.resize());
 });
 
+/* 타임머신 접기. **되감은 채로 접혀 있으면 안 된다** — 화면이 과거를 보여주는데
+   그 사실이 헤더에 안 보이면, 지금을 보고 있다고 착각한 채로 판단하게 된다.
+   그래서 as_of 나 창이 걸려 있으면 무조건 펼친 채로 시작한다. */
+(function bindScopeToggle() {
+  const button = document.getElementById("scope-toggle");
+  const form = document.getElementById("scope-form");
+  if (!button || !form) return;
+
+  const search = new URLSearchParams(window.location.search);
+  const rewound = Boolean(search.get("as_of") || search.get("lookback"));
+  form.hidden = !rewound;
+  button.classList.toggle("on", rewound);
+
+  button.addEventListener("click", () => {
+    form.hidden = !form.hidden;
+    button.classList.toggle("on", !form.hidden);
+  });
+})();
+
 (function fillScopeForm() {
   const search = new URLSearchParams(window.location.search);
   const asOf = search.get("as_of");

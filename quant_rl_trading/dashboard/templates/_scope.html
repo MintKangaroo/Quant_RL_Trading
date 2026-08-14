@@ -30,7 +30,14 @@
   <span class="statusbar" id="statusbar" hidden></span>
   <span class="sub num" id="as-of-label">—</span>
 
-  <form class="controls" id="scope-form">
+  {# 타임머신은 **접어 둔다.** 기능은 이 화면의 근간이지만(불변식 9 — 되감으면
+     그 시점 이후가 안 보인다), 평소에는 쓰지 않는다. 빈 날짜 칸을 늘 펼쳐 두면
+     아홉 개 탭 전부에서 "안 채워진 입력" 처럼 보인다. as_of 가 걸려 있으면
+     scope.js 가 자동으로 펼친다 — 되감은 채로 접혀 있으면 그게 제일 위험하다. #}
+  <button type="button" class="scope-toggle" id="scope-toggle"
+          title="과거 시점으로 되감기">🕘 시점</button>
+
+  <form class="controls" id="scope-form" hidden>
     <label for="as-of">as_of</label>
     <input type="datetime-local" id="as-of" name="as_of" step="60">
     <label for="lookback">창(일)</label>

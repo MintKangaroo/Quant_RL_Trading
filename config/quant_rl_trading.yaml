@@ -61,6 +61,10 @@ universe:
   exclude_flags: [관리종목, 거래정지, 정리매매]
 
 execution:
+  # **주문을 실제로 내보낼지.** 기본은 false — 켤 때만 나간다.
+  # LS 모의투자 appkey 로는 주문 TR(CSPAT*) 자체가 막혀 있어서(ls_client.py),
+  # 이걸 켜는 것은 곧 실계좌에 주문을 낸다는 뜻이다.
+  live_trading: false
   max_adv_ratio: 0.03        # 일 거래대금 대비 매수 상한
   max_liquidation_days: 3
   defer_minutes: 30          # 개장 후 신규매수 보류

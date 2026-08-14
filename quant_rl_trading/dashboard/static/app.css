@@ -69,7 +69,26 @@ header h1::before {
 }
 header .sub { color: var(--muted); font-size: 12px; }
 
-.controls { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.controls { display: flex; gap: 6px; align-items: center; }
+
+/* 타임머신 여닫이. 평소엔 이 버튼만 보이고 폼은 접혀 있다. */
+.scope-toggle {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.scope-toggle:hover { color: var(--text); background: var(--panel2); }
+/* 되감은 상태. **눈에 띄어야 한다** — 과거를 보고 있다는 사실이 헤더에서
+   사라지면 지금이라고 착각한 채로 판단하게 된다. */
+.scope-toggle.on {
+  color: var(--warn);
+  border-color: var(--warn);
+}
 
 /* 탭이 9개다. 줄바꿈을 허용하지 않으면 좁은 화면에서 오른쪽 탭이 조회 폼
    아래로 밀려나 안 보인다 — 없는 화면과 못 찾는 화면은 구분되지 않는다. */
@@ -701,7 +720,9 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
    칸이 비어 있는 것은 0% 가 아니라 장이 없던 날이다. 그래서 .none 은
    색도 테두리도 주지 않는다 — 회색으로라도 칠하면 "본전" 으로 읽힌다. */
 .cal { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
-.cal-month { min-width: 236px; flex: 1 1 236px; }
+/* **상한을 준다.** 없으면 패널 폭을 7 로 나눈 만큼 칸이 가로로만 늘어나서
+   납작한 직사각형이 된다 — 달력이 아니라 줄무늬로 보인다. */
+.cal-month { min-width: 218px; max-width: 340px; flex: 1 1 260px; }
 .cal-head {
   display: flex; justify-content: space-between; align-items: baseline;
   font-size: 11px; color: var(--muted); margin-bottom: 4px;
@@ -713,17 +734,22 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 /* 주말은 흐리게. 격자에서 주 경계를 찾는 데 드는 시간을 없앤다. */
 .cal-week span:first-child, .cal-week span:last-child { color: #4a525d; }
 .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+/* 칸은 **정사각형에 가깝게** 유지한다. 높이만 고정하면 폭이 늘어나는 만큼
+   납작해지고, 달력의 격자감이 사라진다. aspect-ratio 가 그걸 막는다. */
 .cal-cell {
   position: relative;
   display: flex; flex-direction: column; justify-content: space-between;
-  min-height: 34px;
+  aspect-ratio: 1 / 1;
+  min-height: 30px;
   padding: 2px 3px;
   border-radius: 2px;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   color: var(--text);
   cursor: default;
+  overflow: hidden;
 }
-.cal-grid.compact .cal-cell { min-height: 20px; padding: 1px 2px; }
+/* 탭 안의 축소판은 숫자가 없다. 정사각형까지 갈 필요 없이 살짝 납작해도 읽힌다. */
+.cal-grid.compact .cal-cell { aspect-ratio: 4 / 3; min-height: 18px; padding: 1px 2px; }
 .cal-cell .d { font-size: 8.5px; color: var(--dim); font-style: normal; line-height: 1; }
 .cal-cell .r {
   font-size: 9.5px; font-weight: 600; text-align: right; line-height: 1.1;

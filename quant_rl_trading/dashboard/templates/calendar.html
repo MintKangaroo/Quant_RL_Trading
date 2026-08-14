@@ -11,7 +11,10 @@
   <span class="badge dim" id="mode-badge">Quant_RL_Trading</span>
   <span class="sub num" id="as-of-label">—</span>
 
-  <form class="controls" id="scope-form">
+  <button type="button" class="scope-toggle" id="scope-toggle"
+          title="과거 시점으로 되감기">🕘 시점</button>
+
+  <form class="controls" id="scope-form" hidden>
     <label for="as-of">as_of</label>
     <input type="datetime-local" id="as-of" name="as_of" step="60">
     <label for="lookback">창(일)</label>
