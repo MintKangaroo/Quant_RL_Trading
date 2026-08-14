@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}마켓 · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{% with active = 'market' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <!-- 대표 지수 몇 개 + 환율. 나머지 지수는 아래 표에서 스크롤로 본다. -->
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>지수 현황
+        <span class="right"><span class="sub" id="indices-count"></span></span>
+      </h2>
+      <div id="indices" class="scroll dense"></div>
+      <p class="note">
+        KRX 업종·테마 지수와 해외 지수(현재 S&amp;P500)다. prices 와 다른
+        테이블이다 — 지수가 종목 유니버스에 섞이면 커버리지 통계가 오염된다.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>원달러 환율</h2>
+      <div class="chart" id="chart-fx"></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>시가총액 상위 — 국장
+        <span class="right"><span class="sub" id="leaders-kr-count"></span></span>
+      </h2>
+      <div id="leaders-kr" class="scroll dense"></div>
+    </div>
+    <div class="panel">
+      <h2>시가총액 상위 — 미장
+        <span class="right"><span class="sub" id="leaders-us-count"></span></span>
+      </h2>
+      <div id="leaders-us" class="scroll dense"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>최근 발표된 거시지표
+      <span class="right"><span class="sub">발표 완료 · 최신순</span></span>
+    </h2>
+    <div id="macro" class="scroll dense"></div>
+    <p class="note">
+      <strong>이미 발표된 것만이다.</strong> 다가오는 일정과 지표당 전체
+      현황은 <a href="/briefing">뉴스·일정</a> 탭이 맡는다. 여기는 "방금 무엇이
+      나왔나" 만 짚는다. 변화에는 색을 쓰지 않는다 — 실업률 상승과 GDP 상승은
+      같은 부호지만 반대 뜻이다.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='market.js') }}"></script>
+{% endblock %}

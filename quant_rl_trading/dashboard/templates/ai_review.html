@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}AI 리뷰 · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{% with active = 'ai-review' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>LLM 호출 — 에이전트별</h2>
+      <div id="agents"></div>
+      <p class="note">
+        캐시 적중은 새 행을 만들지 않는다(<code>replay/cache.py</code>).
+        이 표의 건수가 곧 <strong>다시 계산한 횟수</strong>다.
+        비용은 잴 수 없다 — 응답에 토큰 사용량이 기록되지 않는다.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>News · SNS 거부 성적표</h2>
+      <div id="verdict-scorecard"></div>
+      <p class="note">
+        거부는 점수가 아니라 판정이라 IC 로 검증할 수 없다. 차단한 종목의
+        <strong>이후 수익률</strong>을 추적하는 것이 유일한 검증 수단이다.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>최근 LLM 호출</h2>
+    <div id="calls" class="scroll dense"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>최근 거부 판정</h2>
+      <div id="verdicts" class="scroll dense"></div>
+    </div>
+    <div class="panel">
+      <h2>최근 공시 · 뉴스 <span class="sub">판정의 입력</span></h2>
+      <div id="documents" class="scroll dense"></div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='ai_review.js') }}"></script>
+{% endblock %}

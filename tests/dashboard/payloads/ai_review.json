@@ -1,0 +1,1115 @@
+{
+  "ai-review/calls": {
+    "as_of": "2026-08-14T11:24:30.461898+00:00",
+    "data": {
+      "agents": {
+        "agents": [
+          {
+            "agent": "macro-brief",
+            "calls": 24,
+            "entities": 20,
+            "first_computed_at": "2026-08-13T10:39:55.325524+09:00",
+            "last_computed_at": "2026-08-14T18:40:34.807460+09:00",
+            "version": "macro-brief-v0.1.0"
+          },
+          {
+            "agent": "news-screen",
+            "calls": 78,
+            "entities": 61,
+            "first_computed_at": "2026-08-13T09:33:47.449822+09:00",
+            "last_computed_at": "2026-08-14T16:00:00+09:00",
+            "version": "news-screen-v0.1.0"
+          }
+        ],
+        "total": 102
+      },
+      "recent": [
+        {
+          "agent": "macro-brief",
+          "as_of": "2026-08-14T18:40:04.024065+09:00",
+          "computed_at": "2026-08-14T18:40:34.807460+09:00",
+          "entity_id": "US:CPI",
+          "summary": "CPI 332.81, 직전 대비 +0.07% 소폭 상승했는데 S&P 500 은 0.65% 올랐다",
+          "version": "macro-brief-v0.1.0"
+        },
+        {
+          "agent": "macro-brief",
+          "as_of": "2026-08-14T18:40:04.024065+09:00",
+          "computed_at": "2026-08-14T18:40:34.805180+09:00",
+          "entity_id": "US:PPI",
+          "summary": "PPI 지수 284.06 으로 직전 대비 0.78% 하락, 생산자단 물가 압력 완화",
+          "version": "macro-brief-v0.1.0"
+        },
+        {
+          "agent": "macro-brief",
+          "as_of": "2026-08-14T18:40:04.024065+09:00",
+          "computed_at": "2026-08-14T18:40:34.802821+09:00",
+          "entity_id": "US:JOBLESS_CLAIMS",
+          "summary": "신규 실업수당 청구 20.9만건, 직전 20.0만건보다 9천건 증가",
+          "version": "macro-brief-v0.1.0"
+        },
+        {
+          "agent": "macro-brief",
+          "as_of": "2026-08-14T18:40:04.024065+09:00",
+          "computed_at": "2026-08-14T18:40:34.776388+09:00",
+          "entity_id": "US:FED_FUNDS",
+          "summary": "연방기금금리 3.63% 로 직전과 동일, 정책 경로에 새 정보 없음",
+          "version": "macro-brief-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:030610",
+          "summary": "소송 판결·결정 공시로 승패 및 금액이 제목에 없어 악재 여부 판단 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:033270",
+          "summary": "최대주주 변경에 따른 소유주식 변동 신고로 경영권 이전 이벤트이며 내부자 매도 악재로 단정 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:037400",
+          "summary": "주식병합·분할 전자등록 변경에 따른 일시적 절차성 거래정지로 구조적 악재가 아님.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:035150",
+          "summary": "변동 방향 미표시 소유주식 변동신고서.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:033540",
+          "summary": "전환사채 발행 결정 공시로 잠재적 희석 요인에 해당.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:033540",
+          "summary": "매매거래정지 해제 공시로 오히려 정지 종료를 알리는 내용이라 악재가 아님.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:033310",
+          "summary": "주식담보제공 계약은 최대주주 지분 처분이 아니며 정정 공시로 악재 확정 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:033270",
+          "summary": "최대주주 변경은 insider_sell 분류와 맞지 않고 방향도 불명확.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:010580",
+          "summary": "변동 방향 불명의 최대주주등 소유주식 변동신고서로 매도 확정 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:031860",
+          "summary": "액면병합 변경상장에 따른 정지기간 변경은 절차적 사안으로 구조적 악재가 아님.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:032800",
+          "summary": "유상증자 결정으로 지분 희석 악재에 해당.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:011090",
+          "summary": "유상증자 결정 주요사항보고서로 당사 주식 희석 요인이 맞음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:038060",
+          "summary": "최대주주 변경 수반 주식양수도는 경영권 이전으로 내부자 매도 악재 분류가 부적절.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:011420",
+          "summary": "소유주식 변동신고서만으로는 지분 감소 여부를 알 수 없음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:030720",
+          "summary": "변동 방향이 명시되지 않은 소유주식 변동신고서.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:026910",
+          "summary": "유상증자 결정 공시로 희석 분류가 타당함.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:026910",
+          "summary": "최대주주 변경을 수반하는 주식양수도는 경영권 이전 이벤트로 내부자 매도 분류가 부적절하며 방향도 불확실.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:026910",
+          "summary": "최대주주 변경 자체는 인수 주체 등장 이벤트로 insider_sell 분류가 맞지 않음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:008600",
+          "summary": "반기검토의견 부적정/의견거절 또는 완전자본잠식 사실 발생은 명백한 회계 악재.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:043260",
+          "summary": "신주인수권부사채 만기전 취득 후 재매각은 잠재 신주 물량 재유통으로 희석 요인이 맞음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:043260",
+          "summary": "전환사채 발행 결정으로 희석 악재에 해당.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:055550",
+          "summary": "변동 방향이 없는 최대주주등 소유주식 변동신고서.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:001040",
+          "summary": "자회사 소송 판결·결정 공시로 판결 결과(승소/패소)와 손익 방향이 제목만으로 불분명하여 악재 여부 확인 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:001340",
+          "summary": "최대주주등 소유주식 변동신고서는 증가·감소·무상변동 등 방향이 제목에 없어 내부자 매도로 단정할 수 없음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:060900",
+          "summary": "최대주주 변경은 경영권 이전 이벤트로 insider_sell 분류가 부적절하고 방향도 불명확.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:060900",
+          "summary": "자기전환사채 만기전 취득은 잠재 희석 물량을 회수·소각 가능성이 있는 사안으로 희석 악재로 보기 어려움.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:060230",
+          "summary": "시가총액 200억원 미달로 관리종목 지정 우려 안내는 상장 유지 관련 구조적 악재.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:060230",
+          "summary": "전환사채권 발행 결정으로 희석 악재에 해당.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:060230",
+          "summary": "자기전환사채 매도 결정은 보유 CB의 시장 재유통으로 잠재 희석 요인이 맞음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:004150",
+          "summary": "소유주식 변동신고서는 변동 방향이 제목에 드러나지 않아 매도로 단정 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:054940",
+          "summary": "거래정지 해제 공시로 악재가 아님.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:005110",
+          "summary": "반기검토 부적정·의견거절 또는 완전자본잠식 발생은 당사 회계·존속 관련 구조적 악재로 분류가 정확함.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:054180",
+          "summary": "개선기간 종료에 따른 상장폐지 여부 결정 안내로 상장폐지 리스크가 현실화 단계임.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:052770",
+          "summary": "상장적격성 실질심사 대상 여부 조사기간 연장은 상장폐지 리스크 지속을 의미하는 악재.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:052710",
+          "summary": "청약 결과 공시는 결과(청약률)에 따라 방향이 갈리므로 제목만으로 악재 확정 불가.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:045970",
+          "summary": "종속회사의 유상증자로 상장사 본체 주식의 희석이 아니며 오히려 자회사 자금조달일 수 있음.",
+          "version": "news-screen-v0.1.0"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "ai-review/documents": {
+    "as_of": "2026-08-14T11:24:30.570388+00:00",
+    "data": {
+      "by_type": [
+        {
+          "count": 15124,
+          "doc_type": "other"
+        },
+        {
+          "count": 9697,
+          "doc_type": "ownership"
+        },
+        {
+          "count": 1588,
+          "doc_type": "earnings"
+        },
+        {
+          "count": 1379,
+          "doc_type": "dilution"
+        },
+        {
+          "count": 1265,
+          "doc_type": "contract"
+        },
+        {
+          "count": 554,
+          "doc_type": "distress"
+        },
+        {
+          "count": 462,
+          "doc_type": "buyback"
+        },
+        {
+          "count": 405,
+          "doc_type": "dividend"
+        },
+        {
+          "count": 258,
+          "doc_type": "news"
+        },
+        {
+          "count": 76,
+          "doc_type": "split"
+        }
+      ],
+      "recent": [
+        {
+          "at": "2026-08-13T13:55:06+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:278470",
+          "filer": "Zdnet.co.kr",
+          "title": "포트원, 상반기 결제 인프라 신규 도입사 전년 동기 比 236.7%↑"
+        },
+        {
+          "at": "2026-08-13T13:33:36+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:017670",
+          "filer": "Zdnet.co.kr",
+          "title": "\"AI 경쟁 핵심은 인프라…향후 2~3년 AIDC 골든타임\""
+        },
+        {
+          "at": "2026-08-13T13:22:39+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:035420",
+          "filer": "Venturesquare.net",
+          "title": "안심결제 늘자 거래·수익성 함께 뛰었다…중고나라, 첫 반기 흑자"
+        },
+        {
+          "at": "2026-08-13T13:10:03+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:006400",
+          "filer": "Zdnet.co.kr",
+          "title": "글로벌 동박 선도기업 론디안왓슨, 공모 규모 확대한 기업공개 공모가 확정"
+        },
+        {
+          "at": "2026-08-13T12:21:43+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:035420",
+          "filer": "Venturesquare.net",
+          "title": "여행은 출국 전에 시작된다…틴더, 성수에 ‘패스포트 라운지’ 연다"
+        },
+        {
+          "at": "2026-08-13T11:17:02+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:000660",
+          "filer": "Inews24.com",
+          "title": "“HBM4 헐값이라더니”…美 IB가 본 SK하이닉스 가격은 달랐다"
+        },
+        {
+          "at": "2026-08-13T11:04:29+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:011070",
+          "filer": "Inews24.com",
+          "title": "MSCI 한국지수, LG이노텍 편입…HLB·LG디플 등 4곳 편출"
+        },
+        {
+          "at": "2026-08-13T10:20:14+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:005930",
+          "filer": "Zdnet.co.kr",
+          "title": "200만원대 전기 오토바이 주목…\"주행거리 200㎞ 넘어\""
+        },
+        {
+          "at": "2026-08-13T10:16:04+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:005930",
+          "filer": "Zdnet.co.kr",
+          "title": "컬쳐히어로, 창고형 라이브커머스 진출…8년 만에 신규 서비스"
+        },
+        {
+          "at": "2026-08-13T10:16:00+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:005930",
+          "filer": "Venturesquare.net",
+          "title": "평택·용인 반도체 현장이 끌었다…엑사이엔씨 상반기 영업이익 5.7배"
+        },
+        {
+          "at": "2026-08-13T10:16:00+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:000660",
+          "filer": "Venturesquare.net",
+          "title": "평택·용인 반도체 현장이 끌었다…엑사이엔씨 상반기 영업이익 5.7배"
+        },
+        {
+          "at": "2026-08-13T10:00:05+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:066570",
+          "filer": "Zdnet.co.kr",
+          "title": "LG전자 커뮤니티 '라이프집', 코엑스서 '홈 디깅 페어' 개최"
+        },
+        {
+          "at": "2026-08-13T09:57:02+09:00",
+          "doc_type": "news",
+          "entity_id": "KR:017670",
+          "filer": "Inews24.com",
+          "title": "모티프 'Motif 3', 독파모 글로벌 평가 '1위'...업스테이지·SK텔레콤 2·3위"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:372910",
+          "filer": "한컴라이프케어",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:0099W0",
+          "filer": "미래에셋비전스팩11호",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:032820",
+          "filer": "우리기술",
+          "title": "증권발행결과(자율공시)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:079160",
+          "filer": "CJ CGV",
+          "title": "소송등의판결ㆍ결정(일정금액이상의청구)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:003550",
+          "filer": "LG",
+          "title": "연결재무제표기준영업(잠정)실적(공정공시)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:003550",
+          "filer": "LG",
+          "title": "지속가능경영보고서등관련사항(자율공시)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:361390",
+          "filer": "제노코",
+          "title": "주주총회소집결의              (임시주주총회)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:079170",
+          "filer": "한창산업",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:032790",
+          "filer": "엠젠솔루션",
+          "title": "[기재정정]주식매수선택권부여에관한신고"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:032790",
+          "filer": "엠젠솔루션",
+          "title": "[기재정정]주식매수선택권부여에관한신고"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:032790",
+          "filer": "엠젠솔루션",
+          "title": "[기재정정]주식매수선택권부여에관한신고"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:003580",
+          "filer": "HLB글로벌",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:361390",
+          "filer": "제노코",
+          "title": "주주명부폐쇄기간또는기준일설정"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "ownership",
+          "entity_id": "KR:196170",
+          "filer": "김항연",
+          "title": "임원ㆍ주요주주특정증권등소유상황보고서"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "ownership",
+          "entity_id": "KR:196170",
+          "filer": "박순재",
+          "title": "임원ㆍ주요주주특정증권등소유상황보고서"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "ownership",
+          "entity_id": "KR:196170",
+          "filer": "전태연",
+          "title": "임원ㆍ주요주주특정증권등소유상황보고서"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:073640",
+          "filer": "테라사이언스",
+          "title": "[기재정정]타법인주식및출자증권처분결정"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:073640",
+          "filer": "테라사이언스",
+          "title": "[기재정정]타법인주식및출자증권처분결정(자율공시)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:075180",
+          "filer": "새론오토모티브",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:075580",
+          "filer": "세진중공업",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:077360",
+          "filer": "덕산하이메탈",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:078020",
+          "filer": "LS증권",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:078350",
+          "filer": "한양디지텍",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "ownership",
+          "entity_id": "KR:032860",
+          "filer": "바이오스마트",
+          "title": "주식등의대량보유상황보고서(일반)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "earnings",
+          "entity_id": "KR:078520",
+          "filer": "에이블씨엔씨",
+          "title": "반기보고서 (2026.06)"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "dividend",
+          "entity_id": "KR:078520",
+          "filer": "에이블씨엔씨",
+          "title": "현금ㆍ현물배당을위한주주명부폐쇄(기준일)결정"
+        },
+        {
+          "at": "2026-08-13T09:00:00+09:00",
+          "doc_type": "other",
+          "entity_id": "KR:078520",
+          "filer": "에이블씨엔씨",
+          "title": "주식소각결정"
+        }
+      ],
+      "total": 30808
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "ai-review/summary": {
+    "as_of": "2026-08-14T11:24:31.332765+00:00",
+    "data": {
+      "agents": 2,
+      "blocked": 212,
+      "calls": 102,
+      "documents": 30808,
+      "verdicts_total": 212,
+      "warnings": []
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "ai-review/verdicts": {
+    "as_of": "2026-08-14T11:24:32.120042+00:00",
+    "data": {
+      "blocked": 212,
+      "by_analyst": [
+        {
+          "analyst": "news",
+          "count": 212
+        }
+      ],
+      "recent": [
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:950210",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "delisting",
+          "decision": "block",
+          "entity_id": "KR:079190",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "관리종목: 기타시장안내(관리종목지정우려종목)              (시가총액 200억원 미달)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:115160",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: 주요사항보고서(자기전환사채만기전취득결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:277410",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "신주인수권부사채: 신주인수권부사채(해외신주인수권부사채포함)발행후만기전사채취득"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:109070",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:107640",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: [기재정정]주요사항보고서(전환사채권발행결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "trading_halt",
+          "decision": "block",
+          "entity_id": "KR:105550",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "거래정지: 주권매매거래정지해제              (액면병합 주권 변경상장)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:288980",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: [기재정정]주요사항보고서(자기전환사채만기전취득결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:103140",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:101400",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "유상증자: 주요사항보고서(유상증자결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "trading_halt",
+          "decision": "block",
+          "entity_id": "KR:101000",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "거래정지: 주권매매거래정지해제              (감자 주권 변경상장)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "trading_halt",
+          "decision": "block",
+          "entity_id": "KR:291230",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "거래정지: 주권매매거래정지해제              (액면병합 주권 변경상장)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "litigation",
+          "decision": "block",
+          "entity_id": "KR:096870",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "소송: 소송등의제기ㆍ신청(경영권분쟁소송)              (주주명부열람등사가처분)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:090430",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "trading_halt",
+          "decision": "block",
+          "entity_id": "KR:291650",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "거래정지: 주권매매거래정지해제              (액면병합 주권 변경상장)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:090080",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:304360",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: 전환사채(해외전환사채포함)발행후만기전사채취득              (제5회차)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:089980",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: 전환사채(해외전환사채포함)발행후만기전사채취득"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "delisting",
+          "decision": "block",
+          "entity_id": "KR:307870",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "관리종목: 기타시장안내(관리종목지정우려종목)              (주가 1,000원 미달)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "litigation",
+          "decision": "block",
+          "entity_id": "KR:088790",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "소송: [기재정정]소송등의판결ㆍ결정"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "delisting",
+          "decision": "block",
+          "entity_id": "KR:087260",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "실질심사: 기타시장안내              ( 실질심사 대상여부 결정을 위한 조사기간 연장 안내 )"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:085620",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:309930",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: 주요사항보고서(자기전환사채만기전취득결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:083660",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "trading_halt",
+          "decision": "block",
+          "entity_id": "KR:082850",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "거래정지: 주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:320000",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:082640",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:082270",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:321370",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "유상증자: 유상증자최종발행가액확정              (주주배정후 실권주 일반공모)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:080720",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:080530",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "신주인수권부사채: 신주인수권부사채(해외신주인수권부사채포함)발행후만기전사채취득"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:123010",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: [기재정정]주요사항보고서(전환사채권발행결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:272110",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주변경을수반하는주식담보제공계약해제ㆍ취소등"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:123860",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:187660",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "유상증자: [기재정정]유상증자또는주식관련사채등의청약결과(자율공시)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:223310",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "전환사채: 주요사항보고서(자기전환사채만기전취득결정)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "delisting",
+          "decision": "block",
+          "entity_id": "KR:217480",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "상장폐지: 기타시장안내              (개선기간 종료에 따른 상장폐지 여부 결정 안내)"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "litigation",
+          "decision": "block",
+          "entity_id": "KR:215480",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "소송: 소송등의판결ㆍ결정"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:228670",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식양수도계약체결"
+        },
+        {
+          "analyst": "news",
+          "at": "2026-08-14T16:00:00+09:00",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:210980",
+          "expires_at": "2026-08-19T16:00:00+09:00",
+          "reason": "최대주주: 최대주주등소유주식변동신고서"
+        }
+      ],
+      "scorecard": {
+        "by_category": [],
+        "hit_rate": null,
+        "mean_excess": null,
+        "median_excess": null,
+        "pending": 212,
+        "settled": 0,
+        "worst_calls": []
+      },
+      "total": 212
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  }
+}

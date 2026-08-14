@@ -1,0 +1,326 @@
+"""시스템 탭 집계 — **지금 이 시스템이 제대로 돌고 있는가.**
+
+Data Quality 가 "데이터가 썩고 있나", Agent Health 가 "에이전트가 썩고
+있나" 를 본다면 이 화면은 **배관** 을 본다 — 크론이 실제로 돌았는가,
+창고가 오늘 것을 알고 있는가, 안전장치가 걸려 있는가, 설정이 어느
+판번호인가, LLM 캐시가 쌓이고 있는가.
+
+## 두 종류의 시각이 섞여 있다
+
+`job_history` 는 ``logs/*.log`` 를 읽는다 — 창고가 아니라 운영 로그다.
+``jobs.py`` (백필·IC 진행률)와 같은 이유로 **as_of 로 되감기지 않는다.**
+어제 시점의 "크론이 성공했나" 는 로그 파일에 여전히 남아 있지만, 그건
+"그때 알 수 있었던 것"이 아니라 "지금 로그에 뭐가 있나" 이므로 이중시간의
+대상이 아니다. 규약대로 ``as_of`` 는 받아 되돌려주되 내용은 언제나 최신이다.
+
+``table_freshness`` · ``cache_stats`` · ``safety_summary`` 는 반대로 창고를
+경유한다 (불변식 1) — 그래서 이쪽은 정직하게 되감긴다.
+
+## 큰 테이블을 스캔하지 않는다
+
+``flows`` 는 파일이 109만 개다. 그래서 최신성 확인은 **짧은 lookback**
+으로만 연다 — 파티션 하한 프루닝이 걸려 있는 테이블(대부분)은 최근 며칠치
+파티션만 열리고, 선언이 없는 몇 개(fundamentals·documents·events·
+verdicts·analyst_weights·agent_cache)는 통째로 열리지만 전부 합쳐도
+150MB 남짓이라 문제되지 않는다.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+from quant_rl_trading.executor import guards
+from quant_rl_trading.store import Store
+from quant_rl_trading.store.tables import CONFIG_TABLE, table_names
+
+AGENT_CACHE = "agent_cache"
+
+#: 로그 타임스탬프의 출처. run_daily.sh 등이 ``date '+%F %T'`` 로 찍는 값은
+#: 이 머신의 지역시각(KST)이다 — 벽시계를 여기서 읽는 것이 아니라 이미 파일에
+#: 적혀 있는 과거 기록을 해석하는 것이므로 불변식 2(Clock 주입)와 무관하다.
+KST = ZoneInfo("Asia/Seoul")
+
+#: 최근 파티션 확인 창(일). 전체 창고 크기가 아니라 "오늘 것이 들어왔나" 가
+#: 목적이라 짧게 잡는다 — flows 처럼 파티션이 109만 개인 테이블도 이 창이면
+#: 최근 며칠치만 연다.
+TABLE_LOOKBACK_DAYS = 10
+
+#: 표에 실을 최근 실행 횟수.
+RUN_HISTORY_LIMIT = 8
+
+RUN_HEADER = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) market=(\S+)", re.M)
+RC_LINE = re.compile(r"\brc=(-?\d+)")
+
+
+@dataclass(frozen=True)
+class JobDef:
+    """crontab 에 등록된 작업 하나. 실제 등록 여부는 ``crontab -l`` 로 확인했다."""
+
+    key: str
+    label: str
+    log_prefix: str
+    schedule: str
+
+
+#: crontab 에 실제로 등록된 4개 작업 (2026-08-14 확인). 여기 없는 것을
+#: "돌고 있다"고 지어내지 않는다 — 명단이 곧 진실의 경계다.
+JOB_DEFS: list[JobDef] = [
+    JobDef("collect_daily", "일일 수집 (시세·유니버스·수급·거시)", "collect", "평일 15:55, 22:40"),
+    JobDef("run_daily", "일일 실행 (Analyst 점수·News/SNS 판정)", "daily", "평일 16:10"),
+    JobDef("run_shadow", "shadow 운용", "shadow", "평일 16:30"),
+    JobDef("collect_news", "뉴스 수집", "news", "평일 08:20, 15:40"),
+]
+
+
+@dataclass(frozen=True)
+class Run:
+    """로그 한 블록 — ``=== ... ===`` 헤더부터 다음 헤더 전까지."""
+
+    started_at: str
+    market: str
+    steps: list[int] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool | None:
+        """세 값 논리다. ``rc=`` 를 하나도 못 찾았으면 완주하지 못한 것이지
+        성공도 실패도 아니다 — 그걸 실패로 찍으면 로그 형식이 바뀌었을 때
+        "매번 실패"로 오판하고, 성공으로 찍으면 죽은 작업을 놓친다."""
+        if not self.steps:
+            return None
+        return all(rc == 0 for rc in self.steps)
+
+
+def _parse_runs(text: str) -> list[Run]:
+    headers = list(RUN_HEADER.finditer(text))
+    runs: list[Run] = []
+    for index, match in enumerate(headers):
+        start = match.end()
+        end = headers[index + 1].start() if index + 1 < len(headers) else len(text)
+        body = text[start:end]
+        runs.append(
+            Run(
+                started_at=match.group(1),
+                market=match.group(2),
+                steps=[int(value) for value in RC_LINE.findall(body)],
+            )
+        )
+    return runs
+
+
+def _to_utc(local_stamp: str) -> str:
+    """``YYYY-MM-DD HH:MM:SS`` (KST, naive) → ISO8601 UTC.
+
+    로그가 naive 인 이유는 벽시계를 그대로 ``date`` 로 찍은 운영 스크립트라서다.
+    화면에 내보낼 때는 이 프로젝트의 다른 모든 시각과 같이 타임존을 붙인다.
+    """
+    naive = datetime.strptime(local_stamp, "%Y-%m-%d %H:%M:%S")
+    return naive.replace(tzinfo=KST).isoformat()
+
+
+def _log_files(repo_root: Path, prefix: str) -> list[Path]:
+    logs_dir = repo_root / "logs"
+    if not logs_dir.is_dir():
+        return []
+    return sorted(logs_dir.glob(f"{prefix}-*.log"))
+
+
+def _read_runs(repo_root: Path, prefix: str) -> list[Run]:
+    # 최근 두 파일(이번 달 + 지난달)이면 충분하다 — 로그는 매달 새 파일로
+    # 갈리고, 표에는 최근 실행 몇 건만 싣는다.
+    runs: list[Run] = []
+    for path in _log_files(repo_root, prefix)[-2:]:
+        try:
+            runs.extend(_parse_runs(path.read_text(encoding="utf-8", errors="replace")))
+        except OSError:
+            continue
+    runs.sort(key=lambda run: run.started_at)
+    return runs
+
+
+def job_history(store: Store) -> list[dict[str, Any]]:
+    """crontab 작업 4종의 최근 실행 이력.
+
+    **as_of 로 되감기지 않는다** — 운영 로그이지 창고가 아니다 (모듈 docstring).
+    """
+    repo_root = store.root.parent
+    out: list[dict[str, Any]] = []
+    for job in JOB_DEFS:
+        runs = _read_runs(repo_root, job.log_prefix)
+        recent = runs[-RUN_HISTORY_LIMIT:]
+        last_success = next((run for run in reversed(runs) if run.ok), None)
+        out.append(
+            {
+                "key": job.key,
+                "label": job.label,
+                "schedule": job.schedule,
+                "runs": [
+                    {
+                        "started_at": _to_utc(run.started_at),
+                        "market": run.market,
+                        "ok": run.ok,
+                        "steps": run.steps,
+                    }
+                    for run in reversed(recent)
+                ],
+                "last_run_ok": recent[-1].ok if recent else None,
+                "last_success_at": _to_utc(last_success.started_at) if last_success else None,
+                "run_count": len(runs),
+            }
+        )
+    return out
+
+
+def table_freshness(
+    store: Store, *, as_of: datetime, lookback: int = TABLE_LOOKBACK_DAYS
+) -> list[dict[str, Any]]:
+    """등록된 테이블마다 최근 창의 행수와 최신 ``valid_from``.
+
+    전체 행수가 아니다 — "얼마나 큰가"가 아니라 "오늘 것이 들어왔나"를 답한다.
+    아직 한 행도 없는 테이블(M3 회계·집행)은 0/None 으로 정직하게 남긴다.
+    """
+    out: list[dict[str, Any]] = []
+    for name in table_names():
+        if name == CONFIG_TABLE:
+            continue
+        # valid_from 하나만 받는다 — 최신성 확인에 값 컬럼은 필요 없고, 안
+        # 받으면 큰 테이블에서도 가볍다. natural_key 에 맡기지 않는 이유는
+        # ``events`` 처럼 자연키가 (entity_id, seq) 라 valid_from 이 안 딸려
+        # 오는 테이블이 있기 때문이다 — 모든 테이블이 valid_from 을 갖는다는
+        # 사실(schema.py REQUIRED_COLUMNS)만 믿는다.
+        frame = store.get(name, as_of=as_of, lookback=lookback, columns=["valid_from"])
+        if frame.empty:
+            out.append(
+                {
+                    "table": name,
+                    "rows_recent": 0,
+                    "latest_valid_from": None,
+                    "stale_days": None,
+                }
+            )
+            continue
+        latest = pd.Timestamp(frame["valid_from"].max())
+        out.append(
+            {
+                "table": name,
+                "rows_recent": len(frame),
+                "latest_valid_from": latest.isoformat(),
+                "stale_days": (as_of - latest.to_pydatetime()).days,
+            }
+        )
+    return out
+
+
+def cache_stats(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """LLM/에이전트 캐시(``agent_cache``) 적재 현황.
+
+    **적중률과 실제 비용은 창고에 없다.** ``agent_cache`` 는 계산된 출력만
+    담고 몇 번 재사용됐는지는 세지 않는다 — 캐시를 맞힌 호출은 애초에 새
+    행을 쓰지 않기 때문이다. 없는 값을 지어내는 대신 여기서 셀 수 있는 것
+    (에이전트별 적재 건수·최신 계산 시각)만 보여주고, 예산은 참고용으로
+    설정값을 그대로 싣는다.
+    """
+    frame = store.get(
+        AGENT_CACHE,
+        as_of=as_of,
+        lookback=lookback,
+        columns=["agent", "agent_version", "computed_at"],
+    )
+    if frame.empty:
+        return {"rows": [], "total": 0}
+
+    grouped = (
+        frame.groupby(["agent", "agent_version"])
+        .agg(entries=("agent", "size"), last_computed_at=("computed_at", "max"))
+        .reset_index()
+        .sort_values("entries", ascending=False)
+    )
+    rows = [
+        {
+            "agent": str(row["agent"]),
+            "agent_version": str(row["agent_version"]),
+            "entries": int(row["entries"]),
+            "last_computed_at": pd.Timestamp(row["last_computed_at"]).isoformat(),
+        }
+        for row in grouped.to_dict(orient="records")
+    ]
+    return {"rows": rows, "total": len(frame)}
+
+
+def safety_summary(store: Store, *, as_of: datetime) -> dict[str, Any]:
+    """킬스위치·설정 판번호·LLM 예산 — "안전장치가 걸려 있나" 의 답."""
+    state, reason = guards.killswitch_state(store, as_of=as_of)
+    return {
+        "killswitch_engaged": state is guards.KillswitchState.ENGAGED,
+        "killswitch_reason": reason,
+        "config_version": int(store.config("config_version", as_of=as_of)),
+        "llm_monthly_budget_usd": float(store.config("llm.monthly_budget_usd", as_of=as_of)),
+    }
+
+
+def summary(
+    store: Store, *, as_of: datetime, lookback: int, thresholds: dict[str, Any]
+) -> dict[str, Any]:
+    """KPI 스트립. 경고 판정도 여기서 한다 (불변식 10)."""
+    jobs = job_history(store)
+    tables = table_freshness(store, as_of=as_of)
+    cache = cache_stats(store, as_of=as_of, lookback=int(thresholds["cache_lookback_days"]))
+    safety = safety_summary(store, as_of=as_of)
+
+    table_warn_days = int(thresholds["table_stale_warn_days"])
+    stale_tables = [
+        t for t in tables if t["stale_days"] is not None and t["stale_days"] > table_warn_days
+    ]
+    failed_jobs = [j for j in jobs if j["last_run_ok"] is False]
+    silent_jobs = [j for j in jobs if j["last_run_ok"] is None]
+
+    job_stale_hours = float(thresholds["job_stale_warn_hours"])
+    stale_success = [
+        j
+        for j in jobs
+        if j["last_success_at"] is not None
+        and (as_of - datetime.fromisoformat(j["last_success_at"])).total_seconds() / 3600
+        > job_stale_hours
+    ]
+
+    warnings: list[str] = []
+    if safety["killswitch_engaged"]:
+        warnings.append(f"킬스위치 발동 중 — {safety['killswitch_reason']}")
+    for job in failed_jobs:
+        warnings.append(f"{job['label']} 최근 실행 실패")
+    for job in silent_jobs:
+        warnings.append(f"{job['label']} 완주 여부를 로그에서 확인할 수 없음")
+    for job in stale_success:
+        warnings.append(f"{job['label']} 마지막 성공이 {job_stale_hours:.0f}시간을 넘었다")
+    for table in stale_tables:
+        warnings.append(f"{table['table']} 최신 데이터가 {table['stale_days']}일 지연")
+
+    return {
+        "config_version": safety["config_version"],
+        "killswitch_engaged": safety["killswitch_engaged"],
+        "killswitch_reason": safety["killswitch_reason"],
+        "llm_monthly_budget_usd": safety["llm_monthly_budget_usd"],
+        "job_count": len(jobs),
+        "job_failed_count": len(failed_jobs),
+        "job_silent_count": len(silent_jobs),
+        "table_count": len(tables),
+        "table_stale_count": len(stale_tables),
+        "cache_recent_entries": cache["total"],
+        "warnings": warnings,
+    }
+
+
+__all__ = [
+    "JOB_DEFS",
+    "cache_stats",
+    "job_history",
+    "safety_summary",
+    "summary",
+    "table_freshness",
+]

@@ -11,11 +11,20 @@
   <h1>AI Auto-Trading Terminal</h1>
   <span class="badge dim" title="quant_rl_trading">Quant_RL_Trading</span>
 
+{# 세 갈래다 — 운용(무엇을 샀나) · 분석(왜 그렇게 골랐나) · 운영(배관이 도는가).
+   순서가 곧 읽는 순서다. 운영을 앞에 두면 매일 아침 배관부터 보게 된다. #}
   <nav class="tabs">
     <a href="/trading" class="{{ 'on' if active == 'trading' }}">트레이딩</a>
+    <a href="/market" class="{{ 'on' if active == 'market' }}">마켓</a>
+    <a href="/headlines" class="{{ 'on' if active == 'headlines' }}">중요 시황</a>
     <a href="/briefing" class="{{ 'on' if active == 'briefing' }}">뉴스 · 일정</a>
+    <span class="sep"></span>
+    <a href="/learning" class="{{ 'on' if active == 'learning' }}">학습</a>
+    <a href="/ai-review" class="{{ 'on' if active == 'ai-review' }}">AI 리뷰</a>
+    <span class="sep"></span>
     <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">Data Quality</a>
     <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">Agent Health</a>
+    <a href="/system" class="{{ 'on' if active == 'system' }}">시스템</a>
   </nav>
 
   <span class="statusbar" id="statusbar" hidden></span>

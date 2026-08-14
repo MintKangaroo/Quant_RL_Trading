@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}중요 시황 · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{% with active = 'headlines' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <h2>매수 차단 — News · SNS 판정
+      <span class="right"><span class="sub" id="verdicts-count"></span></span>
+    </h2>
+    <div id="verdicts" class="scroll dense"></div>
+    <p class="note">
+      <strong>매수 금지만 가능하다.</strong> News·SNS Analyst 는 매도 권한이
+      없다 — 여기 뜨는 것은 전부 <code>block</code> 이다. 만료된 차단도 남긴다,
+      "방금 풀렸다" 와 "여태 걸려 있다" 는 다른 사실이다.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>중요 공시 · 뉴스
+      <span class="right"><span class="sub" id="documents-count"></span></span>
+    </h2>
+    <div id="documents" class="scroll dense"></div>
+    <p class="note">
+      감자·유상증자·상장폐지사유·자사주·배당·계약·기사만 남긴다. 지분보고·기타
+      신고는 부피가 커서(창고의 76%) 뺐다 — 그걸 넣으면 이 표가 진짜 이벤트를
+      덮는다.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>파이프라인 이벤트
+      <span class="right"><span class="sub" id="events-count"></span></span>
+    </h2>
+    <div id="events" class="scroll dense"></div>
+    <p class="note">
+      관측 → Signal → Selector 결정 → Allocator 액션 → 주문 → 체결까지의
+      판단 로그다. 아직 이 창고에 쌓이기 전이면 비어 있는 것이 맞다 —
+      지어내지 않는다.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='headlines.js') }}"></script>
+{% endblock %}

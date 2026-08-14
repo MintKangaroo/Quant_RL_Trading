@@ -1,0 +1,586 @@
+{
+  "market": {
+    "as_of": "2026-08-14T11:24:18.289411+00:00",
+    "data": {
+      "fx": {
+        "change": -0.009602348957930773,
+        "rate": 1409.94,
+        "rates": [
+          1494.67,
+          1508.49,
+          1498.77,
+          1508.47,
+          1517.33,
+          1506.75,
+          1498.28,
+          1495.94,
+          1503.96,
+          1511.71,
+          1517.4,
+          1518.03,
+          1531.91,
+          1555.96,
+          1528.23,
+          1529.94,
+          1519.26,
+          1530.97,
+          1518.87,
+          1514.87,
+          1508.12,
+          1514.24,
+          1540.64,
+          1537.86,
+          1532.43,
+          1542.53,
+          1541.44,
+          1533.44,
+          1542.07,
+          1548.78,
+          1550.59,
+          1538.05,
+          1530.98,
+          1514.43,
+          1511.17,
+          1508.76,
+          1501.06,
+          1492.63,
+          1490.26,
+          1488.39,
+          1478.2,
+          1489.44,
+          1478.31,
+          1479.77,
+          1476.63,
+          1474.88,
+          1460.76,
+          1467.54,
+          1453.26,
+          1446.32,
+          1424.05,
+          1436.81,
+          1467.54,
+          1427.48,
+          1424.0,
+          1423.61,
+          1409.94
+        ],
+        "sessions": [
+          "2026-05-18",
+          "2026-05-19",
+          "2026-05-20",
+          "2026-05-21",
+          "2026-05-22",
+          "2026-05-26",
+          "2026-05-27",
+          "2026-05-28",
+          "2026-05-29",
+          "2026-06-01",
+          "2026-06-02",
+          "2026-06-03",
+          "2026-06-04",
+          "2026-06-05",
+          "2026-06-08",
+          "2026-06-09",
+          "2026-06-10",
+          "2026-06-11",
+          "2026-06-12",
+          "2026-06-15",
+          "2026-06-16",
+          "2026-06-17",
+          "2026-06-18",
+          "2026-06-22",
+          "2026-06-23",
+          "2026-06-24",
+          "2026-06-25",
+          "2026-06-26",
+          "2026-06-29",
+          "2026-06-30",
+          "2026-07-01",
+          "2026-07-02",
+          "2026-07-06",
+          "2026-07-07",
+          "2026-07-08",
+          "2026-07-09",
+          "2026-07-10",
+          "2026-07-13",
+          "2026-07-14",
+          "2026-07-15",
+          "2026-07-16",
+          "2026-07-17",
+          "2026-07-20",
+          "2026-07-21",
+          "2026-07-22",
+          "2026-07-23",
+          "2026-07-24",
+          "2026-07-27",
+          "2026-07-28",
+          "2026-07-29",
+          "2026-07-30",
+          "2026-07-31",
+          "2026-08-03",
+          "2026-08-04",
+          "2026-08-05",
+          "2026-08-06",
+          "2026-08-07"
+        ]
+      },
+      "indices": {
+        "highlights": [
+          {
+            "change": 0.009185916627988178,
+            "close": 3957.24,
+            "entity_id": "KR:IDX:KRX TMI",
+            "market": "KR"
+          },
+          {
+            "change": 0.009082044722756866,
+            "close": 4315.41,
+            "entity_id": "KR:IDX:KRX 300",
+            "market": "KR"
+          },
+          {
+            "change": 0.00651609989030133,
+            "close": 7798.99,
+            "entity_id": "US:IDX:SP500",
+            "market": "US"
+          }
+        ],
+        "table": [
+          {
+            "change": 0.0,
+            "close": 0.4,
+            "entity_id": "KR:IDX:K-샤프지수(10년)",
+            "market": "KR"
+          },
+          {
+            "change": 0.0,
+            "close": 1.23,
+            "entity_id": "KR:IDX:K-샤프지수(1년)",
+            "market": "KR"
+          },
+          {
+            "change": 0.012987012987013102,
+            "close": 0.78,
+            "entity_id": "KR:IDX:K-샤프지수(3년)",
+            "market": "KR"
+          },
+          {
+            "change": 0.0277777777777779,
+            "close": 0.37,
+            "entity_id": "KR:IDX:K-샤프지수(5년)",
+            "market": "KR"
+          },
+          {
+            "change": 0.00998425683934534,
+            "close": 15608.63,
+            "entity_id": "KR:IDX:KRX 100",
+            "market": "KR"
+          },
+          {
+            "change": 0.009082044722756866,
+            "close": 4315.41,
+            "entity_id": "KR:IDX:KRX 300",
+            "market": "KR"
+          },
+          {
+            "change": -0.004750004769081162,
+            "close": 2086.88,
+            "entity_id": "KR:IDX:KRX 300 금융",
+            "market": "KR"
+          },
+          {
+            "change": -0.021500757262839065,
+            "close": 1776.71,
+            "entity_id": "KR:IDX:KRX 300 산업재",
+            "market": "KR"
+          },
+          {
+            "change": -0.011628859225288668,
+            "close": 1568.97,
+            "entity_id": "KR:IDX:KRX 300 소재",
+            "market": "KR"
+          },
+          {
+            "change": -0.01598074166929475,
+            "close": 2464.86,
+            "entity_id": "KR:IDX:KRX 300 자유소비재",
+            "market": "KR"
+          },
+          {
+            "change": 0.008060062727642814,
+            "close": 8488.4,
+            "entity_id": "KR:IDX:KRX 300 정보기술",
+            "market": "KR"
+          },
+          {
+            "change": 0.014532165668005526,
+            "close": 1540.77,
+            "entity_id": "KR:IDX:KRX 300 커뮤니케이션서비스",
+            "market": "KR"
+          },
+          {
+            "change": -0.010605388624015943,
+            "close": 1784.67,
+            "entity_id": "KR:IDX:KRX 300 필수소비재",
+            "market": "KR"
+          },
+          {
+            "change": 0.0067903203755184105,
+            "close": 3755.64,
+            "entity_id": "KR:IDX:KRX 300 헬스케어",
+            "market": "KR"
+          },
+          {
+            "change": 0.01766321308201224,
+            "close": 1630.5,
+            "entity_id": "KR:IDX:KRX K콘텐츠",
+            "market": "KR"
+          },
+          {
+            "change": 0.0035216574094056874,
+            "close": 8323.6,
+            "entity_id": "KR:IDX:KRX SK하이닉스 지수",
+            "market": "KR"
+          },
+          {
+            "change": 0.009185916627988178,
+            "close": 3957.24,
+            "entity_id": "KR:IDX:KRX TMI",
+            "market": "KR"
+          },
+          {
+            "change": 0.005178490265183466,
+            "close": 1349.04,
+            "entity_id": "KR:IDX:KRX 건설",
+            "market": "KR"
+          },
+          {
+            "change": -0.005068161109158975,
+            "close": 1670.6,
+            "entity_id": "KR:IDX:KRX 경기소비재",
+            "market": "KR"
+          },
+          {
+            "change": -0.031776190788180614,
+            "close": 1477.8,
+            "entity_id": "KR:IDX:KRX 기계장비",
+            "market": "KR"
+          },
+          {
+            "change": 0.02446433925894187,
+            "close": 11958.06,
+            "entity_id": "KR:IDX:KRX 반도체",
+            "market": "KR"
+          },
+          {
+            "change": 0.03308146178782145,
+            "close": 885.95,
+            "entity_id": "KR:IDX:KRX 방송통신",
+            "market": "KR"
+          },
+          {
+            "change": 0.024184694132523665,
+            "close": 4057.83,
+            "entity_id": "KR:IDX:KRX 보험",
+            "market": "KR"
+          },
+          {
+            "change": 0.04130370177752196,
+            "close": 4485.02,
+            "entity_id": "KR:IDX:KRX 삼성전자 지수",
+            "market": "KR"
+          },
+          {
+            "change": 0.009077059344552607,
+            "close": 1424.06,
+            "entity_id": "KR:IDX:KRX 소형 TMI",
+            "market": "KR"
+          },
+          {
+            "change": -0.0035327627202629275,
+            "close": 2795.26,
+            "entity_id": "KR:IDX:KRX 에너지화학",
+            "market": "KR"
+          },
+          {
+            "change": -0.002217549225769555,
+            "close": 1304.85,
+            "entity_id": "KR:IDX:KRX 운송",
+            "market": "KR"
+          },
+          {
+            "change": 0.0008496917144165117,
+            "close": 918.76,
+            "entity_id": "KR:IDX:KRX 유틸리티",
+            "market": "KR"
+          },
+          {
+            "change": -0.012913557119980545,
+            "close": 1633.48,
+            "entity_id": "KR:IDX:KRX 은행",
+            "market": "KR"
+          },
+          {
+            "change": -0.016502172379464275,
+            "close": 2983.48,
+            "entity_id": "KR:IDX:KRX 자동차",
+            "market": "KR"
+          },
+          {
+            "change": 0.009712223898276306,
+            "close": 5174.24,
+            "entity_id": "KR:IDX:KRX 정보기술",
+            "market": "KR"
+          },
+          {
+            "change": 0.009144309488992919,
+            "close": 4057.85,
+            "entity_id": "KR:IDX:KRX 중대형 TMI",
+            "market": "KR"
+          },
+          {
+            "change": 0.011479824721562837,
+            "close": 1772.76,
+            "entity_id": "KR:IDX:KRX 중형 TMI",
+            "market": "KR"
+          },
+          {
+            "change": -3.106120610674168e-05,
+            "close": 1931.61,
+            "entity_id": "KR:IDX:KRX 증권",
+            "market": "KR"
+          },
+          {
+            "change": -0.015497247691962146,
+            "close": 2498.54,
+            "entity_id": "KR:IDX:KRX 철강",
+            "market": "KR"
+          },
+          {
+            "change": 0.018506422379747534,
+            "close": 5067.65,
+            "entity_id": "KR:IDX:KRX 초소형 TMI",
+            "market": "KR"
+          },
+          {
+            "change": -0.008833663633906919,
+            "close": 1760.47,
+            "entity_id": "KR:IDX:KRX 필수소비재",
+            "market": "KR"
+          },
+          {
+            "change": 0.007273895977143452,
+            "close": 4262.35,
+            "entity_id": "KR:IDX:KRX 헬스케어",
+            "market": "KR"
+          },
+          {
+            "change": 0.009935652767679715,
+            "close": 17807.65,
+            "entity_id": "KR:IDX:KTOP 30",
+            "market": "KR"
+          },
+          {
+            "change": -0.0019438339438339058,
+            "close": 3065.28,
+            "entity_id": "KR:IDX:코리아 밸류업 지수",
+            "market": "KR"
+          },
+          {
+            "change": 0.00651609989030133,
+            "close": 7798.99,
+            "entity_id": "US:IDX:SP500",
+            "market": "US"
+          }
+        ]
+      },
+      "leaders": {
+        "KR": [
+          {
+            "change": 0.02425373134328357,
+            "entity_id": "KR:005930",
+            "market_cap": 1400183726616000.0,
+            "name": "삼성전자"
+          },
+          {
+            "change": 0.03264281230382915,
+            "entity_id": "KR:000660",
+            "market_cap": 1040951620125000.0,
+            "name": "SK하이닉스"
+          },
+          {
+            "change": 0.04153354632587858,
+            "entity_id": "KR:005935",
+            "market_cap": 144587290780600.0,
+            "name": "삼성전자우"
+          },
+          {
+            "change": 0.033124440465532645,
+            "entity_id": "KR:402340",
+            "market_cap": 124700674770000.0,
+            "name": "SK스퀘어"
+          },
+          {
+            "change": 0.03659347970725224,
+            "entity_id": "KR:009150",
+            "market_cap": 94263444352000.0,
+            "name": "삼성전기"
+          },
+          {
+            "change": 0.010943912448700521,
+            "entity_id": "KR:373220",
+            "market_cap": 82953000000000.0,
+            "name": "LG에너지솔루션"
+          },
+          {
+            "change": 0.08243727598566308,
+            "entity_id": "KR:005380",
+            "market_cap": 82517379698000.0,
+            "name": "현대차"
+          },
+          {
+            "change": -0.010230179028132946,
+            "entity_id": "KR:207940",
+            "market_cap": 74482140159000.0,
+            "name": "삼성바이오로직스"
+          },
+          {
+            "change": 0.002379535990481907,
+            "entity_id": "KR:105560",
+            "market_cap": 59090976484400.0,
+            "name": "KB금융"
+          },
+          {
+            "change": 0.032590051457976,
+            "entity_id": "KR:032830",
+            "market_cap": 57900000000000.0,
+            "name": "삼성생명"
+          },
+          {
+            "change": -0.021097046413502074,
+            "entity_id": "KR:012450",
+            "market_cap": 56616614298000.0,
+            "name": "한화에어로스페이스"
+          },
+          {
+            "change": 0.010958904109588996,
+            "entity_id": "KR:028260",
+            "market_cap": 55866731654500.0,
+            "name": "삼성물산"
+          },
+          {
+            "change": 0.02822580645161299,
+            "entity_id": "KR:329180",
+            "market_cap": 52795496175000.0,
+            "name": "HD현대중공업"
+          },
+          {
+            "change": 0.03129548762736545,
+            "entity_id": "KR:000270",
+            "market_cap": 52432465631400.0,
+            "name": "기아"
+          },
+          {
+            "change": 0.021013597033374465,
+            "entity_id": "KR:034020",
+            "market_cap": 49899713273400.0,
+            "name": "두산에너빌리티"
+          }
+        ],
+        "US": []
+      },
+      "macro": [
+        {
+          "actual": 3.63,
+          "entity_id": "US:FED_FUNDS",
+          "indicator": "FED_FUNDS",
+          "market": "US",
+          "previous": 3.63,
+          "release_name": "H.15 Selected Interest Rates",
+          "scheduled_at": "2026-08-13T21:30:00+09:00",
+          "unit": "percent"
+        },
+        {
+          "actual": 284.057,
+          "entity_id": "US:PPI",
+          "indicator": "PPI",
+          "market": "US",
+          "previous": 286.279,
+          "release_name": "Producer Price Index",
+          "scheduled_at": "2026-08-13T21:30:00+09:00",
+          "unit": "index"
+        },
+        {
+          "actual": 209000.0,
+          "entity_id": "US:JOBLESS_CLAIMS",
+          "indicator": "JOBLESS_CLAIMS",
+          "market": "US",
+          "previous": 200000.0,
+          "release_name": "Unemployment Insurance Weekly Claims Report",
+          "scheduled_at": "2026-08-13T21:30:00+09:00",
+          "unit": "persons"
+        },
+        {
+          "actual": 332.813,
+          "entity_id": "US:CPI",
+          "indicator": "CPI",
+          "market": "US",
+          "previous": 332.568,
+          "release_name": "Consumer Price Index",
+          "scheduled_at": "2026-08-12T21:30:00+09:00",
+          "unit": "index"
+        },
+        {
+          "actual": 3.63,
+          "entity_id": "US:FED_FUNDS",
+          "indicator": "FED_FUNDS",
+          "market": "US",
+          "previous": 3.63,
+          "release_name": "H.15 Selected Interest Rates",
+          "scheduled_at": "2026-08-12T21:30:00+09:00",
+          "unit": "percent"
+        },
+        {
+          "actual": 2.6,
+          "entity_id": "KR:UNEMPLOYMENT",
+          "indicator": "UNEMPLOYMENT",
+          "market": "KR",
+          "previous": 2.8,
+          "release_name": "성/연령별 실업률",
+          "scheduled_at": "2026-08-12T08:00:00+09:00",
+          "unit": "%"
+        },
+        {
+          "actual": 3.63,
+          "entity_id": "US:FED_FUNDS",
+          "indicator": "FED_FUNDS",
+          "market": "US",
+          "previous": 3.63,
+          "release_name": "H.15 Selected Interest Rates",
+          "scheduled_at": "2026-08-11T21:30:00+09:00",
+          "unit": "percent"
+        },
+        {
+          "actual": 3.63,
+          "entity_id": "US:FED_FUNDS",
+          "indicator": "FED_FUNDS",
+          "market": "US",
+          "previous": 3.63,
+          "release_name": "H.15 Selected Interest Rates",
+          "scheduled_at": "2026-08-10T21:30:00+09:00",
+          "unit": "percent"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  }
+}

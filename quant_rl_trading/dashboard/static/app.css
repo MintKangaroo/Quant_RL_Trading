@@ -71,7 +71,11 @@ header .sub { color: var(--muted); font-size: 12px; }
 
 .controls { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 
-.tabs { display: flex; gap: 2px; }
+/* 탭이 9개다. 줄바꿈을 허용하지 않으면 좁은 화면에서 오른쪽 탭이 조회 폼
+   아래로 밀려나 안 보인다 — 없는 화면과 못 찾는 화면은 구분되지 않는다. */
+.tabs { display: flex; gap: 2px; flex-wrap: wrap; }
+/* 묶음 사이의 얕은 구분선. 운용 / 분석 / 운영 세 갈래다. */
+.tabs .sep { width: 1px; background: var(--border); margin: 3px 5px; }
 .tabs a {
   color: var(--muted);
   text-decoration: none;

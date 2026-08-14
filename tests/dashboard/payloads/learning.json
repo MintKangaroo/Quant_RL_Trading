@@ -1,0 +1,385 @@
+{
+  "learning/gate": {
+    "as_of": "2026-08-14T11:24:30.233820+00:00",
+    "data": {
+      "active": [
+        "event",
+        "fundamental",
+        "risk"
+      ],
+      "active_count": 3,
+      "active_weight": 3.0,
+      "measured_count": 6,
+      "roster": [
+        {
+          "analyst": "chart",
+          "ic": 0.0014429325588578156,
+          "ic_threshold": 0.03,
+          "market": "KR",
+          "measured": true,
+          "measured_at": "2026-08-14T01:54:21.377968+09:00",
+          "note": "가격·거래량",
+          "passed": false,
+          "sample_days": 300,
+          "version": "chart-v0.1.0",
+          "weight": 0.0
+        },
+        {
+          "analyst": "event",
+          "ic": 0.03555190409123603,
+          "ic_threshold": 0.03,
+          "market": "KR",
+          "measured": true,
+          "measured_at": "2026-08-14T03:22:33.475652+09:00",
+          "note": "달력",
+          "passed": true,
+          "sample_days": 300,
+          "version": "event-v0.1.0",
+          "weight": 1.0
+        },
+        {
+          "analyst": "flow_kr",
+          "ic": -0.0010938630867609253,
+          "ic_threshold": 0.03,
+          "market": "KR",
+          "measured": true,
+          "measured_at": "2026-08-13T18:56:34.734276+09:00",
+          "note": "투자자별 수급 (LS t1717)",
+          "passed": false,
+          "sample_days": 300,
+          "version": "flow_kr-v0.1.0",
+          "weight": 0.0
+        },
+        {
+          "analyst": "flow_us",
+          "ic": null,
+          "market": null,
+          "measured": false,
+          "measured_at": null,
+          "note": "미장 수급 — 데이터 없음",
+          "passed": null,
+          "sample_days": null,
+          "version": null,
+          "weight": 0.0
+        },
+        {
+          "analyst": "fundamental",
+          "ic": 0.07080199223960697,
+          "ic_threshold": 0.03,
+          "market": "KR",
+          "measured": true,
+          "measured_at": "2026-08-13T16:20:51.554292+09:00",
+          "note": "DART 재무",
+          "passed": true,
+          "sample_days": 300,
+          "version": "fundamental-v0.2.0",
+          "weight": 1.0
+        },
+        {
+          "analyst": "news",
+          "ic": null,
+          "market": null,
+          "measured": false,
+          "measured_at": null,
+          "note": "공시·뉴스 필터 (Verdict)",
+          "passed": null,
+          "sample_days": null,
+          "version": null,
+          "weight": 0.0
+        },
+        {
+          "analyst": "regime",
+          "ic": -0.008698462908447788,
+          "ic_threshold": 0.03,
+          "market": "US",
+          "measured": true,
+          "measured_at": "2026-08-13T21:52:16.203843+09:00",
+          "note": "지수·변동성",
+          "passed": false,
+          "sample_days": 300,
+          "version": "regime-v0.1.0",
+          "weight": 0.0
+        },
+        {
+          "analyst": "risk",
+          "ic": 0.05845838025343493,
+          "ic_threshold": 0.03,
+          "market": "US",
+          "measured": true,
+          "measured_at": "2026-08-13T20:59:10.985175+09:00",
+          "note": "상관·변동성·유동성",
+          "passed": true,
+          "sample_days": 300,
+          "version": "risk-v0.1.0",
+          "weight": 1.0
+        },
+        {
+          "analyst": "sns",
+          "ic": null,
+          "market": null,
+          "measured": false,
+          "measured_at": null,
+          "note": "펌핑 탐지 (Verdict)",
+          "passed": null,
+          "sample_days": null,
+          "version": null,
+          "weight": 0.0
+        }
+      ],
+      "total": 9
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "learning/ic-history": {
+    "as_of": "2026-08-14T11:24:30.311790+00:00",
+    "data": {
+      "points": 24,
+      "series": [
+        {
+          "analyst": "chart",
+          "points": [
+            {
+              "at": "2026-08-12T12:19:21.235642+09:00",
+              "ic": 0.010685637197135257,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T12:12:29.646982+09:00",
+              "ic": 0.007907553672097407,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T14:38:32.180673+09:00",
+              "ic": 0.01972956285576015,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T19:12:55.526635+09:00",
+              "ic": null,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T20:31:08.779769+09:00",
+              "ic": 0.01448538792648229,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-14T01:54:21.377968+09:00",
+              "ic": 0.0014429325588578156,
+              "passed": false,
+              "threshold": 0.03
+            }
+          ]
+        },
+        {
+          "analyst": "event",
+          "points": [
+            {
+              "at": "2026-08-12T12:50:54.652256+09:00",
+              "ic": 0.033191750956332755,
+              "passed": true,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T17:07:38.635270+09:00",
+              "ic": 0.033254244270101735,
+              "passed": true,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-14T01:33:40.180182+09:00",
+              "ic": 0.03555190141740673,
+              "passed": true,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-14T03:22:33.475652+09:00",
+              "ic": 0.03555190409123603,
+              "passed": true,
+              "threshold": 0.03
+            }
+          ]
+        },
+        {
+          "analyst": "flow_kr",
+          "points": [
+            {
+              "at": "2026-08-13T11:40:08.494927+09:00",
+              "ic": -0.0011136120714331905,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T18:56:34.734276+09:00",
+              "ic": -0.0010938630867609253,
+              "passed": false,
+              "threshold": 0.03
+            }
+          ]
+        },
+        {
+          "analyst": "fundamental",
+          "points": [
+            {
+              "at": "2026-08-12T18:30:05.606473+09:00",
+              "ic": 0.02618856139386781,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-12T23:24:28.110156+09:00",
+              "ic": 0.06182414967486546,
+              "passed": true,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T16:20:51.554292+09:00",
+              "ic": 0.07080199223960697,
+              "passed": true,
+              "threshold": 0.03
+            }
+          ]
+        },
+        {
+          "analyst": "regime",
+          "points": [
+            {
+              "at": "2026-08-13T12:02:18.091191+09:00",
+              "ic": -0.005706872252225445,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T17:35:25.756094+09:00",
+              "ic": -0.014279702331575366,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T19:52:50.125076+09:00",
+              "ic": null,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T21:52:16.203843+09:00",
+              "ic": -0.008698462908447788,
+              "passed": false,
+              "threshold": 0.03
+            }
+          ]
+        },
+        {
+          "analyst": "risk",
+          "points": [
+            {
+              "at": "2026-08-12T12:19:21.235642+09:00",
+              "ic": 0.02065625599342788,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T12:24:13.168937+09:00",
+              "ic": 0.028720059384441277,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T14:51:52.243515+09:00",
+              "ic": 0.0776517048604636,
+              "passed": true,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T19:26:07.862706+09:00",
+              "ic": null,
+              "passed": false,
+              "threshold": 0.03
+            },
+            {
+              "at": "2026-08-13T20:59:10.985175+09:00",
+              "ic": 0.05845838025343493,
+              "passed": true,
+              "threshold": 0.03
+            }
+          ]
+        }
+      ],
+      "threshold": 0.03
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "learning/status": {
+    "as_of": "2026-08-14T11:24:30.399606+00:00",
+    "data": {
+      "active": false,
+      "milestone": "M4",
+      "note": "RL 학습은 M4 다. docs/milestones.md 기준 아직 착수 전이라 allocator/ 도, 그 산출물을 담을 테이블도 창고에 없다. 이 탭의 절반은 M4 가 오면 채워질 자리다.",
+      "widgets": [
+        {
+          "detail": "0.1 기준선. 0 근처에 붙어 있으면 학습 실패다 (rl-training.md §3).",
+          "key": "explained_variance",
+          "label": "explained_variance 추이"
+        },
+        {
+          "detail": "오라클 카나리 통과 여부 포함.",
+          "key": "curriculum",
+          "label": "커리큘럼 C0~C5 진행도"
+        },
+        {
+          "detail": "",
+          "key": "episode_reward",
+          "label": "학습 곡선 (에피소드 보상)"
+        },
+        {
+          "detail": "",
+          "key": "optimizer_diag",
+          "label": "approx KL · entropy · gradient norm"
+        },
+        {
+          "detail": "벤치마크 / 동일가중 / 스코어 비례(M3 룰). 못 이기면 RL 을 쓸 이유가 없다.",
+          "key": "ir_vs_baseline",
+          "label": "베이스라인 대비 IR"
+        },
+        {
+          "detail": "하이퍼파라미터 간 차이보다 크면 그 결과는 노이즈다.",
+          "key": "seed_variance",
+          "label": "시드 간 성과 분산 · policy churn"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  }
+}

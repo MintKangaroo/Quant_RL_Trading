@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}System · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{% with active = 'system' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <h2>크론 작업 — 최근 성공/실패</h2>
+    <div id="jobs"></div>
+    <p class="note">
+      <code>crontab -l</code> 로 확인한 4개 작업뿐이다. 로그(<code>logs/*.log</code>)를
+      읽어 판정하며, <strong>as_of 로 되감기지 않는다</strong> — 운영 로그이지
+      관측된 사실이 아니라 창고에 과거가 없다. 완주하지 못해 <code>rc=</code>
+      를 못 찾은 실행은 "미확인"으로 표시한다 — 실패로 단정하면 로그 형식이
+      바뀌었을 때 매번 오탐이 된다.
+    </p>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>창고 테이블 — 최신성 · 최근 파티션 행수</h2>
+      <div class="scroll" id="tables"></div>
+    </div>
+    <div class="panel">
+      <h2>수집 지연 — 단계별 (data-quality 와 같은 실측)</h2>
+      <div id="latency"></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel">
+      <h2>안전장치 · 설정</h2>
+      <div id="safety"></div>
+    </div>
+    <div class="panel">
+      <h2>LLM 캐시 (agent_cache) 적재 현황</h2>
+      <div id="cache"></div>
+      <p class="note">
+        <strong>적중률과 실제 비용은 창고에 없다.</strong> 캐시를 맞힌 호출은
+        새 행을 쓰지 않으므로 재사용 횟수를 셀 수 없다 — 여기 보이는 것은
+        새로 계산돼 <em>적재</em>된 건수다. 월 예산은 설정값 참고용이다.
+      </p>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='system.js') }}"></script>
+{% endblock %}

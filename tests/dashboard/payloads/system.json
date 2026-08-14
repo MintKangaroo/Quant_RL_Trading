@@ -1,0 +1,474 @@
+{
+  "system/cache": {
+    "as_of": "2026-08-14T11:24:19.667746+00:00",
+    "data": {
+      "rows": [
+        {
+          "agent": "news-screen",
+          "agent_version": "news-screen-v0.1.0",
+          "entries": 78,
+          "last_computed_at": "2026-08-14T16:00:00+09:00"
+        },
+        {
+          "agent": "macro-brief",
+          "agent_version": "macro-brief-v0.1.0",
+          "entries": 24,
+          "last_computed_at": "2026-08-14T18:40:34.807460+09:00"
+        }
+      ],
+      "total": 102
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/jobs": {
+    "as_of": "2026-08-14T11:24:19.786103+00:00",
+    "data": [
+      {
+        "key": "collect_daily",
+        "label": "일일 수집 (시세·유니버스·수급·거시)",
+        "last_run_ok": true,
+        "last_success_at": "2026-08-14T19:03:57+09:00",
+        "run_count": 1,
+        "runs": [
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T19:03:57+09:00",
+            "steps": [
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "schedule": "평일 15:55, 22:40"
+      },
+      {
+        "key": "run_daily",
+        "label": "일일 실행 (Analyst 점수·News/SNS 판정)",
+        "last_run_ok": true,
+        "last_success_at": "2026-08-14T16:10:01+09:00",
+        "run_count": 3,
+        "runs": [
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T16:10:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T12:06:42+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-13T16:10:01+09:00",
+            "steps": [
+              0
+            ]
+          }
+        ],
+        "schedule": "평일 16:10"
+      },
+      {
+        "key": "run_shadow",
+        "label": "shadow 운용",
+        "last_run_ok": true,
+        "last_success_at": "2026-08-14T16:30:01+09:00",
+        "run_count": 7,
+        "runs": [
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T16:30:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T12:22:23+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T12:18:08+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T12:15:30+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T12:08:03+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T12:03:34+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T11:58:42+09:00",
+            "steps": [
+              0
+            ]
+          }
+        ],
+        "schedule": "평일 16:30"
+      },
+      {
+        "key": "collect_news",
+        "label": "뉴스 수집",
+        "last_run_ok": true,
+        "last_success_at": "2026-08-14T15:40:01+09:00",
+        "run_count": 4,
+        "runs": [
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T15:40:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-14T08:20:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-13T15:40:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-13T10:31:32+09:00",
+            "steps": [
+              0
+            ]
+          }
+        ],
+        "schedule": "평일 08:20, 15:40"
+      }
+    ],
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/latency": {
+    "as_of": "2026-08-14T11:24:19.848173+00:00",
+    "data": {
+      "overall": {
+        "p50": 39.072,
+        "p90": 1548.2627000000002,
+        "p99": 2602.6623899999972
+      },
+      "samples": 19612,
+      "sources": [
+        "krx",
+        "krx_openapi"
+      ],
+      "stages": [
+        {
+          "ok_rate": 0.997557003257329,
+          "p50": 1346.3555000000001,
+          "p90": 2177.7583,
+          "p99": 3470.9094800000003,
+          "samples": 4912,
+          "stage": "fetch"
+        },
+        {
+          "ok_rate": 1.0,
+          "p50": 86.729,
+          "p90": 114.24,
+          "p99": 220.6284000000002,
+          "samples": 4900,
+          "stage": "append"
+        },
+        {
+          "ok_rate": 1.0,
+          "p50": 33.2515,
+          "p90": 46.1102,
+          "p99": 131.7171700000001,
+          "samples": 4900,
+          "stage": "archive"
+        },
+        {
+          "ok_rate": 1.0,
+          "p50": 8.763,
+          "p90": 15.959100000000001,
+          "p99": 23.11285000000004,
+          "samples": 4900,
+          "stage": "normalize"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/safety": {
+    "as_of": "2026-08-14T11:24:20.989353+00:00",
+    "data": {
+      "config_version": 1,
+      "killswitch_engaged": false,
+      "killswitch_reason": "",
+      "llm_monthly_budget_usd": 50.0
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/summary": {
+    "as_of": "2026-08-14T11:24:21.091633+00:00",
+    "data": {
+      "cache_recent_entries": 102,
+      "config_version": 1,
+      "job_count": 4,
+      "job_failed_count": 0,
+      "job_silent_count": 0,
+      "killswitch_engaged": false,
+      "killswitch_reason": "",
+      "llm_monthly_budget_usd": 50.0,
+      "table_count": 24,
+      "table_stale_count": 1,
+      "warnings": [
+        "fx 최신 데이터가 7일 지연"
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/tables": {
+    "as_of": "2026-08-14T11:24:25.725423+00:00",
+    "data": [
+      {
+        "latest_valid_from": "2026-08-14T18:40:04.024065+09:00",
+        "rows_recent": 102,
+        "stale_days": 0,
+        "table": "agent_cache"
+      },
+      {
+        "latest_valid_from": "2026-08-14T03:22:33.475652+09:00",
+        "rows_recent": 24,
+        "stale_days": 0,
+        "table": "analyst_weights"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "capital_flows"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "dividends"
+      },
+      {
+        "latest_valid_from": "2026-08-13T13:55:06+09:00",
+        "rows_recent": 4547,
+        "stale_days": 1,
+        "table": "documents"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "events"
+      },
+      {
+        "latest_valid_from": "2026-08-14T09:00:00+09:00",
+        "rows_recent": 88955,
+        "stale_days": 0,
+        "table": "flows"
+      },
+      {
+        "latest_valid_from": "2026-12-31T09:00:00+09:00",
+        "rows_recent": 341,
+        "stale_days": -139,
+        "table": "fundamentals"
+      },
+      {
+        "latest_valid_from": "2026-08-07T09:00:00+09:00",
+        "rows_recent": 4,
+        "stale_days": 7,
+        "table": "fx"
+      },
+      {
+        "latest_valid_from": "2026-08-13T09:00:00+09:00",
+        "rows_recent": 248,
+        "stale_days": 1,
+        "table": "indices"
+      },
+      {
+        "latest_valid_from": "2026-08-14T20:07:10.184134+09:00",
+        "rows_recent": 19612,
+        "stale_days": 0,
+        "table": "ingest_latency"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "killswitch"
+      },
+      {
+        "latest_valid_from": "2026-08-14T19:10:54.206632+09:00",
+        "rows_recent": 76,
+        "stale_days": 0,
+        "table": "macro_releases"
+      },
+      {
+        "latest_valid_from": "2026-08-11T09:00:00+09:00",
+        "rows_recent": 34458,
+        "stale_days": 3,
+        "table": "market_stats"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "nav_daily"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "orders"
+      },
+      {
+        "latest_valid_from": "2026-08-14T09:00:00+09:00",
+        "rows_recent": 69506,
+        "stale_days": 0,
+        "table": "prices"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "realized_weights"
+      },
+      {
+        "latest_valid_from": "2026-08-13T09:00:00+09:00",
+        "rows_recent": 1930,
+        "stale_days": 1,
+        "table": "sectors"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "shorting"
+      },
+      {
+        "latest_valid_from": "2026-08-14T16:00:00+09:00",
+        "rows_recent": 41238,
+        "stale_days": 0,
+        "table": "signals"
+      },
+      {
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "trades"
+      },
+      {
+        "latest_valid_from": "2026-08-14T09:00:00+09:00",
+        "rows_recent": 69508,
+        "stale_days": 0,
+        "table": "universe"
+      },
+      {
+        "latest_valid_from": "2026-08-14T16:00:00+09:00",
+        "rows_recent": 212,
+        "stale_days": 0,
+        "table": "verdicts"
+      }
+    ],
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  }
+}

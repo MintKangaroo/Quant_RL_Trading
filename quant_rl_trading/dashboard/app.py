@@ -14,7 +14,17 @@ from flask import Flask, render_template
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
-from quant_rl_trading.dashboard.api import agent_health, briefing, data_quality, trading
+from quant_rl_trading.dashboard.api import (
+    agent_health,
+    ai_review,
+    briefing,
+    data_quality,
+    headlines,
+    learning,
+    market,
+    system,
+    trading,
+)
 from quant_rl_trading.replay.clock import Clock, LiveClock
 from quant_rl_trading.settings import load_env
 from quant_rl_trading.store import ConfigNotFound, Store, StoreError
@@ -65,6 +75,11 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(agent_health.bp)
     app.register_blueprint(briefing.bp)
     app.register_blueprint(trading.bp)
+    app.register_blueprint(market.bp)
+    app.register_blueprint(headlines.bp)
+    app.register_blueprint(system.bp)
+    app.register_blueprint(learning.bp)
+    app.register_blueprint(ai_review.bp)
 
     @app.get("/")
     @app.get("/data-quality")
@@ -82,6 +97,26 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     @app.get("/trading")
     def trading_page() -> str:
         return render_template("trading.html")
+
+    @app.get("/market")
+    def market_page() -> str:
+        return render_template("market.html")
+
+    @app.get("/headlines")
+    def headlines_page() -> str:
+        return render_template("headlines.html")
+
+    @app.get("/system")
+    def system_page() -> str:
+        return render_template("system.html")
+
+    @app.get("/learning")
+    def learning_page() -> str:
+        return render_template("learning.html")
+
+    @app.get("/ai-review")
+    def ai_review_page() -> str:
+        return render_template("ai_review.html")
 
     @app.errorhandler(HTTPException)
     def http_error(error: HTTPException) -> Any:

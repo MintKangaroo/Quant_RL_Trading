@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}학습 · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{% with active = 'learning' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <!-- dashboard.md §5 1행: explained_variance / 커리큘럼·오라클 카나리.
+       M4(RL) 는 아직 없다 — 자리는 지키되 값을 지어내지 않는다. -->
+  <section class="grid2">
+    <div class="panel">
+      <h2>explained_variance <span class="sub">0.1 기준선</span></h2>
+      <div class="empty" id="empty-explained-variance"></div>
+    </div>
+    <div class="panel">
+      <h2>커리큘럼 C0~C5 · 오라클 카나리</h2>
+      <div class="empty" id="empty-curriculum"></div>
+    </div>
+  </section>
+
+  <!-- 2행: 학습 곡선 / approx KL·entropy·gradient norm -->
+  <section class="grid2">
+    <div class="panel">
+      <h2>학습 곡선 (에피소드 보상)</h2>
+      <div class="empty" id="empty-episode-reward"></div>
+    </div>
+    <div class="panel">
+      <h2>approx KL · entropy · gradient norm</h2>
+      <div class="empty" id="empty-optimizer-diag"></div>
+    </div>
+  </section>
+
+  <!-- 3행: Analyst IC 이력 — 지금 실제로 있는 것. M4 상태 인코더가 조합할
+       입력이 바로 이 가중치다. -->
+  <section class="panel">
+    <h2>Analyst IC 이력 — 지금 학습(선택)을 대신하는 것 <span class="sub">0.03 기준선</span></h2>
+    <div class="chart" id="chart-ic"></div>
+    <p class="note">
+      RL 이 없어도 <strong>무엇이 가중치를 받고 있는가</strong>는 실측이다.
+      가중치·이력은 Agent Health 화면과 같은 집계를 쓴다 — 같은 사실을
+      두 번 세면 언젠가 두 화면이 어긋난다.
+    </p>
+  </section>
+
+  <!-- 4행: 베이스라인 대비 IR / 시드 간 분산 -->
+  <section class="grid2">
+    <div class="panel">
+      <h2>베이스라인 대비 IR</h2>
+      <div class="empty" id="empty-ir-vs-baseline"></div>
+    </div>
+    <div class="panel">
+      <h2>시드 간 성과 분산 · policy churn</h2>
+      <div class="empty" id="empty-seed-variance"></div>
+    </div>
+  </section>
+
+  <!-- 5행: Optuna trial 표 자리. 지금은 Analyst 게이트 표로 채운다 —
+       "지금 실제로 있는 것" 이 이 자리를 대신한다. -->
+  <section class="panel">
+    <h2>Analyst 게이트 표 <span class="sub">가중치를 받고 있는 것</span></h2>
+    <div id="gate"></div>
+    <p class="note">
+      하이퍼파라미터 시행(Optuna trial) 표는 M4 산출물이라 이 자리에 없다.
+      대신 지금 실제로 있는 것 — IC 합격선을 넘어 가중치를 받는 Analyst
+      게이트를 채운다. 통과 못 한 Analyst 는 가중치 0(관찰 모드)이다.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='learning.js') }}"></script>
+{% endblock %}
