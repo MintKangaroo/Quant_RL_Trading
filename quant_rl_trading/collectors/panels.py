@@ -316,6 +316,17 @@ def openapi_index(
     )
 
 
+def openapi_sectors(
+    row: dict[str, Any], market: Market, valid_from: datetime, observed_at: datetime
+) -> list[dict[str, Any]]:
+    """일별매매 응답 → 섹터 (sectors 테이블). LS 유니버스에는 없는 필드다."""
+    from quant_rl_trading.collectors.krx_openapi import normalize_sectors
+
+    return normalize_sectors(
+        [row], market=str(market), valid_from=valid_from, observed_at=observed_at
+    )
+
+
 #: 사용 가능한 패널. CLI 의 --table 이 이 이름을 받는다.
 PANELS: dict[str, Panel] = {
     "flows": Panel(
@@ -356,5 +367,11 @@ OPENAPI_PANELS: dict[str, Panel] = {
         table="indices",
         fetch=lambda source, day: source.indices_on(day),  # type: ignore[attr-defined]
         expand=openapi_index,
+    ),
+    "sectors": Panel(
+        table="sectors",
+        # "shares" 와 같은 응답(trades_on)을 재사용한다 — 추가 호출이 없다.
+        fetch=lambda source, day: source.trades_on(day),  # type: ignore[attr-defined]
+        expand=openapi_sectors,
     ),
 }

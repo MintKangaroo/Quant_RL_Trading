@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from quant_rl_trading.selector import candidates as candidates_module
 from quant_rl_trading.selector import pipeline
 
 NOW = datetime(2026, 8, 12, 6, 40, tzinfo=UTC)
@@ -157,3 +158,147 @@ def test_섹터_데이터가_없으면_조용히_넘어가지_않는다(seeded) 
     result = pipeline.run(seeded, as_of=NOW, market="KR", equity=100_000_000.0)
 
     assert any("섹터" in note for note in result.trace.notes)
+
+
+def _seed_entities(store, entities: list[str], *, tag: str) -> None:
+    """seeded 픽스처와 같은 모양으로 종목을 더 추가한다 (섹터 상한 시험용).
+
+    universe·prices 를 400세션 통째로 채우는 이유는 seeded 픽스처와 같다 —
+    상장 6개월 경과 등 유니버스 필터를 통과해야 후보 단계까지 온다.
+    """
+    universe_rows, price_rows, signal_rows = [], [], []
+    for index, day in enumerate(SESSIONS):
+        for offset, entity in enumerate(entities):
+            universe_rows.append({
+                "entity_id": entity, "valid_from": day, "observed_at": day,
+                "source": "test", "market": "KR", "name": entity,
+                "is_listed": True, "is_tradable": True, "delisted_on": None,
+            })
+            close = 20_000.0 + index * 5 + offset * 50
+            price_rows.append({
+                "entity_id": entity, "valid_from": day, "observed_at": day,
+                "source": "test", "market": "KR",
+                "open": close, "high": close, "low": close, "close": close,
+                "volume": 100_000.0, "value": 5_000_000_000.0, "adj_factor": None,
+            })
+    for offset, entity in enumerate(entities):
+        signal_rows.append({
+            "entity_id": entity, "valid_from": NOW, "observed_at": NOW,
+            "source": "test", "analyst": "risk", "analyst_version": "risk-v0.1.0",
+            # 기존 3종목(0.9~0.1)보다 낮게 둬 순위를 방해하지 않는다.
+            "score": 0.05 - offset * 0.001, "confidence": 1.0, "horizon_days": 5,
+            "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,
+        })
+    store.append("universe", universe_rows, ingest_run_id=f"u-{tag}")
+    store.append("prices", price_rows, ingest_run_id=f"p-{tag}")
+    store.append("signals", signal_rows, ingest_run_id=f"s-{tag}")
+
+
+def test_섹터를_주입하면_상한이_걸린다(seeded) -> None:
+    """상한 **기계 자체는 멀쩡하다.** 지금 안 걸리는 건 쓸 만한 업종 분류가
+    없어서지 로직이 없어서가 아니다 — 진짜 업종을 받는 날 이 테스트가 그대로
+    통과해야 한다.
+
+    n_candidates=24, sector_cap=0.35 → 섹터당 8종목. 한 섹터에 9종목을
+    넣으면 하나는 반드시 잘려야 한다.
+    """
+    entities = [f"KR:9{i:05d}" for i in range(9)]
+    _seed_entities(seeded, entities, tag="sect-cap")
+
+    result = pipeline.run(
+        seeded,
+        as_of=NOW,
+        market="KR",
+        equity=100_000_000.0,
+        sectors=dict.fromkeys(entities, "반도체"),
+    )
+
+    chosen = [item.entity_id for item in result.candidates if item.entity_id in entities]
+    assert len(chosen) == 8
+    dropped = {
+        entity: reason for entity, reason in result.trace.dropped.items() if entity in entities
+    }
+    assert any("섹터 상한" in reason for reason in dropped.values())
+
+
+def test_창고의_소속부로는_섹터_상한을_걸지_않는다(seeded) -> None:
+    """**창고에 sectors 가 있어도 자동으로 쓰지 않는다.**
+
+    KRX 일별매매의 ``SECT_TP_NM`` 은 업종이 아니라 KOSDAQ 소속부다
+    (우량기업부·벤처기업부…). KOSPI 는 전 종목이 빈 문자열이라 아예 안 걸리고,
+    KOSDAQ 만 시장 등급으로 나뉜다. 그걸로 건 상한은 상관 분산이 아닌데
+    화면에는 "섹터 상한 적용됨" 이 뜬다 — 분산되고 있다는 착시가 생긴다.
+
+    그래서 자동 연결을 끊었고, **끊었다는 사실이 흔적에 남아야 한다.**
+    """
+    entities = [f"KR:9{i:05d}" for i in range(9)]
+    _seed_entities(seeded, entities, tag="sect-auto")
+    seeded.append(
+        "sectors",
+        [
+            {
+                "entity_id": entity, "valid_from": NOW, "observed_at": NOW,
+                "source": "test", "market": "KR", "sector": "우량기업부",
+            }
+            for entity in entities
+        ],
+        ingest_run_id="sec-auto",
+    )
+
+    result = pipeline.run(seeded, as_of=NOW, market="KR", equity=100_000_000.0)
+
+    # 9종목이 한 "섹터" 인데도 아무도 안 잘린다 — 상한을 안 걸었기 때문이다.
+    chosen = [item.entity_id for item in result.candidates if item.entity_id in entities]
+    assert len(chosen) == 9
+    assert not any("섹터 상한" in reason for reason in result.trace.dropped.values())
+    assert any("소속부" in note for note in result.trace.notes)
+
+
+def test_섹터는_이중시간이다(seeded) -> None:
+    """종목이 업종을 옮기면, 과거 시점 조회는 옛 섹터를 봐야 한다."""
+    entity = "KR:000100"
+    old_day = SESSIONS[100]
+    new_day = SESSIONS[395]  # sector_map 의 기본 lookback(30일) 안에 들어야 한다
+    seeded.append(
+        "sectors",
+        [
+            {
+                "entity_id": entity, "valid_from": old_day, "observed_at": old_day,
+                "source": "test", "market": "KR", "sector": "구업종",
+            },
+            {
+                "entity_id": entity, "valid_from": new_day, "observed_at": new_day,
+                "source": "test", "market": "KR", "sector": "신업종",
+            },
+        ],
+        ingest_run_id="sec-move",
+    )
+
+    past = candidates_module.sector_map(
+        seeded, as_of=old_day + timedelta(hours=1), entities=[entity], market="KR"
+    )
+    present = candidates_module.sector_map(seeded, as_of=NOW, entities=[entity], market="KR")
+
+    assert past[entity] == "구업종"
+    assert present[entity] == "신업종"
+
+
+def test_섹터_미상_종목은_한_바구니로_묶이지_않는다(seeded) -> None:
+    """섹터를 아는 종목 하나, 모르는 종목 둘. 모르는 둘이 같은 바구니로
+    묶이면 (예: None 대신 "" 나 "기타") 상한이 둘을 서로 경쟁시킨다.
+
+    KOSPI 는 소속부가 전부 빈 문자열이라 이 경우가 **기본값**이다 — 진짜 업종을
+    붙이는 날에도 커버리지는 100% 가 아니다.
+    """
+    result = pipeline.run(
+        seeded,
+        as_of=NOW,
+        market="KR",
+        equity=100_000_000.0,
+        sectors={"KR:000100": "반도체"},
+    )
+
+    by_id = {item.entity_id: item for item in result.candidates}
+    assert by_id["KR:000100"].sector == "반도체"
+    assert by_id["KR:000200"].sector is None
+    assert by_id["KR:000300"].sector is None

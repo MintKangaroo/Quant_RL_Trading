@@ -408,6 +408,17 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
   gap: 10px;
 }
 
+/* 아래쪽 패널은 둘씩 나란히. 하나가 폭을 통째로 먹으면 낙폭 차트는 납작해지고
+   달력 칸은 쓸데없이 커진다 — 정보 밀도가 아니라 여백만 늘어난다. */
+.grid-half {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: start;
+}
+/* 나란히 놓으면 폭이 절반이라 목록이 금방 넘친다. 패널 안에서 스크롤시킨다. */
+.grid-half .scroll { max-height: 300px; }
+
 @media (max-width: 1500px) {
   .grid-desk { grid-template-columns: 1fr 1fr; }
   #panel-decision { grid-column: span 2; }
@@ -417,6 +428,8 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
 @media (max-width: 900px) {
   .grid-desk { grid-template-columns: 1fr; }
   #panel-decision { grid-column: span 1; }
+  /* 여기서는 둘씩 놓을 폭이 안 나온다. 달력 칸이 손톱만 해지면 못 읽는다. */
+  .grid-half { grid-template-columns: 1fr; }
 }
 
 /* 봉 차트는 이 화면에서 가장 큰 그림이다. 높이가 모자라면 봉이 선이 된다.

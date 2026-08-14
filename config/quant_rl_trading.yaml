@@ -179,3 +179,9 @@ data_quality:
   default_lookback_days: 90
   max_lookback_days: 400     # 화면 하나가 창고를 통째로 올리지 않게
   failure_rows: 50
+
+system:
+  # 시스템 탭 — "지금 이 시스템이 제대로 돌고 있는가" 의 임계치.
+  job_stale_warn_hours: 30   # 크론은 평일 오후에 돈다. 주말·공휴일 여유를 둔다
+  table_stale_warn_days: 3   # 최근 파티션이 이보다 오래되면 경고
+  cache_lookback_days: 30    # LLM 캐시 적재 현황을 보는 창

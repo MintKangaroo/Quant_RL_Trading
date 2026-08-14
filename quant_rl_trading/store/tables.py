@@ -221,6 +221,31 @@ _SPECS: dict[str, TableSpec] = {
             "fundamentals 가 460만 행(2.2GB)이 되어 Analyst 가 OOM 으로 죽었다."
         ),
     ),
+    "sectors": TableSpec(
+        name="sectors",
+        columns={
+            "market": pa.string(),
+            "sector": pa.string(),
+        },
+        # 일별매매(KRX Open API)에만 있다. LS 유니버스(t8436)에는 섹터가 없다
+        # (krx_openapi.TRADE_FIELDS 의 SECT_TP_NM). 종목이 업종을 옮기면 그날
+        # 부터 새 관측이 새 행으로 쌓인다 — 옛 행을 고치지 않는다(append-only).
+        # 과거 시점 조회가 그때의 섹터를 보게 하는 것이 이 테이블의 존재
+        # 이유다. 모르는 종목은 행 자체가 없다 — "기타" 로 채우면 그 종목들이
+        # 전부 한 섹터가 되어 섹터 상한이 엉뚱하게 걸린다.
+        observation_lag_days=3,
+        doc=(
+            "일별 섹터 관측. selector 의 섹터 상한(selector.md §5-5)이 이걸 "
+            "읽는다. entity 마다 매 세션 한 행 — 값이 안 바뀌어도 다시 쌓인다. "
+            "\n\n**주의(실측 2026-08-13):** ``SECT_TP_NM`` 은 업종(GICS 류) "
+            "분류가 아니라 **소속부**(시장 세부 구분)다. KOSPI 는 빈 문자열만 "
+            "주고(942 종목 전부 커버리지 0), KOSDAQ 만 우량기업부·벤처기업부· "
+            "중견기업부·기술성장기업부 등으로 갈린다. 즉 지금 섹터 상한은 "
+            "**업종 분산이 아니라 KOSDAQ 시장 구분에만** 걸린다 — KOSPI 대형주는 "
+            "섹터 미상으로 남아 상한 자체가 적용되지 않는다. 진짜 업종 분류는 "
+            "다른 KRX 엔드포인트(예: 업종분류현황)가 필요하다."
+        ),
+    ),
     "signals": TableSpec(
         name="signals",
         columns={

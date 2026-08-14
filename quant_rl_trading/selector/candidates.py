@@ -33,13 +33,15 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from quant_rl_trading.selector.combine import combined_scores
-
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 VERDICTS = "verdicts"
 PRICES = "prices"
+SECTORS = "sectors"
+
+#: 섹터를 읽는 창(거래일). 며칠 안 받아진 날이 있어도 직전 관측을 찾을 만큼.
+SECTOR_LOOKBACK_DAYS = 30
 
 #: 상관을 재는 창(거래일). selector.md §5-4.
 CORRELATION_WINDOW = 60
@@ -162,6 +164,42 @@ def correlation_matrix(
     # 관측이 절반도 없는 종목의 상관은 우연이다.
     enough = returns.columns[returns.notna().sum() >= CORRELATION_WINDOW // 2]
     return returns[enough].corr()
+
+
+def sector_map(
+    store: Store,
+    *,
+    as_of: datetime,
+    entities: Sequence[str],
+    market: str,
+    lookback: int = SECTOR_LOOKBACK_DAYS,
+) -> dict[str, str]:
+    """{entity_id: 섹터}. 종목마다 **as_of 이전 가장 최근** 관측 하나.
+
+    이중시간이 핵심이다 — ``store.get`` 이 ``observed_at <= as_of`` 를 이미
+    걸러 주므로, 남은 것 중 ``valid_from`` 이 가장 늦은 행을 고르면 그
+    시점에 알 수 있었던 섹터가 나온다. 종목이 업종을 옮긴 뒤에 조회하면
+    새 섹터가, 옮기기 전 시점을 조회하면 옛 섹터가 나온다.
+
+    섹터를 모르는 종목은 dict 에 아예 없다. **None 으로도, "기타" 로도
+    채우지 않는다** — 채우면 그 종목들이 selector 에서 한 섹터로 묶여 섹터
+    상한이 엉뚱한 종목을 걸러내게 된다 (candidates.select 는 sectors.get 이
+    None 이면 그 종목엔 상한을 적용하지 않는다).
+    """
+    if not entities:
+        return {}
+    frame = store.get(SECTORS, as_of=as_of, entity=list(entities), lookback=lookback)
+    if frame.empty:
+        return {}
+    frame = frame[frame["market"] == market]
+    if frame.empty:
+        return {}
+    latest = frame.sort_values("valid_from").groupby("entity_id").tail(1)
+    return {
+        str(row["entity_id"]): str(row["sector"])
+        for row in latest.to_dict(orient="records")
+        if row["sector"]
+    }
 
 
 def select(

@@ -42,10 +42,11 @@ def run(
 ) -> Selection:
     """후보 선정 한 번.
 
-    ``sectors`` 는 주입이다. **창고에 섹터가 없다** — KRX 응답에는 있는데
-    저장하지 않고 있다(`krx_openapi.TRADE_FIELDS` 의 sector). 없으면 섹터
-    상한을 적용하지 못하고, 그 사실을 흔적에 남긴다. 조용히 건너뛰면 나중에
-    "섹터 상한이 왜 안 걸렸지" 를 아무도 묻지 않게 된다.
+    ``sectors`` 는 주입이다. **기본은 None 이고, 그러면 섹터 상한이 안 걸린다.**
+    창고에 ``sectors`` 테이블이 있는데도 자동으로 읽지 않는 이유는 그 안의 값이
+    업종이 아니라 KOSDAQ 소속부이기 때문이다 — 아래 4~6 단계의 주석에 이유를
+    적어 뒀다. 그 사실을 흔적에 남긴다. 조용히 건너뛰면 나중에 "섹터 상한이 왜
+    안 걸렸지" 를 아무도 묻지 않게 된다.
     """
     trace = SelectionTrace()
     params = SelectionParams.from_store(store, as_of=as_of)
@@ -115,10 +116,24 @@ def run(
     correlations = candidates_module.correlation_matrix(
         store, as_of=as_of, entities=list(scores.index), market=market
     )
-    if sectors is None:
+    # **창고의 sectors 를 여기에 붙이지 않는다.** 붙일 수는 있는데, 지금 그
+    # 테이블에 들어 있는 값이 업종이 아니라 **KOSDAQ 소속부**다 (우량기업부·
+    # 벤처기업부·기술성장기업부…). KRX 일별매매의 SECT_TP_NM 이 그것뿐이고,
+    # KOSPI 는 942 종목 전부 빈 문자열이다 (2026-08-14 실측).
+    #
+    # 이걸로 상한을 걸면 KOSPI 대형주에는 아무 제약이 없고 KOSDAQ 만 시장
+    # 등급으로 나뉜다. selector.md §5-5 가 막으려는 것은 **상관된 노출**이지
+    # 시장 등급이 아니다. 그러면 상한이 걸리긴 하는데 걸려야 할 곳에 안 걸리고,
+    # 화면에는 "섹터 상한 적용됨" 이 뜬다 — 없는 것보다 나쁘다. 분산이 되고
+    # 있다는 착시가 생기기 때문이다.
+    #
+    # 수집은 살려 뒀다(`sectors` 테이블). 진짜 업종 분류(KRX 업종분류현황)를
+    # 받는 날 이 자리에 sector_map 을 꽂으면 된다.
+    if not sectors:
         trace.note(
-            "섹터 데이터가 없어 섹터 상한을 적용하지 못했다. KRX 응답에는 "
-            "있으나 창고에 저장하지 않고 있다 (krx_openapi.TRADE_FIELDS)"
+            "섹터 상한을 적용하지 않았다. 창고의 sectors 는 업종이 아니라 "
+            "KOSDAQ 소속부이고(KOSPI 는 전부 미상), 그걸로 거는 상한은 "
+            "상관 분산이 아니다 — 진짜 업종 분류를 받기 전까지 끈다"
         )
 
     chosen = candidates_module.select(

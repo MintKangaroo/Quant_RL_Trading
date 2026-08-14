@@ -230,6 +230,47 @@ def normalize_shares(
     return out
 
 
+def normalize_sectors(
+    rows: list[dict[str, Any]],
+    *,
+    market: str,
+    valid_from: datetime,
+    observed_at: datetime,
+) -> list[dict[str, Any]]:
+    """일별매매 응답 → **sectors** 행.
+
+    ``SECT_TP_NM`` 이 담고 있다 — LS 유니버스(t8436)에는 이 필드가 없어서
+    지금까지 창고에 섹터가 하나도 없었다. 시세와 같은 콜에서 나오므로
+    추가 호출이 없다(normalize_shares 와 같은 자리).
+
+    섹터가 빈 문자열이면 행을 만들지 않는다. **모르는 것을 채우지 않는다** —
+    빈 문자열이나 "기타" 같은 바구니로 메우면 그 종목들이 selector 에서
+    한 섹터로 묶여 섹터 상한이 엉뚱한 종목들을 걸러낸다.
+
+    **주의(실측 2026-08-13):** 이 필드는 업종(GICS 류) 분류가 아니라
+    **소속부**다. KOSPI 는 전량 빈 문자열(커버리지 0), KOSDAQ 만 우량기업부·
+    벤처기업부·중견기업부·기술성장기업부 등으로 갈린다 — 업종 분산이 아니라
+    KOSDAQ 시장 구분만 반영한다. store/tables.py 의 ``sectors`` 스펙 참조.
+    """
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        code = str(row.get("code") or "").strip()
+        sector = str(row.get("sector") or "").strip()
+        if not code or not sector:
+            continue
+        out.append(
+            {
+                "entity_id": f"{market}:{code}",
+                "valid_from": valid_from,
+                "observed_at": observed_at,
+                "source": SOURCE,
+                "market": market,
+                "sector": sector,
+            }
+        )
+    return out
+
+
 def normalize_indices(
     rows: list[dict[str, Any]],
     *,
