@@ -34,10 +34,23 @@ from tools.backfill import build_store  # noqa: E402
 #: 가중치는 오늘 관측이라 과거 백테스트가 보면 안 되고(보면 미래를 훔친다),
 #: 과거 시점 측정본을 실전 창고에 심으면 "그때 알았던 것" 이라는 거짓 기록이
 #: 남는다. 샌드박스에 두면 둘 다 피한다 (backtest.md §7).
-WRITABLE = frozenset(
-    {"signals", "verdicts", "orders", "trades", "realized_weights", "nav_daily",
-     "capital_flows", "dividends", "events", "killswitch", "analyst_weights"}
+#: 운용 기록. **shadow 는 여기까지만 쓴다.**
+JOURNAL = frozenset(
+    {"orders", "trades", "realized_weights", "nav_daily", "capital_flows",
+     "dividends", "events", "killswitch"}
 )
+
+#: 백테스트는 신호도 자기가 만든다. 과거 신호가 창고에 없기 때문이다.
+#: **shadow 는 만들지 않는다** — 일일 실행기가 이미 실전 창고에 쌓고 있고,
+#: shadow 가 자기 신호를 따로 만들면 confidence 가 자기 이력만 보게 되어
+#: 실전과 다른 결정을 낸다.
+BACKTEST_JOURNAL = JOURNAL | {"signals", "verdicts"}
+
+#: 백테스트는 여기에 ``analyst_weights`` 를 더한다. **shadow 는 더하지 않는다** —
+#: shadow 는 오늘 운용이라 오늘 관측된 실전 가중치를 보는 것이 맞고, 백테스트는
+#: 과거 시점 측정본을 봐야 하므로 실전 가중치가 보이면 안 된다. 같은 테이블이
+#: 두 경우에 정반대 취급을 받는 이유가 이것이다.
+WRITABLE = BACKTEST_JOURNAL | {"analyst_weights"}
 
 DEFAULT_SANDBOX = REPO_ROOT / "data" / "_backtest"
 

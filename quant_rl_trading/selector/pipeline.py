@@ -86,6 +86,15 @@ def run(
     scores = combined_scores(signals, weights)
     trace.stage("scored", len(scores))
     if scores.empty:
+        if not signals.empty:
+            # **침묵의 이유를 남긴다.** 신호는 왔는데 점수가 0건이면 원인은
+            # 거의 언제나 confidence 다(전원 0 이면 분모가 0). 이유가 없으면
+            # "오늘 살 게 없다" 와 구분되지 않아 진단에 반나절이 든다.
+            trace.note(
+                f"신호 {len(signals)}행이 있는데 합성 점수가 0건이다. "
+                "가중치×confidence 가 전부 0 인지 확인할 것 (analysts/ic.py "
+                "NO_EVIDENCE_CONFIDENCE)"
+            )
         return Selection(as_of, market, (), weights, trace)
 
     # 3. News·SNS 거부 — 상관보다 **먼저**. 상관 계산은 비싸고, 거부될 종목까지

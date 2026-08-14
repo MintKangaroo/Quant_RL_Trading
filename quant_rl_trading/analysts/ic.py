@@ -292,6 +292,20 @@ def evaluate(
     )
 
 
+#: 잴 표본이 없을 때의 confidence. **감쇠는 증거가 있을 때만 한다.**
+#:
+#: 예전에는 0 이었다. 그런데 합성이 ``Σ(w·score·conf) / Σ(w·conf)`` 라
+#: confidence 가 0 이면 그 Analyst 는 분모에서 통째로 빠지고, 전원이 0 이면
+#: **후보가 0건이 된다.** 실제로 실전 창고에서 그 일이 일어났다 — 신호는
+#: 13,746행이 쌓였는데 Selector 가 아무것도 고르지 못했고, 화면에는 "오늘 살
+#: 게 없다" 와 똑같이 보였다.
+#:
+#: IC 를 통과해 가중치를 받은 것이 이미 관문이다. 롤링 IC 는 그 위에서
+#: **최근 성적으로 가감**하는 값이고, 잴 표본이 없다는 것은 감쇠할 근거가
+#: 없다는 뜻이지 신뢰가 0 이라는 뜻이 아니다.
+NO_EVIDENCE_CONFIDENCE = 1.0
+
+
 def rolling_confidence(
     store: Store,
     *,
@@ -305,22 +319,24 @@ def rolling_confidence(
     **에이전트가 스스로 매기지 않는다** (agents.md §1). 스스로 매기면 과신한다.
     호출자가 이 값을 넣어 준다.
 
-    이미 저장된 ``signals`` 와 그 시점 타깃을 맞춰 IC 를 다시 잰다. 신호가
-    쌓이기 전에는 잴 것이 없으므로 0 을 돌려준다 — **0 은 "확신 없음" 이지
-    "쓸모없음" 이 아니다.** 관찰 모드와 같은 뜻이고, 신호는 계속 기록된다.
+    이미 저장된 ``signals`` 와 그 시점 타깃을 맞춰 IC 를 다시 잰다.
 
-    음수 IC 는 0 으로 자른다. 부호를 뒤집어 쓰고 싶어지지만, 그건 표본에
-    맞춰 사후에 고르는 것이라 다음 구간에서 사라진다 (모듈 docstring).
+    **잴 표본이 없으면 ``NO_EVIDENCE_CONFIDENCE`` 다** — 0 이 아니다. 0 으로
+    두면 신호가 쌓이기 전 구간에서 시스템이 아무것도 사지 못하고, 그 침묵이
+    "오늘 살 게 없다" 와 구분되지 않는다.
+
+    잴 수 있는데 IC 가 0 이하면 그때는 0 이다. 그건 **증거가 있는 배제**다.
+    음수 IC 를 뒤집어 쓰지 않는 이유는 표본에 사후로 맞추는 것이기 때문이다.
     """
     frame = store.get(
         "signals", as_of=as_of, lookback=int(window * 7 / 5) + 30, market=None
     )
     if frame.empty:
-        return 0.0
+        return NO_EVIDENCE_CONFIDENCE
 
     scores = frame[frame["analyst"] == analyst]
     if scores.empty:
-        return 0.0
+        return NO_EVIDENCE_CONFIDENCE
 
     scores = pd.DataFrame(
         {
@@ -331,22 +347,24 @@ def rolling_confidence(
     )
     sessions = sorted(scores["session"].unique())[-window:]
     if len(sessions) < 2:
-        return 0.0
+        return NO_EVIDENCE_CONFIDENCE
     scores = scores[scores["session"].isin(set(sessions))]
 
     targets = build_targets(
         store, as_of=as_of, lookback=int(window * 7 / 5) + 90, market=market
     )
     if targets.empty:
-        return 0.0
+        return NO_EVIDENCE_CONFIDENCE
 
     merged = scores.merge(targets, on=["entity_id", "session"], how="inner")
     if merged.empty:
-        return 0.0
+        # 신호는 있는데 라벨이 아직 없다(전방 5일이 안 지났다). 못 잰 것이다.
+        return NO_EVIDENCE_CONFIDENCE
 
     daily = daily_ic(merged)
     if daily.empty:
-        return 0.0
+        return NO_EVIDENCE_CONFIDENCE
+    # 여기부터는 **잰 값**이다. 0 이면 증거가 있는 배제다.
     return max(0.0, float(daily.mean()))
 
 
@@ -360,6 +378,7 @@ def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int]:
 
 __all__ = [
     "EMBARGO_DAYS",
+    "NO_EVIDENCE_CONFIDENCE",
     "HORIZON_DAYS",
     "ICResult",
     "build_targets",

@@ -160,12 +160,18 @@ def run(
     capital: float = 0.0,
     board: str = "KOSPI",
     warmup_days: int = 0,
+    produce_signals: bool = True,
     on_day: DayCallback | None = None,
 ) -> BacktestResult:
     """구간 백테스트.
 
     ``capital`` 이 0 보다 크면 첫 거래일 **전날**에 입금 한 행을 넣는다. 이미
     자본이 들어와 있는 창고(이어 돌리기)에서는 0 으로 두면 된다.
+
+    ``produce_signals`` 를 끄면 Analyst 를 돌리지 않고 **창고에 이미 있는
+    신호**를 쓴다. shadow 가 그렇게 돈다 — 라이브에서는 일일 실행기가 이미
+    실전 창고에 신호를 쌓고 있고, shadow 가 자기 신호를 따로 만들면 confidence
+    계산이 자기가 만든 짧은 이력만 보게 되어 실전과 다른 결정을 낸다.
 
     ``warmup_days`` 는 ``start`` 앞에서 **돌리되 성적에 넣지 않는** 거래일 수다.
     confidence 가 최근 60거래일 롤링 IC 라(analysts/ic.py), 신호 이력이 없는
@@ -222,7 +228,11 @@ def run(
                 filled += executed.filled
 
         # 2. 신호 — 결정보다 먼저. 없으면 Selector 가 볼 것이 없다.
-        scoring = signals_module.produce(store, market=market_enum, as_of=as_of)
+        scoring = (
+            signals_module.produce(store, market=market_enum, as_of=as_of)
+            if produce_signals
+            else signals_module.ScoringResult()
+        )
 
         # 3. 스냅샷 — 체결이 반영된 장부로. NAV 는 회계 한 곳에서만 나온다.
         rates = Rates.from_store(store, as_of=as_of)
