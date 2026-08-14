@@ -80,6 +80,11 @@ def contributions(
     if signals.empty:
         return ()
     rows = signals[signals["entity_id"] == entity_id]
+    if not rows.empty and "observed_at" in rows.columns:
+        # 창을 5일로 잡으면 여러 세션이 함께 잡힌다. 합성은 최신 하나만 쓰므로
+        # 분해도 같은 규칙이어야 한다 — 아니면 화면의 기여도 합이 점수와 안 맞고,
+        # 같은 Analyst 가 두 번 나온다.
+        rows = rows.sort_values("observed_at").groupby("analyst", as_index=False).tail(1)
     out = [
         Contribution(
             analyst=str(row["analyst"]),

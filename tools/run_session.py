@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,10 +45,21 @@ from tools.run_backtest import JOURNAL  # noqa: E402
 DEFAULT_SANDBOX = REPO_ROOT / "data" / "_shadow"
 
 
-def last_trading_day(market: Market, today: date) -> date | None:
-    """마지막 거래일. 휴장일에 돌려도 조용히 아무것도 안 하지 않는다."""
-    days = trading_days(market, today - timedelta(days=14), today)
-    return days[-1] if days else None
+def last_settled_day(store: Store, market: Market, now: datetime) -> date | None:
+    """**스냅샷 시각이 이미 지난** 마지막 거래일.
+
+    오늘 날짜를 그냥 쓰면 장중에 돌렸을 때 15:40 기준 세션이 만들어지고, 그
+    주문은 ``observed_at`` 이 미래라 어떤 조회에서도 안 보인다. 화면에는 "주문
+    0건" 으로 뜨는데 창고에는 있다 — 가장 헷갈리는 종류의 고장이다.
+
+    휴장일도 같은 방식으로 처리된다. 조용히 아무것도 안 하는 대신 직전
+    거래일을 잡는다.
+    """
+    for day in reversed(trading_days(market, now.date() - timedelta(days=14), now.date())):
+        probe = datetime.combine(day, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=loop.SEOUL)
+        if loop.snapshot_moment(store, day, as_of=probe) <= now:
+            return day
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -83,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     day = (
         date.fromisoformat(args.day)
         if args.day
-        else last_trading_day(market, LiveClock().now().date())
+        else last_settled_day(store, market, LiveClock().now())
     )
     if day is None:
         print(f"{market} 거래일을 찾지 못했다.", file=sys.stderr)

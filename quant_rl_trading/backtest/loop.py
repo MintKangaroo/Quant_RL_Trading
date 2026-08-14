@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -25,6 +25,7 @@ from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest import execution as execution_module
 from quant_rl_trading.backtest import stats as stats_module
 from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.publication import publication_policy
 from quant_rl_trading.executor import orders as orders_module
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.replay.clock import ReplayClock
@@ -99,7 +100,17 @@ class BacktestResult:
 
 
 def snapshot_moment(store: Store, day: date, *, as_of: datetime) -> datetime:
-    """그날의 회계 스냅샷 시각(한국시간). 하루의 기준 시각은 하나뿐이다.
+    """그날 세션의 기준 시각. **신호 공표 시각과 스냅샷 시각 중 늦은 쪽이다.**
+
+    회계 스냅샷은 15:40 이다(accounting.md §2). 그런데 Analyst 신호는 종가
+    확정 뒤 공표되고 그 시각은 16:00 이다(`backfill.kr_publication_lag_seconds`).
+    15:40 을 세션 시각으로 쓰면 **그날 신호가 아직 관측되지 않은 상태**라
+    게이트가 가리고, 결정은 언제나 전날 신호로 내려간다. 하루가 통째로
+    밀리는데 화면에는 "후보 0건" 으로만 보인다 — 실측으로 확인했다.
+
+    늦은 쪽을 쓰면 둘 다 만족한다. NAV 는 여전히 하루 한 번이고 미장은 직전
+    종가이며(국장 마감과 미장 개장 사이라는 취지는 그대로), 신호는 그날 것을
+    본다.
 
     ``as_of`` 는 설정을 읽기 위한 시점이다 — 임계치도 이중시간이라 그날 유효한
     값을 봐야 한다.
@@ -109,7 +120,22 @@ def snapshot_moment(store: Store, day: date, *, as_of: datetime) -> datetime:
         moment = time.fromisoformat(raw)
     except Exception:  # 설정이 없거나 형식이 다르면 기본값. 조용히 0시로 가지 않는다.
         moment = DEFAULT_SNAPSHOT_TIME
-    return datetime.combine(day, moment, tzinfo=SEOUL)
+    accounting_at = datetime.combine(day, moment, tzinfo=SEOUL)
+
+    try:
+        # 설정(지연 초)은 as_of 시점 값으로 읽고, **시각 계산에는 그 세션이
+        # 이미 공표된 시계**를 넣는다. for_session 은 아직 공표 전이면 예외를
+        # 던지기 때문이다 — 여기서 알고 싶은 것은 "언제 공표되나" 이지
+        # "지금 공표됐나" 가 아니다.
+        policy = publication_policy(store, Market.KR, clock=ReplayClock(as_of))
+        settled = replace(
+            policy, clock=ReplayClock(accounting_at + timedelta(days=2))
+        )
+        published_at = settled.for_session(day)
+    except Exception:
+        # 공표 정책을 못 읽으면 회계 시각만 쓴다. 지어내지 않는다.
+        return accounting_at
+    return max(accounting_at, published_at)
 
 
 def seed_capital(
