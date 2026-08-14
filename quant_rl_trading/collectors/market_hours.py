@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time
+import threading
 from enum import StrEnum
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -43,9 +44,21 @@ SPECS: dict[Market, MarketSpec] = {
 }
 
 
+#: 달력 만들기를 직렬화한다. ``lru_cache`` 는 **동시에 들어온 첫 호출 둘을
+#: 막지 못한다** — 두 스레드가 같이 달력을 지으면 exchange_calendars 내부
+#: 상태가 엉켜 엉뚱한 곳에서 터진다. 실측(대시보드 병렬 요청):
+#:
+#:     ValueError: Length of values (999) does not match length of index (998)
+#:     KeyError: Timestamp('2072-06-06 00:00:00')
+#:
+#: 지어진 뒤에는 읽기만 하므로 잠글 것이 없다. 잠그는 것은 짓는 순간뿐이다.
+_CALENDAR_LOCK = threading.Lock()
+
+
 @lru_cache(maxsize=4)
 def _calendar(name: str) -> xcals.ExchangeCalendar:
-    return xcals.get_calendar(name)
+    with _CALENDAR_LOCK:
+        return xcals.get_calendar(name)
 
 
 def local_time(market: Market, moment: datetime) -> datetime:

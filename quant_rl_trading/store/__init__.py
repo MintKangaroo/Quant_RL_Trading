@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -66,6 +67,10 @@ class Store:
     def __init__(self, root: Path | str | None = None) -> None:
         self.root = Path(root) if root is not None else _default_root()
         self._connection: duckdb.DuckDBPyConnection | None = None
+        # 연결을 만드는 순간만 지킨다. 질의 자체는 스레드마다 자기 커서로
+        # 돌므로 직렬화하지 않는다.
+        self._lock = threading.Lock()
+        self._local = threading.local()
 
     # -- 조회 -----------------------------------------------------------------
 
@@ -95,7 +100,7 @@ class Store:
         바뀌지 않는다 — 정정본 선택은 프루닝 전에 끝난다.
         """
         return reader.query(
-            self._connect(),
+            self._cursor(),
             self.root,
             table,
             as_of=as_of,
@@ -186,7 +191,32 @@ class Store:
 
     # -- 내부 -----------------------------------------------------------------
 
+    def _cursor(self) -> duckdb.DuckDBPyConnection:
+        """이 스레드의 커서. **연결 하나를 여러 스레드가 같이 쓰면 안 된다.**
+
+        DuckDB 의 파이썬 연결은 결과 집합을 연결에 매단다. 두 요청이 같은
+        연결로 동시에 질의하면 한쪽의 ``.df()`` 가 **None 을 돌려준다** —
+        예외가 아니라 None 이라 그 자리에서 안 터지고, 한참 뒤 엉뚱한 곳에서
+        ``'NoneType' object has no attribute 'empty'`` 로 나온다.
+
+        실측: 대시보드가 한 화면에서 API 를 병렬로 부르고, Flask 개발 서버는
+        요청마다 스레드를 만든다. 2026-08-14 화면에서 /api/briefing/summary 와
+        /api/trading/chart 가 그렇게 500 이 됐다.
+
+        ``cursor()`` 는 같은 데이터베이스를 보는 독립 실행 문맥이다. 창고는
+        읽기 전용 스캔이라 커서마다 따로 열어도 보는 것이 달라지지 않는다.
+        """
+        cursor = getattr(self._local, "cursor", None)
+        if cursor is None:
+            cursor = self._connect().cursor()
+            self._local.cursor = cursor
+        return cursor
+
     def _connect(self) -> duckdb.DuckDBPyConnection:
+        with self._lock:
+            return self._connect_locked()
+
+    def _connect_locked(self) -> duckdb.DuckDBPyConnection:
         if self._connection is None:
             connection = duckdb.connect(database=":memory:")
             connection.execute(
@@ -207,9 +237,13 @@ class Store:
         return self._connection
 
     def close(self) -> None:
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+        # 스레드별 커서는 연결이 닫히면 같이 죽는다. 참조만 끊어 두면
+        # 다음 질의가 새 연결에서 새 커서를 판다.
+        self._local = threading.local()
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
 
 
 def _default_root() -> Path:
