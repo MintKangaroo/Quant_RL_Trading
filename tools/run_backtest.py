@@ -110,7 +110,9 @@ def main(argv: list[str] | None = None) -> int:
             f"체결 {day.filled:>5}"
             # 단계별 실측. 총시간만 보면 어느 단계를 고쳐야 하는지 모른다 —
             # 하루가 200초라는 것은 알았지만 그 200초의 주인은 몰랐다.
-            + ("  [" + " ".join(f"{k} {v:.0f}s" for k, v in day.elapsed.items()) + "]"
+            + ("  [" + " ".join(
+                f"{k} {v:,.0f}MB" if k == "RSS_MB" else f"{k} {v:.0f}s"
+                for k, v in day.elapsed.items()) + "]"
                if day.elapsed else "")
             + (f"  ⚠️ {day.blocked_by}" if day.blocked_by else "")
         )

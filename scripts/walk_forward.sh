@@ -18,7 +18,11 @@ SANDBOX="${SANDBOX:-data/_backtest}"
 SESSIONS="${SESSIONS:-300}"
 
 # 창고가 수십만 개 Parquet 이라 상한을 안 주면 DuckDB 가 머신을 통째로 멈춘다.
-export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-3GB}"
+# 3GB 였다. 그 한도에서 프로세스 RSS 가 5.3GB 까지 올라 커널이 죽였다
+# (2026-08-14 19:13, 2026-01-13 에서 멈춘 것처럼 보였던 것의 정체). DuckDB
+# 한도는 **프로세스 전체가 아니라 DuckDB 만** 재는 값이라, pandas 사본과
+# 합쳐지면 이 기계(9.5GB, 대시보드·세션과 공유)에서는 남지 않는다.
+export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-1500MB}"
 export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
 
 echo "=== [1/3] 오버레이 준비 ($SANDBOX)"

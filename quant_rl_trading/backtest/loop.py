@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
+from resource import RUSAGE_SELF, getrusage
 from time import perf_counter
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -298,6 +299,10 @@ def run(
             wall_clock=clock,
         )
         elapsed["결정"] = perf_counter() - mark
+        # 최대 RSS(MB). **메모리는 조용히 는다** — 2026-08-14 실행이 5.3GB 에서
+        # OOM 으로 죽었고, 죽기 전 증상은 "하루가 안 끝난다" 였다. 스왑을
+        # 긁는 것과 계산이 느린 것은 로그에서 구별되지 않는다.
+        elapsed["RSS_MB"] = getrusage(RUSAGE_SELF).ru_maxrss / 1024
         previous_session = orders_module.session_id(as_of=as_of, market=market)
 
         notes = [
