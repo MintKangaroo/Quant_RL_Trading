@@ -11,7 +11,7 @@ from typing import Any
 from flask import Flask, render_template
 from werkzeug.exceptions import HTTPException
 
-from quant_rl_trading.dashboard.api import agent_health, briefing, data_quality, mock
+from quant_rl_trading.dashboard.api import agent_health, briefing, data_quality, trading
 from quant_rl_trading.replay.clock import Clock, LiveClock
 from quant_rl_trading.settings import load_env
 from quant_rl_trading.store import ConfigNotFound, Store, StoreError
@@ -30,7 +30,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(data_quality.bp)
     app.register_blueprint(agent_health.bp)
     app.register_blueprint(briefing.bp)
-    app.register_blueprint(mock.bp)
+    app.register_blueprint(trading.bp)
 
     @app.get("/")
     @app.get("/data-quality")
@@ -47,7 +47,6 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
 
     @app.get("/trading")
     def trading_page() -> str:
-        # M2 에서는 목업이다. 화면이 스스로 그 사실을 띄운다.
         return render_template("trading.html")
 
     @app.errorhandler(HTTPException)

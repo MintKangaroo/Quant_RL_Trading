@@ -47,8 +47,11 @@ function params() {
 }
 
 async function fetchJson(path) {
+  // path 가 이미 쿼리를 들고 있을 수 있다(?entity=). 구분자를 잘못 붙이면
+  // as_of 가 통째로 값에 섞여 들어가고, 그러면 화면이 조용히 라이브를 본다.
   const query = params().toString();
-  const response = await fetch(`/api/${path}${query ? "?" + query : ""}`);
+  const separator = path.includes("?") ? "&" : "?";
+  const response = await fetch(`/api/${path}${query ? separator + query : ""}`);
   const body = await response.json();
   if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
   return body;

@@ -4,64 +4,70 @@
 {% block body %}
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
 
-<main>
-  <section class="alerts" id="alerts"></section>
-
+<main class="terminal">
   <section class="kpis" id="kpis"></section>
 
-  <section class="grid-trading">
-    <div class="panel span2">
-      <h2>NAV vs 벤치마크</h2>
-      <div class="chart" id="chart-nav"></div>
+  <section class="alerts" id="alerts"></section>
+
+  <section class="grid-desk">
+    <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
+    <div class="panel" id="panel-watchlist">
+      <h2>워치리스트 <span class="sub" id="watchlist-count"></span></h2>
+      <div id="watchlist" class="scroll dense"></div>
+      <p class="note">합성 점수 순이다. 등락률 순이 아니다 — 화면이 결정 근거를 따라간다.</p>
+    </div>
+
+    <!-- 중: 차트 -->
+    <div class="panel" id="panel-chart">
+      <h2>
+        <span id="chart-title">—</span>
+        <span class="sub" id="chart-sub"></span>
+      </h2>
+      <div class="chart tall" id="chart-candle"></div>
       <p class="note">
-        초과수익이 이 화면의 목적이다. 벤치마크를 못 이기면 지수를 사는 편이 낫다.
+        <strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
+        화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.
       </p>
     </div>
-    <div class="panel">
-      <h2>MDD 예산</h2>
-      <div id="mdd"></div>
-      <p class="note">
-        밴드 12 / 22 / 30%는 <code>reward-and-risk.md</code> 의 값이다.
-        <strong>리스크를 안 쓰는 것도 문제라는 걸 화면이 말해야 한다.</strong>
-      </p>
+
+    <!-- 우: 결정 -->
+    <div class="panel" id="panel-decision">
+      <h2>결정 <span class="sub" id="decision-engine"></span></h2>
+      <div id="decision"></div>
+      <p class="note" id="decision-note"></p>
     </div>
   </section>
 
-  <section class="grid-trading">
-    <div class="panel span2">
-      <h2>언더워터 — 12 / 22 / 30% 밴드</h2>
-      <div class="chart" id="chart-uw"></div>
-      <p class="note">보상 함수의 시각화다. 벤치마크 낙폭은 점선으로 겹친다.</p>
+  <section class="grid-desk2">
+    <div class="panel">
+      <h2>포트폴리오 · 누적지수</h2>
+      <div class="chart" id="chart-equity"></div>
+      <p class="note">
+        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
+      </p>
     </div>
     <div class="panel">
-      <h2>자본 배분</h2>
-      <div class="chart" id="chart-alloc"></div>
+      <h2>리스크 예산</h2>
+      <div id="risk"></div>
       <p class="note">
-        현금을 반드시 포함한다 — 빼면 합이 100%가 되어
-        <strong>레버리지가 없다는 사실이 안 보인다.</strong>
+        밴드 12 / 22 / 30% 는 <code>reward-and-risk.md</code> 의 값이고
+        <code>store.config</code> 에서 읽는다 (불변식 10).
       </p>
     </div>
   </section>
 
   <section class="panel">
-    <h2>보유 포지션</h2>
-    <div id="positions" class="scroll"></div>
+    <h2>보유 포지션 <span class="sub" id="positions-count"></span></h2>
+    <div id="positions" class="scroll dense"></div>
   </section>
 
-  <section class="grid2">
-    <div class="panel">
-      <h2>주문 · 체결</h2>
-      <div id="orders" class="scroll"></div>
-      <p class="note">REQUESTED → ACCEPTED → PARTIAL → FILLED / CANCELLED / REJECTED</p>
-    </div>
-    <div class="panel">
-      <h2>리스크 모니터</h2>
-      <div id="risk"></div>
-      <p class="note">
-        한도는 M3 에서 <code>store.config</code> 로 옮긴다 — 화면이 숫자를
-        직접 들면 학습 설정과 어긋난다 (불변식 10).
-      </p>
-    </div>
+  <section class="panel">
+    <h2>주문 · 체결</h2>
+    <div id="orders" class="scroll dense"></div>
+    <p class="note">
+      최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
+      "빠르다" 로 읽힌다.
+    </p>
   </section>
 </main>
 {% endblock %}

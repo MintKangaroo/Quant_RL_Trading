@@ -286,3 +286,122 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
 
 /* 하락. 상승=빨강이므로 하락은 파랑이다 (한국식, dashboard.md §10). */
 .down { color: var(--down); }
+
+/* ---------------------------------------------------------------------------
+   트레이딩 데스크 — 첨부한 터미널 레이아웃을 우리 토큰으로 옮긴 것.
+   좌: 워치리스트 · 중: 차트 · 우: 결정. 창이 좁아지면 세로로 접힌다.
+   --------------------------------------------------------------------------- */
+
+.grid-desk {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(520px, 2.4fr) minmax(280px, 1.1fr);
+  gap: 14px;
+}
+
+.grid-desk2 {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 1500px) {
+  .grid-desk { grid-template-columns: 1fr 1fr; }
+  #panel-decision { grid-column: span 2; }
+  .grid-desk2 { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+  .grid-desk { grid-template-columns: 1fr; }
+  #panel-decision { grid-column: span 1; }
+}
+
+.chart.tall { height: 420px; }
+
+.panel h2 .sub {
+  margin-left: 8px;
+  color: var(--dim);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+td.r, th.r { text-align: right; }
+.up { color: var(--up); }
+.down { color: var(--down); }
+
+/* 표가 빽빽해야 한 화면에 들어온다. 여백은 정보를 밀어낸다. */
+.dense table { font-size: 11.5px; }
+.dense td, .dense th { padding: 3px 6px 3px 0; }
+.dense .name { display: block; }
+.dense .code { display: block; color: var(--dim); font-size: 10px; }
+
+tr.click { cursor: pointer; }
+tr.click:hover { background: var(--panel2); }
+tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); }
+
+.empty { color: var(--dim); font-size: 12px; margin: 6px 0; }
+
+/* 상태 배지 — 색으로 즉시 구분된다. 전부 같은 색이면 표를 읽어야 안다. */
+.status {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--muted);
+}
+.status.filled { color: var(--up); border-color: var(--up); }
+.status.planned { color: var(--muted); }
+.status.rejected { color: var(--warn); border-color: var(--warn); }
+.status.cancelled { color: var(--dim); }
+
+/* 결정 패널 — Analyst 기여도 막대. Q값이 아니다(M4 전). */
+.facts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; margin-bottom: 10px; }
+.fact { display: flex; justify-content: space-between; font-size: 11.5px; }
+.fact span { color: var(--muted); }
+
+.panel h3 {
+  margin: 10px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.bar-row { display: grid; grid-template-columns: 74px 1fr 56px; align-items: center; gap: 6px; margin: 3px 0; }
+.bar-label { font-size: 11px; color: var(--muted); }
+.bar-track { background: var(--panel2); height: 10px; border-radius: 2px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; }
+.bar-fill.up { background: var(--up); }
+.bar-fill.down { background: var(--down); }
+.bar-value { font-size: 11px; text-align: right; }
+
+/* MDD 예산 게이지 — 이 화면의 시그니처. 리스크를 안 쓰는 것도 문제라는 걸
+   보여야 하므로 자유구간을 먼저 크게 깐다. */
+.gauge { margin-bottom: 12px; }
+.gauge-track { display: flex; height: 16px; border-radius: 3px; overflow: hidden; position: relative; }
+.gauge-band { display: block; height: 100%; }
+.gauge-band.free { background: rgba(62, 123, 250, 0.35); }
+.gauge-band.warn { background: rgba(245, 165, 36, 0.35); }
+.gauge-band.hard { background: rgba(229, 72, 77, 0.35); }
+.gauge-needle { position: absolute; top: -3px; width: 2px; height: 22px; background: var(--text); }
+.gauge-legend { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
+.gauge-legend .free { color: var(--down); }
+.gauge-legend .warn { color: var(--warn); }
+.gauge-legend .hard { color: var(--up); }
+
+.limit { display: grid; grid-template-columns: 88px 1fr 118px; align-items: center; gap: 6px; margin: 4px 0; }
+.limit-label { font-size: 11px; color: var(--muted); }
+.limit-track { background: var(--panel2); height: 8px; border-radius: 2px; overflow: hidden; }
+.limit-fill { display: block; height: 100%; background: var(--down); }
+.limit-fill.hot { background: var(--up); }
+.limit-value { font-size: 11px; text-align: right; }
+.limit-value em { color: var(--dim); font-style: normal; }
+
+.alert.warning { border-left-color: var(--warn); color: var(--warn); }
+.alert.critical { border-left-color: var(--up); color: var(--up); }
