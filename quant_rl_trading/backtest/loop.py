@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
+from time import perf_counter
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -67,6 +68,10 @@ class DayResult:
     notes: tuple[str, ...]
     #: 성적 집계에서 빠지는 날. 신호 이력을 쌓기 위해 돌린 구간이다.
     warmup: bool = False
+    #: 단계별 실측 소요(초). **성적이 아니라 계측이다** — 진화 검색이
+    #: 개체 64 × 세대 40 을 돌리려면 하루 비용을 알아야 하는데, 총시간만
+    #: 보면 어느 단계를 고쳐야 하는지 알 수 없다.
+    elapsed: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -241,6 +246,8 @@ def run(
     for day in sessions:
         as_of = snapshot_moment(store, day, as_of=first)
         clock = ReplayClock(as_of)
+        elapsed: dict[str, float] = {}
+        mark = perf_counter()
 
         # 1. 체결 — 어제 낸 주문을 오늘 봉에 맞춘다.
         executed = execution_module.ExecutionDay(session_id=previous_session or "")
@@ -253,6 +260,9 @@ def run(
                 requested += executed.requested
                 filled += executed.filled
 
+        elapsed["체결"] = perf_counter() - mark
+        mark = perf_counter()
+
         # 2. 신호 — 결정보다 먼저. 없으면 Selector 가 볼 것이 없다.
         scoring = (
             signals_module.produce(store, market=market_enum, as_of=as_of)
@@ -260,11 +270,17 @@ def run(
             else signals_module.ScoringResult()
         )
 
+        elapsed["신호"] = perf_counter() - mark
+        mark = perf_counter()
+
         # 3. 스냅샷 — 체결이 반영된 장부로. NAV 는 회계 한 곳에서만 나온다.
         rates = Rates.from_store(store, as_of=as_of)
         book = ledger_module.build_book(store, as_of=as_of, rates=rates)
         snapshot = snapshot_module.take(store, clock, as_of=as_of, book=book)
         snapshot_module.write(store, clock, snapshot=snapshot)
+
+        elapsed["스냅샷"] = perf_counter() - mark
+        mark = perf_counter()
 
         # 4. 결정 — 주문을 만들고 기록한다. 보내지는 않는다.
         holdings = {
@@ -281,6 +297,7 @@ def run(
             board=board,
             wall_clock=clock,
         )
+        elapsed["결정"] = perf_counter() - mark
         previous_session = orders_module.session_id(as_of=as_of, market=market)
 
         notes = [
@@ -299,6 +316,7 @@ def run(
             requested=executed.requested,
             filled=executed.filled,
             traded_value=executed.traded_value,
+            elapsed=elapsed,
             blocked_by=session.blocked_by,
             notes=tuple(notes),
             warmup=day in warmup_set,
