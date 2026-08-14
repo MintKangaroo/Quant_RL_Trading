@@ -14,7 +14,7 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
-[![tests](https://img.shields.io/badge/tests-274%20passed-2ea44f)](#검증)
+[![tests](https://img.shields.io/badge/tests-385%20passed-2ea44f)](#검증)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
 [![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
 
@@ -154,7 +154,7 @@ Data Quality 가 "데이터가 썩고 있나"를 본다면 이 화면은 **"에�
 
 미측정 Analyst도 명단에서 빼지 않는다. 빠지면 "왜 없지"를 아무도 묻지 않게 된다.
 
-### M2 — Analyst 투입 + IC 검증 (진행 중)
+### M2 — Analyst 투입 + IC 검증 ✅
 
 IC 측정 파이프라인이 **실제로 누수를 잡는지** 먼저 증명했다. 검증기를 만들어 놓고 "잘 도네" 하고 넘어가면 아무것도 검증하지 않는 채로 통과 도장만 찍는다.
 
@@ -254,20 +254,25 @@ uv run python tools/backfill.py --report                 # 검증 리포트
 ### 대시보드
 
 ```bash
-uv run python tools/dashboard.py        # 기본 6060 포트
+# shadow 창고를 본다. **실전 창고는 자본이 0이라 화면이 비어 있다.**
+QUANT_RL_DATA_ROOT=data/_shadow uv run python -m flask \
+    --app quant_rl_trading.dashboard.app:create_app run --port 5057
 ```
+
+헤더 배지가 모드(LIVE/SHADOW/BACKTEST)를 **창고 경로에서 유도해** 띄운다.
+shadow 를 보면서 실전이라고 착각하는 것이 이 화면에서 가능한 가장 비싼 오해다.
 
 ```bash
 # 모든 엔드포인트가 as_of 를 받는다
-curl 'localhost:6060/api/data-quality/summary'
+curl 'localhost:5057/api/data-quality/summary'
 curl --get --data-urlencode 'as_of=2023-06-15T16:01:00+09:00' \
-     localhost:6060/api/data-quality/coverage
+     localhost:5057/api/data-quality/coverage
 ```
 
 ### 검증
 
 ```bash
-uv run pytest tests/                      # 218 passed
+uv run pytest tests/                      # 385 passed
 uv run python tools/invariant_guard.py    # 불변식 위반 0건
 uv run python tools/verify_m1.py          # M1 완료 기준
 uv run ruff check . && uv run mypy
@@ -284,8 +289,8 @@ uv run ruff check . && uv run mypy
 | | 내용 | 상태 |
 |---|---|---|
 | **M1** | 데이터 창고 + 리플레이 엔진 | ✅ 완료 |
-| **M2** | Analyst 9종 + IC 검증 (purged K-fold + embargo) | 🔄 진행 중 |
-| **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | |
+| **M2** | Analyst 9종 + IC 검증 (purged K-fold + embargo) | ✅ 완료 |
+| **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | 🔄 진행 중 |
 | **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | |
 | **M5** | Auditor + ModelOps + Claude 리뷰 | |
 
@@ -319,18 +324,6 @@ uv run ruff check . && uv run mypy
 | [`docs/design/config.md`](docs/design/config.md) | 모든 임계치의 단일 소스 |
 | [`docs/design/ls-api.md`](docs/design/ls-api.md) | LS API 제약 확인 목록 |
 | [`docs/postmortem-ls.md`](docs/postmortem-ls.md) | 선행 프로젝트 부검 |
-
----|---|
-| [`CLAUDE.md`](CLAUDE.md) | 불변식, 참고 규칙, 금지 사항 |
-| [`docs/glossary.md`](docs/glossary.md) | 에이전트 용어, 패키지 구조 |
-| [`docs/design/data-contract.md`](docs/design/data-contract.md) | 이중시간 저장, 데이터 게이트, 백필 관측시각 |
-| [`docs/design/agents.md`](docs/design/agents.md) | 에이전트 명세, Signal/Verdict 스키마 |
-| [`docs/design/reward-and-risk.md`](docs/design/reward-and-risk.md) | 보상 함수, MDD 밴드, 자본 단계 |
-| [`docs/design/dashboard.md`](docs/design/dashboard.md) | 화면 명세, 색·타이포, API 규약 |
-| [`docs/milestones.md`](docs/milestones.md) | M1~M5, 완료 기준, 중단 기준 |
-| [`docs/postmortem-ls.md`](docs/postmortem-ls.md) | 선행 프로젝트 부검 |
-
----
 
 ## 라이선스
 

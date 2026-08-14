@@ -451,7 +451,17 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
                 "limit_price": (
                     float(row["limit_price"]) if pd.notna(row["limit_price"]) else None
                 ),
-                "status": "filled" if match else str(row["status"]),
+                # 체결이 있어도 **주문 수량에 못 미치면 부분 체결이다.**
+                # 전부 filled 로 뭉개면 유동성 부족이 화면에서 사라진다.
+                "status": (
+                    (
+                        "partial"
+                        if float(match["quantity"]) < float(row["quantity"])
+                        else "filled"
+                    )
+                    if match
+                    else str(row["status"])
+                ),
                 "fill_price": match["price"] if match else None,
                 "fill_quantity": match["quantity"] if match else None,
                 "cost": (match["fee"] + match["tax"]) if match else None,
@@ -628,6 +638,11 @@ def system(store: Store, context: Context) -> dict[str, Any]:
         mode, mode_note = "SHADOW", "모의 운용 — 돈이 오가지 않는다"
     elif "_backtest" in root:
         mode, mode_note = "BACKTEST", "백테스트 샌드박스"
+    elif "_demo" in root:
+        # 화면 확인용 창고(tools/seed_demo.py). 보유와 주문은 우리가 심은
+        # 것이고 시세만 진짜다. **이걸 LIVE 로 보여주면 안 된다** — 화면에서
+        # 가능한 가장 비싼 오해가 모드를 잘못 읽는 것이다.
+        mode, mode_note = "DEMO", "화면 확인용 — 보유·주문은 심은 것이다"
     else:
         mode, mode_note = "LIVE", "실전 창고"
 

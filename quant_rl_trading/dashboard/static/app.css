@@ -528,6 +528,7 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
 .badge.mode-live { color: var(--up); border-color: var(--up); }
 .badge.mode-shadow { color: var(--warn); border-color: var(--warn); }
 .badge.mode-backtest { color: var(--accent); border-color: var(--accent); }
+.badge.mode-demo { color: var(--accent); border-color: var(--accent); }
 .badge.stop { color: var(--down); border-color: var(--down); }
 
 /* EMERGENCY STOP — 항상 같은 자리에 있어야 한다. 찾아야 하는 정지 버튼은
