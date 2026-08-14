@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -40,7 +40,7 @@ from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
 from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
-from quant_rl_trading.replay.clock import LiveClock, ReplayClock  # noqa: E402
+from quant_rl_trading.replay.clock import Clock, LiveClock, ReplayClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
@@ -109,9 +109,21 @@ def score_sessions(
 
 
 def measure(
-    name: str, store: Store, *, market: Market, sessions: int, verbose: bool
+    name: str,
+    store: Store,
+    *,
+    market: Market,
+    sessions: int,
+    verbose: bool,
+    as_of: datetime | None = None,
 ) -> ic.ICResult:
-    clock = LiveClock()
+    """``as_of`` 를 주면 **그 시점까지만 알고** 측정한다 — 워크포워드용이다.
+
+    백테스트가 진짜 OOS 이려면, 평가 구간에서 쓰는 가중치가 그 구간 데이터를
+    보지 않고 측정된 것이어야 한다. 지금 시각으로 잰 IC 를 과거 구간에 끼우면
+    그 IC 는 평가 구간을 이미 본 값이고, 그 위의 성적은 미래를 훔친 것이다.
+    """
+    clock: Clock = LiveClock() if as_of is None else ReplayClock(as_of)
     as_of = clock.now()
     threshold, min_days = ic.thresholds(store, as_of=as_of)
 
@@ -169,23 +181,44 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--save", action="store_true", help="analyst_weights 에 적재")
+    parser.add_argument(
+        "--as-of",
+        help=(
+            "이 시점까지만 알고 측정한다 (ISO8601). 워크포워드 백테스트의 전제 — "
+            "평가 구간을 본 IC 로는 OOS 성적을 낼 수 없다"
+        ),
+    )
     args = parser.parse_args(argv)
 
     load_env()
     store = build_store(args.data_root)
     market = Market(args.market)
-    clock = LiveClock()
+
+    cutoff: datetime | None = None
+    if args.as_of:
+        cutoff = datetime.fromisoformat(args.as_of)
+        if cutoff.tzinfo is None:
+            print("as_of 에 타임존이 없다. 오프셋을 명시할 것.", file=sys.stderr)
+            return 2
+    clock: Clock = LiveClock() if cutoff is None else ReplayClock(cutoff)
 
     results = []
     for name in args.analyst:
         print(f"\n=== {name} ===", flush=True)
         result = measure(
-            name, store, market=market, sessions=args.sessions, verbose=not args.quiet
+            name,
+            store,
+            market=market,
+            sessions=args.sessions,
+            verbose=not args.quiet,
+            as_of=cutoff,
         )
         print(render(result))
         results.append(result)
 
     if args.save:
+        # 적재 시각도 측정 시점이다. 지금 시각으로 찍으면 과거 as_of 조회가
+        # 이 가중치를 못 보고, 워크포워드 백테스트는 여전히 0건이 된다.
         now = clock.now()
         rows = [
             result.row(as_of=now, observed_at=now, source="ic-measure")
