@@ -41,3 +41,12 @@ def ic_history() -> Any:
         current,
         service.ic_history(store(), as_of=current.as_of, lookback=current.lookback),
     )
+
+
+@bp.get("/walk-forward")
+def walk_forward() -> Any:
+    current = scope()
+    return envelope(
+        current,
+        service.walk_forward_comparison(store(), as_of=current.as_of, lookback=current.lookback),
+    )

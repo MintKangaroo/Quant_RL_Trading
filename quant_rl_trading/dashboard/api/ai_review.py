@@ -43,6 +43,15 @@ def calls() -> Any:
     )
 
 
+@bp.get("/costs")
+def costs() -> Any:
+    current = scope()
+    return envelope(
+        current,
+        service.cost_activity(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.get("/verdicts")
 def verdicts() -> Any:
     current = scope()

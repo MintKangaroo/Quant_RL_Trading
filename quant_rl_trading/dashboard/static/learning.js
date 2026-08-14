@@ -137,4 +137,36 @@ async function renderIcHistory() {
   }, true);
 }
 
-runAll([renderKpis, renderM4Placeholders, renderGate, renderIcHistory]);
+async function renderWalkForward() {
+  const { data } = await fetchJson("learning/walk-forward");
+
+  document.getElementById("wf-source").textContent = `${data.measured_at} · ${data.source}`;
+
+  const rows = data.rows.map((row) => {
+    const wfState = row.wf_passed
+      ? `<span class="tag pass">통과</span>`
+      : `<span class="tag observe">관찰</span>`;
+    const liveCell = !row.live_measured
+      ? `<span class="tag dim">미측정</span>`
+      : `<span class="${row.live_passed ? "good" : "weak"}">${dec(row.live_ic)}</span>`;
+    const deltaCell = row.delta_ic === null
+      ? "—"
+      : `<span class="${row.delta_ic >= 0 ? "good" : "weak"}">${row.delta_ic >= 0 ? "+" : ""}${dec(row.delta_ic)}</span>`;
+    return `<tr>
+      <td><strong>${row.analyst}</strong></td>
+      <td>${wfState}</td>
+      <td class="num">${dec(row.wf_ic)}</td>
+      <td class="num">${liveCell}</td>
+      <td class="num">${deltaCell}</td>
+    </tr>`;
+  });
+
+  document.getElementById("walk-forward").innerHTML = `<table>
+    <thead><tr>
+      <th>Analyst</th><th>워크포워드 판정</th><th class="num">워크포워드 IC</th>
+      <th class="num">라이브 IC</th><th class="num">차이(라이브−워크포워드)</th>
+    </tr></thead>
+    <tbody>${rows.join("")}</tbody></table>`;
+}
+
+runAll([renderKpis, renderM4Placeholders, renderGate, renderIcHistory, renderWalkForward]);

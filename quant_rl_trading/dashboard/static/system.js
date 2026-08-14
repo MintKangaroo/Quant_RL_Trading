@@ -37,7 +37,14 @@ async function renderSummary() {
     kpi("지연 테이블", `${num(d.table_stale_count)} / ${num(d.table_count)}`,
         "최근 파티션 기준", d.table_stale_count > 0),
     kpi("LLM 캐시 적재", num(d.cache_recent_entries), "최근 창 · agent_cache"),
-    kpi("LLM 월 예산", `$${num(d.llm_monthly_budget_usd)}`, "참고값 — 실제 지출 미집계"),
+    d.llm_usage_cost_usd !== null
+      ? kpi("LLM 실측 지출", `$${dec(d.llm_usage_cost_usd, 2)}`,
+          `최근 창 · 월 예산 $${num(d.llm_monthly_budget_usd)}`,
+          d.llm_usage_cost_usd > d.llm_monthly_budget_usd)
+      : kpi("LLM 실측 지출", "단가 모름",
+          d.llm_usage_unpriced_models.length
+            ? `단가표 없음: ${d.llm_usage_unpriced_models.join(", ")}`
+            : "최근 창에 호출 기록 없음"),
     // 임계치를 안 둔다 — store.config 에 CPU/메모리/디스크 경고선이 아직
     // 없다. 없는 임계치로 색을 칠하면 코드에 숫자를 박는 것과 같다(불변식 10).
     kpi("메모리 사용률", pct(d.mem_used_pct !== null ? d.mem_used_pct / 100 : null, 1), "이 기계 전체"),
@@ -142,6 +149,38 @@ async function renderCache() {
     </tr>`).join("")}</tbody></table>`;
 }
 
+function llmCostCell(row) {
+  return row.cost_usd !== null ? `$${dec(row.cost_usd, 4)}` : `<span class="sub">단가 모름</span>`;
+}
+
+async function renderLlmUsage() {
+  const { data } = await fetchJson("system/llm-usage");
+  const target = document.getElementById("llm-usage");
+  if (!data.rows.length) {
+    target.innerHTML = `<div class="empty">최근 창에 LLM 호출 기록이 없다.</div>`;
+    return;
+  }
+  const note = document.getElementById("llm-usage-note");
+  if (note) {
+    note.textContent = data.unpriced_models.length
+      ? `단가표에 없는 모델: ${data.unpriced_models.join(", ")} — 그 모델의 비용은 합계에서 빠졌다.`
+      : "";
+  }
+  target.innerHTML = `<table>
+    <thead><tr><th>에이전트</th><th>모델</th><th class="num">호출</th>
+      <th class="num">입력 토큰</th><th class="num">출력 토큰</th>
+      <th class="num">비용</th><th class="num">최근 호출</th></tr></thead>
+    <tbody>${data.rows.map((row) => `<tr>
+      <td>${esc(row.agent)}</td>
+      <td class="sub">${esc(row.model)}</td>
+      <td class="num">${num(row.calls)}</td>
+      <td class="num">${num(row.input_tokens)}</td>
+      <td class="num">${num(row.output_tokens)}</td>
+      <td class="num">${llmCostCell(row)}</td>
+      <td class="num sub">${stamp(row.last_call_at)}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
 /* 서버 리소스 · 프로세스 — LS_KR system 탭에서 가져왔다. 창고를 안 거치고
  * /proc 만 읽으므로 as_of 와 무관하다 (services/system.py 모듈 docstring). */
 
@@ -186,5 +225,5 @@ async function renderProcesses() {
 
 runAll([
   renderSummary, renderResources, renderProcesses, renderJobs, renderTables,
-  renderLatency, renderSafety, renderCache,
+  renderLatency, renderSafety, renderCache, renderLlmUsage,
 ]);

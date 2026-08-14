@@ -3,7 +3,7 @@
 Data Quality 가 "데이터가 썩고 있나", Agent Health 가 "에이전트가 썩고
 있나" 를 본다면 이 화면은 **배관** 을 본다 — 크론이 실제로 돌았는가,
 창고가 오늘 것을 알고 있는가, 안전장치가 걸려 있는가, 설정이 어느
-판번호인가, LLM 캐시가 쌓이고 있는가.
+판번호인가, LLM 캐시·실제 호출 비용이 쌓이고 있는가.
 
 ## 두 종류의 시각이 섞여 있다
 
@@ -13,16 +13,27 @@ Data Quality 가 "데이터가 썩고 있나", Agent Health 가 "에이전트가
 "그때 알 수 있었던 것"이 아니라 "지금 로그에 뭐가 있나" 이므로 이중시간의
 대상이 아니다. 규약대로 ``as_of`` 는 받아 되돌려주되 내용은 언제나 최신이다.
 
-``table_freshness`` · ``cache_stats`` · ``safety_summary`` 는 반대로 창고를
-경유한다 (불변식 1) — 그래서 이쪽은 정직하게 되감긴다.
+``table_freshness`` · ``cache_stats`` · ``llm_usage_summary`` · ``safety_summary``
+는 반대로 창고를 경유한다 (불변식 1) — 그래서 이쪽은 정직하게 되감긴다.
+
+## LLM 캐시와 LLM 호출은 서로 다른 표다
+
+``agent_cache`` 는 판정·해설을 항목별로 캐싱한다 — 캐시를 맞힌 호출은
+새 행을 쓰지 않으므로 ``cache_stats`` 는 **적재 건수**만 셀 수 있고
+적중률·비용은 못 잰다(``cache_stats`` docstring). ``llm_usage`` 는 반대로
+HTTP 왕복 하나하나를 기록하는 표라 호출 횟수·토큰이 실측이고,
+``store.config("llm").pricing`` 을 곱하면 달러 비용까지 나온다
+(``llm_usage_summary``). 캐시 적재 건수와 llm_usage 호출 건수를 더해서는
+안 된다 — 하나는 "무엇을 알고 있나", 하나는 "무엇을 새로 계산했나"다.
 
 ## 큰 테이블을 스캔하지 않는다
 
 ``flows`` 는 파일이 109만 개다. 그래서 최신성 확인은 **짧은 lookback**
 으로만 연다 — 파티션 하한 프루닝이 걸려 있는 테이블(대부분)은 최근 며칠치
 파티션만 열리고, 선언이 없는 몇 개(fundamentals·documents·events·
-verdicts·analyst_weights·agent_cache)는 통째로 열리지만 전부 합쳐도
-150MB 남짓이라 문제되지 않는다.
+verdicts·analyst_weights·agent_cache·llm_usage)는 통째로 열리지만 전부
+합쳐도 150MB 남짓이라 문제되지 않는다. ``llm_usage_summary`` 는 그마저도
+``lookback`` 인자로 창을 짧게 잡는다(``cache_stats`` 와 같은 패턴).
 
 ## 서버 리소스는 창고를 아예 거치지 않는다
 
@@ -52,6 +63,7 @@ from quant_rl_trading.store import Store
 from quant_rl_trading.store.tables import CONFIG_TABLE, table_names
 
 AGENT_CACHE = "agent_cache"
+LLM_USAGE = "llm_usage"
 
 #: 프로세스 표에 실을 최대 행수.
 PROCESS_ROWS = 12
@@ -267,6 +279,129 @@ def cache_stats(store: Store, *, as_of: datetime, lookback: int) -> dict[str, An
     return {"rows": rows, "total": len(frame)}
 
 
+def llm_usage_summary(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """LLM 실제 호출량·비용(``llm_usage``) — 모델·에이전트별 토큰 합계와 단가 환산.
+
+    ``cache_stats`` 가 못 세는 "적중률·비용"과는 다른 표다. 이 표는 HTTP
+    왕복 하나하나를 기록하므로 **호출 횟수·토큰 합계는 실측**이다. 달러
+    환산은 ``store.config("llm").pricing`` 을 곱해서 구한다(불변식 10) —
+    코드에 단가를 박지 않는다. ``llm_usage.model`` 문자열이 단가표 키와
+    맞지 않는 모델(신규 모델·단가 미등록)이 섞여 있으면 그 모델의
+    ``cost_usd`` 는 ``None`` 으로 남기고 ``unpriced_models`` 로 알린다 —
+    0으로 채우면 그 모델은 공짜로 계산돼 전체 합계가 실제보다 작게 나온다.
+    """
+    llm_config = store.config("llm", as_of=as_of)
+    # store.config 는 YAML 을 평평하게 저장한다(config.py flatten) — 섹션
+    # 조회(``read_section``)는 접두사("llm.")만 한 번 벗기고, 그 아래
+    # 중첩(``pricing.<model>.<field>``)은 다시 묶어주지 않는다. 그래서
+    # "pricing." 로 시작하는 키를 여기서 직접 3단으로 다시 묶는다.
+    pricing: dict[str, dict[str, float]] = {}
+    for key, value in llm_config.items():
+        if key.startswith("pricing."):
+            _, model_key, field = key.split(".", 2)
+            pricing.setdefault(model_key, {})[field] = value
+    usd_krw_rate = llm_config.get("usd_krw_rate")
+
+    frame = store.get(
+        LLM_USAGE,
+        as_of=as_of,
+        lookback=lookback,
+        columns=[
+            "agent",
+            "model",
+            "items",
+            "input_tokens",
+            "output_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "computed_at",
+        ],
+    )
+    if frame.empty:
+        return {
+            "rows": [],
+            "calls": 0,
+            "total_tokens": 0,
+            "total_cost_usd": None,
+            "usd_krw_rate": usd_krw_rate,
+            "unpriced_models": [],
+        }
+
+    grouped = (
+        frame.groupby(["agent", "model"])
+        .agg(
+            calls=("agent", "size"),
+            items=("items", "sum"),
+            input_tokens=("input_tokens", "sum"),
+            output_tokens=("output_tokens", "sum"),
+            cache_creation_tokens=("cache_creation_input_tokens", "sum"),
+            cache_read_tokens=("cache_read_input_tokens", "sum"),
+            last_call_at=("computed_at", "max"),
+        )
+        .reset_index()
+        .sort_values("calls", ascending=False)
+    )
+
+    rows: list[dict[str, Any]] = []
+    unpriced_models: set[str] = set()
+    total_cost: float | None = 0.0
+    for row in grouped.to_dict(orient="records"):
+        model = str(row["model"])
+        price = pricing.get(model)
+        cost: float | None
+        if price is None:
+            unpriced_models.add(model)
+            cost = None
+            total_cost = None
+        else:
+            cost = (
+                row["input_tokens"] * price["input_per_mtok"]
+                + row["output_tokens"] * price["output_per_mtok"]
+                + row["cache_creation_tokens"] * price["cache_write_per_mtok"]
+                + row["cache_read_tokens"] * price["cache_read_per_mtok"]
+            ) / 1e6
+            if total_cost is not None:
+                total_cost += cost
+        rows.append(
+            {
+                "agent": str(row["agent"]),
+                "model": model,
+                "calls": int(row["calls"]),
+                "items": int(row["items"]),
+                "input_tokens": int(row["input_tokens"]),
+                "output_tokens": int(row["output_tokens"]),
+                "cache_creation_tokens": int(row["cache_creation_tokens"]),
+                "cache_read_tokens": int(row["cache_read_tokens"]),
+                "cost_usd": round(cost, 4) if cost is not None else None,
+                "last_call_at": pd.Timestamp(row["last_call_at"]).isoformat(),
+            }
+        )
+
+    total_tokens = int(
+        frame[
+            [
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            ]
+        ]
+        .sum()
+        .sum()
+    )
+    return {
+        "rows": rows,
+        "calls": len(frame),
+        "total_tokens": total_tokens,
+        # 단가 미등록 모델이 하나라도 섞이면 합계 전체를 None 으로 둔다 —
+        # "일부만 더한 값"을 총액인 것처럼 보여주면 실제보다 적게 지출한
+        # 것처럼 읽힌다.
+        "total_cost_usd": round(total_cost, 2) if total_cost is not None else None,
+        "usd_krw_rate": usd_krw_rate,
+        "unpriced_models": sorted(unpriced_models),
+    }
+
+
 def safety_summary(store: Store, *, as_of: datetime) -> dict[str, Any]:
     """킬스위치·설정 판번호·LLM 예산 — "안전장치가 걸려 있나" 의 답."""
     state, reason = guards.killswitch_state(store, as_of=as_of)
@@ -401,6 +536,7 @@ def summary(
     jobs = job_history(store)
     tables = table_freshness(store, as_of=as_of)
     cache = cache_stats(store, as_of=as_of, lookback=int(thresholds["cache_lookback_days"]))
+    usage = llm_usage_summary(store, as_of=as_of, lookback=int(thresholds["cache_lookback_days"]))
     safety = safety_summary(store, as_of=as_of)
     resources = server_resources(store.root)
 
@@ -431,12 +567,25 @@ def summary(
         warnings.append(f"{job['label']} 마지막 성공이 {job_stale_hours:.0f}시간을 넘었다")
     for table in stale_tables:
         warnings.append(f"{table['table']} 최신 데이터가 {table['stale_days']}일 지연")
+    # cache_lookback_days(기본 30일)를 "최근 한 달"의 근사로 써서 예산과
+    # 비교한다 — as_of 시점의 정확히 달력상 이번 달은 아니라는 점을 문구에
+    # 남긴다. 단가 미등록 모델이 섞여 total_cost_usd 가 None 이면 비교 자체가
+    # 성립하지 않으므로 경고를 만들지 않는다(불변식 10 — 모르는 값으로 판정 금지).
+    usage_cost = usage["total_cost_usd"]
+    budget = safety["llm_monthly_budget_usd"]
+    if usage_cost is not None and usage_cost > budget:
+        warnings.append(
+            f"최근 {thresholds['cache_lookback_days']}일 LLM 실측 지출 "
+            f"${usage_cost:.2f}이 월 예산 ${budget:.0f}을 넘었다"
+        )
 
     return {
         "config_version": safety["config_version"],
         "killswitch_engaged": safety["killswitch_engaged"],
         "killswitch_reason": safety["killswitch_reason"],
         "llm_monthly_budget_usd": safety["llm_monthly_budget_usd"],
+        "llm_usage_cost_usd": usage["total_cost_usd"],
+        "llm_usage_unpriced_models": usage["unpriced_models"],
         "job_count": len(jobs),
         "job_failed_count": len(failed_jobs),
         "job_silent_count": len(silent_jobs),
@@ -453,6 +602,7 @@ __all__ = [
     "JOB_DEFS",
     "cache_stats",
     "job_history",
+    "llm_usage_summary",
     "project_processes",
     "safety_summary",
     "server_resources",

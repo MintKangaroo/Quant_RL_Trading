@@ -1,15 +1,15 @@
 {
   "ai-review/calls": {
-    "as_of": "2026-08-14T12:10:03.191665+00:00",
+    "as_of": "2026-08-14T14:21:21.808830+00:00",
     "data": {
       "agents": {
         "agents": [
           {
             "agent": "macro-brief",
-            "calls": 24,
+            "calls": 26,
             "entities": 20,
             "first_computed_at": "2026-08-13T10:39:55.325524+09:00",
-            "last_computed_at": "2026-08-14T18:40:34.807460+09:00",
+            "last_computed_at": "2026-08-14T23:16:01.493895+09:00",
             "version": "macro-brief-v0.1.0"
           },
           {
@@ -21,9 +21,25 @@
             "version": "news-screen-v0.1.0"
           }
         ],
-        "total": 102
+        "total": 104
       },
       "recent": [
+        {
+          "agent": "macro-brief",
+          "as_of": "2026-08-14T23:15:48.874099+09:00",
+          "computed_at": "2026-08-14T23:16:01.493895+09:00",
+          "entity_id": "US:RETAIL_SALES",
+          "summary": "소매판매 감소 발표와 함께 S&P 500 1.01% 하락",
+          "version": "macro-brief-v0.1.0"
+        },
+        {
+          "agent": "macro-brief",
+          "as_of": "2026-08-14T23:15:48.874099+09:00",
+          "computed_at": "2026-08-14T23:16:01.479580+09:00",
+          "entity_id": "US:RETAIL_ADVANCE",
+          "summary": "소매판매 속보치 7,636억달러, 직전 대비 0.58% 감소",
+          "version": "macro-brief-v0.1.0"
+        },
         {
           "agent": "macro-brief",
           "as_of": "2026-08-14T18:40:04.024065+09:00",
@@ -60,8 +76,8 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:030610",
-          "summary": "소송 판결·결정 공시로 승패 및 금액이 제목에 없어 악재 여부 판단 불가.",
+          "entity_id": "KR:030720",
+          "summary": "변동 방향이 명시되지 않은 소유주식 변동신고서.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -116,14 +132,6 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:033270",
-          "summary": "최대주주 변경은 insider_sell 분류와 맞지 않고 방향도 불명확.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
           "entity_id": "KR:010580",
           "summary": "변동 방향 불명의 최대주주등 소유주식 변동신고서로 매도 확정 불가.",
           "version": "news-screen-v0.1.0"
@@ -132,32 +140,8 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:031860",
-          "summary": "액면병합 변경상장에 따른 정지기간 변경은 절차적 사안으로 구조적 악재가 아님.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:032800",
-          "summary": "유상증자 결정으로 지분 희석 악재에 해당.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:011090",
-          "summary": "유상증자 결정 주요사항보고서로 당사 주식 희석 요인이 맞음.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:038060",
-          "summary": "최대주주 변경 수반 주식양수도는 경영권 이전으로 내부자 매도 악재 분류가 부적절.",
+          "entity_id": "KR:033270",
+          "summary": "최대주주 변경은 insider_sell 분류와 맞지 않고 방향도 불명확.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -172,8 +156,40 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:030720",
-          "summary": "변동 방향이 명시되지 않은 소유주식 변동신고서.",
+          "entity_id": "KR:011090",
+          "summary": "유상증자 결정 주요사항보고서로 당사 주식 희석 요인이 맞음.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:032800",
+          "summary": "유상증자 결정으로 지분 희석 악재에 해당.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:008600",
+          "summary": "반기검토의견 부적정/의견거절 또는 완전자본잠식 사실 발생은 명백한 회계 악재.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:031860",
+          "summary": "액면병합 변경상장에 따른 정지기간 변경은 절차적 사안으로 구조적 악재가 아님.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:030610",
+          "summary": "소송 판결·결정 공시로 승패 및 금액이 제목에 없어 악재 여부 판단 불가.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -204,8 +220,8 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:008600",
-          "summary": "반기검토의견 부적정/의견거절 또는 완전자본잠식 사실 발생은 명백한 회계 악재.",
+          "entity_id": "KR:038060",
+          "summary": "최대주주 변경 수반 주식양수도는 경영권 이전으로 내부자 매도 악재 분류가 부적절.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -213,7 +229,7 @@
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
           "entity_id": "KR:043260",
-          "summary": "신주인수권부사채 만기전 취득 후 재매각은 잠재 신주 물량 재유통으로 희석 요인이 맞음.",
+          "summary": "전환사채권 발행 결정 공시로 잠재 희석 요인.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -228,8 +244,8 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:055550",
-          "summary": "변동 방향이 없는 최대주주등 소유주식 변동신고서.",
+          "entity_id": "KR:004150",
+          "summary": "소유주식 변동신고서는 변동 방향이 제목에 드러나지 않아 매도로 단정 불가.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -292,16 +308,16 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:004150",
-          "summary": "소유주식 변동신고서는 변동 방향이 제목에 드러나지 않아 매도로 단정 불가.",
+          "entity_id": "KR:055550",
+          "summary": "변동 방향이 없는 최대주주등 소유주식 변동신고서.",
           "version": "news-screen-v0.1.0"
         },
         {
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:054940",
-          "summary": "거래정지 해제 공시로 악재가 아님.",
+          "entity_id": "KR:043260",
+          "summary": "신주인수권부사채 만기전 취득 후 재매각은 잠재 신주 물량 재유통으로 희석 요인이 맞음.",
           "version": "news-screen-v0.1.0"
         },
         {
@@ -316,32 +332,16 @@
           "agent": "news-screen",
           "as_of": "2026-08-14T16:00:00+09:00",
           "computed_at": "2026-08-14T16:00:00+09:00",
+          "entity_id": "KR:054940",
+          "summary": "거래정지 해제 공시로 악재가 아님.",
+          "version": "news-screen-v0.1.0"
+        },
+        {
+          "agent": "news-screen",
+          "as_of": "2026-08-14T16:00:00+09:00",
+          "computed_at": "2026-08-14T16:00:00+09:00",
           "entity_id": "KR:054180",
           "summary": "개선기간 종료에 따른 상장폐지 여부 결정 안내로 상장폐지 리스크가 현실화 단계임.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:052770",
-          "summary": "상장적격성 실질심사 대상 여부 조사기간 연장은 상장폐지 리스크 지속을 의미하는 악재.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:052710",
-          "summary": "청약 결과 공시는 결과(청약률)에 따라 방향이 갈리므로 제목만으로 악재 확정 불가.",
-          "version": "news-screen-v0.1.0"
-        },
-        {
-          "agent": "news-screen",
-          "as_of": "2026-08-14T16:00:00+09:00",
-          "computed_at": "2026-08-14T16:00:00+09:00",
-          "entity_id": "KR:045970",
-          "summary": "종속회사의 유상증자로 상장사 본체 주식의 희석이 아니며 오히려 자회사 자금조달일 수 있음.",
           "version": "news-screen-v0.1.0"
         }
       ]
@@ -357,8 +357,37 @@
       "missing_warn": 0.01
     }
   },
+  "ai-review/costs": {
+    "as_of": "2026-08-14T14:21:21.921742+00:00",
+    "data": {
+      "by_agent": [],
+      "cost_krw": 0.0,
+      "cost_usd": 0.0,
+      "since": null,
+      "tokens": {
+        "cache_read": 0,
+        "cache_write": 0,
+        "input": 0,
+        "output": 0
+      },
+      "total_calls": 0,
+      "unpriced_calls": 0,
+      "unpriced_models": [],
+      "usd_krw_rate": 1450.0
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
   "ai-review/documents": {
-    "as_of": "2026-08-14T12:10:03.276575+00:00",
+    "as_of": "2026-08-14T14:21:21.996409+00:00",
     "data": {
       "by_type": [
         {
@@ -698,12 +727,16 @@
     }
   },
   "ai-review/summary": {
-    "as_of": "2026-08-14T12:10:03.958603+00:00",
+    "as_of": "2026-08-14T14:21:22.676851+00:00",
     "data": {
       "agents": 2,
       "blocked": 212,
-      "calls": 102,
+      "calls": 104,
       "documents": 30808,
+      "llm_cost_krw": 0.0,
+      "llm_cost_usd": 0.0,
+      "llm_usage_calls": 0,
+      "llm_usage_since": null,
       "verdicts_total": 212,
       "warnings": []
     },
@@ -719,7 +752,7 @@
     }
   },
   "ai-review/verdicts": {
-    "as_of": "2026-08-14T12:10:04.812013+00:00",
+    "as_of": "2026-08-14T14:21:23.443994+00:00",
     "data": {
       "blocked": 212,
       "by_analyst": [

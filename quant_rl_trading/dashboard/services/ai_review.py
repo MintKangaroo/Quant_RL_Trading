@@ -1,16 +1,17 @@
-"""AI 리뷰 탭 집계 — LLM 이 실제로 무엇을 했는지.
+"""AI 리뷰 탭 집계 — LLM 이 실제로 무엇을 했고 얼마가 들었는지.
 
-세 테이블을 본다.
+네 테이블을 본다.
 
 - ``agent_cache`` — 실제로 부른 LLM 호출의 기록. 캐시 적중은 새 행을 만들지
   않으므로(``replay/cache.py`` 의 ``get`` 은 조회만 하고 ``put`` 만 append 한다),
   이 표의 행 수가 곧 "다시 계산한 횟수" 다.
+- ``llm_usage`` — 호출 하나(HTTP 왕복)당 실제 토큰 사용량. 비용은 여기 토큰과
+  ``config.llm.pricing`` 단가로 계산한다(``store/tables.py`` 참고 — 단가는
+  창고가 아니라 store.config 소관, 불변식 10). **이 표가 생기기 전 호출은
+  기록이 없다.** 0원이 아니라 "몰랐다" 다 — ``cost_activity`` 가 창(lookback)
+  안 첫 기록 시각을 ``since`` 로 돌려주고, 화면이 그걸 명시해야 한다.
 - ``verdicts`` — News·SNS 의 매수 거부 판정. 매도 권한은 없다 (불변식).
 - ``documents`` — 판정의 입력이 된 공시·뉴스.
-
-**비용은 잴 수 없다.** ``agent_cache.output`` 에는 모델 응답만 있고 토큰
-사용량은 기록되지 않는다 (``replay/cache.py`` 스키마 참고). 없는 값을 0 으로
-채우지 않고 그대로 비워 둔다 — 0 은 "쟀는데 0" 이라는 다른 사실이다.
 
 **``verdicts`` 가 거의 비어 있는 것은 고장이 아니다.** `docs/milestones.md`
 M2 가 못 박았다 — 뉴스 40건 → 패턴 4건 → LLM 4건 전부 기각, 0건은 "거부할
@@ -26,11 +27,20 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.analysts import scorecard
-from quant_rl_trading.store import Store
+from quant_rl_trading.store import ConfigNotFound, Store
 
 CACHE = "agent_cache"
 VERDICTS = "verdicts"
 DOCUMENTS = "documents"
+USAGE = "llm_usage"
+
+#: llm_usage 의 토큰 필드 → config 의 단가 필드. 순서가 비용 계산의 근거다.
+_TOKEN_PRICE_FIELDS = (
+    ("input_tokens", "input_per_mtok"),
+    ("output_tokens", "output_per_mtok"),
+    ("cache_creation_input_tokens", "cache_write_per_mtok"),
+    ("cache_read_input_tokens", "cache_read_per_mtok"),
+)
 
 #: 최근 목록 패널이 한 화면에 들어가려면 길이를 자른다. 패널 안 스크롤은
 #: 되지만(dashboard.md §2) 무한정 늘리면 창고 조회가 무거워진다.
@@ -162,29 +172,152 @@ def document_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[s
     }
 
 
+def _pricing_table(store: Store, *, as_of: datetime) -> dict[str, dict[str, float]]:
+    """``config.llm.pricing`` 을 ``{모델: {필드: 단가}}`` 로 되접는다.
+
+    ``store.config()`` 는 이름에 점이 있으면(``"llm.pricing"``) 무조건 값
+    하나로 취급한다 — ``"reward.w_free"`` 처럼 "섹션.키" 한 단계만 상정하기
+    때문이다. ``llm.pricing.<모델>.<필드>`` 는 두 단계라 그 경로로는 못
+    읽는다. 그래서 점 없는 ``"llm"`` 섹션 전체를 받아(``read_section`` 이
+    ``pricing.claude-opus-5.input_per_mtok`` 처럼 나머지를 평평하게 둔 채
+    돌려준다) 여기서 ``pricing.`` 접두어만 골라 모델 단위로 다시 묶는다.
+    섹션 자체가 없으면(설정 시딩 전) 빈 dict — 비용을 0 으로 지어내지 않고
+    "단가를 모른다" 로 넘긴다.
+    """
+    try:
+        section = store.config("llm", as_of=as_of)
+    except ConfigNotFound:
+        return {}
+    table: dict[str, dict[str, float]] = {}
+    for key, value in section.items():
+        if not key.startswith("pricing."):
+            continue
+        model, field = key[len("pricing.") :].split(".", 1)
+        table.setdefault(model, {})[field] = float(value)
+    return table
+
+
+def _row_cost_usd(row: pd.Series, rates: dict[str, float]) -> float:
+    return sum(
+        float(row[token_field] or 0) * rates.get(price_field, 0.0)
+        for token_field, price_field in _TOKEN_PRICE_FIELDS
+    ) / 1_000_000
+
+
+def cost_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """``llm_usage`` 의 실제 토큰 × ``config.llm.pricing`` 단가 = 비용.
+
+    **이 표가 생기기 전 호출은 기록이 없다** — 화면은 그걸 "0원" 이 아니라
+    "몰랐다" 로 말해야 한다. ``since`` 가 이 창(lookback) 안 첫 기록 시각이다
+    (그 이전 이력은 이 창고가 알 방법이 없다).
+
+    단가가 없는 모델(설정에 안 실린 모델 문자열)은 합계에서 빼고
+    ``unpriced_calls`` 로 따로 센다 — 조용히 0 으로 채우면 총액이 실제보다
+    낮게 보인다.
+    """
+    frame = store.get(USAGE, as_of=as_of, lookback=lookback)
+    krw_rate = float(store.config("llm.usd_krw_rate", as_of=as_of))
+    if frame.empty:
+        return {
+            "total_calls": 0,
+            "since": None,
+            "usd_krw_rate": krw_rate,
+            "cost_usd": 0.0,
+            "cost_krw": 0.0,
+            "unpriced_calls": 0,
+            "unpriced_models": [],
+            "tokens": {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0},
+            "by_agent": [],
+        }
+
+    pricing = _pricing_table(store, as_of=as_of)
+    frame = frame.copy()
+    frame["cost_usd"] = [
+        _row_cost_usd(row, pricing[str(row["model"])]) if str(row["model"]) in pricing else None
+        for _, row in frame.iterrows()
+    ]
+    priced = frame[frame["cost_usd"].notna()]
+    unpriced = frame[frame["cost_usd"].isna()]
+
+    tokens = {
+        "input": int(frame["input_tokens"].sum()),
+        "output": int(frame["output_tokens"].sum()),
+        "cache_write": int(frame["cache_creation_input_tokens"].sum()),
+        "cache_read": int(frame["cache_read_input_tokens"].sum()),
+    }
+
+    by_agent: list[dict[str, Any]] = []
+    for (agent, model), group in frame.groupby(["agent", "model"]):
+        priced_group = group[group["cost_usd"].notna()]
+        cost_usd = float(priced_group["cost_usd"].sum())
+        by_agent.append(
+            {
+                "agent": str(agent),
+                "model": str(model),
+                "calls": len(group),
+                "items": int(group["items"].sum()),
+                "priced": str(model) in pricing,
+                "cost_usd": round(cost_usd, 6),
+                "cost_krw": round(cost_usd * krw_rate),
+                "tokens": {
+                    "input": int(group["input_tokens"].sum()),
+                    "output": int(group["output_tokens"].sum()),
+                    "cache_write": int(group["cache_creation_input_tokens"].sum()),
+                    "cache_read": int(group["cache_read_input_tokens"].sum()),
+                },
+            }
+        )
+    by_agent.sort(key=lambda row: -row["cost_usd"])
+
+    cost_usd = float(priced["cost_usd"].sum())
+    return {
+        "total_calls": len(frame),
+        "since": frame["computed_at"].min().isoformat(),
+        "usd_krw_rate": krw_rate,
+        "cost_usd": round(cost_usd, 6),
+        "cost_krw": round(cost_usd * krw_rate),
+        "unpriced_calls": len(unpriced),
+        "unpriced_models": sorted(unpriced["model"].astype(str).unique().tolist()),
+        "tokens": tokens,
+        "by_agent": by_agent,
+    }
+
+
 def summary(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     activity = agent_activity(store, as_of=as_of, lookback=lookback)
     verdicts = verdict_activity(store, as_of=as_of, lookback=lookback)
     documents = document_activity(store, as_of=as_of, lookback=lookback)
+    cost = cost_activity(store, as_of=as_of, lookback=lookback)
     return {
         "calls": activity["total"],
         "agents": len(activity["agents"]),
         "blocked": verdicts["blocked"],
         "verdicts_total": verdicts["total"],
         "documents": documents["total"],
-        "warnings": _warnings(activity),
+        "llm_cost_usd": cost["cost_usd"],
+        "llm_cost_krw": cost["cost_krw"],
+        "llm_usage_calls": cost["total_calls"],
+        "llm_usage_since": cost["since"],
+        "warnings": _warnings(activity, cost),
     }
 
 
-def _warnings(activity: dict[str, Any]) -> list[str]:
+def _warnings(activity: dict[str, Any], cost: dict[str, Any]) -> list[str]:
     found: list[str] = []
     if not activity["agents"]:
         found.append("LLM 호출 기록이 없다. news_screen · macro_brief 가 아직 안 돌았을 수 있다")
+    if cost["unpriced_models"]:
+        found.append(
+            "단가를 모르는 모델이 있다 — 이 모델의 비용은 합계에서 빠졌다: "
+            + ", ".join(cost["unpriced_models"])
+            + " (config/quant_rl_trading.yaml 의 llm.pricing 에 추가할 것)"
+        )
     return found
 
 
 __all__ = [
     "agent_activity",
+    "cost_activity",
     "document_activity",
     "recent_calls",
     "summary",

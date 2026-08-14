@@ -105,9 +105,66 @@ def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any
     return history
 
 
+#: 2026-01-02 워크포워드 최종 판정. `data/_backtest` 샌드박스(purged K-fold +
+#: embargo, 300세션)에서 나온 값이지 **실전 창고가 아니다** — 그래서 store 로
+#: 조회하지 않고 여기에 고정한다. 이미 끝난 과거 측정이라 as_of 로 되감아도
+#: 바뀌지 않는 사실이다 (m4_status 와 같은 이유). 출처:
+#: `data/_backtest/curated/analyst_weights`.
+WALK_FORWARD_2026_01_02: dict[str, dict[str, Any]] = {
+    "risk": {"ic": 0.0833, "passed": True, "weight": 1.0},
+    "fundamental": {"ic": 0.0699, "passed": True, "weight": 1.0},
+    "event": {"ic": 0.0427, "passed": True, "weight": 1.0},
+    "regime": {"ic": 0.0101, "passed": False, "weight": 0.0},
+    "flow_kr": {"ic": 0.0019, "passed": False, "weight": 0.0},
+    "chart": {"ic": -0.0166, "passed": False, "weight": 0.0},
+}
+
+
+def walk_forward_comparison(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """워크포워드(샌드박스, 2026-01-02) 대 라이브(실전 창고) IC 비교.
+
+    같은 Analyst 라도 측정 시점·표본이 다르면 IC 가 달라진다 — 그 차이 자체가
+    "IC 는 한 번 재고 끝나는 값이 아니다" 라는 근거다. 라이브 쪽만 ``store``
+    에서 읽는다(``agent_health.roster`` 재사용). 워크포워드 값은 위 상수다.
+    """
+    roster = agent_health.roster(store, as_of=as_of, lookback=lookback)
+    live_by_name = {item["analyst"]: item for item in roster}
+
+    rows: list[dict[str, Any]] = []
+    for name, wf in sorted(WALK_FORWARD_2026_01_02.items()):
+        live = live_by_name.get(name)
+        measured = bool(live is not None and live["measured"])
+        live_ic = float(live["ic"]) if measured and live is not None else None
+        live_passed = bool(live["passed"]) if measured and live is not None else None
+        rows.append(
+            {
+                "analyst": name,
+                "wf_ic": wf["ic"],
+                "wf_passed": wf["passed"],
+                "wf_weight": wf["weight"],
+                "live_ic": live_ic,
+                "live_passed": live_passed,
+                "live_measured": measured,
+                "delta_ic": (live_ic - wf["ic"]) if live_ic is not None else None,
+            }
+        )
+    source = (
+        "data/_backtest 샌드박스 워크포워드 (purged K-fold + embargo, 300세션)"
+        " — 실전 창고 아님"
+    )
+    return {
+        "measured_at": "2026-01-02",
+        "source": source,
+        "threshold": float(store.config("analyst.ic_threshold", as_of=as_of)),
+        "rows": rows,
+    }
+
+
 __all__ = [
     "M4_WIDGETS",
+    "WALK_FORWARD_2026_01_02",
     "analyst_gate",
     "ic_history",
     "m4_status",
+    "walk_forward_comparison",
 ]

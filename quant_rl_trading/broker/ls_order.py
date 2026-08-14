@@ -220,6 +220,18 @@ class LSBroker:
         if not self._live(as_of=as_of):
             return Ack(order_id=broker_order_no, accepted=True, sent=False)
 
+        # CSPAT00801 의 OrdQty 는 "이번에 취소할 수량"이다 — 잔량 전체를
+        # 뜻하는 고정값이 아니다. 참고 구현(ls_kr_rl_trader/broker/order.py
+        # cancel_stale_live_orders)이 증거다: 취소 직전 실제 브로커 잔량을
+        # 다시 조회해 ``remaining = min(remaining, broker_remaining)`` 으로
+        # 좁힌 뒤 그 값을 ``cancel_order(..., remaining)`` 에 그대로 넘긴다
+        # (order.py:473-489). 그리고 그 값이 실제 잔량을 넘으면 거래소가
+        # "01443=취소가능수량 초과"로 거부한다(order.py:494-497) — 즉 OrdQty
+        # 를 실제보다 크게 불러도 자동으로 전량취소가 되는 게 아니라 거부된다.
+        # 그래서 호출자는 반드시 "지금 취소하려는 정확한 수량"(보통 최신
+        # 잔량)을 넘겨야 한다. 여기서는 호출자가 준 quantity 를 그대로 쓴다 —
+        # 최신 잔량을 다시 조회하는 것은 이 어댑터가 아니라 호출자(생애주기)
+        # 몫이다.
         body = {
             "CSPAT00801InBlock1": {
                 "OrgOrdNo": int(broker_order_no),
@@ -259,6 +271,18 @@ class LSBroker:
                 "OrdQty": int(quantity),
                 # 재호가는 항상 지정가다 — Protocol 의 ``price`` 는 필수
                 # 인자라 시장가로 정정하는 경로가 없다(모듈 docstring 참고).
+                # 확인: 참고 구현(ls_kr_rl_trader/broker/ls_client.py
+                # modify_order)은 OrdprcPtnCode 를 "03"(시장가)으로도 낼 수
+                # 있게 파라미터를 열어 두었지만, 실제로 그 경로를 부르는
+                # 호출부는 그 저장소 전체에 하나도 없다(place_order 만
+                # market/limit 을 다 쓰고, 미체결 관리는 cancel_order 로
+                # 전량취소·재제출만 한다 — order.py cancel_stale_live_orders,
+                # reprice 자체가 없다). 이 시스템도 마찬가지다: 생애주기
+                # (``executor/lifecycle.py`` decide)의 REPRICE 는 슬리피지
+                # 상한 안의 구체적 지정가만 만들고 시장가 재호가를 지시하는
+                # 경로가 없다 — 그래서 이 고정값은 안전하다. 나중에
+                # lifecycle 이 "시장가로 정정" 을 낼 수 있게 바뀌면 이
+                # 가정도 같이 깨진다.
                 "OrdprcPtnCode": ORD_PTN_LIMIT,
                 "OrdCndiTpCode": ORD_CNDI_NONE,
                 "OrdPrc": int(price),

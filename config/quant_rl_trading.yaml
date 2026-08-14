@@ -144,6 +144,33 @@ llm:
   news_screen_model: haiku
   news_deep_model: sonnet
   review_model: sonnet
+  # 실제 청구 통화(USD)→원화 환산용. 대시보드 표시 참고치일 뿐, 청구는 USD.
+  usd_krw_rate: 1450
+  # 모델별 단가 — $/1M 토큰. 출처: claude-api 스킬 캐시(2026-06-24 기준,
+  # platform.claude.com/docs/en/pricing 원본) + Anthropic 표준 캐시 배수
+  # (cache_write = input×1.25, 5분 TTL / cache_read = input×0.1 — 모델 무관,
+  # 참고 구현 ls_kr_rl_trader/dashboard/ai_review.py 의 opus-4-8 단가와 같은 공식).
+  # 확인일: 2026-08-14. Sonnet 5 는 2026-08-31까지 도입가($2/$10)가 있으나
+  # 그 뒤 정가로 돌아가므로 여기는 정가($3/$15)를 싣는다 — 안 그러면 도입가
+  # 만료 때마다 config 를 또 고쳐야 한다. llm_usage.model 에 찍히는 실제 모델
+  # 문자열(analysts/news_screen.py·macro_brief.py 의 MODEL 상수)과 키가 같아야
+  # 화면이 단가를 찾는다 — 못 찾으면 "단가 모름" 으로 표시하지 0 으로 채우지 않는다.
+  pricing:
+    claude-opus-5:
+      input_per_mtok: 5.00
+      output_per_mtok: 25.00
+      cache_write_per_mtok: 6.25
+      cache_read_per_mtok: 0.50
+    claude-sonnet-5:
+      input_per_mtok: 3.00
+      output_per_mtok: 15.00
+      cache_write_per_mtok: 3.75
+      cache_read_per_mtok: 0.30
+    claude-haiku-4-5:
+      input_per_mtok: 1.00
+      output_per_mtok: 5.00
+      cache_write_per_mtok: 1.25
+      cache_read_per_mtok: 0.10
 
 # -----------------------------------------------------------------------------
 # 수집 — 구현하면서 실제로 필요했던 것들

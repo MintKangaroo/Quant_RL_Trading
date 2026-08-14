@@ -86,6 +86,21 @@ def safety() -> Any:
     return envelope(current, service.safety_summary(store(), as_of=current.as_of))
 
 
+@bp.get("/llm-usage")
+def llm_usage() -> Any:
+    """LLM 실제 호출·비용(``llm_usage``). ``cache`` 와 별개 표 —
+    services/system.py 모듈 docstring 의 "LLM 캐시와 LLM 호출은 서로
+    다른 표다" 참고."""
+    current = scope()
+    thresholds = _system_thresholds(current.as_of)
+    return envelope(
+        current,
+        service.llm_usage_summary(
+            store(), as_of=current.as_of, lookback=int(thresholds["cache_lookback_days"])
+        ),
+    )
+
+
 @bp.get("/resources")
 def resources() -> Any:
     """CPU·메모리·디스크. **as_of 로 되감기지 않는다** — 이 기계 자체의 지금

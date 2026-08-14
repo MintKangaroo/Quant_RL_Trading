@@ -46,6 +46,20 @@
     </p>
   </section>
 
+  <!-- 3.5행: 워크포워드(샌드박스, 2026-01-02) 대 라이브(실전 창고) IC 비교.
+       같은 Analyst 도 측정 시점이 다르면 IC 가 달라진다는 사실 자체가
+       중요하다 — IC 는 한 번 재고 끝내는 값이 아니다. -->
+  <section class="panel">
+    <h2>워크포워드 vs 라이브 IC <span class="sub" id="wf-source">-</span></h2>
+    <div id="walk-forward"></div>
+    <p class="note">
+      워크포워드는 <code>data/_backtest</code> 샌드박스에서 끝난 과거 측정(고정값)이고,
+      라이브는 실전 창고의 최신 측정이다. 둘이 다르다는 것 자체가 IC 가 감쇠하거나
+      표본에 따라 흔들릴 수 있다는 증거다 — 그래서 위 이력 차트로 계속 재측정을
+      추적한다.
+    </p>
+  </section>
+
   <!-- 4행: 베이스라인 대비 IR / 시드 간 분산 -->
   <section class="grid2">
     <div class="panel">

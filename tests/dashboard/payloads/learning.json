@@ -1,6 +1,6 @@
 {
   "learning/gate": {
-    "as_of": "2026-08-14T12:10:02.990357+00:00",
+    "as_of": "2026-08-14T14:21:21.471776+00:00",
     "data": {
       "active": [
         "event",
@@ -140,7 +140,7 @@
     }
   },
   "learning/ic-history": {
-    "as_of": "2026-08-14T12:10:03.061249+00:00",
+    "as_of": "2026-08-14T14:21:21.548060+00:00",
     "data": {
       "points": 24,
       "series": [
@@ -333,7 +333,7 @@
     }
   },
   "learning/status": {
-    "as_of": "2026-08-14T12:10:03.140084+00:00",
+    "as_of": "2026-08-14T14:21:21.653578+00:00",
     "data": {
       "active": false,
       "milestone": "M4",
@@ -370,6 +370,86 @@
           "label": "시드 간 성과 분산 · policy churn"
         }
       ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "learning/walk-forward": {
+    "as_of": "2026-08-14T14:21:21.712833+00:00",
+    "data": {
+      "measured_at": "2026-01-02",
+      "rows": [
+        {
+          "analyst": "chart",
+          "delta_ic": 0.018042932558857815,
+          "live_ic": 0.0014429325588578156,
+          "live_measured": true,
+          "live_passed": false,
+          "wf_ic": -0.0166,
+          "wf_passed": false,
+          "wf_weight": 0.0
+        },
+        {
+          "analyst": "event",
+          "delta_ic": -0.007148095908763974,
+          "live_ic": 0.03555190409123603,
+          "live_measured": true,
+          "live_passed": true,
+          "wf_ic": 0.0427,
+          "wf_passed": true,
+          "wf_weight": 1.0
+        },
+        {
+          "analyst": "flow_kr",
+          "delta_ic": -0.002993863086760925,
+          "live_ic": -0.0010938630867609253,
+          "live_measured": true,
+          "live_passed": false,
+          "wf_ic": 0.0019,
+          "wf_passed": false,
+          "wf_weight": 0.0
+        },
+        {
+          "analyst": "fundamental",
+          "delta_ic": 0.0009019922396069635,
+          "live_ic": 0.07080199223960697,
+          "live_measured": true,
+          "live_passed": true,
+          "wf_ic": 0.0699,
+          "wf_passed": true,
+          "wf_weight": 1.0
+        },
+        {
+          "analyst": "regime",
+          "delta_ic": -0.018798462908447788,
+          "live_ic": -0.008698462908447788,
+          "live_measured": true,
+          "live_passed": false,
+          "wf_ic": 0.0101,
+          "wf_passed": false,
+          "wf_weight": 0.0
+        },
+        {
+          "analyst": "risk",
+          "delta_ic": -0.02484161974656507,
+          "live_ic": 0.05845838025343493,
+          "live_measured": true,
+          "live_passed": true,
+          "wf_ic": 0.0833,
+          "wf_passed": true,
+          "wf_weight": 1.0
+        }
+      ],
+      "source": "data/_backtest 샌드박스 워크포워드 (purged K-fold + embargo, 300세션) — 실전 창고 아님",
+      "threshold": 0.03
     },
     "live": true,
     "lookback_days": 90,

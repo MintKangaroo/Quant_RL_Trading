@@ -130,8 +130,14 @@ class OpenOrder:
     #: 부분체결분만큼 초과 매수가 된다.
     remaining_quantity: int
     retry_count: int
-    #: 마지막으로 상태가 바뀐 시각(제출·재호가·체결). 다음 재호가까지의
-    #: 대기 시간을 여기서부터 잰다.
+    #: 마지막으로 **우리가 브로커에 조치한** 시각(제출·재호가). 다음 재호가까지의
+    #: 대기 시간을 여기서부터 잰다. 체결로는 갱신하지 않는다 — 참고 구현
+    #: (ls_kr_rl_trader/broker/order.py cancel_stale_live_orders)의 TTL 은
+    #: 원 제출시각(``ts``)에서만 재고, 부분체결이 그 시계를 늘려주지 않는다.
+    #: 오히려 부분체결 + ``cancel_partial_remainder`` 조합은 TTL 을 기다리지
+    #: 않고 즉시 취소 대상으로 넘긴다(order.py:446-448) — 체결이 "더 기다려도
+    #: 된다"는 신호가 아니라는 뜻이다. 여기서도 같은 원칙을 따른다: 체결은
+    #: 수동적 관측이지 우리 조치가 아니므로 재호가 타이머를 늘리지 않는다.
     last_action_at: datetime
     status: OrderStatus
     broker_order_no: str | None = None
@@ -185,7 +191,14 @@ def open_order_from_planned(
 def apply_fill(order: OpenOrder, *, filled_quantity: int, now: datetime) -> OpenOrder:
     """체결을 반영한다. **부분체결이 정상 경로다** — 잔량이 남으면 계속
     ``PARTIALLY_FILLED`` 로 살아 있고, 다음 ``decide`` 호출에서 잔량만
-    재호가 대상이 된다."""
+    재호가 대상이 된다.
+
+    ``now`` 는 종결 여부 판단(호출자가 이 시각에 체결을 관측했다는 사실)에만
+    쓰이고, ``last_action_at`` 은 건드리지 않는다 — 체결은 우리가 브로커에
+    조치한 게 아니라 관측한 것이다. 재호가 타이머를 체결로 리셋하면, 조금씩
+    계속 체결되는 주문은 ``decide`` 가 영영 재호가·취소를 판단할 기회를 못
+    받는다(``OpenOrder.last_action_at`` 문서 참고, 참고 구현의 TTL 원칙과 같다).
+    """
     if order.status in _TERMINAL:
         raise ValueError(f"종결된 주문에는 체결을 반영할 수 없다: {order.status}")
     if filled_quantity <= 0:
@@ -194,9 +207,7 @@ def apply_fill(order: OpenOrder, *, filled_quantity: int, now: datetime) -> Open
         raise ValueError("체결 수량이 잔량을 초과했다")
     remaining = order.remaining_quantity - filled_quantity
     status = OrderStatus.FILLED if remaining == 0 else OrderStatus.PARTIALLY_FILLED
-    return replace(
-        order, remaining_quantity=remaining, status=status, last_action_at=now
-    )
+    return replace(order, remaining_quantity=remaining, status=status)
 
 
 def decide(

@@ -8,6 +8,8 @@
  */
 
 const stamp = (iso) => (iso ? iso.slice(0, 16).replace("T", " ") : "—");
+const krw = (v) => (v === null || v === undefined ? "—" : `₩${Number(v).toLocaleString("ko-KR")}`);
+const usd = (v) => (v === null || v === undefined ? "—" : `$${Number(v).toFixed(4)}`);
 
 async function renderKpis() {
   const body = await fetchJson("ai-review/summary");
@@ -20,9 +22,48 @@ async function renderKpis() {
     kpi("판정 기록", num(d.verdicts_total), "News · SNS"),
     kpi("거부", num(d.blocked), "0건이면 거부할 사유가 없었다는 뜻일 수 있다"),
     kpi("공시 · 뉴스", num(d.documents), "판정의 입력"),
+    kpi("LLM 비용", krw(d.llm_cost_krw), `${usd(d.llm_cost_usd)} · llm_usage ${num(d.llm_usage_calls)}건`),
   ].join("");
 
   showAlerts(d.warnings);
+}
+
+async function renderCosts() {
+  const { data } = await fetchJson("ai-review/costs");
+
+  const sinceEl = document.getElementById("cost-since");
+  sinceEl.textContent = data.total_calls
+    ? `— 이 창 안 첫 기록: ${stamp(data.since)}`
+    : "— 이 창엔 기록이 없다";
+
+  const t = data.tokens;
+  document.getElementById("cost-kpis").innerHTML = [
+    kpi("호출", num(data.total_calls), "llm_usage 행 수(왕복 하나당 1행)"),
+    kpi("비용", krw(data.cost_krw), `${usd(data.cost_usd)} · ₩1=$${(1 / data.usd_krw_rate).toFixed(6)} 환산`),
+    kpi("input 토큰", num(t ? t.input : null), "정가"),
+    kpi("output 토큰", num(t ? t.output : null), "정가"),
+    kpi("캐시 쓰기", num(t ? t.cache_write : null), "input의 1.25배 단가"),
+    kpi("캐시 읽기", num(t ? t.cache_read : null), "input의 0.1배 단가 — 훨씬 싸다"),
+  ].join("");
+
+  const target = document.getElementById("cost-by-agent");
+  if (!data.by_agent.length) {
+    target.innerHTML = `<div class="empty">이 창 안에 llm_usage 기록이 없다.
+      이 표가 생기기 전 호출은 집계되지 않는다 — 0원이 아니라 몰랐다는 뜻이다.</div>`;
+    return;
+  }
+  target.innerHTML = `<table>
+    <thead><tr><th>에이전트</th><th>모델</th><th class="num">호출</th>
+      <th class="num">항목</th><th class="num">토큰(입/출/캐시w/캐시r)</th>
+      <th class="num">비용</th></tr></thead>
+    <tbody>${data.by_agent.map((row) => `<tr>
+      <td>${row.agent}</td>
+      <td class="mono">${row.model}${row.priced ? "" : ' <span class="tag dim">단가 모름</span>'}</td>
+      <td class="num">${num(row.calls)}</td>
+      <td class="num">${num(row.items)}</td>
+      <td class="num mono">${num(row.tokens.input)}/${num(row.tokens.output)}/${num(row.tokens.cache_write)}/${num(row.tokens.cache_read)}</td>
+      <td class="num">${row.priced ? krw(row.cost_krw) : "—"}</td>
+    </tr>`).join("")}</tbody></table>`;
 }
 
 async function renderAgents() {
@@ -129,4 +170,4 @@ async function renderDocuments() {
     </tr>`).join("")}</tbody></table>`;
 }
 
-runAll([renderKpis, renderAgents, renderCalls, renderVerdictScorecard, renderVerdicts, renderDocuments]);
+runAll([renderKpis, renderCosts, renderAgents, renderCalls, renderVerdictScorecard, renderVerdicts, renderDocuments]);

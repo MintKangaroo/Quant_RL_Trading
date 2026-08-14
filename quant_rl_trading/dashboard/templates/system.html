@@ -52,11 +52,25 @@
       <h2>LLM 캐시 (agent_cache) 적재 현황</h2>
       <div id="cache"></div>
       <p class="note">
-        <strong>적중률과 실제 비용은 창고에 없다.</strong> 캐시를 맞힌 호출은
+        <strong>적중률은 이 표만으로는 알 수 없다.</strong> 캐시를 맞힌 호출은
         새 행을 쓰지 않으므로 재사용 횟수를 셀 수 없다 — 여기 보이는 것은
-        새로 계산돼 <em>적재</em>된 건수다. 월 예산은 설정값 참고용이다.
+        새로 계산돼 <em>적재</em>된 건수다. 실제 호출 비용은 옆 패널
+        (llm_usage)을 본다.
       </p>
     </div>
+  </section>
+
+  <section class="panel">
+    <h2>LLM 실제 호출 (llm_usage) — 모델별 토큰·비용</h2>
+    <div class="scroll" id="llm-usage"></div>
+    <p class="note" id="llm-usage-note"></p>
+    <p class="note">
+      HTTP 왕복 하나하나를 기록한 표라 호출 횟수·토큰은 실측이다. 비용은
+      <code>store.config("llm").pricing</code> 단가를 곱해 구하며, 단가표에
+      없는 모델은 "단가 모름"으로 남기고 합계에서 뺀다 — 0원으로 채우지
+      않는다. agent_cache 적재 건수와는 더하지 않는다 — 하나는 "무엇을
+      알고 있나", 하나는 "무엇을 새로 계산했나"다.
+    </p>
   </section>
 </main>
 {% endblock %}

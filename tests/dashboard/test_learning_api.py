@@ -147,7 +147,38 @@ def test_ic_history_is_empty_not_fabricated_when_nothing_measured(seeded) -> Non
 def test_every_route_returns_the_as_of_it_was_given(client) -> None:
     """불변식 9 — 이 탭의 모든 GET 라우트가 as_of 를 받고 되돌려준다."""
     past = MEASURED_AT.isoformat()
-    for path in ("/api/learning/status", "/api/learning/gate", "/api/learning/ic-history"):
+    paths = (
+        "/api/learning/status",
+        "/api/learning/gate",
+        "/api/learning/ic-history",
+        "/api/learning/walk-forward",
+    )
+    for path in paths:
         response = client.get(f"{path}?as_of={past}")
         assert response.status_code == 200, path
         assert body(response)["as_of"] == past, path
+
+
+# -- 워크포워드(샌드박스) 대 라이브(실전 창고) 비교 -------------------------------
+
+
+def test_walk_forward_compares_fixed_snapshot_against_live_store(client) -> None:
+    """워크포워드 값은 코드에 고정된 과거 측정, 라이브 값만 창고에서 읽는다."""
+    data = body(client.get("/api/learning/walk-forward"))["data"]
+
+    assert data["measured_at"] == "2026-01-02"
+    assert "data/_backtest" in data["source"]
+    assert data["threshold"] == pytest.approx(0.03)
+
+    rows = {row["analyst"]: row for row in data["rows"]}
+    # risk 는 워크포워드·라이브 둘 다 측정돼 있다 (seeded 픽스처).
+    assert rows["risk"]["wf_passed"] is True
+    assert rows["risk"]["live_measured"] is True
+    expected_delta = rows["risk"]["live_ic"] - rows["risk"]["wf_ic"]
+    assert rows["risk"]["delta_ic"] == pytest.approx(expected_delta)
+
+    # fundamental 은 워크포워드엔 있지만 seeded 픽스처엔 측정 기록이 없다 —
+    # 지어내지 않고 "미측정" 을 그대로 돌려준다.
+    assert rows["fundamental"]["live_measured"] is False
+    assert rows["fundamental"]["live_ic"] is None
+    assert rows["fundamental"]["delta_ic"] is None

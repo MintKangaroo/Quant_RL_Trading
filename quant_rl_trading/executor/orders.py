@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from quant_rl_trading.executor.ticks import round_to_tick
 from quant_rl_trading.schemas.order import Order, Side
 
 if TYPE_CHECKING:
@@ -86,9 +87,13 @@ def limit_price(*, reference: float, side: Side, max_slippage: float) -> float:
     시장가는 청산과 킬스위치 발동 때만 쓴다 (execution.order_type). 평시에
     시장가를 쓰면 호가가 얇은 종목에서 백테스트 가정을 훨씬 넘는 가격에
     체결되고, 그 차이는 전부 성과에서 빠진다.
+
+    상한 계산 값을 그대로 내면 거래소가 거부한다 — 호가단위(tick)에 맞는
+    가격만 낼 수 있다. ``round_to_tick`` 이 상한을 넘지 않는 방향으로
+    반올림한다(매수 내림·매도 올림, 근거는 ``ticks.py``).
     """
     edge = 1.0 + max_slippage if side is Side.BUY else 1.0 - max_slippage
-    return reference * edge
+    return round_to_tick(reference * edge, side=side)
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 {
   "market": {
-    "as_of": "2026-08-14T12:09:50.561923+00:00",
+    "as_of": "2026-08-14T14:21:04.711308+00:00",
     "data": {
       "fx": {
         "change": -0.009602348957930773,
@@ -491,14 +491,14 @@
       },
       "macro": [
         {
-          "actual": 3.63,
-          "entity_id": "US:FED_FUNDS",
-          "indicator": "FED_FUNDS",
+          "actual": 763602.0,
+          "entity_id": "US:RETAIL_ADVANCE",
+          "indicator": "RETAIL_ADVANCE",
           "market": "US",
-          "previous": 3.63,
-          "release_name": "H.15 Selected Interest Rates",
-          "scheduled_at": "2026-08-13T21:30:00+09:00",
-          "unit": "percent"
+          "previous": 768072.0,
+          "release_name": "Advance Monthly Sales for Retail and Food Services",
+          "scheduled_at": "2026-08-14T21:30:00+09:00",
+          "unit": "mn_usd"
         },
         {
           "actual": 284.057,
@@ -519,6 +519,16 @@
           "release_name": "Unemployment Insurance Weekly Claims Report",
           "scheduled_at": "2026-08-13T21:30:00+09:00",
           "unit": "persons"
+        },
+        {
+          "actual": 3.63,
+          "entity_id": "US:FED_FUNDS",
+          "indicator": "FED_FUNDS",
+          "market": "US",
+          "previous": 3.63,
+          "release_name": "H.15 Selected Interest Rates",
+          "scheduled_at": "2026-08-13T21:30:00+09:00",
+          "unit": "percent"
         },
         {
           "actual": 332.813,
@@ -558,16 +568,6 @@
           "previous": 3.63,
           "release_name": "H.15 Selected Interest Rates",
           "scheduled_at": "2026-08-11T21:30:00+09:00",
-          "unit": "percent"
-        },
-        {
-          "actual": 3.63,
-          "entity_id": "US:FED_FUNDS",
-          "indicator": "FED_FUNDS",
-          "market": "US",
-          "previous": 3.63,
-          "release_name": "H.15 Selected Interest Rates",
-          "scheduled_at": "2026-08-10T21:30:00+09:00",
           "unit": "percent"
         }
       ]

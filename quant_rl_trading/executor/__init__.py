@@ -38,6 +38,7 @@ from quant_rl_trading.executor.pipeline import (
     run,
 )
 from quant_rl_trading.executor.sizing import Sized, SizingParams, Skipped, Target, size_orders
+from quant_rl_trading.executor.ticks import round_to_tick, tick_size
 
 __all__ = [
     "ExecutionResult",
@@ -62,9 +63,11 @@ __all__ = [
     "record_orders",
     "record_realized_weights",
     "release",
+    "round_to_tick",
     "run",
     "session_id",
     "should_engage",
     "size_orders",
     "split",
+    "tick_size",
 ]

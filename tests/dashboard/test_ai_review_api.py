@@ -67,6 +67,28 @@ def verdict_row(entity: str, analyst: str, decision: str, category: str) -> dict
     }
 
 
+def usage_row(
+    agent: str, model: str, request_id: str, *, input_tokens: int, output_tokens: int,
+    cache_write: int = 0, cache_read: int = 0, items: int = 1,
+) -> dict[str, Any]:
+    return {
+        "entity_id": agent,
+        "valid_from": CALLED_AT,
+        "observed_at": CALLED_AT,
+        "source": agent,
+        "agent": agent,
+        "agent_version": f"{agent}-v0.1.0",
+        "model": model,
+        "request_id": request_id,
+        "items": items,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_creation_input_tokens": cache_write,
+        "cache_read_input_tokens": cache_read,
+        "computed_at": CALLED_AT,
+    }
+
+
 def document_row(entity: str, doc_type: str, title: str) -> dict[str, Any]:
     return {
         "entity_id": entity,
@@ -181,6 +203,72 @@ def test_verdicts_report_blocks_when_present(seeded) -> None:
     assert data["recent"][0]["decision"] == "block"
 
 
+# -- 비용은 llm_usage × store.config 단가다 ---------------------------------------
+
+
+@pytest.fixture
+def usage_client(seeded):  # type: ignore[no-untyped-def]
+    """단가가 있는 모델(claude-opus-5) 한 건 + 단가를 모르는 모델 한 건."""
+    seeded.append(
+        "llm_usage",
+        [
+            usage_row(
+                "news-screen", "claude-opus-5", "req-1",
+                input_tokens=1_000_000, output_tokens=100_000, cache_read=400_000,
+            ),
+            usage_row(
+                "macro-brief", "claude-mystery-model", "req-2",
+                input_tokens=1_000, output_tokens=1_000,
+            ),
+        ],
+        ingest_run_id="usage-seed",
+    )
+    return make_app(seeded, ReplayClock(NOW)).test_client()
+
+
+def test_no_usage_is_reported_as_no_record_not_zero_cost(client) -> None:
+    """llm_usage 가 비면 0원이 아니라 '기록 없음' — since 도 None."""
+    data = body(client.get("/api/ai-review/costs"))["data"]
+
+    assert data["total_calls"] == 0
+    assert data["since"] is None
+    assert data["cost_usd"] == 0.0
+    assert data["by_agent"] == []
+
+
+def test_cost_computed_from_config_pricing(usage_client) -> None:
+    """1M in @$5 + 100K out @$25 + 400K cache_read @$0.5 = $5 + $2.5 + $0.2 = $7.7."""
+    data = body(usage_client.get("/api/ai-review/costs"))["data"]
+
+    assert data["total_calls"] == 2
+    assert datetime.fromisoformat(data["since"]) == CALLED_AT
+    assert data["cost_usd"] == pytest.approx(7.7)
+    assert data["cost_krw"] == round(7.7 * data["usd_krw_rate"])
+    assert data["tokens"]["input"] == 1_001_000
+    assert data["tokens"]["cache_read"] == 400_000
+
+
+def test_unpriced_model_is_excluded_from_total_not_zero_filled(usage_client) -> None:
+    """단가표에 없는 모델은 합계에서 빠지고 unpriced_* 로 따로 세지, 0원이 아니다."""
+    data = body(usage_client.get("/api/ai-review/costs"))["data"]
+
+    assert data["unpriced_calls"] == 1
+    assert data["unpriced_models"] == ["claude-mystery-model"]
+
+    by_model = {row["model"]: row for row in data["by_agent"]}
+    assert by_model["claude-opus-5"]["priced"] is True
+    assert by_model["claude-mystery-model"]["priced"] is False
+    assert by_model["claude-mystery-model"]["cost_usd"] == 0.0
+
+
+def test_summary_carries_llm_cost(usage_client) -> None:
+    data = body(usage_client.get("/api/ai-review/summary"))["data"]
+
+    assert data["llm_usage_calls"] == 2
+    assert data["llm_cost_usd"] == pytest.approx(7.7)
+    assert any("단가를 모르는 모델" in w for w in data["warnings"])
+
+
 # -- documents ---------------------------------------------------------------
 
 
@@ -200,6 +288,7 @@ def test_every_route_accepts_and_returns_as_of(client) -> None:
     for path in (
         "/api/ai-review/summary",
         "/api/ai-review/calls",
+        "/api/ai-review/costs",
         "/api/ai-review/verdicts",
         "/api/ai-review/documents",
     ):

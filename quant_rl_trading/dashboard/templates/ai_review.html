@@ -9,6 +9,19 @@
 
   <section class="kpis" id="kpis"></section>
 
+  <section class="panel">
+    <h2>LLM 비용 <span class="sub" id="cost-since"></span></h2>
+    <div class="kpis" id="cost-kpis"></div>
+    <div id="cost-by-agent"></div>
+    <p class="note">
+      단가는 <code>config/quant_rl_trading.yaml</code>의 <code>llm.pricing</code>
+      (store.config, 불변식 10) — 모델별 100만 토큰당 input/output/캐시쓰기/캐시읽기.
+      <strong>캐시 읽기는 훨씬 싸다</strong> — 뭉뚱그리지 않고 따로 잡는다.
+      이 표(<code>llm_usage</code>)가 생기기 전 호출은 기록이 없다 — 표시된
+      비용은 <strong>0원이 아니라 "몰랐다"</strong>다.
+    </p>
+  </section>
+
   <section class="grid2">
     <div class="panel">
       <h2>LLM 호출 — 에이전트별</h2>
@@ -16,7 +29,6 @@
       <p class="note">
         캐시 적중은 새 행을 만들지 않는다(<code>replay/cache.py</code>).
         이 표의 건수가 곧 <strong>다시 계산한 횟수</strong>다.
-        비용은 잴 수 없다 — 응답에 토큰 사용량이 기록되지 않는다.
       </p>
     </div>
     <div class="panel">
