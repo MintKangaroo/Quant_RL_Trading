@@ -29,9 +29,14 @@ from quant_rl_trading.store import Store, overlay  # noqa: E402
 from tools.backfill import build_store  # noqa: E402
 
 #: 백테스트가 쓰는 테이블. 나머지는 실제 창고를 링크로 그대로 본다.
+#:
+#: ``analyst_weights`` 가 여기 있는 이유는 **워크포워드** 때문이다. 실전
+#: 가중치는 오늘 관측이라 과거 백테스트가 보면 안 되고(보면 미래를 훔친다),
+#: 과거 시점 측정본을 실전 창고에 심으면 "그때 알았던 것" 이라는 거짓 기록이
+#: 남는다. 샌드박스에 두면 둘 다 피한다 (backtest.md §7).
 WRITABLE = frozenset(
     {"signals", "verdicts", "orders", "trades", "realized_weights", "nav_daily",
-     "capital_flows", "dividends", "events", "killswitch"}
+     "capital_flows", "dividends", "events", "killswitch", "analyst_weights"}
 )
 
 DEFAULT_SANDBOX = REPO_ROOT / "data" / "_backtest"
@@ -39,8 +44,8 @@ DEFAULT_SANDBOX = REPO_ROOT / "data" / "_backtest"
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--start", required=True, help="평가 시작일 (YYYY-MM-DD)")
-    parser.add_argument("--end", required=True, help="평가 종료일 (YYYY-MM-DD)")
+    parser.add_argument("--start", help="평가 시작일 (YYYY-MM-DD)")
+    parser.add_argument("--end", help="평가 종료일 (YYYY-MM-DD)")
     parser.add_argument("--market", default="KR", choices=["KR", "US"])
     parser.add_argument("--capital", type=float, default=100_000_000.0)
     parser.add_argument(
@@ -48,6 +53,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--sandbox", default=str(DEFAULT_SANDBOX))
     parser.add_argument("--fresh", action="store_true", help="샌드박스를 비우고 시작한다")
+    parser.add_argument(
+        "--build-only",
+        action="store_true",
+        help="오버레이만 만들고 끝낸다. 이 위에 measure_ic --data-root 로 과거 가중치를 심는다",
+    )
     args = parser.parse_args(argv)
 
     load_env()
@@ -58,6 +68,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.fresh:
         layer.clear()
     store = Store(root=layer.root)
+
+    if not args.build_only and not (args.start and args.end):
+        print("--start 와 --end 가 필요하다 (--build-only 제외).", file=sys.stderr)
+        return 2
+    if args.build_only:
+        print(f"오버레이 준비됨: {layer.root}")
+        return 0
 
     start = date.fromisoformat(args.start)
     end = date.fromisoformat(args.end)
