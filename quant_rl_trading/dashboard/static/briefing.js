@@ -160,62 +160,6 @@ function explainRows(items) {
     + `<th class="num">시장 반응</th><th>해석</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function bar(done, total, running, finished) {
-  if (!total) {
-    // 총량을 모른다. 막대를 채우면 진행률을 아는 척하게 된다.
-    return `<div class="bar unknown"><span></span></div>`;
-  }
-  const pct = Math.min(100, (done / total) * 100);
-  const cls = finished ? "done" : running ? "on" : "";
-  return `<div class="bar ${cls}"><span style="width:${pct.toFixed(1)}%"></span></div>`;
-}
-
-function jobsRows(d) {
-  const rows = [];
-  for (const job of d.jobs) {
-    const pct = job.ratio === null ? "—" : `${(job.ratio * 100).toFixed(1)}%`;
-    const count = job.total ? `${num(job.done)} / ${num(job.total)}` : `${num(job.done)}건`;
-    rows.push(`<tr>
-      <td><span class="lead">
-        <strong>${esc(job.kind)}</strong>
-        ${job.running ? '<span class="chip tone-mix">진행 중</span>'
-                      : '<span class="chip tone-flat">멈춤</span>'}
-        <span class="sub trunc">${esc(job.plan_id)}</span>
-      </span></td>
-      <td style="width:180px">${bar(job.done, job.total, job.running, false)}</td>
-      <td class="num">${pct}</td>
-      <td class="num">${count}</td>
-      <td class="num">${num(job.rows)}행</td>
-      <td class="num sub">${esc(job.last_unit)}</td>
-    </tr>`);
-  }
-  for (const run of d.ic) {
-    const pct = `${((run.done / run.total) * 100).toFixed(0)}%`;
-    rows.push(`<tr>
-      <td><span class="lead">
-        <strong>IC 측정</strong>
-        ${run.running ? '<span class="chip tone-mix">진행 중</span>'
-          : run.finished ? '<span class="chip tone-flat">완료</span>'
-                         : '<span class="chip tone-flat">멈춤</span>'}
-        <span class="sub trunc">${esc(run.analyst)}</span>
-      </span></td>
-      <td style="width:180px">${bar(run.done, run.total, run.running, run.finished)}</td>
-      <td class="num">${pct}</td>
-      <td class="num">${num(run.done)} / ${num(run.total)}</td>
-      <td class="num">—</td><td class="num sub">—</td>
-    </tr>`);
-  }
-  if (!rows.length) return `<p class="note">진행 중이거나 기록된 작업이 없다.</p>`;
-  return `<table><thead><tr><th>작업</th><th>진행</th><th class="num">%</th>`
-    + `<th class="num">단위</th><th class="num">적재</th><th class="num">마지막</th>`
-    + `</tr></thead><tbody>${rows.join("")}</tbody></table>`;
-}
-
-async function renderJobs() {
-  const body = await fetchJson("briefing/jobs");
-  document.getElementById("jobs").innerHTML = jobsRows(body.data);
-}
-
 async function renderExplain() {
   const body = await fetchJson("briefing/explain");
   document.getElementById("explain").innerHTML = explainRows(body.data.releases);
@@ -249,9 +193,9 @@ async function render() {
   showAlerts(warnings);
 }
 
-runAll([render, renderJobs, renderExplain]);
+runAll([render, renderExplain]);
 
 // 라이브일 때만 갱신한다. 과거를 조회 중이면 화면이 현재로 흘러가면 안 된다.
 if (isLive()) {
-  window.setInterval(() => runAll([render, renderJobs, renderExplain]), REFRESH_MS);
+  window.setInterval(() => runAll([render, renderExplain]), REFRESH_MS);
 }

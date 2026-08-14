@@ -13,8 +13,25 @@ from flask import Blueprint
 from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.dashboard.api.common import envelope, scope, store
 from quant_rl_trading.dashboard.services import data_quality as service
+from quant_rl_trading.dashboard.services import jobs as jobs_service
 
 bp = Blueprint("data_quality_api", __name__, url_prefix="/api/data-quality")
+
+
+@bp.get("/jobs")
+def jobs() -> Any:
+    """장기 작업 진행률 — 백필·IC 측정이 어디까지 갔나.
+
+    **뉴스·일정 탭이 아니라 여기다.** 수집이 어디까지 갔는지는 "지금 무슨
+    일이 벌어지고 있나" 가 아니라 **"입력을 믿을 수 있나"** 의 답이다
+    (dashboard.md §2).
+
+    **as_of 로 되감기지 않는다.** 진행률은 운영 상태이지 관측된 사실이 아니라
+    창고에 과거가 없다. 규약대로 as_of 를 받아 되돌려주되, 값은 언제나
+    현재다 — 응답의 live_only 가 그 사실을 알린다.
+    """
+    current = scope()
+    return envelope(current, jobs_service.summary(store().root, as_of=current.as_of))
 
 
 @bp.get("/summary")
