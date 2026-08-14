@@ -15,11 +15,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from flask import current_app, jsonify, request
+from flask import current_app, g, has_request_context, jsonify, request
 from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.memo import MemoStore
 
 #: 임계치 이름 → config 키. 화면도 API 도 숫자를 직접 들지 않는다 (불변식 10).
 THRESHOLD_KEYS = {
@@ -43,7 +44,25 @@ class RequestScope:
 
 
 def store() -> Store:
-    return current_app.config["QUANT_RL_STORE"]  # type: ignore[no-any-return]
+    """요청 하나가 쓰고 버리는 읽기 캐시를 씌워 돌려준다.
+
+    한 화면이 서비스 함수 여럿을 부르고, 그것들이 **같은 as_of·같은 창**으로
+    같은 테이블을 각자 조회한다. 실측 — /api/trading 한 번에 창고 조회 61회,
+    그중 서로 다른 질의는 39개였다. 스물두 번은 방금 읽은 것을 다시 읽는다.
+
+    캐시를 Store 자체에 붙이지 않는 이유는 memo.py 에 적힌 것과 같다: 대시보드
+    프로세스는 며칠씩 떠 있고, 거기에 캐시가 붙으면 **화면이 낡은 데이터를
+    계속 보여준다**. 요청 경계에서 버리면 그 위험이 없다 — 다음 요청은 다시
+    창고를 읽는다.
+    """
+    inner: Store = current_app.config["QUANT_RL_STORE"]
+    if not has_request_context():
+        return inner
+    cached = g.get("quant_rl_store")
+    if cached is None:
+        cached = MemoStore(inner)
+        g.quant_rl_store = cached
+    return cached  # type: ignore[no-any-return]
 
 
 def clock() -> Clock:
