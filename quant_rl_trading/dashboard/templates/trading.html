@@ -5,6 +5,7 @@
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
 
 <main class="terminal">
+  <!-- KPI 줄. 마지막 칸이 EMERGENCY STOP 이다 (trading.js 가 채운다). -->
   <section class="kpis" id="kpis"></section>
 
   <section class="alerts" id="alerts"></section>
@@ -12,7 +13,9 @@
   <section class="grid-desk">
     <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
     <div class="panel" id="panel-watchlist">
-      <h2>워치리스트 <span class="sub" id="watchlist-count"></span></h2>
+      <h2>Watchlist
+        <span class="right"><span class="sub" id="watchlist-count"></span></span>
+      </h2>
       <div id="watchlist" class="scroll dense"></div>
       <p class="note">합성 점수 순이다. 등락률 순이 아니다 — 화면이 결정 근거를 따라간다.</p>
     </div>
@@ -22,6 +25,19 @@
       <h2>
         <span id="chart-title">—</span>
         <span class="sub" id="chart-sub"></span>
+        <span class="right">
+          {# 창고에 있는 것은 일봉뿐이다. 나머지 시간대는 꺼진 채로 둔다 —
+             자리를 지우면 "이 화면은 일봉 전용" 이 되고, 채우면 없는 봉을
+             그리게 된다. #}
+          <span class="seg" id="chart-timeframe">
+            <button type="button" disabled title="분봉은 창고에 없다">1m</button>
+            <button type="button" disabled title="분봉은 창고에 없다">5m</button>
+            <button type="button" disabled title="분봉은 창고에 없다">15m</button>
+            <button type="button" disabled title="시간봉은 창고에 없다">1H</button>
+            <button type="button" disabled title="시간봉은 창고에 없다">4H</button>
+            <button type="button" class="on" title="창고에 있는 것은 일봉이다">1D</button>
+          </span>
+        </span>
       </h2>
       <div class="chart tall" id="chart-candle"></div>
       <p class="note">
@@ -32,7 +48,9 @@
 
     <!-- 우: 결정 -->
     <div class="panel" id="panel-decision">
-      <h2>결정 <span class="sub" id="decision-engine"></span></h2>
+      <h2>AI Decision
+        <span class="right"><span class="live-dot" id="decision-live">LIVE</span></span>
+      </h2>
       <div id="decision"></div>
       <p class="note" id="decision-note"></p>
     </div>
@@ -40,14 +58,16 @@
 
   <section class="grid-desk2">
     <div class="panel">
-      <h2>포트폴리오 · 누적지수</h2>
+      <h2>Portfolio Equity
+        <span class="right"><span class="sub" id="equity-sub"></span></span>
+      </h2>
       <div class="chart" id="chart-equity"></div>
       <p class="note">
         누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
       </p>
     </div>
     <div class="panel">
-      <h2>리스크 예산</h2>
+      <h2>Risk Monitor</h2>
       <div id="risk"></div>
       <p class="note">
         밴드 12 / 22 / 30% 는 <code>reward-and-risk.md</code> 의 값이고
@@ -57,12 +77,14 @@
   </section>
 
   <section class="panel">
-    <h2>보유 포지션 <span class="sub" id="positions-count"></span></h2>
+    <h2>Positions
+      <span class="right"><span class="sub" id="positions-count"></span></span>
+    </h2>
     <div id="positions" class="scroll dense"></div>
   </section>
 
   <section class="panel">
-    <h2>주문 · 체결</h2>
+    <h2>Orders &amp; Executions</h2>
     <div id="orders" class="scroll dense"></div>
     <p class="note">
       최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면

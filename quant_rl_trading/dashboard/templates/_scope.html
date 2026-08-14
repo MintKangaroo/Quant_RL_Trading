@@ -1,16 +1,21 @@
 {# 화면 공통 헤더. 타임머신 컨트롤은 한 곳에만 둔다 —
    화면마다 따로 만들면 as_of 를 넘기는 방식이 갈라진다.
 
-   상태 바(모드·창고·엔진)와 EMERGENCY STOP 은 트레이딩 탭에서만 채운다.
-   빈 자리는 다른 화면에서 숨는다 — 데이터 화면에 정지 버튼이 있으면 그
-   버튼이 무엇을 멈추는지가 모호해진다. #}
+   상태 바(모드·창고·엔진)는 트레이딩 탭에서만 채운다. 빈 자리는 다른
+   화면에서 숨는다.
+
+   EMERGENCY STOP 은 여기 없다. KPI 줄 오른쪽 끝에 있다 (trading.js) —
+   정지 버튼은 숫자와 같은 눈높이에 있어야 한다. 헤더의 도구 줄에 끼워 두면
+   조회 버튼 옆의 또 다른 버튼이 된다. #}
 <header>
-  <h1>Quant_RL_Trading</h1>
+  <h1>AI Auto-Trading Terminal</h1>
+  <span class="badge dim" title="quant_rl_trading">Quant_RL_Trading</span>
+
   <nav class="tabs">
-    <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">Data Quality</a>
-    <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">Agent Health</a>
     <a href="/trading" class="{{ 'on' if active == 'trading' }}">트레이딩</a>
     <a href="/briefing" class="{{ 'on' if active == 'briefing' }}">뉴스 · 일정</a>
+    <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">Data Quality</a>
+    <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">Agent Health</a>
   </nav>
 
   <span class="statusbar" id="statusbar" hidden></span>
@@ -23,10 +28,5 @@
     <input type="number" id="lookback" name="lookback" min="1" style="width: 76px">
     <button type="submit">조회</button>
     <button type="button" id="live">지금</button>
-    {% if active == 'trading' %}
-    <button type="button" id="emergency-stop" class="danger" title="신규매수 차단 — 매도는 막지 않는다">
-      EMERGENCY STOP
-    </button>
-    {% endif %}
   </form>
 </header>

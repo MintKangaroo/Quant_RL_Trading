@@ -44,7 +44,10 @@ function renderStatus(body) {
  */
 function bindEmergencyStop() {
   const button = document.getElementById("emergency-stop");
-  if (!button) return;
+  if (!button || button.dataset.bound === "true") return;
+  // KPI 줄을 다시 그릴 때마다 불린다. 두 번 묶으면 확인 창이 두 번 뜨고,
+  // 두 번째 확인이 첫 번째 요청을 되돌리는 것처럼 보인다.
+  button.dataset.bound = "true";
   button.addEventListener("click", async () => {
     const engaged = button.dataset.engaged === "true";
     const action = engaged ? "release" : "engage";
@@ -76,37 +79,53 @@ function bindEmergencyStop() {
 
 /* -- KPI 스트립 ---------------------------------------------------------- */
 
+const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up" : "down");
+
 function renderKpis(body) {
   const k = body.data.kpis;
   const risk = body.data.risk;
+  const e = body.data.equity;
+  const s = body.data.system;
+  // 스파크라인은 에쿼티 곡선에서 온다. 없는 계열을 지어내지 않는다 —
+  // 카드에 따라 선이 없는 것이 정상이다.
+  const navLine = e && e.nav.length > 1 ? e.nav : null;
+  const indexLine = e && e.index.length > 1 ? e.index : null;
+  const ddLine = e && e.drawdown.length > 1 ? e.drawdown : null;
+
   const cards = [
-    kpi("순자산", num(Math.round(k.nav)) + " 원", `세후 ${num(Math.round(k.nav_after_tax))}`),
-    kpi("일간손익", pct(k.daily_return), `지수 ${dec(k.index_value, 2)}`),
-    kpi("누적수익률", pct(k.cumulative_return), "TWR 기준"),
-    kpi("현재낙폭", pct(k.drawdown), risk.band_message, risk.band !== "free"),
+    kpi("총자산", num(Math.round(k.nav)), `세후 ${num(Math.round(k.nav_after_tax))}`, false,
+        { unit: "KRW", spark: navLine }),
+    kpi("금일손익", pct(k.daily_return), `지수 ${dec(k.index_value, 2)}`, false,
+        { tone: tone(k.daily_return) }),
+    kpi("수익률 (누적)", pct(k.cumulative_return), "TWR 기준", false,
+        { tone: tone(k.cumulative_return), spark: indexLine }),
+    kpi("MDD", pct(k.drawdown), risk.band_message, risk.band !== "free",
+        { spark: ddLine, tone: k.drawdown < 0 ? "down" : "" }),
     kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
-    kpi(
-      "액션 반영률",
-      pct(k.action_reflection, 0),
-      `하한 ${pct(k.action_reflection_floor, 0)}`,
-      k.action_reflection < k.action_reflection_floor
-    ),
-    kpi("보유 종목", num(k.positions), `KR ${num(Math.round(k.equity_kr))}`),
-    kpi("원달러", dec(k.fx_rate, 1), k.cash_usd ? `USD ${num(Math.round(k.cash_usd))}` : "USD 0"),
-    kpi(
-      "킬스위치",
-      risk.killswitch.engaged ? "발동" : "정상",
-      risk.killswitch.engaged ? risk.killswitch.reason : `발동선 ${pct(risk.killswitch.drawdown_trigger, 0)}`,
-      risk.killswitch.engaged
-    ),
-    kpi(
-      "주문 거부",
-      risk.orders_rejected + " / " + risk.orders_total,
-      risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`,
-      risk.reject_rate !== null && risk.reject_rate > risk.killswitch.order_fail_rate
-    ),
+    kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
+        k.action_reflection < k.action_reflection_floor),
+    kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",
+        s ? s.engine : "—"),
+    kpi("API 상태", s && s.broker ? s.broker.split(" · ")[1] || s.broker : "—",
+        s ? s.broker.split(" · ")[0] : "—"),
+    kpi("주문 거부", risk.orders_rejected + " / " + risk.orders_total,
+        risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`,
+        risk.reject_rate !== null && risk.reject_rate > risk.killswitch.order_fail_rate),
+    emergencyStopCard(risk.killswitch.engaged),
   ];
   document.getElementById("kpis").innerHTML = cards.join("");
+  bindEmergencyStop();
+}
+
+/* 정지 버튼은 KPI 줄의 마지막 칸이다 — 숫자와 같은 눈높이에 있어야 한다. */
+function emergencyStopCard(engaged) {
+  return `<div class="kpi kpi-stop${engaged ? " engaged" : ""}">
+    <button type="button" id="emergency-stop" data-engaged="${engaged}"
+            title="신규매수 차단 — 매도는 막지 않는다">
+      ${engaged ? "킬스위치 해제" : "EMERGENCY STOP"}
+      <span class="glyph">${engaged ? "⏻" : "✋"}</span>
+    </button>
+  </div>`;
 }
 
 function renderAlerts(body) {
@@ -126,20 +145,19 @@ function renderWatchlist(body) {
       `<p class="empty">오늘 기록된 신호가 없다. 0 으로 채우지 않는다.</p>`;
     return;
   }
-  const head = `<tr><th>종목</th><th class="r">현재가</th><th class="r">등락</th>
-                <th>신호</th><th class="r">점수</th><th class="r">보유</th>
-                <th class="r">손익</th></tr>`;
+  const head = `<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
+                <th class="mid">AI 시그널</th><th class="mid">포지션</th>
+                <th class="r">PnL</th></tr></thead>`;
   const cells = rows
     .map(
       (row) => `<tr class="click${row.entity_id === selected ? " on" : ""}" data-entity="${row.entity_id}">
-        <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
+        <td><span class="name">${row.name}</span>
+            <span class="code">${row.entity_id} · 점수 ${dec(row.score, 3)}</span></td>
         <td class="r mono">${num(row.price)}</td>
-        <td class="r mono ${signClass(row.change)}">${pct(row.change)}</td>
-        <td><span class="sig ${row.signal.toLowerCase()}">${row.signal}</span>
-            <span class="code">${row.target_weight === null || row.target_weight === undefined
-              ? "" : "목표 " + pct(row.target_weight, 1)}</span></td>
-        <td class="r mono">${dec(row.score, 3)}</td>
-        <td class="r mono">${row.position ? num(row.position) : "—"}</td>
+        <td class="r mono ${signClass(row.change)}">${arrow(row.change)}${pct(row.change)}</td>
+        <td class="mid"><span class="sig ${row.signal.toLowerCase()}">${row.signal}</span></td>
+        <td class="mid mono ${row.position ? "up" : ""}">${row.position ? "LONG" : "FLAT"}
+            <span class="code">${row.position ? num(row.position) : ""}</span></td>
         <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}
             <span class="code">${row.pnl_pct === null ? "" : pct(row.pnl_pct)}</span></td>
       </tr>`
@@ -156,6 +174,8 @@ function bindRows(id) {
 }
 
 const signClass = (v) => (v === null || v === undefined ? "" : v > 0 ? "up" : v < 0 ? "down" : "");
+/* 부호를 색만으로 말하지 않는다. 색각 이상에서 초록·빨강은 같은 회색이다. */
+const arrow = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "▲ " : "▼ ");
 
 /* -- 결정 패널 ------------------------------------------------------------ */
 
@@ -187,6 +207,15 @@ function renderDecision(body) {
     : `<p class="empty">이 종목에 기여한 Analyst 가 없다 (가중치 0 은 빠진다).</p>`;
 
   const p = d.position;
+  const row = (body.data.watchlist || []).find((item) => item.entity_id === d.entity_id);
+  const action = row ? row.signal : "HOLD";
+  // 신뢰도는 기여 가중 평균이다. Analyst 각자의 confidence 는 롤링 IC 에서
+  // 오고(agents.md §1), 합성 점수에 실린 몫만큼만 이 화면의 신뢰도가 된다.
+  const confidence = d.contributions.length
+    ? d.contributions.reduce((sum, c) => sum + Math.abs(c.share) * c.confidence, 0) /
+      Math.max(1e-9, d.contributions.reduce((sum, c) => sum + Math.abs(c.share), 0))
+    : null;
+
   const facts = [
     ["종목", d.entity_id],
     ["합성 점수", dec(d.score, 4)],
@@ -197,7 +226,18 @@ function renderDecision(body) {
     ["현재가", p.price ? num(Math.round(p.price)) : "—"],
     ["평가손익", p.pnl === null ? "—" : num(Math.round(p.pnl))],
   ];
+
   document.getElementById("decision").innerHTML = `
+    <div class="decision-head">
+      <div class="decision-action">
+        <div class="k">현재 Action</div>
+        <div class="v ${action.toLowerCase()}">${action}</div>
+      </div>
+      ${donut(confidence)}
+    </div>
+    <h3>Q-Values <span class="sub">행동 확률</span></h3>
+    <p class="pending">— 미측정 <span class="why">· Q값은 정책(RL)이 내는 값이다. 지금 비중은
+      규칙이 정하므로 잴 대상이 없다 (M4)</span></p>
     <div class="facts">${facts
       .map(([label, value]) => `<div class="fact"><span>${label}</span><b class="mono">${value}</b></div>`)
       .join("")}</div>
@@ -207,6 +247,22 @@ function renderDecision(body) {
       목표와 실현이 벌어지는 것은 라운딩·상한이 한 일이다. 그 차이를 되먹이지
       않으면 Allocator 는 자기가 하지 않은 행동으로 보상받는다 (불변식 7).
     </p>`;
+}
+
+/* 신뢰도 고리. 못 잰 값은 고리를 비우고 "—" 를 적는다 — 0% 로 그리면
+ * "쟀는데 신뢰가 없다" 로 읽히고, 그건 다른 사실이다. */
+function donut(value) {
+  const r = 26;
+  const circumference = 2 * Math.PI * r;
+  const filled = value === null || value === undefined ? 0 : Math.max(0, Math.min(1, value));
+  return `<div class="donut" title="기여 가중 평균 신뢰도">
+    <svg width="62" height="62" viewBox="0 0 62 62">
+      <circle class="ring-bg" cx="31" cy="31" r="${r}" fill="none" stroke-width="5"/>
+      <circle class="ring" cx="31" cy="31" r="${r}" fill="none" stroke-width="5"
+              stroke-dasharray="${(filled * circumference).toFixed(1)} ${circumference.toFixed(1)}"/>
+    </svg>
+    <span class="mid">${value === null || value === undefined ? "—" : pct(value, 0)}</span>
+  </div>`;
 }
 
 /* -- 리스크 --------------------------------------------------------------- */
@@ -231,25 +287,50 @@ function renderRisk(body) {
       </div>
     </div>`;
 
+  // [이름][값][막대][판정]. 판정은 한도 대비로 정한다 — 화면이 임계치를
+  // 다시 정하지 않는다 (임계치는 store.config, 불변식 10).
   const limits = [
-    ["익스포저", r.exposure, 1 - r.cash_buffer],
-    ["종목 상한", Math.max(0, ...body.data.positions.map((p) => p.weight || 0)), r.max_position_weight],
-    ["주문 거부율", r.reject_rate || 0, r.killswitch.order_fail_rate],
-    ["액션 반영률", k.action_reflection, k.action_reflection_floor],
+    ["금일손익", r.daily_return, null, "sign"],
+    ["현재낙폭", r.drawdown, r.bands.hard, "band"],
+    ["최대낙폭 밴드", r.bands.warn, r.bands.hard, "band"],
+    ["익스포저", r.exposure, 1 - r.cash_buffer, "limit"],
+    ["종목 상한", Math.max(0, ...body.data.positions.map((p) => p.weight || 0)), r.max_position_weight, "limit"],
+    ["보유 종목", k.positions / 10, 1, "limit"],
+    ["주문 거부율", r.reject_rate || 0, r.killswitch.order_fail_rate, "limit"],
+    ["액션 반영률", k.action_reflection, k.action_reflection_floor, "floor"],
   ];
+
   const rows = limits
-    .map(([label, value, limit]) => {
-      const ratio = limit ? Math.min(100, (value / limit) * 100) : 0;
-      const hot = value !== null && limit && value > limit;
-      return `<div class="limit">
-        <span class="limit-label">${label}</span>
-        <span class="limit-track"><span class="limit-fill ${hot ? "hot" : ""}" style="width:${ratio}%"></span></span>
-        <span class="limit-value mono">${pct(value)} <em>/ ${pct(limit)}</em></span>
+    .map(([label, value, limit, kind]) => {
+      const magnitude = Math.abs(value === null || value === undefined ? 0 : value);
+      const ratio = limit ? Math.min(100, (magnitude / Math.abs(limit)) * 100) : 0;
+      let level = "info";
+      if (kind === "sign") level = value < 0 ? "warning" : "info";
+      else if (kind === "floor") level = value < limit ? "critical" : "info";
+      else if (magnitude > Math.abs(limit)) level = "critical";
+      else if (ratio > 70) level = "warning";
+      const fill = level === "critical" ? "hot" : level === "warning" ? "warn" : "";
+      const text =
+        label === "보유 종목"
+          ? `${num(k.positions)} / 10`
+          : `${pct(value)}${limit === null ? "" : ` / ${pct(limit, 0)}`}`;
+      return `<div class="risk-row">
+        <span class="name">${label}</span>
+        <span class="val ${kind === "sign" ? signClass(value) : ""}">${text}</span>
+        <span class="track"><span class="fill ${fill}" style="width:${ratio}%"></span></span>
+        <span class="verdict ${level}">${level.toUpperCase()}</span>
       </div>`;
     })
     .join("");
 
-  document.getElementById("risk").innerHTML = gauge + rows;
+  const engaged = r.killswitch.engaged;
+  const system = `<div class="sys-line">
+    <span>전체 시스템 상태</span>
+    <span class="verdict ${engaged ? "critical" : "info"}">
+      ${engaged ? "킬스위치 발동" : "OPERATIONAL"}</span>
+  </div>`;
+
+  document.getElementById("risk").innerHTML = gauge + rows + system;
 }
 
 /* -- 포지션·주문 ---------------------------------------------------------- */
@@ -261,9 +342,9 @@ function renderPositions(body) {
     document.getElementById("positions").innerHTML = `<p class="empty">보유 종목이 없다.</p>`;
     return;
   }
-  const head = `<tr><th>종목</th><th class="r">수량</th><th class="r">평균단가</th>
+  const head = `<thead><tr><th>종목</th><th class="r">수량</th><th class="r">평균단가</th>
     <th class="r">현재가</th><th class="r">평가금액</th><th class="r">평가손익</th>
-    <th class="r">수익률</th><th class="r">비중</th><th class="r">점수</th></tr>`;
+    <th class="r">수익률</th><th class="r">비중</th><th class="r">점수</th></tr></thead>`;
   document.getElementById("positions").innerHTML =
     `<table>${head}${rows
       .map(
@@ -290,24 +371,25 @@ function renderOrders(body) {
       `<p class="empty">기록된 주문이 없다. Session 이 돌면 여기 쌓인다.</p>`;
     return;
   }
-  const head = `<tr><th>시각</th><th>종목</th><th>방향</th><th class="r">수량</th>
-    <th class="r">지정가</th><th class="r">체결가</th><th class="r">체결수량</th>
-    <th class="r">비용</th><th class="r">목표비중</th><th class="r">지연</th><th>상태</th></tr>`;
+  const head = `<thead><tr><th>시각</th><th>종목</th><th class="mid">방향</th>
+    <th class="r">지정가</th><th class="r">체결가</th><th class="r">수량</th>
+    <th class="r">체결수량</th><th class="r">비용</th><th class="r">목표비중</th>
+    <th class="r">지연</th><th class="mid">상태</th></tr></thead>`;
   document.getElementById("orders").innerHTML =
-    `<table>${head}${rows
+    `<table class="ledger">${head}${rows
       .map(
         (row) => `<tr class="click" data-entity="${row.entity_id}">
       <td class="mono">${row.time.slice(0, 16).replace("T", " ")}</td>
-      <td><span class="name">${row.name}</span></td>
-      <td class="${row.side === "buy" ? "up" : "down"}">${row.side.toUpperCase()}</td>
-      <td class="r mono">${num(row.quantity)}</td>
+      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
+      <td class="mid side ${row.side}">${row.side.toUpperCase()}</td>
       <td class="r mono">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
       <td class="r mono">${row.fill_price ? num(Math.round(row.fill_price)) : "—"}</td>
+      <td class="r mono">${num(row.quantity)}</td>
       <td class="r mono">${row.fill_quantity ? num(row.fill_quantity) : "—"}</td>
       <td class="r mono">${row.cost === null ? "—" : num(Math.round(row.cost))}</td>
       <td class="r mono">${pct(row.target_weight)}</td>
       <td class="r mono">${row.latency_ms === null ? "—" : ms(row.latency_ms)}</td>
-      <td><span class="status ${row.status}">${row.status.toUpperCase()}</span></td>
+      <td class="mid"><span class="status ${row.status}">${row.status.toUpperCase()}</span></td>
     </tr>`
       )
       .join("")}</table>`;
@@ -377,9 +459,12 @@ async function renderCandles(entityId, positions) {
   chart("chart-candle").setOption({
     ...BASE,
     legend: { ...BASE.legend, data: ["봉", "MA5", "MA20", "MA60"] },
+    // 높이를 비율로 주면 봉 영역이 패널 높이에 따라 접힌다 — 실제로 봉이
+    // 세로로 눌려 보였다. 거래량(56px)과 손잡이(24px)는 고정 크기이므로
+    // 픽셀로 잡고, 남는 세로는 전부 봉이 가져간다.
     grid: [
-      { left: 52, right: 52, top: 18, height: "56%" },
-      { left: 52, right: 52, top: "70%", height: "14%" },
+      { left: 56, right: 62, top: 26, bottom: 108 },
+      { left: 56, right: 62, height: 56, bottom: 46 },
     ],
     // 좌우 스크롤·확대축소. 두 grid 를 함께 움직여야 봉과 거래량이 어긋나지
     // 않는다. inside 는 휠·드래그, slider 는 아래 손잡이다.
@@ -460,6 +545,16 @@ async function loadTrading() {
     return;
   }
 
+  // "LIVE" 는 as_of 를 안 준 상태다. 타임머신을 켠 채 점이 켜져 있으면
+  // 사람이 보고 있는 시점이 조용히 흘러가는 것처럼 읽힌다 (dashboard.md §8-2).
+  const dot = document.getElementById("decision-live");
+  if (dot) {
+    dot.classList.toggle("paused", !body.live);
+    dot.textContent = body.live ? "LIVE" : "AS_OF 고정";
+  }
+  const equitySub = document.getElementById("equity-sub");
+  if (equitySub) equitySub.textContent = `${body.data.equity.sessions.length}세션`;
+
   renderKpis(body);
   renderAlerts(body);
   renderWatchlist(body);
@@ -469,16 +564,8 @@ async function loadTrading() {
   renderOrders(body);
   renderEquity(body);
 
-  const button = document.getElementById("emergency-stop");
-  if (button) {
-    const engaged = body.data.risk.killswitch.engaged;
-    button.dataset.engaged = String(engaged);
-    button.textContent = engaged ? "킬스위치 해제" : "EMERGENCY STOP";
-    button.classList.toggle("engaged", engaged);
-  }
-
+  // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
   await renderCandles(body.data.decision.entity_id, body.data.positions);
 }
 
-bindEmergencyStop();
 runAll([loadTrading]);

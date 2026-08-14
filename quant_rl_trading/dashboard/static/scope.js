@@ -9,9 +9,12 @@
  * 화면이 생기지 않는다.
  */
 
+/* app.css 의 :root 와 같은 값이다. 차트는 CSS 변수를 못 읽으므로 여기 한 벌
+   더 있다 — 한쪽만 고치면 봉과 표의 색이 갈라진다. */
 const COLOR = {
-  text: "#e6e9ee", muted: "#8a93a0", dim: "#5a626d", border: "#262c35",
-  panel: "#161a20", warn: "#f5a524", up: "#e5484d", down: "#3e7bfa", bench: "#6b7280",
+  text: "#e6e9ee", muted: "#8a93a0", dim: "#5a626d", border: "#1e2733",
+  panel: "#0d1219", warn: "#f5a524", up: "#22c55e", down: "#ef4444",
+  bench: "#6b7280", accent: "#38bdf8",
 };
 
 const AXIS = {
@@ -62,11 +65,42 @@ const num = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleSt
 const ms = (v) => (v === null || v === undefined ? "—" : Number(v).toFixed(0) + " ms");
 const dec = (v, digits = 4) => (v === null || v === undefined ? "—" : Number(v).toFixed(digits));
 
-function kpi(label, value, note, warn) {
-  return `<div class="kpi${warn ? " warn" : ""}">
+/* 스파크라인. 축도 눈금도 없는 **모양**이다 — 정확한 값은 바로 옆에 있다.
+ *
+ * 점이 둘 미만이면 아무것도 그리지 않는다. 한 점을 선으로 그리면 평평한
+ * 추세로 보이고, 그건 "변화가 없었다" 는 거짓말이다.
+ */
+function spark(values, color) {
+  const points = (values || []).filter((v) => v !== null && v !== undefined && Number.isFinite(v));
+  if (points.length < 2) return "";
+  const lo = Math.min(...points);
+  const hi = Math.max(...points);
+  const span = hi - lo || 1;
+  const path = points
+    .map((v, i) => `${(i / (points.length - 1)) * 100},${28 - ((v - lo) / span) * 26}`)
+    .join(" ");
+  return `<span class="kpi-spark"><svg viewBox="0 0 100 30" preserveAspectRatio="none">
+    <polyline points="${path}" fill="none" stroke="${color || COLOR.muted}"
+              stroke-width="1.4" vector-effect="non-scaling-stroke"/>
+  </svg></span>`;
+}
+
+/* KPI 카드. ``extra`` 로 스파크라인·단위·손익 색을 준다.
+ *
+ * tone 은 "up" | "down" 만 받는다. 손익이 아닌 값(익스포저·보유 종목 수)에
+ * 색을 주면 화면 전체가 색으로 덮여 정작 손익이 안 보인다 (dashboard.md §10).
+ */
+function kpi(label, value, note, warn, extra = {}) {
+  const tone = extra.tone ? ` ${extra.tone}` : "";
+  const unit = extra.unit ? `<span class="unit">${extra.unit}</span>` : "";
+  const line = extra.spark
+    ? spark(extra.spark, extra.tone === "down" ? COLOR.down : extra.tone === "up" ? COLOR.up : COLOR.muted)
+    : "";
+  return `<div class="kpi${warn ? " warn" : ""}${tone}">
     <div class="kpi-label">${label}</div>
-    <div class="kpi-value">${value}</div>
+    <div class="kpi-value">${value}${unit}</div>
     <div class="kpi-note">${note || ""}</div>
+    ${line}
   </div>`;
 }
 

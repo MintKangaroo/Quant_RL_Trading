@@ -1,20 +1,25 @@
-/* 색·타이포는 docs/design/dashboard.md §6 토큰 그대로.
+/* 색·타이포는 docs/design/dashboard.md §10 토큰 그대로.
    여백보다 정보. 한 화면에서 판단이 끝나야 한다. */
 
 :root {
-  --bg: #0e1116;
-  --panel: #161a20;
-  --panel2: #1b2028;
-  --border: #262c35;
+  --bg: #070a0f;
+  --panel: #0d1219;
+  --panel2: #141b24;
+  --border: #1e2733;
+  /* 패널 머리글 줄. 본문보다 한 단계 밝아야 카드의 경계가 읽힌다. */
+  --head: #111823;
   --text: #e6e9ee;
   --muted: #8a93a0;
   --dim: #5a626d;
   --warn: #f5a524;
-  /* 상승 = 빨강(한국식)으로 통일. 국장·미장을 같이 하므로
-     화면마다 다르면 사고가 난다. */
-  --up: #e5484d;
-  --down: #3e7bfa;
+  /* 상승 = 초록으로 통일. 국장·미장을 같이 하므로 화면마다 다르면 사고가
+     난다 (dashboard.md §10). */
+  --up: #22c55e;
+  --down: #ef4444;
   --bench: #6b7280;
+  /* 강조. 손익이 아닌 것 — 선택·초점·구조선 — 에만 쓴다. 손익 색과 겹치면
+     "이 파랑이 손실인가 선택인가" 를 매번 생각하게 된다. */
+  --accent: #38bdf8;
 }
 
 * { box-sizing: border-box; }
@@ -34,32 +39,57 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 상단 바 — 브랜드 · 탭 · 상태 · 타임머신. 한 줄에 다 들어간다.
+   화면의 가장 위는 "지금 무엇을 보고 있나" 를 말하는 자리다. */
 header {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 16px;
-  padding: 12px 18px;
-  background: var(--panel);
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px;
+  background: linear-gradient(180deg, #0e151e 0%, var(--panel) 100%);
   border-bottom: 1px solid var(--border);
 }
 
-header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0.02em; }
+header h1 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* 브랜드 앞의 표식. 로고 파일을 두지 않는 이유는 CDN 금지와 같은 이유다 —
+   화면이 못 뜨는 이유를 하나 더 만들지 않는다. */
+header h1::before {
+  content: "◈";
+  color: var(--accent);
+  margin-right: 8px;
+  font-size: 13px;
+}
 header .sub { color: var(--muted); font-size: 12px; }
 
-.controls { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.controls { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 
 .tabs { display: flex; gap: 2px; }
 .tabs a {
   color: var(--muted);
   text-decoration: none;
-  font-size: 12px;
-  padding: 4px 10px;
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  padding: 5px 11px;
   border: 1px solid transparent;
   border-radius: 3px;
 }
 .tabs a:hover { color: var(--text); background: var(--panel2); }
-.tabs a.on { color: var(--text); background: var(--panel2); border-color: var(--border); }
+.tabs a.on {
+  color: var(--text);
+  background: var(--panel2);
+  border-color: var(--border);
+  /* 선택된 탭은 아래에 선이 붙는다. 배경 차이만으로는 어두운 화면에서 잘
+     안 보인다 — 실제로 어느 탭인지 매번 확인하게 됐다. */
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 
 /* 상태 배지. 색은 판정에만 쓴다 — 통과/관찰/미측정은 판정이다. */
 .tag {
@@ -109,41 +139,111 @@ input:focus-visible, button:focus-visible, select:focus-visible {
 button { cursor: pointer; }
 button:hover { background: var(--border); }
 
-main { padding: 14px 18px 32px; display: grid; gap: 14px; }
+main { padding: 10px 12px 24px; display: grid; gap: 10px; }
 
+/* KPI 스트립 — 카드마다 테두리를 준다. 1px 간격으로 붙여 두면 표처럼
+   보이고, 이 줄은 표가 아니라 서로 다른 질문 열 개다. */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 1px;
-  background: var(--border);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: 8px;
 }
 
-.kpi { background: var(--panel); padding: 9px 12px; }
-.kpi-label { color: var(--muted); font-size: 11px; }
-.kpi-value { font-size: 19px; margin-top: 2px; }
-.kpi-note { color: var(--dim); font-size: 11px; }
+.kpi {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 11px 9px;
+  position: relative;
+  overflow: hidden;
+}
+.kpi-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.kpi-value { font-size: 21px; line-height: 1.15; margin-top: 3px; }
+/* 단위는 값보다 작게. 같은 크기면 자릿수가 하나 더 있는 것처럼 읽힌다. */
+.kpi-value .unit { font-size: 11px; color: var(--muted); margin-left: 3px; }
+.kpi-note { color: var(--dim); font-size: 10.5px; margin-top: 1px; }
+.kpi.warn { border-color: var(--warn); }
 .kpi.warn .kpi-value { color: var(--warn); }
+.kpi.up .kpi-value { color: var(--up); }
+.kpi.down .kpi-value { color: var(--down); }
+
+/* 카드 안 스파크라인. 축도 눈금도 없다 — 여기서 읽는 것은 값이 아니라
+   **모양**이고, 정확한 값은 바로 왼쪽에 이미 있다. */
+.kpi-spark {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-40%);
+  width: 68px;
+  height: 30px;
+  pointer-events: none;
+  opacity: 0.85;
+}
+.kpi-spark svg { display: block; width: 100%; height: 100%; }
+
+/* EMERGENCY STOP — KPI 줄 오른쪽 끝의 붉은 칸. 항상 같은 자리에 있어야
+   한다. 찾아야 하는 정지 버튼은 정지 버튼이 아니다. */
+.kpi-stop {
+  background: linear-gradient(180deg, #3d0f13 0%, #2a0b0e 100%);
+  border-color: #7f1d1d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.kpi-stop button {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #ff9ba0;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  line-height: 1.3;
+}
+.kpi-stop button:hover { background: rgba(239, 68, 68, 0.12); }
+.kpi-stop button .glyph { display: block; font-size: 17px; margin-top: 2px; }
+.kpi-stop.engaged { border-color: var(--warn); }
+.kpi-stop.engaged button { color: var(--warn); }
 
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
 
+/* 패널 — 머리글이 본문과 다른 줄에 앉는다. 제목을 본문과 같은 바탕에 두면
+   패널이 몇 개인지가 안 읽히고, 화면이 카드 더미가 아니라 글자 벽이 된다. */
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 10px 12px 12px;
+  border-radius: 5px;
+  padding: 0 0 8px;
+  min-width: 0;
 }
 
 .panel h2 {
   margin: 0 0 8px;
-  font-size: 12px;
+  padding: 6px 11px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.04em;
+  color: var(--text);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
+  background: var(--head);
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px 4px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+/* 머리글 오른쪽 붙박이. 시간대 버튼·건수 같은 것이 여기 앉는다. */
+.panel h2 .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.panel > *:not(h2) { margin-left: 11px; margin-right: 11px; }
+.panel > .scroll { margin: 0; padding: 0 11px; }
 
 .chart { width: 100%; height: 240px; }
 
@@ -294,14 +394,14 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
 
 .grid-desk {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(520px, 2.4fr) minmax(280px, 1.1fr);
-  gap: 14px;
+  grid-template-columns: minmax(260px, 1fr) minmax(520px, 2.4fr) minmax(300px, 1.15fr);
+  gap: 10px;
 }
 
 .grid-desk2 {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 14px;
+  gap: 10px;
 }
 
 @media (max-width: 1500px) {
@@ -315,7 +415,9 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
   #panel-decision { grid-column: span 1; }
 }
 
-.chart.tall { height: 420px; }
+/* 봉 차트는 이 화면에서 가장 큰 그림이다. 높이가 모자라면 봉이 선이 된다.
+   그리드 배분은 trading.js 가 픽셀로 잡는다 — 여기 높이와 짝이다. */
+.chart.tall { height: 470px; }
 
 .panel h2 .sub {
   margin-left: 8px;
@@ -355,9 +457,10 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
   border-radius: 2px;
   color: var(--muted);
 }
-.status.filled { color: var(--up); border-color: var(--up); }
-.status.planned { color: var(--muted); }
-.status.rejected { color: var(--warn); border-color: var(--warn); }
+.status.filled { color: var(--up); border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.1); }
+.status.partial { color: var(--warn); border-color: rgba(245, 165, 36, 0.5); background: rgba(245, 165, 36, 0.1); }
+.status.planned, .status.requested { color: var(--accent); border-color: rgba(56, 189, 248, 0.45); }
+.status.rejected { color: var(--down); border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.1); }
 .status.cancelled { color: var(--dim); }
 
 /* 결정 패널 — Analyst 기여도 막대. Q값이 아니다(M4 전). */
@@ -386,25 +489,27 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
 .gauge { margin-bottom: 12px; }
 .gauge-track { display: flex; height: 16px; border-radius: 3px; overflow: hidden; position: relative; }
 .gauge-band { display: block; height: 100%; }
-.gauge-band.free { background: rgba(62, 123, 250, 0.35); }
+.gauge-band.free { background: rgba(34, 197, 94, 0.32); }
 .gauge-band.warn { background: rgba(245, 165, 36, 0.35); }
-.gauge-band.hard { background: rgba(229, 72, 77, 0.35); }
+.gauge-band.hard { background: rgba(239, 68, 68, 0.35); }
 .gauge-needle { position: absolute; top: -3px; width: 2px; height: 22px; background: var(--text); }
 .gauge-legend { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
-.gauge-legend .free { color: var(--down); }
+.gauge-legend .free { color: var(--up); }
 .gauge-legend .warn { color: var(--warn); }
 .gauge-legend .hard { color: var(--up); }
 
 .limit { display: grid; grid-template-columns: 88px 1fr 118px; align-items: center; gap: 6px; margin: 4px 0; }
 .limit-label { font-size: 11px; color: var(--muted); }
 .limit-track { background: var(--panel2); height: 8px; border-radius: 2px; overflow: hidden; }
-.limit-fill { display: block; height: 100%; background: var(--down); }
-.limit-fill.hot { background: var(--up); }
+/* 한도 막대는 손익이 아니라 사용량이다. 평소에는 무채색이고, 넘어선
+   순간에만 색이 붙는다 (dashboard.md §10: 색은 손익과 경고에만). */
+.limit-fill { display: block; height: 100%; background: var(--muted); }
+.limit-fill.hot { background: var(--down); }
 .limit-value { font-size: 11px; text-align: right; }
 .limit-value em { color: var(--dim); font-style: normal; }
 
 .alert.warning { border-left-color: var(--warn); color: var(--warn); }
-.alert.critical { border-left-color: var(--up); color: var(--up); }
+.alert.critical { border-left-color: var(--down); color: var(--down); }
 
 /* 상태 바 — 모드를 화면이 항상 말한다. shadow 창고를 보면서 실전이라고
    착각하는 것이 이 화면에서 가능한 가장 비싼 오해다. */
@@ -422,8 +527,8 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
 .badge.dim { color: var(--dim); }
 .badge.mode-live { color: var(--up); border-color: var(--up); }
 .badge.mode-shadow { color: var(--warn); border-color: var(--warn); }
-.badge.mode-backtest { color: var(--down); border-color: var(--down); }
-.badge.stop { color: var(--up); border-color: var(--up); }
+.badge.mode-backtest { color: var(--accent); border-color: var(--accent); }
+.badge.stop { color: var(--down); border-color: var(--down); }
 
 /* EMERGENCY STOP — 항상 같은 자리에 있어야 한다. 찾아야 하는 정지 버튼은
    정지 버튼이 아니다. */
@@ -440,13 +545,135 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 /* AI 신호 배지. **결정을 화면이 다시 내리지 않는다** — 기록된 목표 비중과
    보유를 읽어 이름만 붙인 것이다. */
 .sig {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
   font-family: "IBM Plex Mono", ui-monospace, monospace;
   font-size: 10px;
-  padding: 1px 5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: 3px;
   color: var(--muted);
 }
-.sig.buy { color: var(--up); border-color: var(--up); }
-.sig.sell { color: var(--down); border-color: var(--down); }
-.sig.hold { color: var(--muted); }
+/* 배지는 칠한다. 표 안에서 테두리만 있는 배지는 옆 칸의 숫자에 묻힌다. */
+.sig.buy { color: var(--up); border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.12); }
+.sig.sell { color: var(--down); border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.12); }
+.sig.hold { color: var(--muted); background: var(--panel2); }
+
+/* ---------------------------------------------------------------------------
+   터미널 부품 — 시간대 버튼 · LIVE 점 · AI 결정 · 리스크 모니터.
+   --------------------------------------------------------------------------- */
+
+/* 시간대 선택. 창고에 없는 봉은 **누른 척도 하지 않는다** — 꺼진 버튼이
+   "아직 없다" 를 말하고, 없는 것을 그리는 화면보다 정직하다. */
+.seg { display: flex; gap: 2px; }
+.seg button {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--dim);
+}
+.seg button:hover:not(:disabled) { background: var(--panel2); color: var(--text); }
+.seg button.on {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: var(--accent);
+}
+.seg button:disabled { color: #39414d; cursor: not-allowed; }
+
+/* 갱신 중임을 말하는 점. 깜빡이지 않는다 — 움직이는 대시보드는 아마추어처럼
+   보인다 (dashboard.md §8). */
+.live-dot { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); }
+.live-dot::before {
+  content: "";
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--up);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
+}
+.live-dot.paused::before { background: var(--dim); box-shadow: none; }
+
+/* AI 결정 — 지금 무엇을 하려는가. 화면에서 가장 큰 글자다. */
+.decision-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+.decision-action { flex: 1; min-width: 0; }
+.decision-action .k { color: var(--muted); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+.decision-action .v {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 500;
+}
+.decision-action .v.buy { color: var(--up); }
+.decision-action .v.sell { color: var(--down); }
+.decision-action .v.hold { color: var(--muted); }
+
+/* 신뢰도 고리. 숫자를 가운데 두고 고리로 감싼다 — 막대로 두면 옆의 Q값
+   막대와 같은 것으로 읽힌다. */
+.donut { position: relative; width: 62px; height: 62px; flex: none; }
+.donut svg { transform: rotate(-90deg); display: block; }
+.donut .ring-bg { stroke: var(--panel2); }
+.donut .ring { stroke: var(--up); stroke-linecap: round; }
+.donut .mid {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 13px;
+}
+
+/* 못 잰 값. 자리를 비우지 않고 왜 비었는지를 적는다 — 빈칸은 0 으로
+   읽히고, 0 은 "쟀는데 낮다" 는 뜻이 된다. */
+.pending { color: var(--dim); font-size: 11px; }
+.pending .why { color: #39414d; }
+
+/* 리스크 모니터 — 한 줄에 [이름][값][막대][판정]. 판정 배지가 오른쪽 끝에
+   세로로 줄지어야 훑어보는 눈이 한 열만 본다. */
+.risk-row {
+  display: grid;
+  grid-template-columns: 1fr auto 74px 62px;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+}
+.risk-row .name { color: var(--muted); }
+.risk-row .val { font-family: "IBM Plex Mono", ui-monospace, monospace; text-align: right; }
+.risk-row .track { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; }
+.risk-row .fill { display: block; height: 100%; background: var(--up); }
+.risk-row .fill.warn { background: var(--warn); }
+.risk-row .fill.hot { background: var(--down); }
+
+.verdict {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 2px 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+}
+.verdict.info { color: var(--up); border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.1); }
+.verdict.warning { color: var(--warn); border-color: rgba(245, 165, 36, 0.45); background: rgba(245, 165, 36, 0.1); }
+.verdict.critical { color: var(--down); border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.1); }
+
+/* 시스템 한 줄 요약. 리스크 패널의 마지막 줄이다. */
+.sys-line {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 8px; padding: 5px 8px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+/* 주문·체결 표 — 이 표만 가운데 정렬이다. 값이 아니라 **분류**(방향·상태)가
+   열의 주인공이라 왼쪽 정렬하면 배지가 들쭉날쭉해진다. */
+.ledger td.mid, .ledger th.mid { text-align: center; }
+.ledger .side { font-weight: 600; letter-spacing: 0.04em; }
+.ledger .side.buy { color: var(--up); }
+.ledger .side.sell { color: var(--down); }
