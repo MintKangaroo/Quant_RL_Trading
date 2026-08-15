@@ -28,7 +28,11 @@ from tools.verify_live_order import (
     run,
 )
 
-CREDS = LSCredentials(appkey="key", appsecret="secret", base_url="https://api.test")
+# ``kind`` 를 선언한다. 코드는 모의·실전을 판별할 수 없으므로 주문 도구가
+# 선언을 요구한다 — 미선언이면 거기서 멈춘다(그 자체를 아래에서 검증한다).
+CREDS = LSCredentials(
+    appkey="key", appsecret="secret", base_url="https://api.test", kind="real"
+)
 REGULAR_SESSION = datetime(2026, 8, 14, 1, 0, tzinfo=UTC)  # 한국시간 10:00 (정규장)
 
 
@@ -93,6 +97,9 @@ class FakeStore:
     def config(self, name: str, *, as_of: datetime):  # type: ignore[no-untyped-def]
         if name == "execution.live_trading":
             return self.live_trading
+        if name == "execution.live_account_fingerprint":
+            # 고정 안 함. 지문 고정 자체는 아래 전용 테스트가 본다.
+            return ""
         if name in self.RATE_DEFAULTS:
             return self.RATE_DEFAULTS[name]
         raise AssertionError(f"예상하지 못한 config 조회: {name}")

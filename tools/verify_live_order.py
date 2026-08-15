@@ -328,7 +328,28 @@ def run(
         return 1
     out("자격증명 존재 확인 — .env 에 LS_APPKEY/LS_APPSECRET 있음")
 
+    # **계좌 선언 게이트.** 코드는 모의·실전을 판별할 수 없다 — 같은 호스트를
+    # 쓰고, 모의 키로도 t0424 가 응답한다(2026-08-15 실측). 그래서 사람이
+    # 선언하게 하고, 그 선언을 **지문에 묶어** 확인한다. .env 를 바꿔치기하면
+    # 지문이 달라져 여기서 걸린다.
+    kind = client.credentials.declared_kind
+    fingerprint = client.credentials.fingerprint
+    out(f"계좌 선언: kind={kind or '(미선언)'} · appkey 지문={fingerprint or '(없음)'}")
+    if kind not in ("real", "paper"):
+        out("LS_ACCOUNT_KIND 가 선언되지 않았다 — .env 에 real 또는 paper 로 적어야 한다.")
+        out("**모르는 것을 모의로 가정하지 않는다.** 그 가정이 실전 주문을 낸다.")
+        return 1
     if config.live:
+        # 지문 고정은 **진짜 주문이 나갈 때만** 본다. 드라이런은 어차피 안 나간다.
+        pinned = str(store.config("execution.live_account_fingerprint", as_of=clock.now()) or "")
+        if pinned and pinned != fingerprint:
+            out(f"지문 불일치 — 설정에 고정된 계좌는 {pinned} 인데 지금 키는 {fingerprint} 다.")
+            out(".env 가 바뀌었거나 다른 계좌를 보고 있다. 진행하지 않는다.")
+            return 1
+        if kind != "real":
+            out(f"--live 인데 선언이 kind={kind} 다. 실전 주문은 real 계좌에만 낸다.")
+            return 1
+
         live_cfg = bool(store.config("execution.live_trading", as_of=clock.now()))
         if not live_cfg:
             out("execution.live_trading 이 꺼져 있다 — 이 상태로는 진행하지 않는다.")

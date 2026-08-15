@@ -223,7 +223,6 @@ async function renderResources() {
     document.getElementById("disk-detail").textContent = "측정 불가";
   }
 
-  renderSizingGuide();
 }
 
 async function renderProcesses() {
@@ -240,36 +239,8 @@ async function renderProcesses() {
       </tr>`).join("")
     : `<tr><td colspan="4" class="empty">이 레포 아래에서 도는 프로세스가 없다.</td></tr>`;
 
-  renderSizingGuide();
 }
 
-/* 홈서버 사이징 가이드 — LS_KR system.html 의 renderRec() 이식. 실측 워커
- * RSS·디스크 사용량에서 계산한 참고용 권장치이지 판정이 아니다(불변식 10
- * 이 막는 것은 임계치 없는 경고 색이지, 이런 안내 문구가 아니다). 두
- * 리소스 호출이 둘 다 끝나야 계산할 수 있어 양쪽에서 다 부른다. */
-function renderSizingGuide() {
-  const target = document.getElementById("rec-body");
-  if (!target || !lastResources || !lastProcesses) return;
-  const workerRss = lastProcesses.total_rss_mb;
-  const disk = lastResources.disk;
-  if (workerRss === null || !disk || disk.used_gb === null) {
-    target.innerHTML = `<div class="empty">측정치가 모자라 권장치를 계산할 수 없다.</div>`;
-    return;
-  }
-  const baseGb = Math.max(1, Math.ceil((workerRss / 1024 + 0.5) * 2) / 2); // 워커×2 버퍼
-  const recMemTrain = Math.max(4, Math.ceil(workerRss / 1024 + 2));        // 학습 동시 고려
-  const recDisk = Math.max(64, Math.ceil((disk.used_gb + 10) / 16) * 16);  // 현재+여유, 16GB 단위
-  const rows = [
-    ["CPU", "최소 2코어 / 권장 <b>4코어</b>", "상시 운영은 1코어로도 충분, RL 학습 병렬·여유가 남는 코어"],
-    ["메모리", `상시 <b>${baseGb}GB</b> / 학습 포함 권장 <b>${recMemTrain}GB</b>`, `현재 워커 RSS ${num(workerRss)}MB`],
-    ["디스크", `권장 <b>${recDisk}GB</b> SSD`, `현재 사용 ${dec(disk.used_gb, 0)}GB`],
-    ["네트워크", "상시 인터넷(LS API·시세)", "대역폭 요구 낮음, 안정성 중요"],
-    ["전력/형태", "미니PC(N100/소형 x86) 적합", "24/7 가동, 저전력·팬리스 권장"],
-  ];
-  target.innerHTML = rows.map(([k, v, note]) =>
-    `<div class="row"><span>${k}</span><span class="note">${v}<br><span class="sub" style="font-size:11px">${note}</span></span></div>`
-  ).join("");
-}
 
 function renderClock() {
   document.getElementById("sys-updated").textContent =

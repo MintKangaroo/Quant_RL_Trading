@@ -18,6 +18,7 @@ port(collectors): LS_KR broker/ls_client.py 이식 (인증·토큰갱신·TR호�
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -78,7 +79,17 @@ RATE_LIMIT_RETRIES = 5
 #: 백오프 기준 초. attempt 마다 2배씩 는다 (4·8·16·32·64초).
 RATE_LIMIT_BACKOFF_SEC = 4.0
 
-#: paper 모드에서도 허용되는 read-only TR. 잔고(t0424)·주문(CSPAT*)은 절대 불허.
+#: ``live_trading=False`` 일 때도 나가는 read-only TR. 나머지는 보내지 않고
+#: ``{"paper": True}`` 를 돌려준다.
+#:
+#: ⚠️ **이건 우리 쪽 안전장치이지 LS 가 막아 주는 것이 아니다.** 예전 주석은
+#: "잔고(t0424)·주문(CSPAT*)은 LS 가 막는다" 고 적고 있었는데 **틀렸다** —
+#: 2026-08-15 실측으로 **모의 appkey 로도 t0424 가 정상 응답했다**. 모의투자
+#: 계좌는 잔고 조회도 주문도 되는 것이 정상이다(그게 모의투자의 목적이다).
+#:
+#: 그래서 ``paper`` 라는 이름을 "모의 계좌다" 로 읽으면 안 된다. 그 값은
+#: **"우리가 이 TR 을 안 보냈다"** 는 뜻일 뿐이다. 계좌가 모의인지 실전인지는
+#: :meth:`LSCredentials.declared_kind` 로만 알 수 있다 — 아래 참고.
 #: port: LS_KR ls_client.py:58-66.
 PAPER_ALLOWED_TR = frozenset(
     {
@@ -132,6 +143,9 @@ class LSCredentials:
     appkey: str
     appsecret: str
     base_url: str
+    #: ``real`` | ``paper`` | ``""``(미선언). 사람이 ``LS_ACCOUNT_KIND`` 로
+    #: 선언한다 — 코드는 알아낼 수 없다(:meth:`declared_kind` 참고).
+    kind: str = ""
 
     @classmethod
     def from_env(
@@ -153,11 +167,43 @@ class LSCredentials:
                 source.get(f"{prefix}REST_BASE_URL")
                 or source.get("LS_REST_BASE_URL", "")
             ).rstrip("/"),
+            # 미선언이면 빈 문자열. **모르는 것을 'paper' 로 기본값 잡지 않는다** —
+            # 그게 이 결함의 원인이었다("모의겠거니" 하고 실전에 주문).
+            kind=source.get(f"{prefix}ACCOUNT_KIND", "").strip().lower(),
         )
 
     def usable(self) -> bool:
         """키가 실제로 채워졌는지. 템플릿 값(``YOUR_``)은 없는 것으로 본다."""
         return bool(self.appkey and self.appsecret) and not self.appkey.startswith("YOUR_")
+
+    @property
+    def fingerprint(self) -> str:
+        """appkey 의 지문. **키 자체는 절대 남기지 않는다.**
+
+        같은 계좌인지 비교하고 로그·설정에 적기 위한 값이라, 되돌릴 수 없는
+        해시여야 한다. 앞 네 글자를 그대로 쓰는 식이면 그건 키 조각이다.
+        """
+        if not self.appkey:
+            return ""
+        return hashlib.sha256(self.appkey.encode()).hexdigest()[:12]
+
+    @property
+    def declared_kind(self) -> str:
+        """이 계좌가 모의인지 실전인지 — **사람이 선언한 값**이다.
+
+        **코드는 이걸 알아낼 방법이 없다.** 2026-08-15 에 실측으로 확인한 것:
+
+        - 모의·실전이 **같은 호스트**(``openapi.ls-sec.co.kr:8080``)를 쓴다
+        - 둘 다 appkey 가 ``PS`` 로 시작하고 길이가 같다
+        - **모의 키로도 t0424(잔고)가 정상 응답한다** — LS 가 안 막는다
+        - 예수금·보유종목으로 짐작할 수는 있지만 그건 추측이다
+          (모의 5.18억 / 실전 5천원이었을 뿐, 반대일 수도 있다)
+
+        판별할 수 없으면 **선언하게 하고 그 선언을 지문에 묶는 것**이 유일하게
+        정직한 방법이다. 선언이 없으면 빈 문자열이고, 주문 경로는 그 상태에서
+        진행하면 안 된다 (``tools/verify_live_order.py``).
+        """
+        return self.kind
 
 
 @dataclass

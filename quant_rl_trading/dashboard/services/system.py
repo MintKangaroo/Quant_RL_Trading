@@ -526,8 +526,17 @@ def project_processes(root: Path) -> dict[str, Any]:
     ``_running_commands`` 가 자기 자신을 빼는 것은 "돌고 있는지" 라는 예/아니오
     판정에 쓰기 때문이고, 여기는 "지금 뭐가 도는가" 를 있는 그대로 보여주는
     것이 목적이라 다르다.
+
+    **레포 루트는 ``root.parent`` 로 구하지 않는다.** 그렇게 하면 실전 창고
+    (``data/``)일 때만 우연히 맞고, ``data/_shadow``·``data/_demo`` 로 띄우면
+    ``data/`` 를 레포 루트로 보아 **아무 프로세스도 안 걸린다** — 화면은 고장이
+    아니라 "도는 게 없다" 고 말하므로 아무도 이상하게 여기지 않는다. 실측:
+    ``data`` 12개 · ``data/_shadow`` 0개 · ``data/_demo`` 0개 (2026-08-15).
+
+    같은 결함을 크론 이력에서 한 번 잡았는데(``_log_dir`` 의 ``REPO_ROOT``)
+    이 함수에 그대로 남아 있었다. ``root`` 는 창고 위치일 뿐 레포 위치가 아니다.
     """
-    repo_root = str(root.parent)
+    repo_root = str(REPO_ROOT)
     try:
         page = os.sysconf("SC_PAGE_SIZE")
         clk = os.sysconf("SC_CLK_TCK")

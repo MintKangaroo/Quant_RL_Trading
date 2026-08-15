@@ -289,11 +289,19 @@ def test_resources_reports_this_machine(client) -> None:
         assert data["disk"]["used_pct"] is None or 0 <= data["disk"]["used_pct"] <= 100
 
 
-def test_processes_only_match_this_repo(seeded) -> None:
-    """cwd 가 창고 루트 밖인 프로세스(테스트 러너 자체 등)는 안 잡힌다 —
-    이 fixture 의 store 루트는 tmp_path 라 실제로 도는 어떤 프로세스의
-    cwd 도 아니다."""
+def test_프로세스_목록은_창고_위치에_좌우되지_않는다(seeded) -> None:
+    """**레포 밑에서 도는 프로세스**를 보여주는 것이지 창고 밑이 아니다.
+
+    예전 구현은 ``root.parent`` 를 레포 루트로 삼았다. 실전 창고(``data/``)일
+    때만 우연히 맞고 ``data/_shadow``·``data/_demo`` 로 띄우면 ``data/`` 를
+    레포로 보아 **목록이 통째로 빈다.** 그런데 화면은 "고장" 이 아니라
+    "도는 게 없다" 고 말하므로 아무도 이상하게 여기지 않는다 — 크론 이력에서
+    한 번 잡고도 이 함수에 그대로 남아 있던 결함이다(2026-08-15).
+
+    이 fixture 의 store 루트는 ``tmp_path`` 라 레포 밖이다. 그래도 지금
+    돌고 있는 pytest 자신(cwd = 레포 루트)은 잡혀야 한다.
+    """
     data = body(client_for(seeded).get("/api/system/processes"))["data"]
 
-    assert data["processes"] == []
-    assert data["total_rss_mb"] in (0.0, None)
+    assert data["processes"], "창고가 레포 밖이라고 프로세스 목록이 비면 안 된다"
+    assert data["total_rss_mb"] and data["total_rss_mb"] > 0
