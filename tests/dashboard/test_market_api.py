@@ -5,9 +5,12 @@
 
 1. **as_of 를 지킨다** — 되감으면 그 시점 이후 값이 안 보인다 (불변식 9)
 2. **없는 것은 null 이다** — 환율·지수가 없으면 0 이 아니라 null
-3. **대표 지수는 config 가 정한다** — 화면이 고르지 않는다 (불변식 10).
-   그 이름이 창고에 없으면 대용치로 바꿔치기하지 않고 ``index_panels.missing``
-   으로 나간다. 지수마다 패널 하나이고 값은 **원 종가**다 — 정규화하지 않는다
+3. **대표는 config 가 정한다** — 화면이 고르지 않는다 (불변식 10). 창고에
+   없으면 대용치로 바꿔치기하지 않고 ``instrument_panels.missing`` 으로 나간다.
+   값은 **원값**이다 — 정규화하지 않는다
+3-1. **``role`` 과 ``benchmark`` 는 다른 축이다.** 미장 패널은 ETF(SPY·QQQ·
+   DIA·SOXX)라 화면의 첫 자리이지만 **벤치마크가 아니다** — 벤치마크는 여전히
+   ``config.benchmark`` 의 지수이고 이 화면은 그걸 안 바꾼다
 4. **KR·US 판은 같은 모양이다** — 한쪽에만 있는 칸을 만들지 않는다
 5. **예정된 거시지표는 여기 없다** — 발표 완료만. 예정은 뉴스·일정 탭의 몫이다
 6. **등락을 못 잰 종목은 null 이다** — 0% 로 채우면 "보합" 이라는 다른 사실이
@@ -84,10 +87,15 @@ def desk(store):  # type: ignore[no-untyped-def]
         "indices",
         [
             # config.benchmark.kr_index 가 가리키는 이름이다 — 대표 카드가 된다.
-            _row("KR:IDX:KOSPI", day, market="KR", board="KOSPI", close=close)
+            # OHLC 를 다 채운다: 국장 지수는 KRX Open API 라 넷이 다 온다.
+            _row("KR:IDX:KOSPI", day, market="KR", board="KOSPI",
+                 open=close - 5.0, high=close + 8.0, low=close - 9.0, close=close)
             for day, close in ((YESTERDAY, 1000.0), (NOW, 1010.0))
         ]
         + [
+            # **일부러 종가만 둔다.** 봉을 못 그리는 경로가 살아 있는지 보는
+            # 표본이다 — 없는 시가·고가·저가를 종가로 채우면 모든 봉이
+            # 십자가가 되는데 그건 "변동이 없었다" 는 다른 사실이다.
             _row("KR:IDX:KRX 반도체", day, market="KR", board="KRX", close=close)
             for day, close in ((YESTERDAY, 500.0), (NOW, 520.0))
         ]
@@ -170,32 +178,75 @@ def test_두_시장이_같은_모양의_판을_받는다(client) -> None:
     assert set(markets["KR"]) == set(markets["US"])
 
 
-def _headline(panel: dict) -> dict:
-    """그 시장의 대표 지수 패널. 대표는 **하나뿐이어야** 한다."""
-    heads = [
-        row
-        for row in panel["index_panels"]["panels"] + panel["index_panels"]["missing"]
-        if row["role"] == "headline"
-    ]
+def _cards(panel: dict) -> list[dict]:
+    return panel["instrument_panels"]["panels"] + panel["instrument_panels"]["missing"]
+
+
+def _primary(panel: dict) -> dict:
+    """그 칸의 **첫 자리**. 하나뿐이어야 한다.
+
+    ``role`` 은 화면에서의 자리이고 ``benchmark`` 는 `config.benchmark` 가 정한
+    것인가다 — **다른 축이라 같은 필드를 재사용하지 않는다.** 미장 SPY 는
+    첫 자리이지만 벤치마크가 아니다.
+    """
+    heads = [row for row in _cards(panel) if row["role"] == "primary"]
     assert len(heads) == 1, heads
     return heads[0]
 
 
-def test_대표_지수는_config_가_정한다(client) -> None:
+def test_국장_대표는_config_가_정한_지수다(client) -> None:
     markets = client.get("/api/market").get_json()["data"]["markets"]
-    # config.benchmark 의 kr_index / us_index 그대로다.
-    assert _headline(markets["KR"])["entity_id"] == "KR:IDX:KOSPI"
-    assert _headline(markets["US"])["entity_id"] == "US:IDX:SP500"
-    assert _headline(markets["KR"])["change"] == pytest.approx(0.01)
-    assert _headline(markets["US"])["change"] == pytest.approx(-0.01)
+    head = _primary(markets["KR"])
+    assert head["entity_id"] == "KR:IDX:KOSPI"  # config.benchmark.kr_index 그대로
+    assert head["kind"] == "index"
+    assert head["benchmark"] is True
+    assert head["change"] == pytest.approx(0.01)
 
 
-def test_지수_패널은_원_종가를_싣는다(client) -> None:
+def test_미장_패널은_ETF_이고_벤치마크가_아니다(client) -> None:
+    """미장 지수는 창고에 종가만 있어(FRED) 봉을 못 그린다 — 그래서 화면은
+    ETF 를 그린다. **그건 화면 한정이고 벤치마크는 안 바뀐다** —
+    `config.benchmark.us_index` 는 여전히 지수이고, 여기서 바꾸면 백테스트
+    성적의 기준이 조용히 갈린다.
+    """
+    us = client.get("/api/market").get_json()["data"]["markets"]["US"]
+    assert us["instrument_panels"]["kind"] == "etf"
+    assert _primary(us)["entity_id"] == "US:SPY"
+    for row in _cards(us):
+        assert row["kind"] == "etf"
+        assert row["benchmark"] is False, "ETF 가 벤치마크로 찍혔다"
+        # 제목은 티커다 — 지수 이름을 달고 ETF 를 그리면 대용치 바꿔치기다.
+        assert row["label"] == row["entity_id"].split(":", 1)[1]
+        assert row["tracks"]
+
+
+def test_패널은_원값을_싣는다(client) -> None:
     """정규화는 축을 공유해야 할 때만 필요했던 트릭이었다. 패널이 갈리면서
     사라졌다 — 100 에서 출발하는 값이 있으면 옛 동작이 남은 것이다."""
-    head = _headline(client.get("/api/market").get_json()["data"]["markets"]["KR"])
+    head = _primary(client.get("/api/market").get_json()["data"]["markets"]["KR"])
     assert head["closes"][-1] == head["close"]
     assert head["close"] > 100.0  # 지수 포인트이지 정규화값이 아니다
+    # 봉은 넷이 다 있을 때만이다. 있으면 [시,종,저,고] 네 칸이다.
+    assert head["has_ohlc"] is True
+    assert all(len(bar) == 4 for bar in head["ohlc"])
+    assert head["ohlc"][-1][1] == head["close"]
+
+
+def test_넷이_다_있어야_봉이다(store, desk) -> None:
+    """FRED 가 주는 미장 지수처럼 **종가만 있는** 계열이 실제로 있다. 없는
+    시가·고가·저가를 종가로 채우면 모든 봉이 십자가가 되는데, 그건 "그날
+    변동이 없었다" 는 다른 사실이다 — 그래서 선으로 떨어뜨린다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    panels = service.instrument_panels(
+        desk, as_of=NOW, lookback=30, market="KR", benchmark_id="KR:IDX:KRX 반도체"
+    )
+    head = next(row for row in panels["panels"] if row["role"] == "primary")
+    assert head["entity_id"] == "KR:IDX:KRX 반도체"
+    assert head["has_ohlc"] is False
+    assert head["ohlc"] == []          # 지어내지 않는다
+    assert head["closes"]              # 선은 그릴 수 있다
 
 
 def test_대표_지수가_없으면_대용치로_바꿔치기하지_않는다(store) -> None:
@@ -207,8 +258,8 @@ def test_대표_지수가_없으면_대용치로_바꿔치기하지_않는다(st
     store.seed_config_defaults()
     client = _build_app(store=store, clock=ReplayClock(NOW)).test_client()
     kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]
-    head = _headline(kr)
-    assert head in kr["index_panels"]["missing"]  # 값이 아니라 "없음" 으로 나간다
+    head = _primary(kr)
+    assert head in kr["instrument_panels"]["missing"]  # 값이 아니라 "없음" 으로 나간다
     assert head["entity_id"] == "KR:IDX:KOSPI"  # 무엇이 없는지는 말한다
 
 
@@ -220,10 +271,15 @@ def test_패널로_세운_지수는_나머지_목록에_다시_안_나온다(cli
     assert "KR:IDX:KOSPI" in kr["excluded"]  # 어디로 갔는지 화면이 말할 수 있다
 
 
-def test_지수는_시장별로_갈린다(client) -> None:
+def test_미장_지수는_패널에서만_빠지고_목록에는_남는다(client) -> None:
+    """패널이 ETF 로 갈아탄 것이지 지수를 버린 것이 아니다. `US:IDX:*` 는
+    (VIX 계열까지) 목록의 식구로 남는다 — 목록을 깎으면 "미장 지수가
+    사라졌다" 는 다른 사실이 된다."""
     markets = client.get("/api/market").get_json()["data"]["markets"]
-    assert markets["US"]["indices"]["total"] == 1
-    assert markets["US"]["indices"]["others"] == []
+    us = markets["US"]["indices"]
+    assert us["total"] == 1
+    assert [row["entity_id"] for row in us["others"]] == ["US:IDX:SP500"]
+    assert us["excluded"] == []  # ETF 패널은 이 목록을 깎지 않는다
 
 
 def test_환율에는_시계열과_등락이_같이_온다(client) -> None:
@@ -301,8 +357,8 @@ def test_없는_데이터는_0이_아니라_null이다(store) -> None:
     assert data["fx"]["rate"] is None
     for code in ("KR", "US"):
         panel = data["markets"][code]
-        assert panel["index_panels"]["panels"] == []
-        assert panel["index_panels"]["missing"]  # 무엇이 없는지는 말한다
+        assert panel["instrument_panels"]["panels"] == []
+        assert panel["instrument_panels"]["missing"]  # 무엇이 없는지는 말한다
         assert panel["leaders"] == []
         assert panel["macro"] == []
         assert panel["breadth"]["value"] is None

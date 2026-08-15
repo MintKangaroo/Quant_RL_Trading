@@ -131,17 +131,36 @@ TREEMAP_TOP_N = 60
 #: 맡는다 — 여기는 "방금 무엇이 발표됐나" 만 짚는다.
 MACRO_ROWS = 5
 
-#: 패널로 세우는 **대표 지수의 짝**. 시장마다 config 가 정한 대표 지수
-#: (`benchmark.kr_index` / `us_index`) 하나에 이 한 종을 더해 **시장당 둘**이
-#: 된다. 둘로 맞추는 이유는 좌우 두 칸의 밀도를 같게 하는 것이다.
+#: 시장별 패널이 무엇으로 만들어지나. **국장은 지수, 미장은 ETF** 다.
 #:
-#: 여기 적힌 이름은 **창고의 entity_id 그대로**다. config 가 정하는 것은
-#: "우리가 견줘 평가받는 지수" 이고 그건 시장마다 하나뿐인데, 화면의 질문은
-#: "그 시장이 어떤가" 라 대형주 지수 하나로는 답이 안 된다 — 2026-08 처럼
-#: 코스피가 오르는 동안 코스닥이 내리는 국면이 그 차이다(같은 창에서 코스피
-#: -9.4% · 코스닥 -22.5%). 그래서 대표를 바꿔치기하지 않고 **옆에 나란히
-#: 놓는다**. 대표가 무엇인지는 응답의 ``role`` 이 계속 말한다.
-COMPANION_INDICES = {"KR": ("KR:IDX:KOSDAQ",), "US": ("US:IDX:NASDAQ",)}
+#: 갈라진 이유는 취향이 아니라 데이터다. 창고의 미장 지수(`US:IDX:*`)는
+#: FRED 에서 오고 **종가만 있다** — open/high/low/volume 이 전부 NULL 이라
+#: 캔들을 그릴 수 없다. 미장 ETF(LS 해외)는 OHLC 가 완전하다.
+PANEL_KIND = {"KR": "index", "US": "etf"}
+
+#: 국장 패널의 곁 지수. 대표는 `config.benchmark.kr_index` 가 정하고 여기
+#: 없다 — 화면이 대표를 고르지 않는다.
+COMPANION_INDICES = {"KR": ("KR:IDX:KOSDAQ",)}
+
+#: 미장 패널 — **(entity_id, 추종 지수)**. 첫 줄이 화면 대표다.
+#:
+#: ⚠️ **제목은 티커다. 지수 이름이 아니다.** "S&P 500" 이라 쓰고 SPY 를 그리는
+#: 것이 이 저장소가 금지하는 대용치 바꿔치기다. 추종 대상은 ``tracks`` 로
+#: 부제에만 적는다.
+#:
+#: ETF 는 지수가 아니라서 값이 어긋난다 — 분배락에 가격이 떨어지고(지수와
+#: 방식이 다르다), 보수를 떼며(SPY 연 0.0945%) 추적오차가 쌓이고, 시장가격이
+#: NAV 와 벌어진다(프리미엄/디스카운트). 화면이 그 셋을 적는다.
+#:
+#: `US:SOXX` 는 아직 창고에 0행이다. 자리를 만들어 두고 "미수집" 을 띄운다 —
+#: 수집이 들어오면 저절로 찬다. (SOXX 는 2021-06 부터 필라델피아 SOX 가 아니라
+#: ICE 반도체 지수를 좇는다.)
+US_ETF_PANELS = (
+    ("US:SPY", "S&P 500"),
+    ("US:QQQ", "나스닥 100"),
+    ("US:DIA", "다우존스 산업평균"),
+    ("US:SOXX", "ICE 반도체"),
+)
 
 #: **변동성 지수는 가격지수가 아니다.** VIX 는 옵션 내재변동성이라 "20 → 24"
 #: 가 +20% 수익이 아니라 공포가 커진 것이다. 패널로 세우지 않고, 목록에서는
@@ -290,123 +309,171 @@ def indices(
     }
 
 
-# -- 지수별 개별 패널 ------------------------------------------------------------
+# -- 지수·ETF 개별 패널 ----------------------------------------------------------
 
 
-def _index_history(
-    store: Store, *, as_of: datetime, lookback: int, market: str, entities: list[str]
-) -> dict[str, pd.Series]:
-    """지수별 ``세션 → 종가``. 종가 0·NaN 세션은 버린다.
+def _panel_label(entity_id: str, kind: str) -> str:
+    """화면에 찍히는 제목.
 
-    시장으로 한 번, entity 로 한 번 좁혀 읽는다 — 창고의 지수는 KR 44종·US
-    10종이라 창을 길게 열면(1년 이상) 안 그릴 지수까지 통째로 스캔한다.
+    ETF 는 **티커 그대로**다(`US:SPY` → `SPY`). 지수는 지수 이름이다
+    (`KR:IDX:KOSPI` → `KOSPI`). ETF 자리에 추종 지수 이름을 넣지 않는다 —
+    그게 대용치 바꿔치기다.
     """
-    frame = store.get(
-        INDICES,
-        as_of=as_of,
-        lookback=lookback,
-        market=market,
-        entity=entities,
-        columns=["entity_id", "close", "valid_from"],
-    )
-    out: dict[str, pd.Series] = {}
+    if kind == "etf":
+        _, _, ticker = entity_id.partition(":")
+        return ticker or entity_id
+    _, marker, name = entity_id.partition("IDX:")
+    return name if marker else entity_id
+
+
+def _panel_frame(
+    store: Store, *, as_of: datetime, lookback: int, market: str, kind: str, entities: list[str]
+) -> dict[str, pd.DataFrame]:
+    """패널 하나당 ``세션 → OHLC·거래량`` 표. **소스가 종류마다 다르다.**
+
+    - ``kind="index"`` → `indices` 테이블 (국장 지수, KRX Open API)
+    - ``kind="etf"``   → `prices` 테이블 (미장 ETF, LS 해외)
+
+    ETF 는 ``read_prices`` 를 지난다 — 종가 0 세션을 걷어내는 자리가 창고에
+    하나뿐이어야 하기 때문이다(store/prices.py). 지수는 그 헬퍼의 대상이
+    아니라 여기서 같은 규칙(종가 0 제외)을 직접 적용한다.
+    """
+    columns = ["entity_id", "open", "high", "low", "close", "volume", "valid_from"]
+    if kind == "etf":
+        frame = read_prices(
+            store, as_of=as_of, entity=entities, lookback=lookback,
+            market=market, columns=columns,
+        )
+    else:
+        frame = store.get(
+            INDICES, as_of=as_of, entity=entities, lookback=lookback,
+            market=market, columns=columns,
+        )
+
+    out: dict[str, pd.DataFrame] = {}
     if frame.empty:
         return out
     for entity, group in frame.groupby("entity_id"):
-        series = pd.Series(
-            group["close"].astype(float).to_numpy(),
-            index=[_session(v) for v in group["valid_from"]],
-        )
-        # 종가 0/NaN 인 세션, 그리고 valid_from 이 NaT 라 세션을 못 짚은 행을
-        # 버린다. 후자를 남기면 색인에 None 이 섞여 정렬이 터진다.
-        series = series[(series > 0) & pd.notna(series.index)]
+        rows = group.copy()
+        rows["session"] = [_session(v) for v in rows["valid_from"]]
+        rows = rows[rows["session"].notna() & (rows["close"].astype(float) > 0)]
+        if rows.empty:
+            continue
         # 같은 세션이 여러 관측으로 들어올 수 있다(정정본). 마지막 것만.
-        series = series[~series.index.duplicated(keep="last")].sort_index()
-        if not series.empty:
-            out[str(entity)] = series
+        rows = rows.sort_values("valid_from").drop_duplicates("session", keep="last")
+        out[str(entity)] = rows.set_index("session")
     return out
 
 
-def index_panels(
-    store: Store, *, as_of: datetime, lookback: int, market: str, headline: str
-) -> dict[str, Any]:
-    """그 시장의 **대표 지수마다 패널 하나**. 이름·종가·등락률·차트.
+def _has_ohlc(rows: pd.DataFrame) -> bool:
+    """캔들을 그릴 수 있나 — **넷이 다 있어야 봉이다.**
 
-    ## 왜 한 축에 겹치지 않고 쪼개는가 — 그리고 왜 정규화를 버렸는가
-
-    한때 넷을 한 차트에 겹쳐 기준일 100 으로 정규화했다. 스케일이 열 배 넘게
-    벌어져(코스닥 ~860 · 나스닥 ~26,800) **한 축에 두려면 정규화가 강제**됐기
-    때문이다. 정규화는 그 강제에 대한 대응이지 그 자체로 좋은 것이 아니었다 —
-    120 이 지수 포인트인지 기준일 대비인지를 화면이 매번 설명해야 했고,
-    "지금 코스피가 얼마인가" 라는 제일 흔한 질문에 차트가 답하지 못했다.
-
-    **패널을 쪼개면 축을 공유할 이유가 사라지고, 그러면 정규화할 이유도 같이
-    사라진다.** 각 패널은 자기 축을 가지므로 원 종가를 그대로 그린다. 잃는 것은
-    "어느 시장이 앞서 가나" 를 한눈에 겹쳐 보는 것인데, 그건 각 패널이 적는
-    **기간 등락**(``total``)으로 숫자로 견줄 수 있다.
-
-    ## 무엇을 패널로 세우나 — 시장당 둘
-
-    ``headline``(= ``config.benchmark`` 가 정한 지수)과 :data:`COMPANION_INDICES`
-    한 종. 시장당 둘로 맞추는 이유는 **좌우 두 칸이 같은 밀도여야** 하기
-    때문이다(dashboard.md §8-3). 미장에만 다우·나스닥100·SOX 를 더해 여섯을
-    세우면 두 칸의 눈높이가 어긋나 나란히 비교하는 배치 자체가 무너진다.
-
-    그리고 그 셋은 **시장 전체가 아니다** — 다우는 30종목 가격가중, 나스닥100 은
-    나스닥의 부분집합, SOX 는 반도체 섹터다. 이 화면의 질문은 "그 시장이 지금
-    어떤가" 라 광의 지수가 답이고, 나머지는 지수 목록 패널이 하나도 자르지 않고
-    전부 든다.
-
-    ## 변동성 지수는 여기 없다
-
-    VIX·VXN·RVX 는 가격지수가 아니다(:data:`VOLATILITY_INDICES`). 20 → 24 는
-    +20% 수익이 아니라 공포가 커진 것이다. 목록에서 따로 묶는 것과 같은 이유로
-    패널로도 세우지 않는다.
-
-    ## 없으면 없다고 말한다
-
-    창 안에 종가가 없는 지수는 빈 차트가 아니라 ``missing`` 으로 나가고, 화면이
-    이유를 적는다. **대용치로 바꿔치기하지 않는다.**
+    FRED 가 주는 미장 지수는 종가만 있고 시가·고가·저가가 전부 NULL 이다.
+    없는 셋을 종가로 채우면 모든 봉이 십자가가 되는데, 그건 "그날 변동이
+    없었다" 는 **다른 사실**이다. 그래서 넷이 다 있을 때만 캔들이고,
+    아니면 선으로 그리고 화면이 그 이유를 적는다.
     """
-    wanted: list[tuple[str, str]] = [(headline, "headline")]
-    wanted += [(entity, "companion") for entity in COMPANION_INDICES.get(market, ())]
+    for column in ("open", "high", "low"):
+        values = pd.to_numeric(rows[column], errors="coerce")
+        if values.isna().any() or (values <= 0).any():
+            return False
+    return True
 
-    history = _index_history(
-        store,
-        as_of=as_of,
-        lookback=lookback,
-        market=market,
-        entities=[entity for entity, _ in wanted],
+
+def instrument_panels(
+    store: Store, *, as_of: datetime, lookback: int, market: str, benchmark_id: str
+) -> dict[str, Any]:
+    """그 시장의 패널들. **국장은 지수, 미장은 ETF** — 성격이 다르다.
+
+    ## 왜 미장만 ETF 인가
+
+    창고의 미장 지수(`US:IDX:*`)는 FRED 에서 오고 **종가만 있다** — 실측으로
+    open/high/low/volume 이 전부 NULL 이다(SP500 0/381, 나머지 0/52~53).
+    캔들을 그릴 수 없고, 없는 값을 지어내면 화면이 창고보다 많이 아는 것처럼
+    보인다. 반면 `US:SPY`·`QQQ`·`DIA` 는 LS 해외에서 와서 OHLC 가 1253/1253
+    완전하다.
+
+    ## 그래서 **이름도 ETF 티커로 적는다**
+
+    지수 이름을 달고 ETF 데이터를 그리는 것이 이 저장소가 금지하는 대용치
+    바꿔치기다. "S&P 500" 이라 쓰고 SPY 를 그리면 화면이 거짓말을 시작한다.
+    제목은 ``label``(= 티커)이고, 무엇을 좇는지는 ``tracks`` 로 **부제에만**
+    적는다.
+
+    ## ``benchmark`` 와 ``role`` 은 다른 것이다 — 같은 필드를 재사용하지 않는다
+
+    - ``role="primary"`` — **화면에서** 그 칸의 첫 자리다.
+    - ``benchmark=True`` — **`config.benchmark` 가 정한** 지수다. 회계·백테스트가
+      우리를 견주는 그것이고, 여기서 바꾸면 성적의 기준이 조용히 바뀐다.
+
+    미장에서 둘이 갈린다: SPY 는 화면 대표(``role="primary"``)이지만
+    **벤치마크가 아니다**(``benchmark=False``). 벤치마크는 여전히
+    ``config.benchmark.us_index`` = `US:IDX:SP500` 이고 이 화면은 그걸 안 바꾼다.
+    한 필드로 뭉치면 언젠가 화면 사정으로 벤치마크가 갈아치워진다.
+
+    ## 없으면 자리를 지키고 이유를 적는다
+
+    창고에 없는 것(지금은 `US:SOXX`)도 ``missing`` 으로 나가 패널 자리를
+    유지한다. 수집이 들어오면 **저절로 찬다** — 여기 고칠 것이 없다.
+    """
+    kind = PANEL_KIND[market]
+    if kind == "etf":
+        wanted = [
+            (entity, "primary" if i == 0 else "companion", tracks)
+            for i, (entity, tracks) in enumerate(US_ETF_PANELS)
+        ]
+    else:
+        wanted = [(benchmark_id, "primary", None)]
+        wanted += [(entity, "companion", None) for entity in COMPANION_INDICES.get(market, ())]
+
+    history = _panel_frame(
+        store, as_of=as_of, lookback=lookback, market=market, kind=kind,
+        entities=[entity for entity, _, _ in wanted],
     )
 
     panels: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
-    for entity, role in wanted:
-        window = history.get(entity)
-        if window is None or window.empty:
-            missing.append({"entity_id": entity, "market": market, "role": role})
+    for entity, role, tracks in wanted:
+        label = _panel_label(entity, kind)
+        # 벤치마크는 config 가 정한 그 이름일 때만이다. 미장 ETF 는 절대 아니다.
+        is_benchmark = kind == "index" and entity == benchmark_id
+        stub = {
+            "entity_id": entity, "market": market, "kind": kind, "label": label,
+            "tracks": tracks, "role": role, "benchmark": is_benchmark,
+        }
+        rows = history.get(entity)
+        if rows is None or rows.empty:
+            missing.append(stub)
             continue
-        first = float(window.iloc[0])
-        last = float(window.iloc[-1])
+
+        closes = rows["close"].astype(float)
+        first, last = float(closes.iloc[0]), float(closes.iloc[-1])
+        candles = _has_ohlc(rows)
         panels.append(
             {
-                "entity_id": entity,
-                "market": market,
-                "role": role,
-                "sessions": [str(s) for s in window.index],
-                # 원 종가 그대로다. 정규화하지 않는다 — 패널마다 자기 축이 있다.
-                "closes": [float(v) for v in window],
+                **stub,
+                "sessions": [str(s) for s in rows.index],
+                # ECharts 캔들 순서 [시가, 종가, 저가, 고가]. 캔들을 못 그리면
+                # 빈 목록이고 화면은 ``closes`` 로 선을 긋는다.
+                "ohlc": (
+                    [
+                        [float(r["open"]), float(r["close"]), float(r["low"]), float(r["high"])]
+                        for _, r in rows.iterrows()
+                    ]
+                    if candles
+                    else []
+                ),
+                "closes": [float(v) for v in closes],
+                "has_ohlc": candles,
                 "close": last,
-                "session": str(window.index[-1]),
-                # 전일 대비. 세션이 하나뿐이면 못 잰다 — 0 으로 채우지 않는다.
-                "change": (last / float(window.iloc[-2]) - 1.0) if len(window) >= 2 else None,
-                # 창 전체 등락. 축이 갈린 패널들을 숫자로 견주는 유일한 자리다.
+                "session": str(rows.index[-1]),
+                "change": (last / float(closes.iloc[-2]) - 1.0) if len(closes) >= 2 else None,
                 "total": (last / first - 1.0) if first else None,
-                "first_session": str(window.index[0]),
+                "first_session": str(rows.index[0]),
             }
         )
 
-    return {"panels": panels, "missing": missing, "lookback": lookback}
+    return {"panels": panels, "missing": missing, "lookback": lookback, "kind": kind}
 
 
 # -- 시세로 만드는 것 — 시장 폭 · 많이 움직인 종목 ---------------------------------
@@ -647,17 +714,21 @@ def market_panel(
     """
     changes = session_changes(store, as_of=as_of, market=market)
     top = leaders(store, changes, as_of=as_of, market=market, limit=TREEMAP_TOP_N)
-    panels = index_panels(
-        store, as_of=as_of, lookback=lookback, market=market, headline=headline
+    panels = instrument_panels(
+        store, as_of=as_of, lookback=lookback, market=market, benchmark_id=headline
     )
-    # 개별 패널로 세운 지수는 목록에서 뺀다 — 같은 지수를 한 칸에 두 번 적으면
-    # 목록의 "N종" 이 무엇을 세는 숫자인지 흐려진다. 뺀 사실은 화면이 적는다.
-    paneled = {row["entity_id"] for row in panels["panels"]}
-    paneled |= {row["entity_id"] for row in panels["missing"]}
+    # 패널로 세운 **지수**만 목록에서 뺀다 — 같은 지수를 한 칸에 두 번 적으면
+    # 목록의 "N종" 이 무엇을 세는 숫자인지 흐려진다. 미장 패널은 ETF 라 애초에
+    # 이 목록의 식구가 아니고, 그래서 `US:IDX:*` 는 VIX 계열까지 전부 남는다.
+    paneled = {
+        row["entity_id"]
+        for row in panels["panels"] + panels["missing"]
+        if row["kind"] == "index"
+    }
     return {
         "market": market,
         "currency": CURRENCY.get(market, ""),
-        "index_panels": panels,
+        "instrument_panels": panels,
         "indices": indices(store, as_of=as_of, market=market, exclude=paneled),
         "breadth": breadth(changes, market=market),
         "movers": movers(store, changes, as_of=as_of),

@@ -74,19 +74,16 @@ function codeCell(entityId, name) {
  * 환율을 끝에 두면 두 시장 사이의 다리라는 것이 안 읽힌다. */
 function marketKpis(body, code) {
   const panel = body.data.markets[code];
-  // 대표 지수는 config 가 정한다 — KPI 도 지수 패널도 같은 한 곳
-  // (index_panels)에서 읽는다. 화면이 두 군데서 "대표" 를 따로 고르면
-  // 언젠가 서로 다른 지수를 대표라 부른다.
-  const panels = panel.index_panels;
-  const head = panels.panels.find((row) => row.role === "headline");
-  const headId = head
-    ? head.entity_id
-    : (panels.missing.find((row) => row.role === "headline") || {}).entity_id;
+  // 그 칸의 첫 자리는 **한 곳**(instrument_panels)에서만 읽는다. 화면이 두
+  // 군데서 따로 고르면 언젠가 서로 다른 것을 대표라 부른다.
+  const panels = panel.instrument_panels;
+  const head = panels.panels.find((row) => row.role === "primary");
+  const spec = head || panels.missing.find((row) => row.role === "primary") || {};
   const b = panel.breadth;
   const label = code === "KR" ? "국장" : "미장";
   return [
     kpi(
-      `${label} 대표 · ${esc(headId ? indexLabel(headId) : "—")}`,
+      `${label} 대표 · ${esc(spec.label || "—")}`,
       head ? dec(head.close, 2) : "—",
       head ? `${arrow(head.change)}${pct(head.change)}` : "창고에 없다",
       false,
@@ -118,106 +115,190 @@ function renderKpis(body) {
   document.getElementById("kpis").innerHTML = cards.join("");
 }
 
-/* -- 지수별 개별 패널 --------------------------------------------------------- */
+/* -- 지수 · ETF 개별 패널 ------------------------------------------------------ */
 
-/* 가격지수 배지. **배당이 빠져 있어 그만큼 우리가 유리하게 보인다** — 지수
- * 패널마다 단다. 언제 떼는지는 config(benchmark.total_return)만 안다. */
-function prBadge(body) {
-  return body.data.total_return
-    ? ""
-    : `<span class="chip warn-chip" title="총수익지수(TR)를 못 구한다 — 배당만큼 우리가 유리하게 보인다">가격지수 · 배당 미반영</span>`;
+/* **가격지수 배지는 지수 패널에만.** 미장 패널은 ETF 라 배당이 아니라
+ * 분배금·보수·괴리가 문제이고, 그건 아래 etfCaveats() 가 적는다. */
+function prBadge(body, panel) {
+  if (panel.kind !== "index" || body.data.total_return) return "";
+  return `<span class="chip warn-chip" title="총수익지수(TR)를 못 구한다 — 배당만큼 우리가 유리하게 보인다">가격지수 · 배당 미반영</span>`;
+}
+
+/* 이 패널이 무엇인지. **벤치마크와 화면 대표는 다른 것이라 배지도 다르다.**
+ * SPY 는 미장 칸의 첫 자리지만 우리가 견줘 평가받는 대상이 아니다 — 벤치마크는
+ * 여전히 config.benchmark 가 정한 지수다. 한 배지로 뭉치면 언젠가 화면 사정으로
+ * 벤치마크가 갈아치워진다. */
+function roleBadge(panel) {
+  if (panel.benchmark) {
+    return `<span class="chip bench-chip" title="config.benchmark 가 정한 지수 — 회계·백테스트가 우리를 견주는 그것이다">벤치마크</span>`;
+  }
+  if (panel.role === "primary") {
+    return `<span class="chip" title="이 칸의 첫 자리일 뿐이다 — 벤치마크가 아니다(벤치마크는 config.benchmark 가 정한 지수)">화면 대표</span>`;
+  }
+  return "";
+}
+
+/* 지수인지 ETF 인지. **ETF 는 제목이 티커이고, 좇는 지수는 여기 부제로만
+ * 적는다** — 제목이 지수 이름이면 그게 대용치 바꿔치기다. */
+function kindBadge(panel) {
+  if (panel.kind !== "etf") {
+    return `<span class="chip">지수</span>`;
+  }
+  return `<span class="chip etf-chip" title="ETF 는 지수가 아니다 — 분배금·보수·시장가 괴리만큼 어긋난다">ETF${
+    panel.tracks ? ` · ${esc(panel.tracks)} 추종` : ""
+  }</span>`;
+}
+
+/* **이 교체가 공짜가 아닌 지점.** 칸마다 한 번만 적는다 — 패널마다 붙이면
+ * 같은 문단이 넷이 되어 아무도 안 읽는다. */
+function etfCaveats() {
+  return `<p class="note tiny etf-note">
+    <strong>ETF 는 지수가 아니다.</strong> 미장 지수는 창고에 <strong>종가만</strong>
+    있어(FRED) 봉을 못 그리므로 이 칸은 ETF 를 그린다. 셋이 달라진다 —
+    ① <strong>분배금</strong>: 분배락에 가격이 떨어진다(가격지수도 배당을 빼지만
+    방식이 다르다). ② <strong>추적오차·보수</strong>: SPY 는 연 0.0945% 를 떼고
+    지수를 정확히 못 따라간다. ③ <strong>시장가격 ≠ NAV</strong>:
+    프리미엄/디스카운트가 붙는다.
+    <br><strong>벤치마크는 바뀌지 않았다</strong> — 회계·백테스트는 여전히
+    <code>config.benchmark</code> 의 지수로 잰다. 이 교체는 화면 한정이다.
+  </p>`;
 }
 
 /* 없으면 없다고 말한다 — 빈 차트는 조인 버그처럼 보인다. */
-function panelMissingReason(entityId, lookback) {
-  return `<p class="empty"><code>${esc(entityId)}</code> 의 종가가 창(${num(lookback)}일)
-    안에 없다. 백필(bf-indices)이 이 창까지 닿았는지 확인할 것 —
-    다른 지수로 바꿔치기하지 않는다.</p>`;
+function panelMissingReason(panel, lookback) {
+  const what = panel.kind === "etf" ? "시세" : "종가";
+  return `<p class="empty"><code>${esc(panel.entity_id)}</code> 의 ${what}가
+    창(${num(lookback)}일) 안에 없다 — 아직 수집되지 않았다. 수집이 들어오면
+    이 자리가 저절로 찬다. <strong>다른 종목으로 바꿔치기하지 않는다.</strong></p>`;
 }
 
-/* 지수 하나짜리 패널. **원 종가 그대로 그린다 — 정규화하지 않는다.**
- * 패널이 자기 축을 가지므로 스케일을 맞출 이유가 없어졌고, 그러면 "지금
- * 코스피가 얼마인가" 에 차트가 직접 답한다.
+/* 캔들. **넷이 다 있을 때만 봉이다** — 없는 시가·고가·저가를 종가로 채우면
+ * 모든 봉이 십자가가 되는데, 그건 "그날 변동이 없었다" 는 다른 사실이다.
+ * 못 그리면 선으로 긋고 화면이 이유를 적는다.
  *
- * 선 색은 **창 전체 등락의 부호**다. 이건 수익률이라 손익 색을 쓰는 것이
- * 맞다(§10) — 머리의 전일대비와 부호가 다를 수 있어서, 창 등락을 머리 오른쪽에
- * 숫자로도 적어 색이 무엇을 말하는지 못박는다. */
-function indexPanelChart(elId, panel) {
+ * 상승 초록 · 하락 빨강. ECharts 의 color 가 양봉, color0 이 음봉이다 —
+ * 뒤집으면 이 대시보드의 다른 화면과 색이 갈린다(§10). */
+function panelChart(elId, panel) {
   const tone = panel.total === null || panel.total === undefined
     ? COLOR.muted
     : panel.total > 0 ? COLOR.up : panel.total < 0 ? COLOR.down : COLOR.muted;
-  chart(elId).setOption({
-    ...BASE,
+  const axis = {
+    xAxis: { type: "category", data: panel.sessions, boundaryGap: panel.has_ohlc, ...AXIS },
+    // scale:true 가 필수다. 0 부터 그리면 봉이 위쪽 몇 %에 눌린다.
+    yAxis: { type: "value", scale: true, ...AXIS },
     grid: { left: 46, right: 8, top: 8, bottom: 18 },
+  };
+  const series = panel.has_ohlc
+    ? [{
+        type: "candlestick",
+        data: panel.ohlc,
+        itemStyle: {
+          color: COLOR.up, color0: COLOR.down,
+          borderColor: COLOR.up, borderColor0: COLOR.down, borderWidth: 1,
+        },
+      }]
+    : [{
+        type: "line", data: panel.closes, showSymbol: false,
+        lineStyle: { color: tone, width: 1.6 },
+        areaStyle: { color: tone, opacity: 0.08 },
+      }];
+
+  chart(elId).setOption({
+    ...BASE, ...axis,
     legend: { show: false },
     tooltip: {
       ...BASE.tooltip,
       formatter: (rows) => {
         if (!rows || !rows.length) return "";
         const row = rows[0];
-        return `${esc(row.axisValue)}<br>${esc(indexLabel(panel.entity_id))} <b>${dec(row.value, 2)}</b>`;
+        if (!panel.has_ohlc) {
+          return `${esc(row.axisValue)}<br>${esc(panel.label)} <b>${dec(row.value, 2)}</b>`;
+        }
+        // 캔들의 value 는 [index, 시가, 종가, 저가, 고가] 다.
+        const v = row.value;
+        return `${esc(row.axisValue)} <b>${esc(panel.label)}</b><br>`
+          + `시 ${dec(v[1], 2)} · 고 ${dec(v[4], 2)}<br>`
+          + `저 ${dec(v[3], 2)} · 종 ${dec(v[2], 2)}`;
       },
     },
-    xAxis: { type: "category", data: panel.sessions, boundaryGap: false, ...AXIS,
-             axisLabel: { ...AXIS.axisLabel, showMaxLabel: true } },
-    // scale:true 가 필수다. 0 부터 그리면 지수는 위쪽 몇 %에 눌린 직선이 된다.
-    yAxis: { type: "value", scale: true, ...AXIS },
-    series: [{
-      name: indexLabel(panel.entity_id),
-      type: "line",
-      data: panel.closes,
-      showSymbol: false,
-      lineStyle: { color: tone, width: 1.6 },
-      areaStyle: { color: tone, opacity: 0.08 },
-    }],
+    series,
   });
 }
 
-function renderIndexPanels(body, code, suffix) {
-  const data = body.data.markets[code].index_panels;
-  const target = document.getElementById(`index-panels-${suffix}`);
-  const badge = prBadge(body);
+/* 시장 머리글. **가로 한 줄에서는 위치가 시장을 말해주지 않는다** — 좌우로
+ * 갈랐을 때는 왼쪽/오른쪽이 그 일을 했는데, 여섯을 한 줄에 펴면 코스닥과 SPY
+ * 사이의 경계가 사라진다. 그래서 묶음마다 머리글을 얹고 사이에 선을 둔다. */
+function marketGroupHead(code, data) {
+  const label = code === "KR" ? "국장" : "미장";
+  const what = data.kind === "etf" ? "ETF" : "지수";
+  return `<div class="index-group-head">
+    <span class="chip chip-${code.toLowerCase()}">${code}</span>
+    <span class="index-group-name">${label} · ${what}</span>
+  </div>`;
+}
 
-  // 창고에 없는 지수도 **자리를 지킨다.** 통째로 빼면 좌우 두 칸의 패널 수가
-  // 갈리고, 그러면 "미장은 원래 볼 게 없다" 처럼 보인다.
-  const cards = [
-    ...data.panels.map((panel) => ({ panel, entityId: panel.entity_id })),
-    ...data.missing.map((gone) => ({ panel: null, entityId: gone.entity_id, role: gone.role })),
-  ];
-  if (!cards.length) {
-    target.innerHTML = `<p class="empty">이 시장의 대표 지수가 config 에 없다.</p>`;
-    return;
+/* 패널 카드 하나. ``spec`` 은 값이 있든 없든 오는 명세이고, ``panel`` 은
+ * 값이 있을 때만이다 — 없는 것도 자리를 지켜야 "수집이 안 된 것" 과 "애초에
+ * 안 그리는 것" 이 화면에서 갈린다. */
+function panelCard(body, spec, panel, elId, lookback) {
+  const head = `<div class="index-panel-head">
+    <span class="index-panel-name">${esc(spec.label)}</span>
+    ${roleBadge(spec)}${kindBadge(spec)}${prBadge(body, spec)}
+    <span class="index-panel-nums">
+      <span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
+      <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
+    </span>
+  </div>`;
+  const inner = panel
+    ? `<div class="chart mini" id="${elId}"></div>
+       <div class="index-panel-foot sub tiny">
+         ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
+         창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
+         ${panel.has_ohlc ? "" : ` · <span class="warn-text">종가만 — 봉을 못 그린다</span>`}
+       </div>`
+    : panelMissingReason(spec, lookback);
+  return `<div class="index-panel">${head}${inner}</div>`;
+}
+
+/* 여섯을 **가로 한 줄**로. 순서는 코스피·코스닥 → SPY·QQQ·DIA·SOXX 이고,
+ * 그건 COLUMNS(=MARKETS 순서)와 서비스가 든 순서를 그대로 따른 것이다. */
+function renderIndexStrip(body) {
+  const target = document.getElementById("index-strip");
+  const note = document.getElementById("index-strip-note");
+  const groups = [];
+  const jobs = [];
+  let missingCount = 0;
+
+  for (const [code, suffix] of COLUMNS) {
+    const data = body.data.markets[code].instrument_panels;
+    const cards = [
+      ...data.panels.map((panel) => ({ panel, spec: panel })),
+      ...data.missing.map((spec) => ({ panel: null, spec })),
+    ];
+    missingCount += data.missing.length;
+    const rendered = cards
+      .map(({ panel, spec }, i) => {
+        const elId = `chart-index-${suffix}-${i}`;
+        if (panel) jobs.push([elId, panel]);
+        return panelCard(body, spec, panel, elId, data.lookback);
+      })
+      .join("");
+    groups.push(`<div class="index-group" id="index-group-${suffix}">
+      ${marketGroupHead(code, data)}
+      <div class="index-group-panels">${rendered || `<p class="empty">그릴 패널이 정해져 있지 않다.</p>`}</div>
+      ${data.kind === "etf" ? etfCaveats() : ""}
+    </div>`);
   }
 
-  target.innerHTML = cards
-    .map(({ panel, entityId, role }, i) => {
-      const elId = `chart-index-${suffix}-${i}`;
-      const isHead = (panel ? panel.role : role) === "headline";
-      const head = `<div class="index-panel-head">
-        <span class="index-panel-name">${esc(indexLabel(entityId))}</span>
-        ${isHead ? `<span class="chip">대표</span>` : ""}
-        ${badge}
-        <span class="index-panel-nums">
-          <span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
-          <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
-        </span>
-      </div>`;
-      const body_ = panel
-        ? `<div class="chart mini" id="${elId}"></div>
-           <div class="index-panel-foot sub tiny">
-             ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
-             창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
-           </div>`
-        : panelMissingReason(entityId, data.lookback);
-      return `<div class="index-panel">${head}${body_}</div>`;
-    })
-    .join("");
-
+  target.innerHTML = groups.join("");
+  if (note) {
+    note.textContent = missingCount
+      ? `${num(jobs.length)}종 · 미수집 ${num(missingCount)}종`
+      : `${num(jobs.length)}종`;
+  }
   // innerHTML 을 먼저 넣어야 컨테이너가 생긴다 — 순서를 바꾸면 ECharts 가
   // 크기 0 인 요소에 붙어 아무것도 안 그린다.
-  cards.forEach(({ panel }, i) => {
-    if (panel) indexPanelChart(`chart-index-${suffix}-${i}`, panel);
-  });
+  for (const [elId, panel] of jobs) panelChart(elId, panel);
 }
 
 /* -- 나머지 지수 목록 --------------------------------------------------------- */
@@ -491,9 +572,9 @@ async function loadMarket() {
   const body = await fetchJson("market");
   showScope(body);
   renderKpis(body);
+  renderIndexStrip(body);
   for (const [code, suffix] of COLUMNS) {
     renderColumnNote(body, code, suffix);
-    renderIndexPanels(body, code, suffix);
     renderIndices(body, code, suffix);
     renderBreadth(body, code, suffix);
     renderMovers(body, code, suffix);
@@ -507,15 +588,12 @@ async function loadMarket() {
   for (const [code] of COLUMNS) {
     const panel = body.data.markets[code];
     const label = code === "KR" ? "국장" : "미장";
-    // 시장마다 한 줄로 묶는다. 지수를 따로 세우면 창고가 통째로 빈 시점에
-    // 알림줄이 같은 말로 도배된다. 대표는 따로 짚는다 — 대표가 없는 것과
-    // 곁 지수가 없는 것은 무게가 다르다.
-    for (const gone of panel.index_panels.missing) {
-      const what = indexLabel(gone.entity_id);
+    // 첫 자리가 빈 것과 곁 패널이 빈 것은 무게가 다르다 — 따로 짚는다.
+    for (const gone of panel.instrument_panels.missing) {
       warnings.push(
-        gone.role === "headline"
-          ? `${label} 대표 지수(${gone.entity_id})가 창(${num(panel.index_panels.lookback)}일) 안에 없다`
-          : `${label} ${what} 패널이 비었다 — 창 안에 종가가 없다`
+        gone.role === "primary"
+          ? `${label} 대표(${gone.entity_id})가 창(${num(panel.instrument_panels.lookback)}일) 안에 없다`
+          : `${label} ${gone.label} 패널이 비었다 — 아직 수집되지 않았다`
       );
     }
     if (!panel.breadth.traded) warnings.push(`${label} 시세가 비어 있다`);

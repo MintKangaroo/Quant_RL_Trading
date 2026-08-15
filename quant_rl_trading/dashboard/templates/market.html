@@ -21,21 +21,36 @@
   {# 두 시장의 대표 지수와 환율. 좌우로 갈리기 전의 공통 줄이다. #}
   <section class="kpis" id="kpis"></section>
 
+  {# 지수·ETF 여섯을 **가로 한 줄**로 놓는다 — 코스피·코스닥·SPY·QQQ·DIA·SOXX.
+     좌우 두 칸으로 가르지 않는 배치라, 어느 것이 어느 시장인지를 **위치가
+     말해주지 않는다.** 그래서 시장마다 머리글을 얹고 그 사이에 구분선을
+     둔다 — 여섯을 균등하게 늘어놓으면 코스닥과 SPY 사이의 경계가 사라진다.
+
+     **원값 그대로다 — 정규화하지 않는다.** 패널마다 자기 축이 있어 스케일을
+     맞출 이유가 없고, 그래서 차트가 "지금 이게 얼마인가" 에 직접 답한다.
+
+     **국장은 지수, 미장은 ETF.** 창고의 미장 지수는 FRED 라 종가만 있어 봉을
+     못 그린다. 제목도 ETF 티커로 적는다 — "S&P 500" 이라 쓰고 SPY 를 그리는
+     것이 대용치 바꿔치기다. 추종 지수는 부제 배지로만.
+
+     **벤치마크 배지는 config.benchmark 가 정한 지수에만.** SPY 는 화면의
+     첫 자리일 뿐 우리가 견줘 평가받는 대상이 아니다.
+
+     좁으면 **이 줄 안에서만** 가로로 민다(market.css) — 본문이 가로로
+     흐르면 아래 좌우 두 칸 배치가 통째로 무너진다. #}
+  <section class="panel index-strip-panel">
+    <h2>지수 · ETF
+      <span class="right"><span class="sub" id="index-strip-note"></span></span>
+    </h2>
+    <div class="index-strip" id="index-strip"></div>
+  </section>
+
   <section class="split">
     <!-- ============================ 국장 (KR) ============================ -->
     <div class="market-col">
       <h2 class="col-head"><span class="chip chip-kr">KR</span> 국장
         <span class="sub" id="col-note-kr"></span>
       </h2>
-
-      {# 대표 지수마다 패널 하나. **원 종가 그대로다 — 정규화하지 않는다.**
-         패널이 자기 축을 가지므로 스케일을 맞출 이유가 없고, 그러면 차트가
-         "지금 이 지수가 얼마인가" 에 직접 답한다.
-
-         시장당 둘로 맞춘다 — 미장에만 다우·나스닥100·SOX 를 더해 여섯을
-         세우면 좌우 두 칸의 눈높이가 어긋나 나란히 비교하는 배치가 무너진다.
-         그 셋은 시장 전체가 아니라 부분·섹터라 아래 목록의 몫이다. #}
-      <div class="index-panels" id="index-panels-kr"></div>
 
       <div class="panel">
         <h2>나머지 지수
@@ -85,15 +100,6 @@
       <h2 class="col-head"><span class="chip chip-us">US</span> 미장
         <span class="sub" id="col-note-us"></span>
       </h2>
-
-      {# 대표 지수마다 패널 하나. **원 종가 그대로다 — 정규화하지 않는다.**
-         패널이 자기 축을 가지므로 스케일을 맞출 이유가 없고, 그러면 차트가
-         "지금 이 지수가 얼마인가" 에 직접 답한다.
-
-         시장당 둘로 맞춘다 — 미장에만 다우·나스닥100·SOX 를 더해 여섯을
-         세우면 좌우 두 칸의 눈높이가 어긋나 나란히 비교하는 배치가 무너진다.
-         그 셋은 시장 전체가 아니라 부분·섹터라 아래 목록의 몫이다. #}
-      <div class="index-panels" id="index-panels-us"></div>
 
       <div class="panel">
         <h2>나머지 지수

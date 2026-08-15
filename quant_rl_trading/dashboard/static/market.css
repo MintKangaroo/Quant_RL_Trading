@@ -67,22 +67,67 @@
    보이는 값이라, 무채색으로 두면 그냥 라벨로 읽힌다. */
 .chip.warn-chip { color: var(--warn); border-color: var(--warn); }
 
-/* 지수 패널 — 한 칸 안에서 **둘이 나란히** 선다. 세로로 쌓으면 지수 둘이
-   화면 절반을 먹고 그 아래 시장 폭·움직인 종목이 접힌 아래로 밀린다.
-   minmax(0,1fr) 인 이유는 grid 칸 기본 최소폭이 auto 라서다 — 안 걸면 차트가
-   칸을 밀어내 좌우 배치가 가로로 흐른다. */
-.index-panels {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-  gap: 10px;
+/* 지수·ETF 여섯을 **가로 한 줄**로 — 코스피·코스닥·SPY·QQQ·DIA·SOXX.
+ *
+ * ## 최소 폭을 지키고, 모자라면 이 줄 안에서 민다
+ *
+ * 균등분할(1fr 여섯)로 깔면 좁은 화면에서 패널이 200px 밑으로 내려가 이름과
+ * 종가가 겹치고 봉이 뭉개진다. 그래서 **최소 폭을 못박고 넘치면 가로
+ * 스크롤**이다. 300px 로 잡은 근거:
+ *
+ *   머리 한 줄  이름 ~35 + 종가 ~67 + 등락 ~48 + 간격 18 = 168px
+ *   차트 300px  y축 46 + 여백 16 을 빼면 238px → 60봉에 봉당 ~4.0px
+ *   차트 280px  같은 계산으로 218px → 봉당 ~3.6px (몸통 2px + 꼬리)
+ *
+ * 그래서 **선호 폭 300px · 바닥 280px** 두 값을 둔다. 남으면 늘어나고, 모자라면
+ * 280 까지 줄었다가 그 아래로는 안 줄고 옆으로 민다. 하나로만 잡으면 둘 중
+ * 하나를 잃는다 — 300 만 두면 1920 에서도 스크롤이 생기고(아래 계산),
+ * 280 만 두면 넓은 화면에서 쓸데없이 좁다.
+ *
+ * 실제 가용폭은 생각보다 좁다:
+ *   1920 − main 좌우 패딩 24 − .panel > * 좌우 마진 22 = **1874px**
+ *   바닥으로 깔면 6×280 + 묶음 안 간격 40 + 묶음 사이 12 + 12 = 1744px
+ * 즉 **뷰포트 ~1790px 아래에서 가로 스크롤이 시작된다.** 1920 에서는 여섯이
+ * 다 보이되 세로 스크롤바가 있으면 아슬아슬하다 — 그래서 바닥값이 있다.
+ *
+ * **overflow-x 는 이 줄에만 건다.** 본문이 가로로 흐르면 아래 좌우 두 칸
+ * 배치가 통째로 무너진다(dashboard.md §8-3). */
+.index-strip {
+  --index-panel-min: 300px;
+  --index-panel-floor: 280px;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
 }
 
+/* 시장 묶음. **가로 한 줄에서는 위치가 시장을 말해주지 않는다** — 좌우로
+   갈랐을 때 왼쪽/오른쪽이 하던 일을 머리글과 구분선이 대신한다. */
+.index-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+/* 두 번째 묶음부터 앞에 선을 세운다. 여섯을 균등하게 늘어놓으면 코스닥과
+   SPY 사이의 경계가 사라지는데, 그 둘은 다른 시장이고 성격도 다르다
+   (지수 vs ETF). */
+.index-group + .index-group {
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
+
+.index-group-head { display: flex; align-items: center; gap: 6px; }
+.index-group-name { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; }
+
+.index-group-panels { display: flex; gap: 10px; align-items: stretch; }
+
 .index-panel {
-  background: var(--panel);
+  background: var(--panel2);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px 8px 4px;
-  min-width: 0;
+  /* 남으면 늘어나고, 모자라면 바닥까지만 줄어든다. flex 의 기본
+     min-width:auto 는 내용에 따라 더 줄어들 수 있어 명시적으로 건다. */
+  flex: 1 1 var(--index-panel-min);
+  min-width: var(--index-panel-floor);
 }
 
 .index-panel-head {
@@ -95,30 +140,21 @@
 
 .index-panel-name { font-size: 12px; font-weight: 600; color: var(--text); }
 
-/* 숫자는 오른쪽 끝으로 민다 — 지수 이름 길이가 제각각이라(코스피 3자,
-   NASDAQ 6자) 왼쪽에 붙이면 두 패널의 종가가 서로 다른 x 에 앉는다. */
+/* 좁은 패널에서 배지가 이름을 밀어내지 않게 줄인다. **지우지는 않는다** —
+   배당이 빠진 만큼 우리가 이긴 것처럼 보이는 값이라 배지가 계속 붙어야 한다. */
+.index-panel .chip { font-size: 9px; padding: 0 4px; white-space: nowrap; }
+
+/* 숫자는 오른쪽 끝으로 민다 — 이름 길이가 제각각이라(KOSPI 5자, SOXX 4자)
+   왼쪽에 붙이면 패널마다 종가가 서로 다른 x 에 앉는다. */
 .index-panel-nums { margin-left: auto; display: flex; align-items: baseline; gap: 6px; }
 .index-panel-close { font-size: 14px; }
 .index-panel-nums .mono:last-child { font-size: 11.5px; }
 
 .index-panel-foot { margin: 0; padding-top: 1px; color: var(--dim); }
 
-/* 패널이 좁으니 차트도 낮다. 이건 추세의 모양을 보는 자리이지 눈금을 읽는
+/* 패널이 좁으니 차트도 낮다. 추세의 모양을 보는 자리이지 눈금을 읽는
    자리가 아니다 — 정확한 값은 바로 위 머리에 있다. */
 .chart.mini { height: 108px; }
-
-/* 변동성 지수 줄. **가격지수와 눈으로 갈려야 한다** — 여기서 등락률에 손익
-   색을 안 쓰므로(VIX 상승은 수익이 아니다) 색만으로는 차이가 안 보인다. */
-#indices-kr tr.section td,
-#indices-us tr.section td {
-  padding-top: 8px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  color: var(--warn);
-  border-bottom: 1px solid var(--border);
-}
-#indices-kr tr.vol td,
-#indices-us tr.vol td { color: var(--muted); }
 
 /* 시장 폭 — 숫자 다섯 칸과 막대 하나. */
 .breadth {
@@ -193,6 +229,35 @@
 
 /* 아주 좁은 화면에서는 지수 패널을 세로로 쌓는다. 폭이 150px 밑으로 내려가면
    선이 뭉개져 추세가 안 읽히는데, 그러면 차트가 자리만 먹는 장식이 된다. */
-@media (max-width: 560px) {
-  .index-panels { grid-template-columns: minmax(0, 1fr); }
+/* 아주 좁은 화면(휴대폰)에서는 한 줄을 포기하고 세로로 쌓는다. 가로 스크롤로
+   여섯을 미는 것은 마우스가 있을 때 이야기이고, 390px 에서는 첫 패널만 보고
+   나머지가 있는 줄도 모른다. */
+@media (max-width: 720px) {
+  .index-strip { flex-direction: column; overflow-x: visible; gap: 12px; }
+  .index-group + .index-group { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
+  .index-group-panels { flex-direction: column; }
+  .index-panel { min-width: 0; flex: 1 1 auto; }
+}
+
+/* 벤치마크와 화면 대표를 눈으로 가른다. **강조색은 손익이 아닌 것에만**
+   쓴다(§10) — 이건 구조 표시이지 수익이 아니다. */
+.chip.bench-chip { color: var(--accent); border-color: var(--accent); }
+
+/* ETF 배지. 경고색은 아니다 — ETF 라는 사실 자체가 경고는 아니고, 무엇이
+   달라지는지는 아래 문단이 적는다. */
+.chip.etf-chip { color: var(--muted); }
+
+/* 봉을 못 그리는 패널이 그 사실을 말하는 자리. */
+.warn-text { color: var(--warn); }
+
+/* ETF 주의문 — 칸마다 한 번. 패널마다 붙이면 같은 문단이 넷이 되어 아무도
+   안 읽는다. */
+.etf-note {
+  margin: 2px 0 0;
+  max-width: 640px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  line-height: 1.5;
 }
