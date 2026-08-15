@@ -67,9 +67,24 @@ _TOP_TICK = 1_000
 #: 한 칸 밀려나는 것(예: 55600/100 이 554.999999996 으로 나오는 것)을 막는다.
 _EPS = 1e-9
 
+#: 미장 호가단위 — SEC Rule 612 (sub-penny). $1 미만은 $0.0001, 이상은
+#: $0.01. `docs/design/ls-api.md` §0-10 실측(``g3104.untprc``)과 일치한다:
+#: AAPL($305.26)·WEN($8.65)·BRK.A($762,000) 전부 0.01, LTRYW($0.0070)만
+#: 0.0001. **KR 표(``_TICK_BANDS``)를 달러 가격에 그대로 먹이면 안 된다** —
+#: 원화 구간 임계값(2,000 / 5,000 / …)이 달러에서는 아무 의미가 없다. 예:
+#: $50 짜리 미국 주식은 KR 표로 "2,000원 미만" 칸에 걸려 tick=1(=$1)이 되고,
+#: 실제 필요한 $0.01 보다 100배 거친 호가로 반올림된다.
+_US_SUBPENNY_THRESHOLD = 1.0
+_US_SUBPENNY_TICK = 0.0001
+_US_TICK = 0.01
+
 
 def tick_size(price: float) -> int:
-    """가격이 속한 호가단위. 표 근거는 모듈 docstring."""
+    """가격이 속한 호가단위(KR). 표 근거는 모듈 docstring.
+
+    **원화 전용이다.** 미장 호가단위는 이 표와 무관하다 — ``round_to_tick``
+    이 ``market`` 인자로 갈라 받는다.
+    """
     if price <= 0:
         raise ValueError(f"호가단위는 양수 가격에서만 정의된다: {price}")
     for threshold, tick in _TICK_BANDS:
@@ -78,15 +93,27 @@ def tick_size(price: float) -> int:
     return _TOP_TICK
 
 
-def round_to_tick(price: float, *, side: Side) -> float:
+def us_tick_size(price: float) -> float:
+    """미장 호가단위. 표 근거는 ``_US_SUBPENNY_*`` 상수 주석."""
+    if price <= 0:
+        raise ValueError(f"호가단위는 양수 가격에서만 정의된다: {price}")
+    return _US_SUBPENNY_TICK if price < _US_SUBPENNY_THRESHOLD else _US_TICK
+
+
+def round_to_tick(price: float, *, side: Side, market: str = "KR") -> float:
     """유효 호가로 반올림한다.
 
     **매수는 내림, 매도는 올림** — 슬리피지 상한을 넘지 않는 방향으로만
     옮긴다. 매수 상한을 올림하면 상한을 넘어 더 비싸게 사고, 매도 하한을
     내림하면 하한 아래로 더 싸게 판다 — 둘 다 ``orders.limit_price`` 가
     약속한 "상한 안에서만" 을 깬다.
+
+    ``market`` 기본값이 ``"KR"`` 인 것은 기존 호출부(국장) 계약을 그대로
+    지키기 위해서다. ``"US"`` 면 원화 표 대신 ``us_tick_size`` 를 쓴다 —
+    둘을 헷갈리면 미장 주문이 원화 호가단위로 반올림되는 조용한 오류가 된다
+    (2026-08-15 발견, `docs/design/ls-api.md` §0-10).
     """
-    tick = tick_size(price)
+    tick = us_tick_size(price) if market == "US" else tick_size(price)
     scaled = price / tick
     if side is Side.BUY:
         return math.floor(scaled + _EPS) * tick

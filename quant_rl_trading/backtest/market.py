@@ -18,8 +18,10 @@ import math
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from quant_rl_trading.executor.ticks import tick_size as kr_tick_size
+from quant_rl_trading.executor.ticks import us_tick_size
 from quant_rl_trading.replay.fills import MarketState
-from quant_rl_trading.store.prices import read_prices
+from quant_rl_trading.store.prices import adjust, read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -62,14 +64,25 @@ def states(
         market=market,
         # low·high 는 지정가 체결 판정에 쓴다(replay/fills.py). 종가만 퍼오면
         # 저가가 지정가를 스친 날이 전부 미체결로 적힌다.
-        columns=["close", "volume", "low", "high"],
+        columns=["close", "volume", "low", "high", "adj_factor"],
     )
     if frame.empty:
         return {}
 
     session_day = as_of.date()
+    # **체결가는 원주가, 변동성은 보정가.** 체결은 실제로 거래된 값으로 해야
+    # 하고(보정가로 체결하면 분할 직후 수량·금액이 배율만큼 틀어진다),
+    # 변동성은 수익률로 재므로 반대다 — 분할 하루가 -90% 로 남으면 충격비용이
+    # 그만큼 부풀어 그 종목만 체결이 불가능해진다. session/daily.py 의
+    # ``market_stats`` 와 같은 규칙이다 (불변식 5: 백테스트와 라이브는 같은
+    # 코드를 쓴다).
+    ordered = frame.sort_values("valid_from")
+    adjusted_close = {
+        str(entity): group["close"].astype(float)
+        for entity, group in adjust(ordered).groupby("entity_id")
+    }
     out: dict[str, MarketState] = {}
-    for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
+    for entity, group in ordered.groupby("entity_id"):
         today = group[group["valid_from"].dt.date == session_day]
         if today.empty:
             continue
@@ -82,7 +95,8 @@ def states(
         adv = float(history.mean())
         if adv <= 0:
             continue
-        returns = group["close"].astype(float).tail(VOLUME_WINDOW + 1)
+        series = adjusted_close.get(str(entity), group["close"].astype(float))
+        returns = series.tail(VOLUME_WINDOW + 1)
         volatility = float(returns.pct_change(fill_method=None).dropna().std())
         out[str(entity)] = MarketState(
             entity_id=str(entity),
@@ -94,5 +108,13 @@ def states(
             volatility=volatility if volatility > 0 else DEFAULT_VOLATILITY,
             low=_positive(today["low"].iloc[-1]),
             high=_positive(today["high"].iloc[-1]),
+            # 2026-08-15 발견: 이 필드가 비어 있어(기본값 0.0) fills.py 의
+            # tick 반올림이 통째로 no-op 이었다 — 체결가가 실제 호가단위
+            # 격자 밖에 놓일 수 있었다. 지정가 자체(orders.limit_price)는
+            # 이미 반올림돼 들어오므로 영향은 충격비용을 얹은 뒤의 값에만
+            # 있었지만, 그 값도 유효 호가여야 한다.
+            tick_size=(
+                us_tick_size(close) if market.upper() == "US" else kr_tick_size(close)
+            ),
         )
     return out

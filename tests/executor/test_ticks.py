@@ -13,7 +13,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from quant_rl_trading.executor.ticks import round_to_tick, tick_size
+from quant_rl_trading.executor.ticks import round_to_tick, tick_size, us_tick_size
 from quant_rl_trading.schemas.order import Side
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -106,3 +106,44 @@ def test_round_to_tick_never_crosses_reference_direction() -> None:
     for price in (2_001.3, 5_002.7, 20_010.9, 200_300.4, 500_700.1):
         assert round_to_tick(price, side=Side.BUY) <= price
         assert round_to_tick(price, side=Side.SELL) >= price
+
+
+# -- 미장(US) 호가단위 -----------------------------------------------------------
+#
+# `docs/design/ls-api.md` §0-10 실측(g3104.untprc) 근거: AAPL($305.26)·
+# WEN($8.65)·BRK.A($762,000) 전부 0.01, LTRYW($0.0070)만 0.0001.
+
+
+@pytest.mark.parametrize(
+    ("price", "expected"),
+    [(0.0070, 0.0001), (0.99, 0.0001), (1.0, 0.01), (8.65, 0.01), (305.26, 0.01), (762_000.0, 0.01)],
+)
+def test_us_tick_size_matches_real_observations(price: float, expected: float) -> None:
+    assert us_tick_size(price) == pytest.approx(expected)
+
+
+def test_round_to_tick_market_kr_is_default() -> None:
+    """market 인자를 안 주면 지금까지와 같은 국장 표를 쓴다 — 기존 호출부 계약."""
+    assert round_to_tick(55_576.5, side=Side.BUY) == round_to_tick(
+        55_576.5, side=Side.BUY, market="KR"
+    )
+
+
+def test_round_to_tick_us_does_not_use_kr_table() -> None:
+    """회귀 재현: KR 표를 달러 가격에 먹이면 $50 가 $1 tick 으로 반올림된다
+    (2026-08-15 발견). market='US' 를 넘기면 실제 미장 호가단위($0.01)를 쓴다.
+
+    KR 표로 잘못 계산했을 때와 값이 달라야 이 수정이 실제로 걸린 것이다.
+    """
+    price = 50.3719
+    kr_wrong = round_to_tick(price, side=Side.BUY, market="KR")
+    us_correct = round_to_tick(price, side=Side.BUY, market="US")
+    assert kr_wrong == 50.0  # KR 표: 50.3719 < 2,000 대역 → tick=1
+    assert us_correct == pytest.approx(50.37)  # 실제 미장: tick=$0.01
+    assert kr_wrong != us_correct
+
+
+def test_round_to_tick_us_sub_penny() -> None:
+    """$1 미만은 $0.0001 tick — LTRYW 급 저가주."""
+    assert round_to_tick(0.00731, side=Side.BUY, market="US") == pytest.approx(0.0073)
+    assert round_to_tick(0.00731, side=Side.SELL, market="US") == pytest.approx(0.0074)

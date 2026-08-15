@@ -89,7 +89,9 @@ def split(quantity: int, *, slices: int) -> list[int]:
     return [piece for piece in plan if piece > 0]
 
 
-def limit_price(*, reference: float, side: Side, max_slippage: float) -> float:
+def limit_price(
+    *, reference: float, side: Side, max_slippage: float, market: str = "KR"
+) -> float:
     """지정가. **슬리피지 상한 안에서만 산다.**
 
     시장가는 청산과 킬스위치 발동 때만 쓴다 (execution.order_type). 평시에
@@ -99,9 +101,13 @@ def limit_price(*, reference: float, side: Side, max_slippage: float) -> float:
     상한 계산 값을 그대로 내면 거래소가 거부한다 — 호가단위(tick)에 맞는
     가격만 낼 수 있다. ``round_to_tick`` 이 상한을 넘지 않는 방향으로
     반올림한다(매수 내림·매도 올림, 근거는 ``ticks.py``).
+
+    ``market`` 기본값이 ``"KR"`` 인 것은 기존 호출부 계약을 지키기 위해서다.
+    **미장 주문에 이 기본값을 그대로 두면 원화 호가단위표로 반올림된다** —
+    호출부가 반드시 ``market="US"`` 를 넘겨야 한다(``ticks.round_to_tick``).
     """
     edge = 1.0 + max_slippage if side is Side.BUY else 1.0 - max_slippage
-    return round_to_tick(reference * edge, side=side)
+    return round_to_tick(reference * edge, side=side, market=market)
 
 
 @dataclass(frozen=True)
@@ -142,15 +148,23 @@ def plan_slices(
     session: str,
     params: SliceParams,
     market_order: bool = False,
+    market: str = "KR",
 ) -> list[PlannedOrder]:
-    """한 종목의 분할 주문 묶음."""
+    """한 종목의 분할 주문 묶음.
+
+    ``market`` 은 호가단위 표만 가른다(``limit_price``) — 자연키·분할 규칙은
+    시장과 무관하다. 기본값 ``"KR"`` 은 기존 호출부 계약을 지키기 위해서다.
+    """
     out: list[PlannedOrder] = []
     for seq, piece in enumerate(split(quantity, slices=params.slice_count)):
         price = (
             None
             if market_order
             else limit_price(
-                reference=reference_price, side=side, max_slippage=params.max_slippage
+                reference=reference_price,
+                side=side,
+                max_slippage=params.max_slippage,
+                market=market,
             )
         )
         out.append(

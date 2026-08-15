@@ -58,7 +58,7 @@ from quant_rl_trading.executor.supervise import (
     register,
     step,
 )
-from quant_rl_trading.executor.ticks import round_to_tick, tick_size
+from quant_rl_trading.executor.ticks import round_to_tick, tick_size, us_tick_size
 
 __all__ = [
     "Action",
@@ -104,4 +104,5 @@ __all__ = [
     "split",
     "step",
     "tick_size",
+    "us_tick_size",
 ]

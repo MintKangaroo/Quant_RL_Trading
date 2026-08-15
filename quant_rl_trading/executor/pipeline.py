@@ -198,6 +198,9 @@ def run(
                 params=slice_params,
                 # 시장가는 청산과 킬스위치 발동 때만.
                 market_order=liquidation_only and item.side is Side.SELL,
+                # 호가단위표를 가른다 — 안 넘기면 미장 주문이 원화 표로
+                # 반올림된다(2026-08-15, ticks.py 참고).
+                market=market,
             )
         )
     result.planned = tuple(planned)
