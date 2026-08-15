@@ -45,6 +45,7 @@ from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest.execution import currency_of
 from quant_rl_trading.broker import Fill
 from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials
+from quant_rl_trading.broker.ls_order_us import PATH_ACCNO_US
 from quant_rl_trading.collectors.ls_client import PATH_ACCNO
 from quant_rl_trading.schemas.order import Side
 
@@ -64,7 +65,26 @@ __all__ = [
 
 TRADES = "trades"
 SOURCE = "broker"
+#: 국장 체결조회.
 TR_FILLS = "t0425"
+#: 미장 체결조회. 국장과 **블록 이름·필드명·호출 횟수가 전부 다르다**
+#: (``docs/design/ls-api.md`` §0-6). 조회 결과를 ``trades`` 에 적는 규약
+#: (부분체결 차분·자연키·비용 계산)은 시장과 무관해서 그대로 공유한다 —
+#: 갈리는 것은 "행을 어떻게 얻어오는가" 하나뿐이라 :class:`FillQuery` 로 뺐다.
+TR_FILLS_US = "COSAQ00102"
+
+#: 미장 주문시장코드. **한 번에 전종목을 못 받는다** — ``OrdMktCode`` 가 필수라
+#: 뉴욕·나스닥을 각각 부르고 합쳐야 한다. 초당 1건 한도라 한 사이클에 2초 든다.
+US_MARKET_CODES = ("82", "81")
+
+#: 계좌 조회 경로. 국장과 미장이 다르다.
+PATH_ACCNO_BY_MARKET: dict[str, str] = {"KR": PATH_ACCNO, "US": PATH_ACCNO_US}
+
+#: "조회내역이 없습니다". **오류가 아니라 빈 결과다.** ``OK_CODES`` 에 없어서
+#: ``LSClient`` 가 예외로 올리지만, 보유·주문이 0 건인 계좌의 정상 응답이다
+#: (2026-08-15 실측 — 미장 빈 계좌에서 잔고·주문내역 모두 이 코드가 왔다).
+#: 이걸 실패로 다루면 "조회 못 했다" 와 "아직 안 잡혔다" 가 구분되지 않는다.
+NO_ROWS = "02679"
 
 #: t0425 조회 창. 주문은 세션을 이월하지 않는다(executor/lifecycle.py
 #: close_session) — 오늘 세션 주문만 대상이면 되지만, 자정 근처 지연 접수
@@ -138,49 +158,21 @@ def sync_fills(
     as_of: datetime,
     pending: list[PendingFill],
 ) -> SyncResult:
-    """대기 중인 주문들의 체결을 t0425 로 확인해 ``trades`` 에 적는다."""
+    """대기 중인 주문들의 체결을 확인해 ``trades`` 에 적는다.
+
+    조회 TR 은 ``PendingFill.market`` 이 정한다 — 국장 ``t0425``, 미장
+    ``COSAQ00102``. **시장별로 따로 조회하고, 한쪽 실패가 다른 쪽을 오염시키지
+    않는다.** 한 번에 다 실패로 접으면 국장 주문이 미장 장애 때문에 "모른다"
+    가 된다.
+    """
     if not pending:
         return SyncResult((), 0)
 
-    try:
-        data = client.request_tr(
-            PATH_ACCNO,
-            TR_FILLS,
-            {
-                "t0425InBlock": {
-                    "expcode": "",
-                    "chegb": "0",  # 0:전체 — 미체결 잔량과 누적 체결을 한 번에 받는다.
-                    "medosu": "0",
-                    "sortgb": "1",
-                    "cts_ordno": "",
-                }
-            },
-        )
-    except (LSAPIError, MissingCredentials) as error:
-        # 조회 자체가 실패했다 — 전부 모른다. 0건으로 적으면 "안 샀다" 로
-        # 확정돼 버린다.
-        return SyncResult(
-            tuple(
-                FillOutcome(item.order_id, FillState.UNKNOWN, detail=f"조회 실패: {error}")
-                for item in pending
-            ),
-            0,
-        )
+    # 시장별 조회. 결과는 (주문번호 → 행) 또는 실패 사유 문자열.
+    fetched: dict[str, dict[str, dict[str, Any]] | str] = {}
+    for market in sorted({item.market for item in pending}):
+        fetched[market] = _fetch_fill_rows(client, market)
 
-    if data.get("paper"):
-        # live_trading 이 꺼져 있으면 t0425 도 paper 응답으로 막힌다(t0424 와
-        # 같은 이유 — 계좌/주문 TR 은 PAPER_ALLOWED_TR 에 없다). 이 모드에서는
-        # 애초에 실주문이 나가지 않았으므로 확인할 체결도 없다 — "0 건" 이
-        # 아니라 "조회하지 않았다" 로 남긴다.
-        return SyncResult(
-            tuple(
-                FillOutcome(item.order_id, FillState.UNKNOWN, detail="paper 모드 — 조회하지 않았다")
-                for item in pending
-            ),
-            0,
-        )
-
-    by_ordno = _index_by_ordno(data.get("t0425OutBlock1") or [])
     recorded_so_far = _recorded_quantities(store, as_of=as_of, pending=pending)
 
     observed_at = clock.now()
@@ -190,6 +182,13 @@ def sync_fills(
     rows: list[dict[str, object]] = []
 
     for item in pending:
+        found = fetched.get(item.market)
+        if isinstance(found, str):
+            # 조회 자체가 실패했다 — 모른다. 0건으로 적으면 "안 샀다" 로
+            # 확정돼 버린다.
+            outcomes.append(FillOutcome(item.order_id, FillState.UNKNOWN, detail=found))
+            continue
+        by_ordno = found or {}
         row = by_ordno.get(_normalize_ordno(item.broker_order_no))
         if row is None:
             outcomes.append(
@@ -197,8 +196,8 @@ def sync_fills(
             )
             continue
 
-        cumulative = _first_numeric(row, ("cheqty", "chevol", "execqty", "ordcheqty"))
-        price = _first_numeric(row, ("cheprice", "cheprc", "chegprc", "execprc"))
+        cumulative = _first_numeric(row, _QUANTITY_KEYS.get(item.market, _QUANTITY_KEYS["KR"]))
+        price = _first_numeric(row, _PRICE_KEYS.get(item.market, _PRICE_KEYS["KR"]))
         if cumulative is None or price is None:
             outcomes.append(
                 FillOutcome(item.order_id, FillState.UNKNOWN, detail=f"체결 필드 파싱 실패: {row!r}")
@@ -275,6 +274,102 @@ def sync_fills(
             written = int(store.append(TRADES, rows, ingest_run_id=run_id, source=SOURCE))
 
     return SyncResult(tuple(outcomes), written)
+
+
+# -- 시장별 조회 ----------------------------------------------------------------
+#
+# 갈리는 것은 이 아래뿐이다. 위쪽(부분체결 차분·자연키·비용)은 시장과 무관하다.
+
+#: 누적 체결수량 후보 필드. 순서대로 본다.
+#: 미장 ``AllExecQty`` 가 "전체 체결수량", ``ExecQty`` 가 "이번 체결수량" 으로
+#: 알려져 있어 **누적 쪽을 먼저** 본다 — 이번치를 누적으로 읽으면 차분이
+#: 매번 새 체결로 잡혀 같은 체결을 여러 번 적는다.
+_QUANTITY_KEYS: dict[str, tuple[str, ...]] = {
+    "KR": ("cheqty", "chevol", "execqty", "ordcheqty"),
+    "US": ("AllExecQty", "ExecQty"),
+}
+
+#: 체결가 후보 필드. 미장은 **달러 소수**다 — 어디에도 정수 캐스팅을 넣지 마라.
+_PRICE_KEYS: dict[str, tuple[str, ...]] = {
+    "KR": ("cheprice", "cheprc", "chegprc", "execprc"),
+    "US": ("OvrsExecPrc", "OvrsOrdPrc"),
+}
+
+
+def _fetch_fill_rows(
+    client: LSClient, market: str
+) -> dict[str, dict[str, Any]] | str:
+    """그 시장의 체결 조회. 성공하면 주문번호→행, 실패하면 사유 문자열.
+
+    반환형이 둘인 이유는 **"조회 못 했다"와 "조회했는데 그 주문이 없다"를
+    호출부가 구분해야** 하기 때문이다. 빈 dict 로 뭉개면 조회 실패가
+    "아직 안 잡혔다" 로 둔갑한다.
+    """
+    calls: list[tuple[str, dict[str, Any], str]]
+    if market == "US":
+        # 뉴욕·나스닥을 각각 부른다 — ``OrdMktCode`` 가 필수라 한 번에 못 받는다.
+        calls = [
+            (
+                TR_FILLS_US,
+                {
+                    f"{TR_FILLS_US}InBlock1": {
+                        "RecCnt": 1,
+                        "QryTpCode": "1",  # 계좌별
+                        "BkseqTpCode": "2",  # 정순
+                        "OrdMktCode": code,
+                        "BnsTpCode": "0",  # 전체
+                        "IsuNo": "",
+                        "SrtOrdNo": 0,  # 정순이면 0 부터
+                        "OrdDt": "",
+                        "ExecYn": "0",  # 0:전체 — 미체결 잔량과 체결을 한 번에
+                        "CrcyCode": "USD",
+                        "ThdayBnsAppYn": "0",
+                        "LoanBalHldYn": "0",
+                    }
+                },
+                f"{TR_FILLS_US}OutBlock3",
+            )
+            for code in US_MARKET_CODES
+        ]
+    else:
+        calls = [
+            (
+                TR_FILLS,
+                {
+                    "t0425InBlock": {
+                        "expcode": "",
+                        "chegb": "0",  # 0:전체 — 미체결 잔량과 누적 체결을 한 번에.
+                        "medosu": "0",
+                        "sortgb": "1",
+                        "cts_ordno": "",
+                    }
+                },
+                "t0425OutBlock1",
+            )
+        ]
+
+    rows: list[dict[str, Any]] = []
+    for tr, body, out_block in calls:
+        try:
+            data = client.request_tr(PATH_ACCNO_BY_MARKET.get(market, PATH_ACCNO), tr, body)
+        except LSAPIError as error:
+            if error.rsp_cd == NO_ROWS:
+                # 조회는 됐고 내역이 0 건이다 — 실패가 아니다.
+                continue
+            return f"조회 실패: {error}"
+        except MissingCredentials as error:
+            return f"조회 실패: {error}"
+
+        if data.get("paper"):
+            # live_trading 이 꺼져 있으면 체결조회 TR 도 paper 응답으로 막힌다
+            # (계좌/주문 TR 은 PAPER_ALLOWED_TR 밖이다). 이 모드에서는 애초에
+            # 실주문이 나가지 않았으므로 확인할 체결도 없다 — "0 건" 이 아니라
+            # "조회하지 않았다" 로 남긴다.
+            return "paper 모드 — 조회하지 않았다"
+
+        rows.extend(data.get(out_block) or [])
+
+    return _index_by_ordno(rows)
 
 
 # -- 내부 -----------------------------------------------------------------------

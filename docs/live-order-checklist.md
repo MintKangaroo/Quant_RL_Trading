@@ -97,6 +97,43 @@ uv run python tools/verify_live_order.py --symbol 005930 --live
 **중단하면 포지션이 남을 수 있다.** 6단계 이전에 중단하면 매수 잔량이
 계좌에 남는다 — §4 "실패 시 되돌리기" 를 본다.
 
+### 2-1. 미장 (`--market US`)
+
+```
+uv run python tools/verify_live_order.py --market US --symbol WEN
+uv run python tools/verify_live_order.py --market US --symbol WEN --live --dry-run
+uv run python tools/verify_live_order.py --market US --symbol WEN --live
+```
+
+**국장과 다른 점만 적는다.**
+
+| | KR | US |
+|---|---|---|
+| 자격증명 | `LS_*` | `LS_US_*` (별도 appkey) |
+| 지문 고정 | `execution.live_account_fingerprint` | `…_us`. **비어 있으면 거부** |
+| 상한 기본값 | 100,000원 | **$20** — `--max-order-value` 단위가 USD 다 |
+| 잔고 | `t0424` `sunamt` | `COSOQ02701` `FcurrOrdAbleAmt` |
+| 시세 | `t1102` | `g3104` |
+| 주문 | `CSPAT00601` | `COSAT00301` |
+| 체결조회 | `t0425` | `COSAQ00102` (뉴욕·나스닥 각각 — 사이클당 2초) |
+
+**미장은 5단계에서 멈춘다.** 부분취소·정정·매도 정리를 자동으로 잇지 않는다 —
+취소·정정 본문(`OrdPtnCode=08`/`07`)이 아직 한 번도 나간 적이 없어
+(`docs/design/ls-api.md` §0-5 등급 "샘플코드"), 사람 확인 없이 도구가
+내보내면 안 되기 때문이다. 도구가 멈추면서 주문번호·누적체결을 찍는다.
+**미체결·보유분은 LS 화면에서 직접 정리한다.**
+
+미장에서만 걸리는 것 셋:
+
+- **호가를 못 본다.** 미장 REST 시세에 최우선호가가 없다(실측). 기준가가
+  현재가라 **즉시 체결을 기대하면 안 된다** — 지정가가 안 걸리고 미체결로
+  남을 수 있다. 그 상태로 5단계에서 멈추므로 반드시 정리해야 한다.
+- **$9.49 로 살 수 있는 종목이어야 한다.** 미장 종가 중앙값이 $13.49 라
+  절반 이상은 1주도 못 산다. 예수금 검사가 막아 주지만, 종목을 고를 때
+  미리 본다.
+- **정규장.** 미장은 한국 공휴일과 무관하다 — 2026-08-17(월)은 국장이
+  광복절 대체공휴일로 쉬고 미장은 연다(도구가 시장별 달력으로 판정한다).
+
 ---
 
 ## 3. 미확인 2건을 이 절차에서 어떻게 확인하는가
@@ -180,7 +217,15 @@ uv run python tools/verify_live_order.py --symbol 005930 --live
 검증을 실행할 때마다 아래 표를 채운다(날짜·결론만 — 원본 로그는 터미널
 스크롤백이나 별도 파일로 보관, 이 문서에는 결론만 남긴다).
 
-| 날짜 | 종목 | 확인한 것 | 결론 |
-|---|---|---|---|
-| (미기입) | — | CSPAT00801 OrdQty 의미 | — |
-| (미기입) | — | 재호가 market_price 피드 | — |
+| 날짜 | 시장 | 종목 | 확인한 것 | 결론 |
+|---|---|---|---|---|
+| (미기입) | KR | — | CSPAT00801 OrdQty 의미 | — |
+| (미기입) | KR | — | 재호가 market_price 피드 | — |
+| (미기입) | US | — | **COSAT00301 본문이 실제로 받아들여지는가** (`OrdPtnCode=02`·`OrdMktCode`·`OvrsOrdPrc`) | — |
+| (미기입) | US | — | 신규주문에 `OrgOrdNo` 가 필수인가 — 포털 예제엔 없고 샘플엔 있다 | — |
+| (미기입) | US | — | `COSAQ00102OutBlock3` 실제 필드명 (`ExecQty`/`AllExecQty`/`OvrsExecPrc`) | — |
+| (미기입) | US | — | `COSOQ00201` 보유종목이 OutBlock3 인가 OutBlock4 인가 | — |
+| (미기입) | US | — | 취소(`OrdPtnCode=08`)·정정(`COSAT00311`) 본문 | — |
+
+미장 관찰 결과는 `docs/design/ls-api.md` §0 의 **근거 등급**을 올리는 데
+쓴다 — 지금 "샘플코드" 인 줄이 "실호출" 이 된다.

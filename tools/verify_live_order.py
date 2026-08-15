@@ -1,7 +1,51 @@
 """LS 증권 실계좌 배선 검증 — **최소 수량 1주를 사고 즉시 판다.**
 
-    uv run python tools/verify_live_order.py --symbol 005930           # 드라이런(기본)
-    uv run python tools/verify_live_order.py --symbol 005930 --live    # 실전, 매 단계 확인
+    uv run python tools/verify_live_order.py --symbol 005930                  # 국장 드라이런(기본)
+    uv run python tools/verify_live_order.py --symbol 005930 --live           # 국장 실전
+    uv run python tools/verify_live_order.py --market US --symbol WEN         # 미장 드라이런
+    uv run python tools/verify_live_order.py --market US --symbol WEN --live  # 미장 실전
+
+## 두 시장
+
+``--market`` 이 갈리는 지점을 ``MarketProfile`` 한 곳에 모았다. **국장 경로는
+미장이 붙기 전과 같은 함수·같은 값을 쓴다** — 미장 쪽을 고치다 국장이 흔들리면
+검증 도구가 검증 대상이 되어 버린다.
+
+| | KR | US |
+|---|---|---|
+| 자격증명 | ``LS_*`` | ``LS_US_*`` (별도 appkey — 토큰 충돌 없음) |
+| 잔고 | ``t0424`` ``sunamt`` (KRW) | ``COSOQ02701`` ``FcurrOrdAbleAmt`` (USD) |
+| 시세 | ``t1102`` | ``g3104`` |
+| 주문 | ``CSPAT00601`` | ``COSAT00301`` |
+| 체결조회 | ``t0425`` | ``COSAQ00102`` — **아직 안 붙었다**(§미장 한계) |
+| 호가단위 | ``executor/ticks.py`` 표 | **LS 가 준다** (``g3104.untprc``) |
+| 수량 | 정수 | 정수 — 소수점 주문 불가, 깎지 않고 거부 |
+| 지문 고정 | ``execution.live_account_fingerprint`` | ``…_us`` — **미선언도 거부** |
+
+## 미장에서 다른 것 셋 — 겉보기로는 안 드러난다
+
+1. **미장 시세 TR 은 호가를 주지 않는다.** ``g3104`` 의 ``bidlotsize``/
+   ``asklotsize`` 는 호가 **수량 단위**이지 호가 가격이 아니다(전부 ``1``).
+   ``g3101`` 에도 없다 — 2026-08-15 실측. 그래서 미장 기준가는 항상 현재가로
+   물러선다(``reference_price`` 가 ``bid``/``ask`` 가 0 이면 그렇게 한다).
+   **매수 즉시체결을 기대하지 마라** — 최우선 매도호가를 모르니 지정가가
+   현재가에 걸리고, 체결까지 시간이 걸릴 수 있다. 호가는
+   ``/websocket/overseas-stock`` 의 ``GSH`` 에나 있고 이 도구 범위 밖이다.
+2. **호가단위를 짐작하지 않는다.** ``g3104`` 가 종목별 ``untprc`` 를 준다
+   (실측: WEN·AAPL·SNAP·BRK.A = ``0.01``, LTRYW($0.007) = ``0.0001``).
+   ``executor/ticks.py`` 는 원화 KRX 표 전용이고 ``int`` 를 돌려주므로 미장에
+   쓰면 안 된다 — 그 표에 $305.77 을 먹이면 500원 단위로 반올림된다.
+3. **주문시장코드(81 뉴욕 / 82 나스닥)를 확인해서 넣는다.** 틀리면 g3104 가
+   "해당종목이 없습니다" 로 답한다(실측). 그래서 시세 조회를 82→81 순으로
+   시도해 **성공한 쪽을 그대로 주문에 쓴다** — 짐작하지 않는다.
+
+## 미장 한계 — 이 도구가 아직 못 하는 것
+
+``broker/fills.py`` 는 국장 ``t0425`` 전용이다(블록 이름·필드명·시장별 분할
+호출이 전부 다르다 — ``docs/design/ls-api.md`` §0-6). 그래서 **미장은
+체결조회(5단계) 이후를 자동으로 잇지 못한다.** 매수 주문 전송 결과까지
+확인하고 멈추며, 체결·매도 정리는 사람이 LS 화면에서 해야 한다.
+그 상태를 화면에 크게 찍는다 — 조용히 0건으로 끝나면 "안 샀다" 로 오해한다.
 
 ## 왜 이 도구가 필요한가
 
@@ -48,6 +92,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -59,15 +104,26 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.broker import BrokerError, RejectedOrder  # noqa: E402
-from quant_rl_trading.broker.fills import PendingFill, sync_fills  # noqa: E402
+from quant_rl_trading.broker.fills import NO_ROWS, PendingFill, sync_fills  # noqa: E402
 from quant_rl_trading.broker.ls_order import (  # noqa: E402
     ORD_CNDI_NONE,
     ORD_PTN_LIMIT,
     LSBroker,
     _order_body,
 )
+from quant_rl_trading.broker.ls_order_us import (  # noqa: E402
+    MARKET_CODES,
+    PATH_ACCNO_US,
+    LSUSBroker,
+    us_cancel_body,
+    us_modify_body,
+    us_order_body,
+    us_symbol,
+)
 from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials  # noqa: E402
 from quant_rl_trading.collectors.ls_client import (  # noqa: E402
+    MIN_INTERVAL_SEC_KR,
+    MIN_INTERVAL_SEC_US,
     PATH_ACCNO,
     PATH_MARKET,
     LSClient,
@@ -86,9 +142,19 @@ from tools.backfill import build_store  # noqa: E402
 
 TR_BALANCE = "t0424"
 TR_QUOTE = "t1102"
+#: 미장 예수금·현재가. 잔고 평가(``COSOQ00201``)가 아니라 **예수금**을 본다 —
+#: 미수를 막으려면 "지금 쓸 수 있는 현금" 이 필요하고 그게 ``FcurrOrdAbleAmt`` 다.
+TR_BALANCE_US = "COSOQ02701"
+TR_QUOTE_US = "g3104"
+
+#: 미장 시세 경로. 국장(``/stock/market-data``)과 다르다.
+PATH_MARKET_US = "/overseas-stock/market-data"
 
 #: 기본 주문 금액 상한. **아주 작게** — 실수로 큰 금액이 나가는 문을 좁힌다.
 DEFAULT_MAX_ORDER_VALUE = 100_000.0
+#: 미장 기본 상한. 계좌에 USD 9.49 뿐이라(2026-08-15 실측) 그보다 조금 위에
+#: 둔다 — 원화 기본값 100,000 을 달러로 읽으면 상한이 사실상 없는 것과 같다.
+DEFAULT_MAX_ORDER_VALUE_US = 20.0
 
 
 # -----------------------------------------------------------------------------
@@ -138,6 +204,13 @@ class Quote:
     bid: float
     ask: float
     raw: dict[str, Any] = field(default_factory=dict)
+    #: 호가단위. 미장은 LS 가 종목별로 준다(``g3104.untprc``). 국장은 0 —
+    #: ``executor/ticks.py`` 의 표를 쓴다.
+    tick: float = 0.0
+    #: 미장 주문시장코드(81/82). 시세가 나온 쪽을 그대로 주문에 쓴다.
+    market_code: str = ""
+    #: 거래정지·매수금지. 비어 있으면 정상.
+    halt: str = ""
 
 
 def reference_price(quote: Quote, side: Side) -> float:
@@ -150,6 +223,31 @@ def reference_price(quote: Quote, side: Side) -> float:
     return quote.bid if quote.bid > 0 else quote.price
 
 
+def round_to_tick_us(price: float, *, side: Side, tick: float) -> float:
+    """미장 호가단위 반올림. **표를 만들지 않는다** — ``tick`` 은 LS 가 준
+    종목별 ``untprc`` 다(``fetch_quote_us``).
+
+    방향 규칙은 국장과 같다: **매수는 내림, 매도는 올림.** 슬리피지 상한을
+    넘지 않는 방향으로만 옮긴다(``executor/ticks.py`` 참고).
+
+    ``executor/ticks.py`` 를 못 쓰는 이유는 표가 원화 전용이라서만이 아니라
+    ``tick_size()`` 가 ``int`` 를 돌려주기 때문이다 — $0.01 은 거기서 표현이
+    안 된다.
+    """
+    if tick <= 0:
+        raise ValueError(f"호가단위는 양수여야 한다: {tick}")
+    scaled = price / tick
+    steps = math.floor(scaled + _TICK_EPS) if side is Side.BUY else math.ceil(scaled - _TICK_EPS)
+    # tick 이 0.0001 까지 내려가므로 8자리에서 끊는다 — 부동소수점 찌꺼기가
+    # 그대로 주문가로 나가면 거래소가 거부한다.
+    return round(steps * tick, 8)
+
+
+#: ``executor/ticks.py`` 의 ``_EPS`` 와 같은 목적 — 정확히 tick 배수인 가격이
+#: 부동소수점 오차로 한 칸 밀리는 것을 막는다.
+_TICK_EPS = 1e-9
+
+
 @dataclass(frozen=True)
 class OrderSummary:
     symbol: str
@@ -159,27 +257,58 @@ class OrderSummary:
     amount: float
     ok: bool
     reason: str = ""
+    currency: str = "KRW"
 
     def render(self) -> str:
+        if self.currency == "KRW":
+            return (
+                f"  종목 {self.symbol} · {self.side.value} · {self.quantity}주 · "
+                f"지정가 {self.price:,.0f} · 예상금액 {self.amount:,.0f}원"
+            )
         return (
             f"  종목 {self.symbol} · {self.side.value} · {self.quantity}주 · "
-            f"지정가 {self.price:,.0f} · 예상금액 {self.amount:,.0f}"
+            f"지정가 ${self.price:,.4f} · 예상금액 ${self.amount:,.2f} {self.currency}"
         )
 
 
 def build_order_summary(
-    *, symbol: str, side: Side, quantity: int, raw_reference_price: float, max_order_value: float
+    *,
+    symbol: str,
+    side: Side,
+    quantity: float,
+    raw_reference_price: float,
+    max_order_value: float,
+    tick: float | None = None,
+    currency: str = "KRW",
 ) -> OrderSummary:
     """주문 직전 요약. **호가단위 반올림을 여기서 강제한다** — 안 거치면
-    거래소가 거부한다(``executor/ticks.py``)."""
-    price = round_to_tick(raw_reference_price, side=side)
+    거래소가 거부한다.
+
+    ``tick`` 이 ``None`` 이면 국장이다 — ``executor/ticks.py`` 의 표를 쓴다.
+    값이 있으면 미장이고 그 값이 호가단위다(LS 가 종목별로 준다).
+    """
+    unit = "원" if currency == "KRW" else f" {currency}"
+    if int(quantity) != quantity:
+        return OrderSummary(
+            symbol, side, int(quantity), 0.0, 0.0, False,
+            f"소수점 수량 {quantity} — LS 는 정수주만 받는다. "
+            "반올림하면 예수금 검사를 통과한 금액과 어긋나므로 깎지 않고 거부한다.",
+            currency,
+        )
+    quantity = int(quantity)
+    price = (
+        round_to_tick(raw_reference_price, side=side)
+        if tick is None
+        else round_to_tick_us(raw_reference_price, side=side, tick=tick)
+    )
     amount = price * quantity
     if amount > max_order_value:
         return OrderSummary(
             symbol, side, quantity, price, amount, False,
-            f"예상금액 {amount:,.0f} 이 상한 {max_order_value:,.0f} 을 넘는다",
+            f"예상금액 {amount:,.4f}{unit} 이 상한 {max_order_value:,.4f}{unit} 을 넘는다",
+            currency,
         )
-    return OrderSummary(symbol, side, quantity, price, amount, True)
+    return OrderSummary(symbol, side, quantity, price, amount, True, currency=currency)
 
 
 # -----------------------------------------------------------------------------
@@ -228,6 +357,79 @@ def fetch_quote(client: LSClient, symbol: str) -> Quote | None:
         ask=_num(block, "offerho1"),
         raw=block,
     )
+
+
+def fetch_balance_us(client: LSClient) -> BalanceSummary:
+    """COSOQ02701 — **USD 주문가능금액.** 국장 ``t0424`` 의 ``sunamt`` 자리다.
+
+    ``net_asset`` 에 ``FcurrOrdAbleAmt``(주문가능금액)를 넣는다. 예수금
+    (``FcurrDps``)이 아니라 주문가능금액인 이유는, 미수를 막으려면 "지금 이
+    주문에 쓸 수 있는 현금" 과 비교해야 하기 때문이다.
+
+    같은 응답의 ``WonDpsBalAmt``(원화 예수금)를 잘못 읽으면 5원이 나온다 —
+    국장 ``t0424`` 를 미장 계좌로 불렀을 때 나오던 그 ``5`` 다.
+    **통화가 다른 두 숫자를 한 필드에 섞지 마라.**
+    """
+    body = {f"{TR_BALANCE_US}InBlock1": {"RecCnt": 1, "CrcyCode": "USD"}}
+    try:
+        data = client.request_tr(PATH_ACCNO_US, TR_BALANCE_US, body)
+    except LSAPIError as error:
+        if error.rsp_cd == NO_ROWS:
+            # 조회는 됐고 내역이 0 건이다. **0 으로 진행한다** — 안전한 방향이다
+            # (주문금액 > 0 이므로 예수금 검사에서 반드시 걸린다).
+            return BalanceSummary(net_asset=0.0, positions=(), paper=False)
+        raise
+    if data.get("paper"):
+        return BalanceSummary(net_asset=0.0, positions=(), paper=True)
+    rows = data.get(f"{TR_BALANCE_US}OutBlock3") or []
+    usd = next((row for row in rows if str(row.get("CrcyCode", "")).upper() == "USD"), {})
+    return BalanceSummary(
+        net_asset=_num(usd, "FcurrOrdAbleAmt"), positions=(usd,) if usd else (), paper=False
+    )
+
+
+def fetch_quote_us(client: LSClient, symbol: str) -> Quote | None:
+    """g3104 — 미장 현재가. **주문시장코드를 여기서 확정한다.**
+
+    82(나스닥)→81(뉴욕) 순으로 시도해 **응답이 온 쪽**을 ``market_code`` 로
+    돌려준다. 틀린 코드로 부르면 "해당종목이 없습니다" 가 오므로(2026-08-15
+    실측) 이 시도 자체가 확인 절차다 — 주문시장을 짐작하지 않는다.
+
+    **호가(bid/ask)는 0 으로 둔다.** ``g3104`` 의 ``bidlotsize``/``asklotsize``
+    는 호가 **수량 단위**이지 가격이 아니다(실측: 전부 ``1``). 미장 REST 시세에
+    호가 가격은 없다 — ``reference_price`` 가 현재가로 물러선다.
+    """
+    for code in MARKET_CODES:
+        ticker = us_symbol(symbol)
+        body = {
+            f"{TR_QUOTE_US}InBlock": {
+                "keysymbol": f"{code}{ticker}",
+                "exchcd": code,
+                "symbol": ticker,
+            }
+        }
+        data = client.request_tr(PATH_MARKET_US, TR_QUOTE_US, body)
+        if data.get("paper"):
+            return None
+        block = data.get(f"{TR_QUOTE_US}OutBlock") or {}
+        if not block:
+            # 이 거래소에는 없는 종목이다 — 다음 코드로 넘어간다.
+            continue
+        halt = []
+        if str(block.get("suspend", "N")).upper() not in ("N", ""):
+            halt.append(f"거래정지({block.get('suspend')})")
+        if str(block.get("sellonly", "0")) not in ("0", ""):
+            halt.append(f"매수금지({block.get('sellonly')})")
+        return Quote(
+            price=_num(block, "clos"),
+            bid=0.0,
+            ask=0.0,
+            raw=block,
+            tick=_num(block, "untprc"),
+            market_code=code,
+            halt=" · ".join(halt),
+        )
+    return None
 
 
 # -----------------------------------------------------------------------------
@@ -291,6 +493,68 @@ def make_planned_order(
 # -----------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class MarketProfile:
+    """시장 하나가 갈리는 지점 전부. **분기를 여기 한 곳에 모은다** —
+    ``run()`` 안에 ``if market == "US"`` 가 흩어지면 국장 경로가 미장 변경에
+    흔들린다.
+    """
+
+    market: Market
+    #: ``.env`` 접두어. 국장·미장은 **별도 appkey** 다 — 같은 키를 공유하면
+    #: 한쪽 재발급이 다른 쪽 토큰을 IGW00121 로 죽인다.
+    env_prefix: str
+    currency: str
+    default_max_order_value: float
+    #: 지문 고정 설정 키.
+    fingerprint_key: str
+    #: 지문이 **비어 있어도** 진행할지. 국장은 기존 규약(빈 값 = 고정 안 함)을
+    #: 그대로 둔다 — 여기서 바꾸면 8/18 국장 검증이 깨진다. 미장은 새로 만드는
+    #: 경로라 처음부터 조인다: **미선언이면 진행하지 않는다.**
+    allow_unpinned: bool
+    balance_tr: str
+    quote_tr: str
+    order_tr: str
+    min_interval_sec: float
+    #: 체결조회 이후(부분취소·정정·매도 정리)까지 자동으로 이을 수 있는가.
+    supports_lifecycle: bool
+
+    def amount(self, value: float) -> str:
+        return f"{value:,.0f}원" if self.currency == "KRW" else f"${value:,.4f} {self.currency}"
+
+
+PROFILES: dict[str, MarketProfile] = {
+    "KR": MarketProfile(
+        market=Market.KR,
+        env_prefix="LS_",
+        currency="KRW",
+        default_max_order_value=DEFAULT_MAX_ORDER_VALUE,
+        fingerprint_key="execution.live_account_fingerprint",
+        allow_unpinned=True,
+        balance_tr=TR_BALANCE,
+        quote_tr=TR_QUOTE,
+        order_tr="CSPAT00601",
+        min_interval_sec=MIN_INTERVAL_SEC_KR,
+        supports_lifecycle=True,
+    ),
+    "US": MarketProfile(
+        market=Market.US,
+        env_prefix="LS_US_",
+        currency="USD",
+        default_max_order_value=DEFAULT_MAX_ORDER_VALUE_US,
+        fingerprint_key="execution.live_account_fingerprint_us",
+        allow_unpinned=False,
+        balance_tr=TR_BALANCE_US,
+        quote_tr=TR_QUOTE_US,
+        order_tr="COSAT00301",
+        min_interval_sec=MIN_INTERVAL_SEC_US,
+        # 체결조회까지는 붙었지만(``broker/fills.py`` 미장 분기), 부분취소·정정
+        # 본문은 **한 번도 보낸 적이 없다.** 첫 실행에서 사람이 관찰해야 한다.
+        supports_lifecycle=False,
+    ),
+}
+
+
 @dataclass
 class RunConfig:
     symbol: str
@@ -298,6 +562,11 @@ class RunConfig:
     max_order_value: float
     live: bool
     dry_run: bool
+    market: str = "KR"
+
+    @property
+    def profile(self) -> MarketProfile:
+        return PROFILES[self.market]
 
 
 def run(
@@ -316,17 +585,24 @@ def run(
     실전 여부를 판단만 하지 스스로 파일·환경을 읽지 않는다 — 그래야
     테스트에서 진짜 네트워크·자격증명 없이 이 함수를 그대로 돌릴 수 있다.
     """
+    profile = config.profile
     dry_run = config.dry_run or not config.live
-    out(f"검증 대상: {config.symbol} · {config.quantity}주 · 상한 {config.max_order_value:,.0f}원")
+    out(f"시장: {config.market} ({profile.currency}) · 자격증명 {profile.env_prefix}*")
+    out(
+        f"검증 대상: {config.symbol} · {config.quantity}주 · "
+        f"상한 {profile.amount(config.max_order_value)}"
+    )
     out(f"모드: {'실전' if config.live else '페이퍼(--live 없음)'}"
         f" · {'드라이런(전송 안 함)' if dry_run else '실제 전송'}")
 
     # -- 사전 점검 --------------------------------------------------------
     if not client.credentials.usable():
-        out("자격증명 없음 — LS_APPKEY/LS_APPSECRET 이 .env 에 없거나 템플릿 값이다.")
+        out(f"자격증명 없음 — {profile.env_prefix}APPKEY/{profile.env_prefix}APPSECRET 이 "
+            ".env 에 없거나 템플릿 값이다.")
         out("(값 자체는 여기서 읽지도 출력하지도 않는다 — 존재 여부만 본다.)")
         return 1
-    out("자격증명 존재 확인 — .env 에 LS_APPKEY/LS_APPSECRET 있음")
+    out(f"자격증명 존재 확인 — .env 에 {profile.env_prefix}APPKEY/"
+        f"{profile.env_prefix}APPSECRET 있음")
 
     # **계좌 선언 게이트.** 코드는 모의·실전을 판별할 수 없다 — 같은 호스트를
     # 쓰고, 모의 키로도 t0424 가 응답한다(2026-08-15 실측). 그래서 사람이
@@ -336,12 +612,19 @@ def run(
     fingerprint = client.credentials.fingerprint
     out(f"계좌 선언: kind={kind or '(미선언)'} · appkey 지문={fingerprint or '(없음)'}")
     if kind not in ("real", "paper"):
-        out("LS_ACCOUNT_KIND 가 선언되지 않았다 — .env 에 real 또는 paper 로 적어야 한다.")
+        out(f"{profile.env_prefix}ACCOUNT_KIND 가 선언되지 않았다 — "
+            ".env 에 real 또는 paper 로 적어야 한다.")
         out("**모르는 것을 모의로 가정하지 않는다.** 그 가정이 실전 주문을 낸다.")
         return 1
     if config.live:
         # 지문 고정은 **진짜 주문이 나갈 때만** 본다. 드라이런은 어차피 안 나간다.
-        pinned = str(store.config("execution.live_account_fingerprint", as_of=clock.now()) or "")
+        pinned = str(store.config(profile.fingerprint_key, as_of=clock.now()) or "")
+        if not pinned and not profile.allow_unpinned:
+            out(f"{profile.fingerprint_key} 가 비어 있다 — 어느 계좌에 주문할지 "
+                "고정되지 않았다. 진행하지 않는다.")
+            out(f"이 키의 appkey 지문은 {fingerprint} 다. 맞는 계좌가 확실하면 "
+                "설정에 그 값을 적어라.")
+            return 1
         if pinned and pinned != fingerprint:
             out(f"지문 불일치 — 설정에 고정된 계좌는 {pinned} 인데 지금 키는 {fingerprint} 다.")
             out(".env 가 바뀌었거나 다른 계좌를 보고 있다. 진행하지 않는다.")
@@ -376,8 +659,8 @@ def run(
             out("중단.")
             return 1
 
-    if not is_regular_session(Market.KR, clock.now()):
-        out("⚠️  지금은 KR 정규장 시간이 아니다 — 시세·체결이 기대와 다를 수 있다.")
+    if not is_regular_session(profile.market, clock.now()):
+        out(f"⚠️  지금은 {config.market} 정규장 시간이 아니다 — 시세·체결이 기대와 다를 수 있다.")
         if not confirm("정규장 시간이 아니다. 그래도 계속할까?"):
             out("중단.")
             return 1
@@ -396,39 +679,60 @@ def run(
         return 1
     out(f"  토큰 확보 ({'PAPER' if token.access_token == 'PAPER_PLACEHOLDER' else '실전'})")
 
+    is_us = profile.market is Market.US
+
     # -- 2. 잔고 조회 ------------------------------------------------------
-    if not confirm("2단계 — 잔고를 조회한다 (t0424). 계속할까?"):
+    if not confirm(f"2단계 — 잔고를 조회한다 ({profile.balance_tr}). 계속할까?"):
         out("중단.")
         return 1
     try:
-        balance = fetch_balance(client)
+        balance = fetch_balance_us(client) if is_us else fetch_balance(client)
     except (LSAPIError, MissingCredentials) as error:
         out(f"잔고 조회 실패: {error}")
         return 1
     if balance.paper:
-        out("  잔고 조회 생략 — paper 모드(t0424 는 PAPER_ALLOWED_TR 밖이다)")
+        out(f"  잔고 조회 생략 — paper 모드({profile.balance_tr} 는 PAPER_ALLOWED_TR 밖이다)")
+    elif is_us:
+        out(f"  주문가능금액 {profile.amount(balance.net_asset)} (FcurrOrdAbleAmt)")
     else:
-        out(f"  추정순자산 {balance.net_asset:,.0f} · 보유종목 {len(balance.positions)}개")
+        out(f"  추정순자산 {balance.net_asset:,.0f}원 · 보유종목 {len(balance.positions)}개")
 
     # -- 3. 시세 조회 ------------------------------------------------------
-    if not confirm(f"3단계 — {symbol} 현재가를 조회한다 (t1102). 계속할까?"):
+    if not confirm(f"3단계 — {symbol} 현재가를 조회한다 ({profile.quote_tr}). 계속할까?"):
         out("중단.")
         return 1
     try:
-        quote = fetch_quote(client, symbol)
+        quote = fetch_quote_us(client, symbol) if is_us else fetch_quote(client, symbol)
     except (LSAPIError, MissingCredentials) as error:
         out(f"시세 조회 실패: {error}")
         return 1
     if quote is None:
         out("  시세를 못 받았다 (paper 응답이거나 빈 응답) — 중단한다.")
+        if is_us:
+            out(f"  {MARKET_CODES} 둘 다 '해당종목이 없습니다' 였다면 심볼을 다시 확인해라.")
         return 1
-    out(f"  현재가 {quote.price:,.0f} · 매도호가1 {quote.ask:,.0f} · 매수호가1 {quote.bid:,.0f}")
+    if is_us:
+        out(f"  현재가 ${quote.price:,.4f} · 호가단위 ${quote.tick} · "
+            f"주문시장 {quote.market_code}({'나스닥' if quote.market_code == '82' else '뉴욕'})")
+        out("  호가(bid/ask)는 미장 REST 시세에 없다 — 기준가는 현재가로 물러선다.")
+        if quote.halt:
+            out(f"  ⚠️  {quote.halt} — 주문이 거부될 수 있다.")
+            if not confirm("거래 제한이 걸려 있다. 그래도 계속할까?"):
+                out("중단.")
+                return 1
+        if quote.tick <= 0:
+            out("  호가단위(untprc)를 못 읽었다 — 반올림 기준이 없으므로 중단한다.")
+            return 1
+    else:
+        out(f"  현재가 {quote.price:,.0f} · 매도호가1 {quote.ask:,.0f} · "
+            f"매수호가1 {quote.bid:,.0f}")
 
     # -- 4. 주문 직전 요약 · 확인 · 매수 ------------------------------------
     buy_price = reference_price(quote, Side.BUY)
     buy_summary = build_order_summary(
         symbol=symbol, side=Side.BUY, quantity=quantity,
         raw_reference_price=buy_price, max_order_value=config.max_order_value,
+        tick=quote.tick if is_us else None, currency=profile.currency,
     )
     out("4단계 — 매수 주문 요약")
     out(buy_summary.render())
@@ -442,21 +746,34 @@ def run(
     # 반대매매가 나간다. 그건 우리가 고른 포지션이 아니라 증권사가 정한
     # 시점·가격에 강제로 팔리는 것이다 — 잔고를 읽어 놓고 검사하지 않으면
     # 그 숫자는 화면 장식일 뿐이다.
+    # 미장은 통화가 다르다 — ``FcurrOrdAbleAmt`` 도 주문금액도 USD 라 그대로
+    # 비교된다. **원화 값과 섞으면 안 된다**(같은 응답의 WonDpsBalAmt 는 5원이다).
     if not balance.paper:
         need = buy_summary.amount
         if need > balance.net_asset:
             out(
-                f"  예수금 부족 — 필요 {need:,.0f} > 예수금 {balance.net_asset:,.0f}. "
-                "미수가 되므로 중단한다."
+                f"  예수금 부족 — 필요 {profile.amount(need)} > "
+                f"주문가능 {profile.amount(balance.net_asset)}. 미수가 되므로 중단한다."
             )
             return 1
-        out(f"  예수금 확인 {balance.net_asset:,.0f} ≥ 주문금액 {need:,.0f} — 현금 범위 안")
+        out(f"  예수금 확인 {profile.amount(balance.net_asset)} ≥ "
+            f"주문금액 {profile.amount(need)} — 현금 범위 안")
 
     if dry_run:
-        body = _order_body(
-            symbol=symbol, side=Side.BUY, quantity=quantity, limit_price=buy_summary.price
-        )
+        if is_us:
+            body = us_order_body(
+                symbol=symbol, side=Side.BUY, quantity=quantity,
+                limit_price=buy_summary.price, market_code=quote.market_code,
+            )
+        else:
+            body = _order_body(
+                symbol=symbol, side=Side.BUY, quantity=quantity, limit_price=buy_summary.price
+            )
         out(f"  드라이런 — 전송하지 않는다. 보낼 본문: {body}")
+        if is_us:
+            out(f"  참고 — 취소 본문: {us_cancel_body(order_no='0', quantity=quantity, market_code=quote.market_code)}")
+            out(f"  참고 — 정정 본문: {us_modify_body(order_no='0', price=buy_summary.price, market_code=quote.market_code)}")
+            out("  (원주문번호 0 은 자리표시다. 취소·정정 본문은 아직 한 번도 보낸 적이 없다.)")
         out(
             "드라이런이라 이후 단계(체결조회·정정·취소·매도)도 실물 없이는 "
             "진행할 수 없다. 여기서 끝낸다."
@@ -470,7 +787,11 @@ def run(
     planned = make_planned_order(
         symbol=symbol, side=Side.BUY, quantity=quantity, price=buy_summary.price, clock=clock
     )
-    broker = LSBroker(client=client, store=store)
+    broker: LSBroker | LSUSBroker = (
+        LSUSBroker(client=client, store=store, market_code=quote.market_code)
+        if is_us
+        else LSBroker(client=client, store=store)
+    )
     try:
         buy_ack = broker.submit(planned, as_of=clock.now())
     except RejectedOrder as error:
@@ -489,16 +810,34 @@ def run(
         return 1
 
     # -- 5. 체결 조회 · (필요하면) 부분취소 테스트 --------------------------
-    if not confirm("5단계 — 체결을 확인한다 (t0425). 계속할까?"):
+    fills_tr = "COSAQ00102" if is_us else "t0425"
+    if not confirm(f"5단계 — 체결을 확인한다 ({fills_tr}). 계속할까?"):
         out("중단.")
         return 0
 
     filled = _poll_fill(
         store=store, client=client, clock=clock, order_id=planned.order_id,
         symbol=symbol, side=Side.BUY, broker_order_no=buy_ack.broker_order_no,
-        requested_quantity=quantity, out=out,
+        requested_quantity=quantity, market=config.market, out=out,
     )
     remaining = quantity - filled
+
+    if not profile.supports_lifecycle:
+        # 여기서 멈추는 것을 **크게** 알린다. 조용히 0 으로 끝나면
+        # "안 샀다" 로 오해하고 다시 주문하게 된다.
+        out("")
+        out("=" * 68)
+        out(f"⚠️  {config.market} 는 여기까지다 — 부분취소·정정·매도 정리를 자동으로 잇지 않는다.")
+        out("    미장 취소·정정 본문은 아직 한 번도 보낸 적이 없어(문서 등급 '샘플코드'),")
+        out("    이 도구가 사람 확인 없이 내보내면 안 된다.")
+        out(f"    지금 상태: 주문번호 {buy_ack.broker_order_no} · 누적체결 {filled}/{quantity}주")
+        if remaining > 0:
+            out(f"    미체결 {remaining}주가 남아 있다 — LS 화면에서 직접 취소해라.")
+        if filled > 0:
+            out(f"    체결 {filled}주가 계좌에 남아 있다 — LS 화면에서 직접 매도해라.")
+        out("    관찰한 것을 docs/design/ls-api.md §0-5 에 적어 등급을 올려라.")
+        out("=" * 68)
+        return 0
 
     if remaining > 0 and confirm(
         f"미체결 잔량이 {remaining}주 남았다. 부분취소 테스트를 해볼까?"
@@ -588,6 +927,7 @@ def run(
         raw_reference_price=reference_price(sell_quote, Side.SELL),
         # 매도는 이미 산 것을 되파는 것 — 상한을 막을 이유가 없다.
         max_order_value=config.max_order_value * 2,
+        tick=sell_quote.tick if is_us else None, currency=profile.currency,
     )
     out(sell_summary.render())
     if not confirm("위 내용으로 매도 주문을 실제로 낸다. 계속할까?"):
@@ -608,7 +948,7 @@ def run(
         _poll_fill(
             store=store, client=client, clock=clock, order_id=sell_planned.order_id,
             symbol=symbol, side=Side.SELL, broker_order_no=sell_ack.broker_order_no,
-            requested_quantity=filled, out=out,
+            requested_quantity=filled, market=config.market, out=out,
         )
 
     out("8단계 — 결과. 위 로그와 LS 화면(잔고·체결내역)을 대조해 배선이 맞는지 확인한다.")
@@ -626,15 +966,17 @@ def _poll_fill(
     broker_order_no: str,
     requested_quantity: int,
     out: Callable[[str], None],
+    market: str = "KR",
     attempts: int = 5,
 ) -> int:
-    """t0425 를 몇 번 조회해 누적 체결수량을 본다. 새 체결은 ``trades`` 에
-    적힌다(``broker/fills.py``) — 여기서 지어내지 않는다."""
+    """체결조회 TR 을 몇 번 불러 누적 체결수량을 본다. 어느 TR 인지는
+    ``market`` 이 정한다(``broker/fills.py``). 새 체결은 ``trades`` 에
+    적힌다 — 여기서 지어내지 않는다."""
     filled = 0
     for attempt in range(1, attempts + 1):
         pending = [
             PendingFill(
-                order_id=order_id, entity_id=symbol, side=side, market="KR",
+                order_id=order_id, entity_id=symbol, side=side, market=market,
                 broker_order_no=broker_order_no, requested_quantity=requested_quantity,
             )
         ]
@@ -662,11 +1004,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--symbol", required=True, help="6자리 종목코드 (예: 005930)")
+    parser.add_argument(
+        "--market", choices=sorted(PROFILES), default="KR",
+        help="검증할 시장 (기본 KR). US 는 LS_US_* 자격증명을 쓴다.",
+    )
+    parser.add_argument("--symbol", required=True, help="국장 6자리 코드(005930) 또는 미장 심볼(WEN)")
     parser.add_argument("--quantity", type=int, default=1, help="검증 수량 (기본 1주)")
     parser.add_argument(
-        "--max-order-value", type=float, default=DEFAULT_MAX_ORDER_VALUE,
-        help=f"주문 금액 상한, 원 (기본 {DEFAULT_MAX_ORDER_VALUE:,.0f})",
+        "--max-order-value", type=float, default=None,
+        help=(
+            "주문 금액 상한. **시장의 통화 단위다** — 기본값은 "
+            f"KR {DEFAULT_MAX_ORDER_VALUE:,.0f}원 · US ${DEFAULT_MAX_ORDER_VALUE_US:,.2f}. "
+            "원화 기본값을 달러로 읽으면 상한이 사실상 없는 것과 같다."
+        ),
     )
     parser.add_argument(
         "--live", action="store_true",
@@ -680,17 +1030,27 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     load_env()
+    profile = PROFILES[args.market]
     store = build_store(args.data_root)
-    credentials = LSCredentials.from_env(prefix="LS_")
-    client = LSClient(credentials=credentials, live_trading=args.live)
+    credentials = LSCredentials.from_env(prefix=profile.env_prefix)
+    client = LSClient(
+        credentials=credentials,
+        live_trading=args.live,
+        min_interval_sec=profile.min_interval_sec,
+    )
     clock = LiveClock()
 
     config = RunConfig(
         symbol=args.symbol,
         quantity=args.quantity,
-        max_order_value=args.max_order_value,
+        max_order_value=(
+            args.max_order_value
+            if args.max_order_value is not None
+            else profile.default_max_order_value
+        ),
         live=args.live,
         dry_run=args.dry_run,
+        market=args.market,
     )
     try:
         return run(config, store=store, client=client, clock=clock)

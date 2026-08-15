@@ -95,6 +95,12 @@ execution:
   # 바뀌면 지문이 달라져 주문 도구가 거부한다 — "모의인 줄 알았다" 를 막는
   # 유일한 방법이다. 값은 sha256(appkey)[:12] 이라 키를 되돌릴 수 없다.
   live_account_fingerprint: ""   # 배포마다 다르다 — 창고(store.config)에 넣는다
+  # 미장은 **별도 appkey** 라 지문이 다르다(LS_US_APPKEY). 한 칸으로 두 시장을
+  # 고정할 수 없어 키를 나눴다 — 스칼라 하나에 얹으면 둘 중 하나는 반드시
+  # 고정이 풀린다. 국장과 달리 **빈 값이면 미장 주문 도구가 거부한다**:
+  # 새로 만드는 경로라 처음부터 조인다(tools/verify_live_order.py).
+  # 값은 sha256(LS_US_APPKEY)[:12] — 2026-08-15 실측으로 확인했다.
+  live_account_fingerprint_us: "20cf550a301f"
   max_adv_ratio: 0.03        # 일 거래대금 대비 매수 상한
   max_liquidation_days: 3
   defer_minutes: 30          # 개장 후 신규매수 보류

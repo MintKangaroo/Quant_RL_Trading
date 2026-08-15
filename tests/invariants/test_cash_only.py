@@ -17,10 +17,19 @@
 from __future__ import annotations
 
 from quant_rl_trading.broker.ls_order import MGNTRN_NONE, _order_body
+from quant_rl_trading.broker.ls_order_us import ORDER_BODY_KEYS, us_order_body
 from quant_rl_trading.schemas.order import Side
 
 #: 보통매매(신용 아님). 이 값이 바뀌면 빌린 돈으로 사게 된다.
 CASH_ONLY = "000"
+
+#: 미장에서 신용을 뜻할 수 있는 필드 이름. **하나도 없어야 한다.**
+#: 국장 이름(`MgntrnCode`/`LoanDt`)과 그 미장 변형을 같이 본다 — 나중에
+#: 누가 "국장에 있으니 미장에도 넣자" 로 옮겨 붙이는 것을 막는다.
+CREDIT_FIELDS = (
+    "MgntrnCode", "LoanDt", "OrdCndiTpCode",
+    "MgntrnTpCode", "LoanDtlClssCode", "CrdtTpCode", "MgnRatCode",
+)
 
 
 def _bodies():  # type: ignore[no-untyped-def]
@@ -47,6 +56,52 @@ def test_대출일자를_비워_둔다() -> None:
 def test_상수_자체가_보통매매다() -> None:
     """호출부를 다 고쳐도 상수를 바꾸면 뚫린다 — 상수도 못 박는다."""
     assert MGNTRN_NONE == CASH_ONLY
+
+
+# -----------------------------------------------------------------------------
+# 미장 — **없는 것을 없다고 못 박는다**
+#
+# `COSAT00301InBlock1` 에는 국장의 `MgntrnCode`/`LoanDt` 에 해당하는 필드가
+# 아예 없다(LS 포털 공식 예제 8필드). 그래서 미장에서 신용을 막는 방법은
+# "값을 000 으로 둔다" 가 아니라 **"그 필드를 만들지 않는다"** 다.
+#
+# 값이 아니라 부재가 규약이면 테스트도 부재를 봐야 한다 — 필드가 하나 늘어나는
+# 순간 규약이 소리 없이 깨지므로 키 집합을 통째로 고정한다.
+# -----------------------------------------------------------------------------
+
+
+def _us_bodies():  # type: ignore[no-untyped-def]
+    """지정가·시장가 × 매수·매도 × 뉴욕·나스닥."""
+    for side in (Side.BUY, Side.SELL):
+        for limit in (8.65, None):  # None = 시장가
+            for market_code in ("82", "81"):
+                yield side, limit, market_code, us_order_body(
+                    symbol="WEN", side=side, quantity=1,
+                    limit_price=limit, market_code=market_code,
+                )
+
+
+def test_미장_주문에는_신용_필드가_아예_없다() -> None:
+    for side, limit, market_code, body in _us_bodies():
+        block = body["COSAT00301InBlock1"]
+        for name in CREDIT_FIELDS:
+            assert name not in block, (
+                f"{side} limit={limit} mkt={market_code} 에 신용 필드 {name} 가 생겼다 — "
+                "미장 규약은 '값이 000' 이 아니라 '필드가 없다' 이다"
+            )
+
+
+def test_미장_주문본문의_키집합을_통째로_고정한다() -> None:
+    """필드가 늘어나면(줄어도) 여기서 걸린다. 늘어난 필드가 신용인지 아닌지
+    사람이 판단해야 하므로, 조용히 통과시키지 않는다."""
+    for _side, _limit, _market_code, body in _us_bodies():
+        assert set(body["COSAT00301InBlock1"]) == ORDER_BODY_KEYS
+
+
+def test_미장_상수_자체에_신용이_없다() -> None:
+    """호출부를 다 고쳐도 상수 집합을 바꾸면 뚫린다."""
+    for name in CREDIT_FIELDS:
+        assert name not in ORDER_BODY_KEYS
 
 
 def test_프로덕션_경로는_언제나_주문가능금액을_넘긴다() -> None:

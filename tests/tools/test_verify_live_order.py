@@ -17,6 +17,13 @@ from typing import ClassVar
 
 import httpx
 
+from quant_rl_trading.broker import RejectedOrder
+from quant_rl_trading.broker.ls_order_us import (
+    FractionalQuantity,
+    us_cancel_body,
+    us_modify_body,
+    us_order_body,
+)
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.schemas.order import Side
@@ -24,7 +31,10 @@ from tools.verify_live_order import (
     Quote,
     RunConfig,
     build_order_summary,
+    fetch_balance_us,
+    fetch_quote_us,
     reference_price,
+    round_to_tick_us,
     run,
 )
 
@@ -295,3 +305,345 @@ def test_양쪽_게이트가_열리면_매수_체결_매도까지_끝까지_돈�
     assert code == 0
     # 매수 1회 + 매도 1회.
     assert len(order_calls) == 2
+
+
+# =============================================================================
+# 미장 (--market US)
+#
+# 국장과 **자격증명·TR·통화·호가단위가 전부 다르다.** 여기서 고정하는 것은
+# "미장이 된다" 가 아니라 **"국장 것이 섞여 나가지 않는다"** 다 — 필드 하나만
+# 국장 것이 남아도 반대로 사거나 거부된다.
+# =============================================================================
+
+US_CREDS = LSCredentials(
+    appkey="uskey", appsecret="ussecret", base_url="https://api.test", kind="real"
+)
+#: 미국 동부 10:00 (정규장). 2026-08-17 은 월요일 — 국장은 광복절 대체공휴일로
+#: 쉬고 미장은 연다. 시장별 달력이 정말 갈리는지도 이 상수가 같이 본다.
+US_REGULAR_SESSION = datetime(2026, 8, 17, 14, 0, tzinfo=UTC)
+
+#: LS 가 g3104 로 돌려주는 종목별 호가단위. **표를 만들지 않는다.**
+US_TICK = "0.0100"
+
+
+def us_quote_response(
+    *, close: float = 8.65, tick: str = US_TICK, suspend: str = "N", sellonly: str = "0"
+) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "rsp_cd": "00000",
+            "g3104OutBlock": {
+                "clos": f"{close}", "untprc": tick, "currency": "USD",
+                "suspend": suspend, "sellonly": sellonly,
+                # 호가 "가격" 이 아니라 호가 **수량 단위**다 — 이게 bid/ask 로
+                # 새어 들어가면 $1 짜리 지정가가 나간다.
+                "bidlotsize": "1", "asklotsize": "1",
+            },
+        },
+    )
+
+
+def us_deposit_response(order_able: float = 9.49) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "rsp_cd": "00000",
+            "COSOQ02701OutBlock3": [
+                {"CrcyCode": "USD", "FcurrDps": f"{order_able}",
+                 "FcurrOrdAbleAmt": f"{order_able}", "BaseXchrat": "1414.9000"},
+            ],
+            # **원화 5원.** 이걸 주문가능금액으로 읽으면 안 된다.
+            "COSOQ02701OutBlock4": {"WonDpsBalAmt": 5},
+        },
+    )
+
+
+def make_us_client(handler, *, live_trading: bool) -> LSClient:  # type: ignore[no-untyped-def]
+    def routed(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return token_response()
+        return handler(request)
+
+    return LSClient(
+        credentials=US_CREDS,
+        clock=ReplayClock(US_REGULAR_SESSION),
+        transport=httpx.MockTransport(routed),
+        live_trading=live_trading,
+        sleep=lambda _: None,
+    )
+
+
+class FakeUSStore(FakeStore):
+    """미장 지문 키를 아는 창고. 국장 키와 **다른 값**을 든다."""
+
+    def __init__(self, *, live_trading: bool, us_fingerprint: str = "usfp") -> None:
+        super().__init__(live_trading=live_trading)
+        self.us_fingerprint = us_fingerprint
+
+    def config(self, name: str, *, as_of: datetime):  # type: ignore[no-untyped-def]
+        if name == "execution.live_account_fingerprint_us":
+            return self.us_fingerprint
+        return super().config(name, as_of=as_of)
+
+
+def us_config(**overrides) -> RunConfig:  # type: ignore[no-untyped-def]
+    base = dict(
+        symbol="WEN", quantity=1, max_order_value=20.0,
+        live=False, dry_run=False, market="US",
+    )
+    base.update(overrides)
+    return RunConfig(**base)  # type: ignore[arg-type]
+
+
+def run_us(cfg: RunConfig, *, handler, live_trading: bool, store=None, lines=None):  # type: ignore[no-untyped-def]
+    client = make_us_client(handler, live_trading=live_trading)
+    store = store if store is not None else FakeUSStore(live_trading=live_trading)
+    sink = lines if lines is not None else []
+    code = run(
+        cfg, store=store, client=client, clock=ReplayClock(US_REGULAR_SESSION),
+        confirm=all_yes, prompt=blank, out=sink.append,
+    )
+    return code, sink
+
+
+# -- 주문 본문 ------------------------------------------------------------------
+
+
+def test_미장_주문본문에_국장필드가_없다():
+    body = us_order_body(
+        symbol="US:WEN", side=Side.BUY, quantity=1, limit_price=8.65, market_code="82"
+    )
+    block = body["COSAT00301InBlock1"]
+    assert block["OrdPtnCode"] == "02"          # 매수 — BnsTpCode 가 아니다
+    assert block["OrdMktCode"] == "82"
+    assert block["IsuNo"] == "WEN"              # "A" 접두어도 "US:" 접두어도 없다
+    assert block["OvrsOrdPrc"] == 8.65          # 정수 원(OrdPrc)이 아니다
+    assert block["OrdprcPtnCode"] == "00"       # 지정가
+    # 국장 필드가 하나라도 섞이면 거부되거나 엉뚱한 필드가 먹는다.
+    for kr_only in ("BnsTpCode", "OrdPrc", "MgntrnCode", "LoanDt", "OrdCndiTpCode"):
+        assert kr_only not in block, f"국장 필드 {kr_only} 가 미장 본문에 들어갔다"
+
+
+def test_미장_매도는_01이다():
+    body = us_order_body(
+        symbol="WEN", side=Side.SELL, quantity=2, limit_price=8.7, market_code="81"
+    )
+    assert body["COSAT00301InBlock1"]["OrdPtnCode"] == "01"
+
+
+def test_미장_취소는_별도TR이_아니라_같은TR의_08이다():
+    body = us_cancel_body(order_no="700001", quantity=1, market_code="82")
+    block = body["COSAT00301InBlock1"]
+    assert block["OrdPtnCode"] == "08"
+    assert block["OrgOrdNo"] == 700001
+
+
+def test_미장_정정은_COSAT00311의_07이다():
+    body = us_modify_body(order_no="700001", price=8.7, market_code="82")
+    assert "COSAT00311InBlock1" in body
+    assert body["COSAT00311InBlock1"]["OrdPtnCode"] == "07"
+
+
+def test_주문시장코드를_짐작하면_거부된다():
+    """81/82 가 아닌 값은 본문을 만들지 못한다 — 틀린 코드로는 주문이
+    'IsuNo 없음' 이 아니라 **엉뚱한 시장**으로 나갈 수 있다."""
+    import pytest
+
+    with pytest.raises(RejectedOrder):
+        us_order_body(
+            symbol="WEN", side=Side.BUY, quantity=1, limit_price=8.65, market_code="99"
+        )
+
+
+# -- 소수점 수량 ----------------------------------------------------------------
+
+
+def test_소수점_수량은_본문에서_거부된다():
+    import pytest
+
+    with pytest.raises(FractionalQuantity):
+        us_order_body(
+            symbol="WEN", side=Side.BUY, quantity=0.5, limit_price=8.65, market_code="82"
+        )
+
+
+def test_소수점_수량은_주문요약에서_먼저_걸린다():
+    """본문까지 가기 전에 사람이 읽을 수 있는 이유로 멈춰야 한다."""
+    summary = build_order_summary(
+        symbol="WEN", side=Side.BUY, quantity=1.5, raw_reference_price=8.65,
+        max_order_value=20.0, tick=0.01, currency="USD",
+    )
+    assert summary.ok is False
+    assert "정수주" in summary.reason
+
+
+# -- 호가단위 -------------------------------------------------------------------
+
+
+def test_미장_호가단위는_LS가_준_값을_쓴다():
+    """``executor/ticks.py`` 의 원화 표를 타면 $8.653 이 8원/10원 단위로
+    반올림된다. 매수는 내림, 매도는 올림 — 방향 규칙은 국장과 같다."""
+    assert round_to_tick_us(8.653, side=Side.BUY, tick=0.01) == 8.65
+    assert round_to_tick_us(8.653, side=Side.SELL, tick=0.01) == 8.66
+    # $1 미만 종목(워런트)은 tick 이 0.0001 이다 — int 표로는 표현이 안 된다.
+    assert round_to_tick_us(0.00731, side=Side.BUY, tick=0.0001) == 0.0073
+
+
+def test_호가단위_배수인_가격은_그대로_남는다():
+    """부동소수점 오차로 한 칸 밀리면 거래소가 거부한다."""
+    assert round_to_tick_us(8.65, side=Side.BUY, tick=0.01) == 8.65
+    assert round_to_tick_us(305.26, side=Side.SELL, tick=0.01) == 305.26
+
+
+# -- 잔고 · 통화 ----------------------------------------------------------------
+
+
+def test_USD_주문가능금액을_읽는다_원화5원이_아니다():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("tr_cd") == "COSOQ02701"
+        assert request.url.path == "/overseas-stock/accno"
+        return us_deposit_response()
+
+    client = make_us_client(handler, live_trading=True)
+    balance = fetch_balance_us(client)
+    assert balance.net_asset == 9.49  # WonDpsBalAmt(5) 를 읽으면 안 된다
+
+
+def test_USD_예수금보다_큰_주문은_거부된다():
+    """상한(20.0)은 통과하지만 주문가능금액(9.49)을 넘는 주문."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        tr = request.headers.get("tr_cd")
+        if tr == "COSOQ02701":
+            return us_deposit_response(order_able=9.49)
+        if tr == "g3104":
+            return us_quote_response(close=15.00)  # 1주 $15 > $9.49
+        raise AssertionError(f"예수금 검사에서 멈춰야 하는데 {tr} 까지 갔다")
+
+    code, lines = run_us(
+        us_config(live=True, dry_run=True, max_order_value=20.0),
+        handler=handler, live_trading=True,
+        store=FakeUSStore(live_trading=True, us_fingerprint=US_CREDS.fingerprint),
+    )
+    assert code == 1
+    assert any("예수금 부족" in line for line in lines)
+
+
+# -- 게이트 ---------------------------------------------------------------------
+
+
+def test_미장_지문이_다르면_live가_거부된다():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("지문 게이트가 막아야 하는데 네트워크까지 갔다")
+
+    code, lines = run_us(
+        us_config(live=True),
+        handler=handler, live_trading=True,
+        store=FakeUSStore(live_trading=True, us_fingerprint="다른지문"),
+    )
+    assert code == 1
+    assert any("지문 불일치" in line for line in lines)
+
+
+def test_미장_지문이_비어있으면_live가_거부된다():
+    """국장은 빈 값이 '고정 안 함' 이지만 미장은 **미선언도 거부**다."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("미선언인데 네트워크까지 갔다")
+
+    code, lines = run_us(
+        us_config(live=True),
+        handler=handler, live_trading=True,
+        store=FakeUSStore(live_trading=True, us_fingerprint=""),
+    )
+    assert code == 1
+    assert any("고정되지 않았다" in line for line in lines)
+
+
+def test_미장_드라이런은_국장TR을_하나도_안_부른다():
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        tr = request.headers.get("tr_cd") or ""
+        seen.append(tr)
+        if tr == "COSOQ02701":
+            return us_deposit_response()
+        if tr == "g3104":
+            return us_quote_response()
+        raise AssertionError(f"예상하지 못한 TR: {tr}")
+
+    code, lines = run_us(
+        us_config(live=True, dry_run=True),
+        handler=handler, live_trading=True,
+        store=FakeUSStore(live_trading=True, us_fingerprint=US_CREDS.fingerprint),
+    )
+    assert code == 0
+    # 국장 TR 이 하나도 안 나갔다.
+    for kr_tr in ("t0424", "t1102", "t0425", "CSPAT00601", "CSPAT00701", "CSPAT00801"):
+        assert kr_tr not in seen, f"미장 검증인데 국장 TR {kr_tr} 이 나갔다"
+    assert seen == ["COSOQ02701", "g3104"]
+    # 주문 본문은 출력됐지만 전송은 없다.
+    assert any("COSAT00301InBlock1" in line for line in lines)
+
+
+def test_미장도_dry_run이면_주문TR이_안_나간다():
+    def handler(request: httpx.Request) -> httpx.Response:
+        tr = request.headers.get("tr_cd")
+        if tr == "COSOQ02701":
+            return us_deposit_response()
+        if tr == "g3104":
+            return us_quote_response()
+        raise AssertionError(f"드라이런인데 {tr} 이 나갔다")
+
+    code, _ = run_us(
+        us_config(live=True, dry_run=True),
+        handler=handler, live_trading=True,
+        store=FakeUSStore(live_trading=True, us_fingerprint=US_CREDS.fingerprint),
+    )
+    assert code == 0
+
+
+def test_주문시장코드는_시세가_나온_쪽을_쓴다():
+    """82(나스닥)가 비면 81(뉴욕)로 넘어가고, **성공한 코드가 주문에 들어간다.**"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("tr_cd") == "g3104"
+        block = json_body(request)["g3104InBlock"]
+        if block["exchcd"] == "82":
+            return httpx.Response(
+                200, json={"rsp_cd": "00000", "rsp_msg": "[g3104] 해당종목이 없습니다."}
+            )
+        return us_quote_response()
+
+    client = make_us_client(handler, live_trading=False)
+    quote = fetch_quote_us(client, "SNAP")
+    assert quote is not None
+    assert quote.market_code == "81"
+
+
+def test_미장_시세는_호가를_주지_않는다():
+    """``bidlotsize``/``asklotsize`` 는 호가 **수량 단위**다. 이게 bid/ask 로
+    새어 들어가면 $1 짜리 지정가가 나간다."""
+    def handler(_: httpx.Request) -> httpx.Response:
+        return us_quote_response(close=8.65)
+
+    client = make_us_client(handler, live_trading=False)
+    quote = fetch_quote_us(client, "WEN")
+    assert quote is not None
+    assert quote.bid == 0.0 and quote.ask == 0.0
+    # 그래서 기준가는 현재가로 물러선다.
+    assert reference_price(quote, Side.BUY) == 8.65
+
+
+def test_거래정지_종목은_확인을_받는다():
+    def handler(_: httpx.Request) -> httpx.Response:
+        return us_quote_response(suspend="Y")
+
+    client = make_us_client(handler, live_trading=False)
+    quote = fetch_quote_us(client, "WEN")
+    assert quote is not None
+    assert "거래정지" in quote.halt
+
+
+def json_body(request: httpx.Request) -> dict:
+    import json
+
+    return json.loads(request.content.decode("utf-8"))
