@@ -19,11 +19,61 @@
 - 외부 이미지·웹폰트는 차단된다. 색·굵기·여백으로만 만든다
 - Gmail 은 본문이 크면 잘라낸다(clipping)
 
-## 다크 모드 — 색은 언제나 짝으로
+## 다크 배경 — prefers-color-scheme 을 믿지 않는다
 
-배경만 정하고 글자색을 안 정하면(또는 그 반대면) 다크 모드에서 검은 바탕에
-검은 글씨가 된다. **글자색을 주는 곳에는 배경색도 함께 준다.** ``_cell``·
-``_band`` 가 그 짝을 강제한다.
+사용자가 아이폰 Mail 을 다크 모드로 읽는다. **``prefers-color-scheme`` 만
+믿으면 안 된다** — 클라이언트가 무시하거나, iOS Mail 이 라이트로 짠 메일의
+색을 제멋대로 반전시켜 예측 못 할 조합을 만든다(실측 사고 사례). 그래서
+미디어쿼리에 기대지 않고 **배경·글자를 처음부터 인라인 다크 값으로 못 박는다.**
+배경만 정하고 글자색을 안 정하면(또는 그 반대면) 검은 바탕에 검은 글씨가
+된다 — **글자색을 주는 곳에는 배경색도 함께 준다.** ``_cell``·``_band`` 가
+그 짝을 강제한다.
+
+## 이 메일은 아이폰 기본 메일 기준으로 설계한다
+
+배경이 흰색으로 보인다는 신고가 있었다 — 처음엔 "배경 선언이 어딘가
+빠졌다" 로 의심하고 모든 ``<table>``/``<td>`` 에 ``bgcolor`` 속성을
+덧대는 시도를 했지만 **틀린 진단이었다.** 실측(2026-08-15, 실기기 스크린샷
+비교)으로 밝혀진 사실:
+
+- **아이폰 기본 메일 앱** — 이 파일이 만드는 그대로 나온다(``#0e0f11``
+  배경·``#1c1e21`` 카드·밝은 글자·앰버 결측 배지·빨강 상승색). **의도대로다**
+- **Gmail 앱** — 명도만 뒤집히고 색상(hue)은 보존된다(``#0e0f11`` 배경이
+  밝은 회색으로, 밝은 글자가 검정으로. 상승색 빨강은 빨강 그대로). 이건
+  배경 선언이 벗겨진 게 아니라 **Gmail 이 "라이트로 디자인됐다" 고 가정하고
+  자기 다크모드 변환을 적용한 것**이다 — 이미 어둡게 만들어 놓은 색을
+  다시 뒤집으니 밝아진다
+
+**Gmail 의 이 변환은 인라인 스타일로 못 막는다.** ``bgcolor`` 속성을 아무리
+두껍게 깔아도 소용없다 — 벗겨내는 게 아니라 값을 계산해서 바꾸는 것이라,
+더 확실히 선언할수록 더 확실하게 뒤집힌다. 그래서 ``bgcolor`` 하드닝과
+``color-scheme`` 메타 조정은 시도했다가 **되돌렸다** — Gmail 을 이기려는
+시도는 이 메일의 문제가 아닌 것을 고치려는 시도였다.
+
+``<html>`` 배경(아래 ``render_html`` 의 ``<html style="background-color:
+{CANVAS}">``)은 **되돌리지 않고 남겼다** — 이건 성격이 다른 방어다. Gmail
+의 명도 반전과는 무관하고, 일부 클라이언트가 ``<body>`` 태그 자체를 벗기는
+것(색을 바꾸는 게 아니라 태그를 들어내는 것)에 대한 방어선이다. 이미 덮인
+자리 뒤에 같은 색을 한 겹 더 까는 것뿐이라 **아이폰 메일 렌더가 한 픽셀도
+안 바뀐다** — 그래서 되돌릴 이유가 없다. ``tools/check_email_dark.py`` 의
+body-제거 시뮬레이션이 정확히 이 방어선을 검증한다.
+
+**사용자가 Gmail 대신 아이폰 기본 메일로 읽기로 했다.** 그래서 이 파일은
+아이폰 기본 메일 기준으로 설계하고 검증한다. Gmail 에서 다시 이상하다는
+얘기가 나오면 "왜 이상하지" 부터 반나절 쓰지 말고 이 절부터 읽을 것 —
+원인은 이미 안다.
+
+## 손익 색 — 어두운 바탕에서 특히 조심
+
+**어두운 바탕에서 빨강이 탁해진다.** 라이트용 빨강(``#c0271c``)을 그대로
+쓰면 카드 배경(``#1c1e21``)과 명도차가 부족해 상승·하락이 눈에 잘 안
+갈린다. 그래서 ``UP``·``DOWN`` 은 다크 배경 전용으로 밝힌 값을 쓴다 —
+라이트용 팔레트에서 그대로 가져오지 않는다.
+
+## 구분선 — 다크 배경에서는 더 잘 묻는다
+
+라이트 배경의 옅은 회색 선(``#dcdfe3``)을 다크에 그대로 쓰면 카드 배경과
+거의 안 갈린다. ``RULE`` 은 다크 카드 배경 위에서도 보이도록 명도를 올린 값이다.
 
 ## 색을 칠하지 않는 자리
 
@@ -42,27 +92,32 @@ from zoneinfo import ZoneInfo
 from quant_rl_trading.reporting.briefing import (
     Briefing,
     IndexRow,
+    MacroRow,
     MacroSection,
     MarketBrief,
+    NewsRow,
     NewsSection,
     Ranking,
 )
+from quant_rl_trading.reporting.sessions import MISSING, UNPUBLISHED, Gap
 
 KST = ZoneInfo("Asia/Seoul")
 
 MARKET_LABEL = {"KR": "국장", "US": "미장"}
 
 #: 색은 **배경과 짝으로만** 쓴다 (모듈 독스트링 다크 모드 참고).
-UP = "#c0271c"        # 국내 관행 — 상승이 빨강
-DOWN = "#12509b"      # 하락이 파랑
-INK = "#1a1a1a"       # 본문 글자
-SOFT = "#5f6368"      # 보조 글자
-FOOTNOTE = "#6b7075"  # 각주
-PAPER = "#ffffff"     # 카드 바탕
-CANVAS = "#eceff1"    # 바깥 바탕
-RULE = "#dcdfe3"
-WARN_INK = "#8a4b00"
-WARN_BG = "#fff3e0"
+#: 아래는 전부 다크 카드 배경(``PAPER``) 위에서 실측으로 고른 값이다 —
+#: 라이트 팔레트를 어둡게 "보정" 한 것이 아니라 다크 전용으로 다시 골랐다.
+UP = "#ff6659"         # 국내 관행 — 상승이 빨강. 탁해지지 않게 밝은 코랄레드
+DOWN = "#5b9dff"       # 하락이 파랑. 밝은 하늘색 — UP 과 명도가 비슷하게
+INK = "#e8eaed"        # 본문 글자
+SOFT = "#9aa0a6"       # 보조 글자
+FOOTNOTE = "#8a8f96"   # 각주
+PAPER = "#1c1e21"      # 카드 바탕
+CANVAS = "#0e0f11"     # 바깥 바탕 — 카드보다 한 단 더 어둡게, 카드 경계가 보이게
+RULE = "#4a4e54"       # 구분선 — 카드 배경과 명도차를 충분히 둔다
+WARN_INK = "#ffca7a"
+WARN_BG = "#3d2e10"
 
 #: 본문 최소 크기. 아이폰 Mail 은 이보다 작은 글씨를 만나면 자동 확대하면서
 #: 레이아웃을 다시 짠다 — 표가 그때 무너진다.
@@ -139,7 +194,7 @@ def _cell(
     align: str = "left",
     size: int = BODY,
     weight: int = 400,
-    pad: str = "9px 4px",
+    pad: str = "7px 4px",
     wrap: bool = True,
     extra: str = "",
 ) -> str:
@@ -164,12 +219,12 @@ def _band(text: str, *, ink: str, bg: str, size: int = SMALL) -> str:
     """색 배경 위의 한 줄. 배경과 글자를 짝으로 준다."""
     return (
         f'<div style="background-color:{bg};color:{ink};font-size:{size}px;'
-        f'line-height:1.5;padding:9px 11px;border-radius:7px;margin:10px 0">{text}</div>'
+        f'line-height:1.4;padding:7px 10px;border-radius:7px;margin:8px 0">{text}</div>'
     )
 
 
 def _rule() -> str:
-    return f'<div style="border-top:1px solid {RULE};margin:16px 0 0"></div>'
+    return f'<div style="border-top:1px solid {RULE};margin:12px 0 0"></div>'
 
 
 def _section(text: str, *, sub: str = "") -> str:
@@ -180,7 +235,7 @@ def _section(text: str, *, sub: str = "") -> str:
     )
     return (
         f'<div style="background-color:{PAPER};color:{INK};font-size:18px;'
-        f'font-weight:700;padding:16px 0 6px">{text}{tail}</div>'
+        f'font-weight:700;padding:12px 0 5px">{text}{tail}</div>'
     )
 
 
@@ -348,41 +403,55 @@ def _ranking_block(rank: Ranking, brief: MarketBrief) -> str:
 
 
 # -- 뉴스 ----------------------------------------------------------------------
+#
+# **공시(dart)가 아니라 기사(newsapi)다.** 공시는 "무슨 일이 처리됐나" 고
+# 기사는 "무슨 일이 벌어지고 있나" 라, 아침에 읽고 싶은 쪽은 후자다 —
+# ``briefing.NEWS_SOURCE`` 참고. 국장·미장 각각 한 칸이고, 미장은 창고에
+# 수집된 기사가 아직 없어(``briefing.news_section`` docstring) 없으면
+# 없다고 적을 뿐 코드를 더 손댈 자리는 아니다 — 수집기가 돌기 시작하면
+# ``news.rows`` 가 채워지고 이 함수는 그대로 그린다.
 
-_DOC_LABEL = {
-    "distress": "관리·정지",
-    "earnings": "실적",
-    "dilution": "증자",
-    "buyback": "자사주",
-    "split": "분할",
-    "contract": "계약",
-}
+
+def _news_row(row: NewsRow) -> str:
+    """뉴스 한 줄. ``title_ko`` 가 있으면(미장) 번역을 앞세우고 **원문을
+    작게 함께 보여준다** — 번역만 남기면 오역을 검증할 길이 없다."""
+    when = row.published_on.isoformat()[5:] if row.published_on else ""
+    shown = row.title_ko or row.title
+    title = (
+        f'<a href="{row.url}" style="color:{INK};text-decoration:none">{shown}</a>'
+        if row.url
+        else shown
+    )
+    original = (
+        f'<br><span style="color:{FOOTNOTE};font-size:{SMALL}px">{row.title}</span>'
+        if row.title_ko
+        else ""
+    )
+    return (
+        "<tr>"
+        + _cell(
+            f'<span style="color:{SOFT};font-size:{SMALL}px">{row.reason}'
+            + (f" · {when}" if when else "")
+            + f'</span><br><span style="color:{INK};font-weight:600">{row.name}</span> '
+            + f"{title}{original}",
+            extra=f"border-top:1px solid {RULE}",
+        )
+        + "</tr>"
+    )
 
 
 def _news_block(news: NewsSection) -> str:
     if not news.rows:
-        return _section("공시") + _foot(f"{news.note or '해당 없음'} · {news.criteria}")
-    body = ""
-    for row in news.rows:
-        kind = _DOC_LABEL.get(row.doc_type, row.doc_type)
-        title = (
-            f'<a href="{row.url}" style="color:{INK};text-decoration:none">{row.title}</a>'
-            if row.url
-            else row.title
-        )
-        body += (
-            "<tr>"
-            + _cell(
-                f'<span style="color:{SOFT};font-size:{SMALL}px">{kind}</span><br>'
-                f'<span style="color:{INK};font-weight:600">{row.name}</span> {title}',
-                extra=f"border-top:1px solid {RULE}",
-            )
-            + "</tr>"
-        )
+        return _section("뉴스") + _foot(f"{news.note or '해당 없음'} · {news.criteria}")
+    body = "".join(_news_row(row) for row in news.rows)
+    translated = any(row.title_ko for row in news.rows)
+    selection = (
+        "규칙 선별(LLM 미사용) · 제목 번역은 Claude" if translated else "규칙 선별(LLM 미사용)"
+    )
     return (
-        _section("공시")
+        _section("뉴스")
         + _grid(body)
-        + _foot(f"{news.total:,}건 중 {len(news.rows)}건 · {news.criteria} · 규칙 선별(LLM 미사용)")
+        + _foot(f"{news.total:,}건 중 {len(news.rows)}건 · {news.criteria} · {selection}")
     )
 
 
@@ -393,6 +462,15 @@ def _news_block(news: NewsSection) -> str:
 #: Food Services" 처럼 길어서 390px 에서 세 줄로 접힌다 — 이름 한 개가 표를
 #: 밀어내면 옆의 숫자를 못 읽는다. 자른 것은 말줄임표가 말한다.
 MACRO_LABEL_MAX = 26
+
+#: 원제(``source_name``) 최대 길이. 한글 이름 아래 부제로 싣는다 — 가공한
+#: 숫자를 검증할 수 있게 원제를 버리지 않는다는 것이 이 부제의 존재 이유다.
+MACRO_SOURCE_MAX = 34
+
+#: 값 자체가 "백만 달러" 인 단위. 763,602 를 그대로 찍으면 크기가 안 잡힌다
+#: — ``_money`` 로 억/조·B/M 표기로 접는다. ``briefing.PERCENT_UNITS`` 처럼
+#: 여기도 명단은 하나뿐이다.
+MILLION_USD_UNITS = frozenset({"mn_usd"})
 
 
 def _clip(text: str, limit: int) -> str:
@@ -406,27 +484,52 @@ def _macro_actual(value: float | None) -> str:
     return f"{value:,.0f}" if abs(value) >= 1000 else f"{value:,.2f}"
 
 
+def _macro_value(value: float | None, unit: str) -> str:
+    """읽을 수 있는 단위로. 763,602 mn_usd 는 "얼마나 큰지 감이 안 온다" —
+    억·B 표기로 접는다. 원값은 버리지 않는다 — 괄호로 남긴다."""
+    if value is None:
+        return "—"
+    if unit in MILLION_USD_UNITS:
+        return f"{_money(value * 1e6, 'USD')} ({_macro_actual(value)}{_unit(unit)})"
+    return f"{_macro_actual(value)}{_unit(unit)}"
+
+
+def _macro_change(row: MacroRow) -> str:
+    """직전 대비. **방향(화살표)과 크기를 사람이 직접 빼지 않게 미리 계산한다.**
+
+    퍼센트 단위 지표는 ``row.change`` 가 이미 %p 차이라 100 을 또 곱하지
+    않는다 — 곱하면 금리 +0.13%p 가 "+13.00%p" 가 된다.
+    """
+    if row.change is None:
+        return "—"
+    magnitude = abs(row.change) if row.is_percent else abs(row.change) * 100
+    return f"{_arrow(row.change)}{magnitude:.2f}{row.change_unit}"
+
+
 def _macro_block(macro: MacroSection) -> str:
     if not macro.released:
         note = " · ".join(macro.notes) if macro.notes else "이 구간에 발표된 지표가 없다"
         return _section("거시지표") + _foot(note)
     body = ""
     for row in macro.released:
-        unit = _unit(row.unit)
         when = row.released_at.astimezone(KST).strftime("%m-%d %H:%M")
+        change_color = _color(row.change)
         body += (
             "<tr>"
             + _cell(
                 f'<span style="color:{INK};font-weight:600">'
                 f"{_clip(row.label, MACRO_LABEL_MAX)}</span><br>"
+                f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">'
+                f"{_clip(row.source_name, MACRO_SOURCE_MAX)}</span><br>"
                 f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">{when} KST</span>',
                 extra=f"border-top:1px solid {RULE}",
             )
             + _cell(
-                f'<span style="color:{INK};font-weight:700">'
-                f"{_macro_actual(row.actual)}{unit}</span><br>"
+                f'<span style="color:{INK};font-weight:700">{_macro_value(row.actual, row.unit)}'
+                f'</span><br><span style="color:{change_color};font-weight:700">'
+                f"{_macro_change(row)}</span><br>"
                 f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">직전 '
-                f"{_macro_actual(row.previous)}{unit}</span>",
+                f"{_macro_value(row.previous, row.unit)}</span>",
                 align="right",
                 wrap=False,
                 extra=f"border-top:1px solid {RULE}",
@@ -446,7 +549,7 @@ def _market_block(brief: MarketBrief) -> str:
     when = session.isoformat() if session else "세션 미확인"
     head = (
         f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
-        f'font-weight:800;padding:18px 0 8px">{label}'
+        f'font-weight:800;padding:14px 0 6px">{label}'
         f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> {when}</span></div>'
     )
     body = _index_rows(brief.prices, volatility=False)
@@ -471,18 +574,35 @@ def _gap_line(briefing: Briefing) -> str:
     네 줄을 다 차지하면 정작 시황이 안 보인다. 여기는 건수만 알리고, 무엇이
     빠졌는지는 맨 아래 상세가 받는다.
     """
-    count = len(briefing.notes)
+    count = len(briefing.gaps)
     if not count:
         return ""
     return _band(f"<b>결측 {count}건</b> — 맨 아래 목록", ink=WARN_INK, bg=WARN_BG)
 
 
-def _gap_detail(briefing: Briefing) -> str:
-    if not briefing.notes:
+def _gap_group(gaps: list[Gap], kind: str, heading: str) -> str:
+    items = [gap.text for gap in gaps if gap.kind == kind]
+    if not items:
         return ""
-    lines = "".join(f"<div>· {note}</div>" for note in briefing.notes)
+    lines = "".join(f"<div>· {text}</div>" for text in items)
+    return f'<div style="margin-top:8px"><b>{heading} {len(items)}건</b>{lines}</div>'
+
+
+def _gap_detail(briefing: Briefing) -> str:
+    """결측을 **성격별로 가른다.**
+
+    우리가 못 받은 것(``MISSING``)은 수집기를 고치면 채워진다. 원본이 아직
+    안 낸 것(``UNPUBLISHED``, 지금은 환율뿐 — FRED H.10 이 월요일 주간
+    발행이다)은 고칠 것이 없다. 한 문구로 뭉치면 매주 없는 결함을 찾게 된다.
+    """
+    gaps = briefing.gaps
+    if not gaps:
+        return ""
+    body = _gap_group(gaps, MISSING, "우리가 못 받은 것") + _gap_group(
+        gaps, UNPUBLISHED, "원본이 아직 안 낸 것 — 우리 잘못이 아니다"
+    )
     return _band(
-        f'<b>들어오지 않은 것 {len(briefing.notes)}건</b>{lines}',
+        f"<b>들어오지 않은 것 {len(gaps)}건</b>{body}",
         ink=WARN_INK,
         bg=WARN_BG,
     )
@@ -516,15 +636,17 @@ def render_html(briefing: Briefing) -> str:
     # 거시는 두 시장 뒤에 한 번. 좌우로 가르지 않는 이유는 Briefing.macro 주석 참고.
     blocks += _rule() + _macro_block(briefing.macro)
     stamp = briefing.as_of.astimezone(KST).strftime("%m-%d %H:%M")
-    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+    return f"""<!DOCTYPE html><html style="background-color:{CANVAS}">\
+<head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light only"></head>
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark"></head>
 <body style="margin:0;padding:0;background-color:{CANVAS};color:{INK};\
 -webkit-text-size-adjust:100%;\
 font-family:-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" \
 style="width:100%;background-color:{CANVAS};border-collapse:collapse">
-<tr><td style="padding:10px">
+<tr><td style="padding:10px;background-color:{CANVAS}">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" \
 style="width:100%;max-width:520px;margin:0 auto;background-color:{PAPER};\
 border-collapse:collapse;border-radius:10px">
@@ -547,8 +669,8 @@ line-height:1.5;padding:14px 0 0;border-top:1px solid {RULE};margin-top:16px">
 def render_text(briefing: Briefing) -> str:
     """텍스트 대체본. HTML 을 막는 클라이언트와 로그 확인용."""
     lines: list[str] = [subject(briefing), ""]
-    if briefing.notes:
-        lines.append(f"[결측 {len(briefing.notes)}건 — 맨 아래 목록]")
+    if briefing.gaps:
+        lines.append(f"[결측 {len(briefing.gaps)}건 — 맨 아래 목록]")
         lines.append("")
 
     for code in ("KR", "US"):
@@ -585,14 +707,15 @@ def render_text(briefing: Briefing) -> str:
             if rank.note:
                 lines.append(f"     ! {rank.note}")
         news = brief.news
-        lines.append(f"  -- 공시 ({news.total:,}건 중 {len(news.rows)}건)")
+        lines.append(f"  -- 뉴스 ({news.total:,}건 중 {len(news.rows)}건)")
         if news.note:
             lines.append(f"     {news.note}")
         lines.append(f"     기준: {news.criteria}")
-        for doc in news.rows:
-            lines.append(
-                f"     [{_DOC_LABEL.get(doc.doc_type, doc.doc_type)}] {doc.name} {doc.title}"
-            )
+        for item in news.rows:
+            headline = item.title_ko or item.title
+            lines.append(f"     [{item.reason}] {item.name} {headline}")
+            if item.title_ko:
+                lines.append(f"       원문: {item.title}")
         lines.append("")
 
     macro = briefing.macro
@@ -601,18 +724,23 @@ def render_text(briefing: Briefing) -> str:
         lines.append("  " + (" · ".join(macro.notes) or "이 구간에 발표된 지표가 없다"))
     for item in macro.released:
         when = item.released_at.astimezone(KST).strftime("%m-%d %H:%M")
-        unit = _unit(item.unit)
         lines.append(
             f"  [{MARKET_LABEL.get(item.market, item.market)}] {item.label} "
-            f"{_num(item.actual)}{unit} (직전 {_num(item.previous)}{unit}) · {when} KST"
+            f"({item.source_name}) {_macro_value(item.actual, item.unit)} "
+            f"{_macro_change(item)} (직전 {_macro_value(item.previous, item.unit)}) · {when} KST"
         )
     if macro.released:
         for note in macro.notes:
             lines.append(f"  * {note}")
 
-    if briefing.notes:
-        lines += ["", f"== 들어오지 않은 것 {len(briefing.notes)}건 =="]
-        lines += [f"  - {note}" for note in briefing.notes]
+    if briefing.gaps:
+        lines += ["", f"== 들어오지 않은 것 {len(briefing.gaps)}건 =="]
+        groups = ((MISSING, "우리가 못 받은 것"), (UNPUBLISHED, "원본이 아직 안 낸 것"))
+        for kind, heading in groups:
+            items = [gap.text for gap in briefing.gaps if gap.kind == kind]
+            if items:
+                lines.append(f"  -- {heading} --")
+                lines += [f"  - {text}" for text in items]
     lines += ["", "실매매 기록이 없어 성과·보유 섹션 없음"]
     return "\n".join(lines)
 

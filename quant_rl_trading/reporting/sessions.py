@@ -43,6 +43,60 @@ from quant_rl_trading.store import Store
 SEARCH_DAYS = 20
 
 
+#: 결측의 **성격**. 고칠 수 있는 것과 없는 것은 다른 사실이다.
+#:
+#: ``"missing"``      우리가 못 받았다. 수집기를 고치면 채워진다
+#: ``"unpublished"``  원본이 아직 안 냈다. 고칠 것이 없다
+#:
+#: 이 둘을 한 문구로 뭉치면 매주 없는 결함을 찾게 된다 — 실제로 환율이
+#: 그랬다. FRED H.10 이 월요일 주간 발행이라 금요일 리포트에는 늘 지난주
+#: 금요일 값이 최신인데, 그것을 "미수집" 이라 적고 있었다.
+MISSING = "missing"
+UNPUBLISHED = "unpublished"
+
+
+@dataclass(frozen=True)
+class Gap:
+    """들어오지 않은 것 하나. 성격과 문장을 같이 든다."""
+
+    kind: str
+    text: str
+
+    @property
+    def fixable(self) -> bool:
+        return self.kind == MISSING
+
+    def as_dict(self) -> dict[str, str]:
+        return {"kind": self.kind, "text": self.text}
+
+
+#: FRED H.10(환율)의 발행 요일과 시각(ET). 주간 발행이라 **일간 시계열인데도
+#: 관측이 최대 한 주 늦다.**
+#:
+#: 실측(2026-08-15): ``DEXKOUS`` 갱신 2026-08-10, 관측끝 2026-08-07.
+#: 즉 월요일 발행분이 담는 마지막 관측은 **직전 금요일**이다.
+H10_RELEASE_WEEKDAY = 0   # 월요일
+H10_RELEASE_HOUR_ET = 16  # 16:15 ET 공표. 보수적으로 정시로 본다
+
+
+def fx_source_latest(as_of: datetime) -> date:
+    """``as_of`` 시점에 **FRED 가 내놓았을 수 있는** 마지막 환율 관측일.
+
+    창고가 이 날짜까지 갖고 있으면 우리는 받을 것을 다 받은 것이다. 그보다
+    이르면 그때는 우리 수집이 밀린 것이고, 그 둘은 다른 사실이다.
+
+    발행 시각을 넘겼는지까지 본다 — 월요일 새벽에 도는 리포트가 그날
+    오후 발행분을 이미 나온 것처럼 세면 안 된다.
+    """
+    here = local_time(Market.US, as_of)
+    monday = here.date() - timedelta(days=(here.weekday() - H10_RELEASE_WEEKDAY) % 7)
+    if here.date() == monday and here.hour < H10_RELEASE_HOUR_ET:
+        # 오늘이 발행일인데 아직 발행 전이다. 지난주 발행분이 최신이다.
+        monday -= timedelta(days=7)
+    # 그 발행분이 담는 마지막 관측은 직전 금요일.
+    return monday - timedelta(days=3)
+
+
 @dataclass(frozen=True)
 class SessionRef:
     """한 시장 · 한 데이터원의 세션 상태.

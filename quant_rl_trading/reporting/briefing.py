@@ -31,7 +31,15 @@ import pandas as pd
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.dashboard.services import market as market_service
 from quant_rl_trading.replay.clock import Clock
-from quant_rl_trading.reporting.sessions import SessionRef, describe, expected_session
+from quant_rl_trading.reporting.sessions import (
+    MISSING,
+    UNPUBLISHED,
+    Gap,
+    SessionRef,
+    describe,
+    expected_session,
+    fx_source_latest,
+)
 from quant_rl_trading.store import Store
 from quant_rl_trading.store.prices import read_prices
 
@@ -161,13 +169,18 @@ class Briefing:
     as_of: datetime
     fx: dict[str, Any]
     fx_note: str | None
+    #: ``fx_note`` 가 두 성격 중 어느 쪽인지. ``None`` 이면 ``fx_note`` 도 없다.
+    #: 우리가 못 받은 것(``sessions.MISSING``)과 원본이 아직 안 낸 것
+    #: (``sessions.UNPUBLISHED``)은 다른 사실이다 — 후자를 "미수집" 이라
+    #: 적으면 매주 없는 결함을 찾게 된다 (실제로 환율이 그랬다).
+    fx_gap_kind: str | None
     #: 거시지표는 시장별 칸에 넣지 않는다 — 미장 CPI 가 국장을 흔드는 것이
     #: 정상이라, 좌우로 가르면 그 사실이 안 보인다.
     macro: MacroSection
     markets: dict[str, MarketBrief]
 
     @property
-    def notes(self) -> list[str]:
+    def gaps(self) -> list[Gap]:
         """메일 상단에 모아 쓸 "없는 것" 목록. 비어 있으면 다 들어온 날이다.
 
         **대표 지수는 따로 올린다.** 시장의 세션 상태(``index_session``)는 그
@@ -175,25 +188,36 @@ class Briefing:
         08-14 까지, S&P 500 이 08-13 까지 들어와 있었다. 그러면 시장 단위로는
         "다 들어왔다" 가 되고, 정작 제목 줄에 쓰는 대표 지수가 하루 낡은 채로
         조용히 나간다. 대표가 낡은 것은 표 안쪽이 아니라 맨 위에서 말해야 한다.
+
+        **지수·시세 결측은 늘 ``MISSING``.** 그 시장이 이미 마감·공표된 세션을
+        우리 수집기가 못 받은 것이라 늘 고칠 수 있다. 환율만 원본이 늦게
+        낼 수 있어 ``fx_gap_kind`` 를 따로 판정한다.
         """
-        out: list[str] = []
+        out: list[Gap] = []
         for code, brief in self.markets.items():
             for ref in (brief.index_session, brief.price_session):
                 if ref.note:
-                    out.append(ref.note)
+                    out.append(Gap(MISSING, ref.note))
             headline = brief.prices[0] if brief.prices else None
             if headline is not None and headline.note and not brief.index_session.note:
-                out.append(f"{code} {headline.label}: {headline.note}")
+                out.append(Gap(MISSING, f"{code} {headline.label}: {headline.note}"))
         if self.fx_note:
-            out.append(self.fx_note)
+            out.append(Gap(self.fx_gap_kind or MISSING, self.fx_note))
         return out
+
+    @property
+    def notes(self) -> list[str]:
+        """``gaps`` 의 문장만. 문구 비교로 어긋난 것을 잡던 옛 호출부 호환용."""
+        return [gap.text for gap in self.gaps]
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "as_of": self.as_of.isoformat(),
             "fx": self.fx,
             "fx_note": self.fx_note,
+            "fx_gap_kind": self.fx_gap_kind,
             "notes": self.notes,
+            "gaps": [gap.as_dict() for gap in self.gaps],
             "macro": self.macro.as_dict(),
             "markets": {code: brief.as_dict() for code, brief in self.markets.items()},
         }
@@ -606,23 +630,97 @@ def rankings(
     return out, filled, panel
 
 
+#: 지표 한글 이름. 키는 ``entity_id``(= ``market:indicator``) 로, 창고의
+#: 자연키 그대로다.
+#:
+#: **원제를 버리지 않는다.** 한글 이름만 남기면 그 숫자가 어느 발표에서 온
+#: 것인지 확인할 길이 사라진다 — 메일은 원제를 부제로 함께 싣는다.
+#: 여기 없는 지표는 원제를 그대로 쓴다. 창고에 새 지표가 생겨도 조용히
+#: 빠지지 않고 영문으로라도 나간다.
+MACRO_LABELS: dict[str, str] = {
+    "KR:BASE_RATE": "한국은행 기준금리",
+    "KR:CPI": "소비자물가",
+    "KR:GDP": "GDP 성장률",
+    "KR:PPI": "생산자물가",
+    "KR:TREASURY_3Y": "국고채 3년",
+    "KR:UNEMPLOYMENT": "실업률",
+    "US:CPI": "소비자물가",
+    "US:EMPLOYMENT": "실업률",
+    "US:EMPLOYMENT_COST": "고용비용지수",
+    "US:FED_FUNDS": "연방기금금리",
+    "US:GDP": "GDP",
+    "US:HOUSING_STARTS": "주택착공",
+    "US:INDUSTRIAL_PRODUCTION": "산업생산",
+    "US:JOBLESS_CLAIMS": "신규 실업수당 청구",
+    "US:JOLTS": "구인건수",
+    "US:PCE": "개인소비지출",
+    "US:PPI": "생산자물가",
+    "US:RETAIL_ADVANCE": "소매판매 (속보)",
+    "US:RETAIL_SALES": "소매판매",
+    "US:TRADE_BALANCE": "무역수지",
+}
+
+#: **값 자체가 퍼센트인 단위.** 이런 지표는 변화를 %가 아니라 %p 로 잰다.
+#:
+#: 금리가 3.50 에서 3.63 으로 올랐을 때 "+3.7%" 라고 쓰면 금리가 3.7% 올랐다는
+#: 뜻으로 읽힌다. 실제로는 **0.13%p** 다. 둘은 완전히 다른 크기이고, 금리·
+#: 실업률처럼 정책이 걸린 숫자에서 이 혼동은 그냥 오보다.
+PERCENT_UNITS = frozenset({"%", "percent", "연%"})
+
+#: 같은 값을 두 번 싣지 않을 때, 남길 쪽을 먼저 적는다.
+#: 소매판매는 속보치(ADVANCE)와 확정치가 같은 숫자를 각각 발표한다 —
+#: 시장이 보고 움직이는 것은 속보치라 그쪽을 남긴다.
+MACRO_PREFERRED = ("US:RETAIL_ADVANCE",)
+
+
 @dataclass(frozen=True)
 class MacroRow:
+    entity_id: str
     market: str
+    #: 한글 이름. 모르면 원제.
     label: str
+    #: 원제. 가공한 숫자를 검증할 수 있게 함께 싣는다.
+    source_name: str
     actual: float
     previous: float | None
     unit: str
     #: **발표 시각.** ``valid_from``(우리가 안 시각)이 아니다.
     released_at: datetime
 
+    @property
+    def is_percent(self) -> bool:
+        return self.unit in PERCENT_UNITS
+
+    @property
+    def change(self) -> float | None:
+        """직전 대비. 퍼센트 지표는 **%p 차이**, 나머지는 **비율 변화**다.
+
+        단위가 뭔지에 따라 뜻이 달라지므로 ``change_unit`` 과 늘 같이 읽어야
+        한다. 하나만 보면 금리 +0.13%p 가 +0.13% 로 읽힌다.
+        """
+        if self.previous is None:
+            return None
+        if self.is_percent:
+            return self.actual - self.previous
+        if self.previous == 0:
+            return None
+        return self.actual / self.previous - 1.0
+
+    @property
+    def change_unit(self) -> str:
+        return "%p" if self.is_percent else "%"
+
     def as_dict(self) -> dict[str, Any]:
         return {
+            "entity_id": self.entity_id,
             "market": self.market,
             "label": self.label,
+            "source_name": self.source_name,
             "actual": self.actual,
             "previous": self.previous,
             "unit": self.unit,
+            "change": self.change,
+            "change_unit": self.change_unit,
             "released_at": self.released_at.isoformat(),
         }
 
@@ -630,7 +728,6 @@ class MacroRow:
 @dataclass(frozen=True)
 class MacroSection:
     released: list[MacroRow]
-    upcoming: list[MacroRow]
     #: 시장별 한 줄. 그 시장에서 발표가 없었으면 이유가 여기 있다.
     notes: list[str]
     since: date | None
@@ -638,7 +735,6 @@ class MacroSection:
     def as_dict(self) -> dict[str, Any]:
         return {
             "released": [row.as_dict() for row in self.released],
-            "upcoming": [row.as_dict() for row in self.upcoming],
             "notes": self.notes,
             "since": self.since.isoformat() if self.since else None,
         }
@@ -647,7 +743,7 @@ class MacroSection:
 def macro_section(
     store: Store, *, as_of: datetime, sessions: dict[str, date | None], limit: int
 ) -> MacroSection:
-    """그 구간에 **실제로 발표된** 거시지표. 예정은 따로 담는다.
+    """그 구간에 **실제로 발표된** 거시지표.
 
     ## scheduled 와 released 를 섞지 않는다
 
@@ -655,15 +751,20 @@ def macro_section(
     자연키로 덮는다. **``actual`` 이 없는 것은 발표된 것이 아니다.** 아직 안
     나온 지표를 나온 것처럼 적는 것이 이 섹션이 할 수 있는 가장 나쁜 거짓말이다.
 
+    **예정 목록은 싣지 않는다.** 좁은 화면에서 "발표됨" 과 "예정" 을 확실히
+    가르려면 자리가 드는데, 못 가를 바에는 안 싣는 편이 안전하다.
+
     ## 컨센서스는 없다
 
-    우리는 시장 예상치를 수집하지 않는다. 그래서 "예상 대비 서프라이즈" 를
-    쓸 수 없고, **직전값 대비만** 적는다. 없는 열을 만들지 않는다.
+    우리는 시장 예상치를 수집하지 않는다. "예상 대비 서프라이즈" 를 쓸 수
+    없고 **직전값 대비만** 적는다. 없는 열을 만들지 않는다.
 
-    ## 시각은 scheduled_at 이다
+    ## 접는 규칙 둘
 
-    ``valid_from`` 은 우리가 그 사실을 안 시각이고 발표 시각은 ``scheduled_at``
-    이다. 헷갈리면 새벽에 나온 지표가 엉뚱한 시각으로 찍힌다.
+    1. **지표당 최신 하나.** 연방기금금리는 매일 같은 값으로 다시 발표된다 —
+       접지 않으면 3.63 짜리 네 줄이 다른 지표를 통째로 밀어낸다
+    2. **같은 값의 중복 발표는 하나로.** 소매판매 속보치와 확정치가 같은
+       763,602 를 각각 든다. 둘 다 실으면 한 사건이 두 사건으로 보인다
     """
     frame = store.get(
         MACRO_RELEASES,
@@ -686,23 +787,12 @@ def macro_section(
         since = start if since is None else min(since, start)
 
     if frame.empty:
-        return MacroSection([], [], ["거시지표 테이블이 비어 있다"], since)
+        return MacroSection([], ["거시지표 테이블이 비어 있다"], since)
 
     # 같은 자연키의 최신 관측만. 정정본은 새 행으로 쌓인다.
     frame = frame.sort_values("observed_at").groupby(
         ["entity_id", "scheduled_at"], as_index=False
     ).last()
-
-    def row_of(record: dict[str, Any]) -> MacroRow:
-        previous = record.get("previous")
-        return MacroRow(
-            market=str(record.get("market") or ""),
-            label=str(record.get("release_name") or record.get("indicator") or ""),
-            actual=float(record["actual"]) if pd.notna(record.get("actual")) else 0.0,
-            previous=None if previous is None or pd.isna(previous) else float(previous),
-            unit=str(record.get("unit") or ""),
-            released_at=record["scheduled_at"].to_pydatetime(),
-        )
 
     # **actual 이 있는 것만 발표다.** status 만 믿지 않는다 — 둘 다 본다.
     done = frame[
@@ -711,29 +801,66 @@ def macro_section(
         & (frame["scheduled_at"] <= as_of)
     ]
     if since is not None:
-        edge = pd.Timestamp(since, tz="UTC")
-        done = done[done["scheduled_at"] >= edge]
-    ordered = done.sort_values("scheduled_at", ascending=False)
-    released = [row_of(r) for r in ordered.to_dict(orient="records")]
+        done = done[done["scheduled_at"] >= pd.Timestamp(since, tz="UTC")]
+    if done.empty:
+        return MacroSection([], _macro_notes([]), since)
 
-    ahead = frame[(frame["status"] == "scheduled") & (frame["scheduled_at"] > as_of)]
-    upcoming = [
-        row_of(r) for r in ahead.sort_values("scheduled_at").head(limit).to_dict(orient="records")
-    ]
+    # 지표당 최신 하나.
+    done = done.sort_values("scheduled_at").groupby("entity_id", as_index=False).last()
 
+    def row_of(record: dict[str, Any]) -> MacroRow:
+        previous = record.get("previous")
+        entity = str(record.get("entity_id") or "")
+        source_name = str(record.get("release_name") or record.get("indicator") or "")
+        return MacroRow(
+            entity_id=entity,
+            market=str(record.get("market") or ""),
+            label=MACRO_LABELS.get(entity, source_name),
+            source_name=source_name,
+            actual=float(record["actual"]),
+            previous=None if previous is None or pd.isna(previous) else float(previous),
+            unit=str(record.get("unit") or ""),
+            released_at=record["scheduled_at"].to_pydatetime(),
+        )
+
+    rows = [row_of(r) for r in done.to_dict(orient="records")]
+    rows.sort(key=lambda row: (row.released_at, row.entity_id), reverse=True)
+
+    # 같은 값의 중복 발표 접기. 선호 목록에 있는 쪽을 남긴다.
+    seen: dict[tuple[str, float, float | None, datetime], MacroRow] = {}
+    for row in rows:
+        key = (row.market, row.actual, row.previous, row.released_at)
+        kept = seen.get(key)
+        if kept is None or (
+            row.entity_id in MACRO_PREFERRED and kept.entity_id not in MACRO_PREFERRED
+        ):
+            seen[key] = row
+    deduped = sorted(
+        seen.values(), key=lambda row: (row.released_at, row.entity_id), reverse=True
+    )
+    return MacroSection(deduped[:limit], _macro_notes(deduped), since)
+
+
+def _macro_notes(rows: list[MacroRow]) -> list[str]:
+    """발표가 없는 시장을 이름으로 부른다. **섹션을 지우지 않는다** —
+    섹션이 사라지면 읽는 사람이 "원래 없는 항목" 으로 안다."""
     notes: list[str] = []
     for code in market_service.MARKETS:
-        if not any(row.market == code for row in released):
+        if not any(row.market == code for row in rows):
             where = "국내" if code == "KR" else "미국"
             notes.append(f"{where} 지표: 이 구간에 발표된 것이 없다")
-    return MacroSection(released[:limit], upcoming, notes, since)
+    return notes
 
 
-#: 뉴스 선별 기준. **규칙이지 LLM 이 아니다** — 재현 가능해야 하기 때문이다.
-#: 같은 as_of 로 두 번 만들면 같은 목록이 나오고, "왜 이건 있고 저건 없나" 에
-#: 코드를 읽지 않고도 답할 수 있다.
-NEWS_ALWAYS = ("distress",)
-NEWS_IF_MAJOR = ("earnings", "dilution", "buyback", "split", "contract")
+#: 뉴스 소스. **공시(dart)가 아니라 기사(newsapi)다.**
+#:
+#: 창고의 ``documents`` 에는 둘이 같이 산다 — 2026-08-14 기준 dart 5,492건 ·
+#: newsapi 107건. 공시는 뺐다(사용자 요청). 공시는 "무슨 일이 처리됐나" 고
+#: 기사는 "무슨 일이 벌어지고 있나" 라, 아침에 읽고 싶은 쪽은 후자다.
+NEWS_SOURCE = "newsapi"
+
+#: 뉴스를 찾을 때 여는 창(일). 기사는 공시보다 듬성듬성해서 조금 넓게 연다.
+NEWS_LOOKBACK_DAYS = 5
 
 #: "주요 종목" 의 정의 — 그 세션 거래대금 상위 이만큼.
 NEWS_MAJOR_POOL = 100
@@ -743,22 +870,30 @@ NEWS_MAJOR_POOL = 100
 class NewsRow:
     entity_id: str
     name: str
-    doc_type: str
     title: str
     url: str
-    filed_on: date | None
-    #: 왜 뽑혔는가. 표에 그대로 나간다.
+    published_on: date | None
+    #: 왜 뽑혔는가. **화면에 그대로 나간다** — 근거를 못 대는 선별은
+    #: "왜 이건 있고 저건 없나" 에 답할 수 없다.
     reason: str
+    #: 그 종목에 이 구간 기사가 몇 건이었나. 관심이 몰린 정도다.
+    volume: int
+    #: 한국어 번역(미장 전용). ``translate.NewsTitleTranslate`` 가 채운다.
+    #: **``title`` 은 지우지 않는다** — 번역이 틀렸을 때 검증할 원문이 없으면
+    #: 번역은 못 믿을 필터가 된다. ``None`` 이면 번역이 없었다는 뜻이고,
+    #: 렌더러는 원문으로 폴백한다.
+    title_ko: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "entity_id": self.entity_id,
             "name": self.name,
-            "doc_type": self.doc_type,
             "title": self.title,
+            "title_ko": self.title_ko,
             "url": self.url,
-            "filed_on": self.filed_on.isoformat() if self.filed_on else None,
+            "published_on": self.published_on.isoformat() if self.published_on else None,
             "reason": self.reason,
+            "volume": self.volume,
         }
 
 
@@ -787,75 +922,95 @@ def news_section(
     market: str,
     limit: int,
 ) -> NewsSection:
-    """공시·뉴스에서 **중요한 것만**. 규칙으로 고르고, 규칙을 밝힌다.
+    """기사에서 **중요한 것만**. 규칙으로 고르고, 규칙을 밝힌다.
 
-    하루 공시가 수천 건이다(2026-08-14 국장 2,990건). 전부 실으면 메일이
-    잘리고 아무도 안 읽는다. 자르는 것 자체는 피할 수 없으므로, **자른
-    사실과 기준을 함께 싣는다.**
+    ## 무엇을 "중요" 로 보나
 
-    두 갈래로 고른다.
+    기사는 종목별로 흩어져 있고 한 종목에 수십 건이 몰린다(삼성전자 34건).
+    그래서 **종목을 먼저 고르고, 그 종목의 최신 기사 하나씩** 싣는다.
+    종목을 고르는 기준이 둘이다.
 
-    1. ``distress`` — 상장폐지·거래정지·관리종목·회생. **규모와 무관하게**
-       중요하다. 작은 회사의 거래정지가 큰 회사의 배당 공시보다 급하다
-    2. 그 밖의 사건성 공시(실적·증자·자사주·분할·계약)는 **그날 거래대금 상위
-       종목의 것만**. 규모 기준을 여기에만 거는 이유가 1번이다
+    1. **그날 거래대금 상위 종목** — 돈이 실제로 몰린 곳이다. 시황이라는
+       말의 뜻에 가장 가깝다
+    2. **기사가 몰린 종목** — 거래대금 상위가 아니어도 그날 화제가 된 곳이다.
+       1번만 쓰면 대형주 목록이 되고, 그건 뉴스가 아니라 시가총액 순위다
+
+    한 종목에 한 줄만 준다. 안 그러면 삼성전자 기사 5건이 목록을 다 먹는다.
 
     **LLM 을 쓰지 않는다.** 규칙이라 같은 as_of 면 같은 목록이 나오고, 요약이
-    사실을 덧칠할 여지가 없다. 제목·공시일·종목·URL 을 그대로 옮긴다.
+    사실을 덧칠할 여지가 없다. 제목·URL·날짜를 창고 원문 그대로 옮긴다.
+
+    ## 없으면 없다고 적는다
+
+    미장 기사는 창고에 **한 건도 없다** — newsapi 수집이 국장 종목만 돈다.
+    그때 이 섹션은 사라지지 않고 그 사실을 적는다. 섹션이 없어지면 읽는
+    사람이 "원래 없는 항목" 으로 알고, 아무도 수집기를 고치지 않는다.
     """
+    criteria = (
+        f"거래대금 상위 {NEWS_MAJOR_POOL}위 종목 · 기사가 몰린 종목 · 종목당 최신 1건"
+    )
     frame = store.get(
         DOCUMENTS,
         as_of=as_of,
-        lookback=FILING_LOOKBACK_DAYS,
-        columns=["entity_id", "doc_id", "doc_type", "title", "url", "valid_from"],
-    )
-    criteria = (
-        f"distress(관리·정지·회생)는 전부 · 그 밖은 거래대금 상위 "
-        f"{NEWS_MAJOR_POOL}위 종목의 실적·증자·자사주·분할·계약만"
+        lookback=NEWS_LOOKBACK_DAYS,
+        columns=["entity_id", "doc_id", "title", "url", "source", "valid_from"],
     )
     if frame.empty:
-        return NewsSection([], 0, criteria, "공시 테이블이 비어 있다")
+        return NewsSection([], 0, criteria, "뉴스 테이블이 비어 있다")
 
-    mine = frame[frame["entity_id"].astype(str).str.startswith(f"{market}:")]
+    mine = frame[
+        (frame["source"] == NEWS_SOURCE)
+        & frame["entity_id"].astype(str).str.startswith(f"{market}:")
+    ]
     total = len(mine)
     if mine.empty:
-        return NewsSection([], 0, criteria, "이 시장 공시가 창고에 없다")
-
-    major: set[str] = set()
-    if not panel.empty:
-        major = {
-            str(e)
-            for e in panel.sort_values("value", ascending=False).head(NEWS_MAJOR_POOL).index
-        }
+        where = "국장" if market == "KR" else "미장"
+        return NewsSection(
+            [], 0, criteria, f"창고에 {where} 뉴스가 없다 — 수집기가 이 시장을 아직 안 돈다"
+        )
 
     mine = mine.sort_values("valid_from", ascending=False).drop_duplicates("doc_id")
-    picked: list[dict[str, Any]] = []
-    for record in mine.to_dict(orient="records"):
-        kind = str(record.get("doc_type") or "")
-        entity = str(record.get("entity_id") or "")
-        if kind in NEWS_ALWAYS:
-            picked.append({**record, "reason": "관리·정지·회생"})
-        elif kind in NEWS_IF_MAJOR and entity in major:
-            picked.append({**record, "reason": "거래대금 상위 종목"})
+    counts = mine["entity_id"].astype(str).value_counts()
 
-    names = market_service.entity_names(
-        store, as_of=as_of, entities=sorted({str(r["entity_id"]) for r in picked[:limit]})
+    major: list[str] = []
+    if not panel.empty:
+        major = [
+            str(e)
+            for e in panel.sort_values("value", ascending=False).head(NEWS_MAJOR_POOL).index
+        ]
+    major_set = set(major)
+
+    # 거래대금 상위 종목 먼저, 그 다음 기사가 몰린 종목. 같은 순위 안에서는
+    # 기사 건수 순 — 순서가 정해져 있어야 같은 as_of 가 같은 목록을 낸다.
+    ordered = sorted(
+        counts.index,
+        key=lambda entity: (
+            0 if entity in major_set else 1,
+            -int(counts[entity]),
+            str(entity),
+        ),
     )
-    rows = [
-        NewsRow(
-            entity_id=str(record["entity_id"]),
-            name=names.get(str(record["entity_id"]), str(record["entity_id"])),
-            doc_type=str(record.get("doc_type") or ""),
-            # DART 제목에는 정렬용 공백이 길게 들어 있다. 메일에서 줄바꿈을 망친다.
-            title=" ".join(str(record.get("title") or "").split()),
-            url=str(record.get("url") or ""),
-            filed_on=_session_of(record["valid_from"]),
-            reason=str(record["reason"]),
+
+    picked: list[NewsRow] = []
+    names = market_service.entity_names(
+        store, as_of=as_of, entities=sorted(ordered[:limit])
+    )
+    for entity in ordered[:limit]:
+        head = mine[mine["entity_id"].astype(str) == entity].iloc[0]
+        published = _session_of(head["valid_from"])
+        volume = int(counts[entity])
+        picked.append(
+            NewsRow(
+                entity_id=str(entity),
+                name=names.get(str(entity), str(entity)),
+                title=" ".join(str(head.get("title") or "").split()),
+                url=str(head.get("url") or ""),
+                published_on=published,
+                reason="거래대금 상위" if entity in major_set else f"기사 {volume}건",
+                volume=volume,
+            )
         )
-        for record in picked[:limit]
-    ]
-    note = None if rows else "기준에 걸린 공시가 없다"
-    return NewsSection(rows, total, criteria, note)
+    return NewsSection(picked, total, criteria, None)
 
 
 def market_brief(
@@ -907,19 +1062,109 @@ def market_brief(
             panel,
             as_of=as_of,
             market=market,
-            limit=int(settings["filings_rows"]),
+            limit=int(settings["news_rows"]),
         ),
     )
 
 
+def _fx_gap(
+    rate: dict[str, Any], *, as_of: datetime, kr_expected: date | None
+) -> tuple[str | None, str | None]:
+    """환율 결측 문장과 그 성격. ``(문장, MISSING|UNPUBLISHED|None)``.
+
+    **"미수집" 이라고 다 같은 미수집이 아니다.** ``fx_source_latest`` 가
+    "FRED 가 이 시점에 이미 내놓았을 마지막 관측일" 을 계산해 준다
+    (``sessions.py`` — H.10 은 월요일 주간 발행이라 일간 계열인데도 관측이
+    최대 한 주 늦다). 창고가 그 날짜보다 이르면 **우리가 못 받은 것**이고,
+    같으면 **원본이 아직 안 낸 것**이다 — 후자를 "미수집" 이라 적으면 매주
+    없는 결함을 찾게 된다(실측: 2026-08-15 기준 DEXKOUS 갱신 08-10, 관측끝
+    08-07 — 국장 08-14 세션 대비로는 "미수집" 처럼 보이지만 FRED 자체가
+    거기까지다).
+    """
+    if rate["rate"] is None:
+        return f"환율: 최근 {INDEX_LOOKBACK_DAYS}일 안에 USD/KRW 가 없다", MISSING
+    if not rate["sessions"]:
+        return None, None
+    last = date.fromisoformat(rate["sessions"][-1])
+    source_latest = fx_source_latest(as_of)
+    if last < source_latest:
+        # FRED 는 이미 냈는데 창고가 못 따라갔다 — 우리 수집이 밀린 것이다.
+        note = (
+            f"환율: 창고가 {last.isoformat()} 까지다 — FRED 원본은 "
+            f"{source_latest.isoformat()} 까지 이미 냈다 (수집 확인 필요)"
+        )
+        return note, MISSING
+    if kr_expected is not None and last < kr_expected:
+        # 창고는 FRED 가 가진 걸 다 갖고 있다. 늦은 것은 원본이다.
+        note = (
+            f"환율: FRED 원본이 아직 {last.isoformat()} 까지다 "
+            "(H.10 은 월요일 주간 발행 — 다음 값은 다음 발행일에 나온다)"
+        )
+        return note, UNPUBLISHED
+    return None, None
+
+
+def _translate_us_news(
+    markets: dict[str, MarketBrief], *, translate: Any, as_of: datetime
+) -> dict[str, MarketBrief]:
+    """미장 뉴스 제목에 ``title_ko`` 를 채운다. 국장은 손대지 않는다 — 이미 한국어다.
+
+    ``translate`` 가 ``None`` 이면(기본값) 아무것도 안 한다 — 테스트·백테스트가
+    API 키 없이도 결정론을 지킨다 (``translate.py`` 모듈 독스트링).
+    """
+    us = markets.get("US")
+    if translate is None or us is None or not us.news.rows:
+        return markets
+
+    from quant_rl_trading.reporting.translate import Headline
+
+    headlines = [Headline(entity_id=row.entity_id, title=row.title) for row in us.news.rows]
+    translated = translate.translate(headlines, as_of=as_of)
+    if not translated:
+        return markets
+
+    new_rows = [
+        NewsRow(
+            entity_id=row.entity_id,
+            name=row.name,
+            title=row.title,
+            url=row.url,
+            published_on=row.published_on,
+            reason=row.reason,
+            volume=row.volume,
+            title_ko=translated.get(Headline(row.entity_id, row.title).fingerprint),
+        )
+        for row in us.news.rows
+    ]
+    new_us = MarketBrief(
+        market=us.market,
+        currency=us.currency,
+        index_session=us.index_session,
+        price_session=us.price_session,
+        prices=us.prices,
+        volatility=us.volatility,
+        rankings=us.rankings,
+        floor=us.floor,
+        news=NewsSection(
+            rows=new_rows, total=us.news.total, criteria=us.news.criteria, note=us.news.note
+        ),
+    )
+    return {**markets, "US": new_us}
+
+
 def build_briefing(
-    store: Store, *, as_of: datetime, clock: Clock | None = None
+    store: Store, *, as_of: datetime, clock: Clock | None = None, translate: Any = None
 ) -> Briefing:
     """``as_of`` 시점의 시황 브리핑.
 
     같은 ``as_of`` 로 두 번 부르면 같은 것이 나온다 — 벽시계를 읽는 곳이
     한 군데도 없기 때문이다 (불변식 2). 그것이 리포트의 결정론 테스트다
     (reporting.md §5).
+
+    ``translate`` 는 ``reporting.translate.NewsTitleTranslate`` (또는 같은
+    인터페이스). 기본 ``None`` 이면 미장 뉴스 제목은 영어 그대로 나간다 —
+    이 함수 자체는 번역기를 몰라도 되고, 호출부(``tools/send_briefing.py``)만
+    명시적으로 넘긴다.
     """
     settings = store.config("reporting", as_of=as_of)
     benchmark = store.config("benchmark", as_of=as_of)
@@ -929,35 +1174,28 @@ def build_briefing(
     }
 
     rate = market_service.fx(store, as_of=as_of, lookback=INDEX_LOOKBACK_DAYS)
-    fx_note = None
-    if rate["rate"] is None:
-        fx_note = f"환율: 최근 {INDEX_LOOKBACK_DAYS}일 안에 USD/KRW 가 없다"
-    elif rate["sessions"]:
-        last = date.fromisoformat(rate["sessions"][-1])
-        want = expected["KR"]
-        if want is not None and last < want:
-            missing = len(trading_days(Market.KR, last, want)) - 1
-            fx_note = (
-                f"환율: 창고가 {last.isoformat()} 까지다 "
-                f"({want.isoformat()} 까지 {missing}개 국장 세션 미수집)"
-            )
+    fx_note, fx_gap_kind = _fx_gap(rate, as_of=as_of, kr_expected=expected["KR"])
+
+    markets = {
+        code: market_brief(
+            store,
+            as_of=as_of,
+            market=code,
+            headline=str(benchmark[market_service.BENCHMARK_KEY[code]]),
+            expected=expected[code],
+            settings=settings,
+        )
+        for code in market_service.MARKETS
+    }
+    markets = _translate_us_news(markets, translate=translate, as_of=as_of)
 
     return Briefing(
         as_of=as_of,
         fx=rate,
         fx_note=fx_note,
+        fx_gap_kind=fx_gap_kind,
         macro=macro_section(
             store, as_of=as_of, sessions=expected, limit=int(settings["macro_rows"])
         ),
-        markets={
-            code: market_brief(
-                store,
-                as_of=as_of,
-                market=code,
-                headline=str(benchmark[market_service.BENCHMARK_KEY[code]]),
-                expected=expected[code],
-                settings=settings,
-            )
-            for code in market_service.MARKETS
-        },
+        markets=markets,
     )

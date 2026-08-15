@@ -4,14 +4,17 @@
 
 - 거시: 일정(``scheduled``)과 발표(``released``)가 한 테이블에 산다. 섞으면
   아직 안 나온 지표가 나온 것처럼 나간다
-- 뉴스: 하루 수천 건에서 몇 건을 고른다. 기준을 안 밝히면 "왜 이건 있고
-  저건 없나" 에 아무도 답할 수 없다
+- 뉴스: 하루 수백 건에서 몇 건을 고른다. 기준을 안 밝히면 "왜 이건 있고
+  저건 없나" 에 아무도 답할 수 없다. **공시(dart)가 아니라 기사(newsapi)다**
+  — 공시는 뺐다(``briefing.NEWS_SOURCE``).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
 from typing import Any
+
+import pytest
 
 from quant_rl_trading.reporting import briefing as briefing_module
 from quant_rl_trading.store import Store
@@ -33,6 +36,7 @@ def _macro(
     actual: float | None,
     previous: float | None = None,
     name: str = "지표",
+    unit: str = "%",
 ) -> dict[str, Any]:
     return {
         "entity_id": entity,
@@ -45,35 +49,38 @@ def _macro(
         "scheduled_at": scheduled,
         "actual": actual,
         "previous": previous,
-        "unit": "%",
+        "unit": unit,
         "status": status,
     }
 
 
 def _doc(
-    entity: str, doc_id: str, doc_type: str, title: str, *, day: date = FRIDAY
+    entity: str, doc_id: str, title: str, *, day: date = FRIDAY, source: str = "newsapi"
+) -> dict[str, Any]:
+    """기사 한 건. **source 는 newsapi 다** — dart 공시는 이 섹션에서 뺐다."""
+    return {
+        "entity_id": entity,
+        "valid_from": _at(day),
+        "observed_at": _at(day),
+        "source": source,
+        "doc_id": doc_id,
+        "doc_type": "article",
+        "title": title,
+        "filer": "",
+        "url": f"https://news.example/{doc_id}",
+        "raw_path": "",
+    }
+
+
+def _price(
+    entity: str, day: date, close: float, value: float, *, market: str = "KR"
 ) -> dict[str, Any]:
     return {
         "entity_id": entity,
         "valid_from": _at(day),
         "observed_at": _at(day),
         "source": "test",
-        "doc_id": doc_id,
-        "doc_type": doc_type,
-        "title": title,
-        "filer": "테스트",
-        "url": f"https://dart.example/{doc_id}",
-        "raw_path": "",
-    }
-
-
-def _price(entity: str, day: date, close: float, value: float) -> dict[str, Any]:
-    return {
-        "entity_id": entity,
-        "valid_from": _at(day),
-        "observed_at": _at(day),
-        "source": "test",
-        "market": "KR",
+        "market": market,
         "open": close,
         "high": close,
         "low": close,
@@ -91,7 +98,8 @@ def test_scheduled_without_actual_is_not_a_release(store: Store) -> None:
     """**``actual`` 이 없는 것은 발표된 것이 아니다.**
 
     아직 안 나온 지표를 나온 것처럼 적는 것이 이 섹션이 할 수 있는 가장
-    나쁜 거짓말이다.
+    나쁜 거짓말이다. **예정 목록도 싣지 않는다** — 좁은 화면에서 "발표됨"
+    과 "예정" 을 확실히 가를 자리가 없으면 안 싣는 편이 안전하다.
     """
     store.seed_config_defaults()
     store.append(
@@ -108,7 +116,6 @@ def test_scheduled_without_actual_is_not_a_release(store: Store) -> None:
     )
     macro = briefing_module.build_briefing(store, as_of=NOW).macro
     assert macro.released == [], "actual 없는 행이 발표로 잡혔다"
-    assert [row.label for row in macro.upcoming] == ["지표"]
 
 
 def test_released_carries_previous_but_no_consensus(store: Store) -> None:
@@ -125,12 +132,51 @@ def test_released_carries_previous_but_no_consensus(store: Store) -> None:
     macro = briefing_module.build_briefing(store, as_of=NOW).macro
     assert len(macro.released) == 1
     row = macro.released[0]
-    assert row.label == "소매판매"
+    assert row.source_name == "소매판매"
     assert row.actual == 763.6
     assert row.previous == 768.0
     # 컨센서스 자리가 아예 없다. 없는 열은 만들지 않는다.
     assert not hasattr(row, "consensus")
     assert not hasattr(row, "surprise")
+
+
+def test_change_is_percentage_points_for_percent_units(store: Store) -> None:
+    """금리·실업률처럼 값 자체가 %인 지표는 변화를 %p 로 잰다.
+
+    3.50 → 3.63 을 "+3.7%" 라고 쓰면 금리가 3.7% 오른 것으로 읽힌다.
+    실제로는 0.13%p 다.
+    """
+    store.seed_config_defaults()
+    store.append(
+        "macro_releases",
+        [
+            _macro("US:FED_FUNDS", market="US", scheduled=_at(FRIDAY, 14),
+                   status="released", actual=3.63, previous=3.50, name="Federal Funds Rate"),
+        ],
+        ingest_run_id="macro-fed",
+    )
+    row = briefing_module.build_briefing(store, as_of=NOW).macro.released[0]
+    assert row.is_percent
+    assert row.change == pytest.approx(0.13)
+    assert row.change_unit == "%p"
+
+
+def test_change_is_a_ratio_for_non_percent_units(store: Store) -> None:
+    """소매판매처럼 값 자체가 금액인 지표는 변화를 비율(%)로 잰다."""
+    store.seed_config_defaults()
+    store.append(
+        "macro_releases",
+        [
+            _macro("US:RETAIL_ADVANCE", market="US", scheduled=_at(FRIDAY, 12),
+                   status="released", actual=763_602.0, previous=768_072.0,
+                   name="Advance Retail", unit="mn_usd"),
+        ],
+        ingest_run_id="macro-retail",
+    )
+    row = briefing_module.build_briefing(store, as_of=NOW).macro.released[0]
+    assert not row.is_percent
+    assert row.change == pytest.approx(763_602.0 / 768_072.0 - 1.0)
+    assert row.change_unit == "%"
 
 
 def test_release_time_is_scheduled_at_not_valid_from(store: Store) -> None:
@@ -189,64 +235,62 @@ def test_empty_macro_says_so(store: Store) -> None:
     assert macro.notes, "발표가 없으면 이유가 남아야 한다"
 
 
-# -- 뉴스·공시 -----------------------------------------------------------------
+# -- 뉴스 ------------------------------------------------------------------
+#
+# **공시(dart)를 뺐다.** ``NEWS_SOURCE`` 가 ``newsapi`` 하나뿐이다. 아래는
+# ``briefing.news_section`` 의 실제 선정 규칙을 그대로 검증한다:
+# 그날 거래대금 상위 종목을 먼저 고르고, 그 다음 기사가 몰린 종목을 고른다.
 
 
-def test_distress_is_always_selected(store: Store) -> None:
-    """거래정지·회생은 **규모와 무관하게** 중요하다.
-
-    작은 회사의 거래정지가 큰 회사의 배당 공시보다 급하다.
-    """
-    store.seed_config_defaults()
-    store.append(
-        "documents",
-        [_doc("KR:900001", "d1", "distress", "회생절차종결신청")],
-        ingest_run_id="doc-1",
-    )
-    news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
-    assert news.rows[0].entity_id == "KR:900001"
-    assert news.rows[0].reason == "관리·정지·회생"
-
-
-def test_ordinary_filing_needs_a_major_stock(store: Store) -> None:
-    """실적·증자 같은 사건성 공시는 **거래대금 상위 종목의 것만** 싣는다.
-
-    하루 공시가 수천 건이라 규모 기준이 없으면 아무 회사의 실적 정정이
-    거래정지를 밀어낸다.
-    """
+def test_major_stock_gets_the_turnover_reason(store: Store) -> None:
+    """그날 거래대금 상위 종목의 기사는 "거래대금 상위" 로 뽑힌다."""
     store.seed_config_defaults()
     store.append(
         "prices",
         [
-            _price("KR:100001", THURSDAY, 50_000.0, 9e11),
-            _price("KR:100001", FRIDAY, 51_000.0, 9e11),
+            _price("KR:005930", THURSDAY, 70_000.0, 9e11),
+            _price("KR:005930", FRIDAY, 73_500.0, 9e11),
         ],
         ingest_run_id="px-1",
     )
     store.append(
         "documents",
-        [
-            _doc("KR:100001", "big", "earnings", "분기보고서"),
-            _doc("KR:900009", "small", "earnings", "분기보고서"),
-        ],
-        ingest_run_id="doc-2",
+        [_doc("KR:005930", "d1", "삼성전자 실적 발표")],
+        ingest_run_id="doc-1",
     )
     news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
-    picked = {row.entity_id for row in news.rows}
-    assert "KR:100001" in picked, "거래대금 상위 종목의 실적이 빠졌다"
-    assert "KR:900009" not in picked, "무명 종목의 실적이 걸러지지 않았다"
-    assert news.rows[0].reason == "거래대금 상위 종목"
+    assert news.rows[0].entity_id == "KR:005930"
+    assert news.rows[0].reason == "거래대금 상위"
+
+
+def test_non_major_stock_gets_the_article_count_reason(store: Store) -> None:
+    """거래대금 상위가 아니어도 기사가 몰리면 뽑힌다 — 화제성으로 뽑힌 것임을 밝힌다."""
+    store.seed_config_defaults()
+    docs = [_doc("KR:900001", f"d{i}", f"화제 기사 {i}", day=FRIDAY) for i in range(3)]
+    store.append("documents", docs, ingest_run_id="doc-2")
+    news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
+    picked = {row.entity_id: row for row in news.rows}
+    assert "KR:900001" in picked
+    assert picked["KR:900001"].reason == "기사 3건"
+
+
+def test_one_row_per_entity(store: Store) -> None:
+    """한 종목에 한 줄만 준다 — 안 그러면 기사 많은 종목이 목록을 다 먹는다."""
+    store.seed_config_defaults()
+    docs = [_doc("KR:900001", f"d{i}", f"기사 {i}", day=FRIDAY) for i in range(5)]
+    store.append("documents", docs, ingest_run_id="doc-3")
+    news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
+    assert sum(1 for row in news.rows if row.entity_id == "KR:900001") == 1
 
 
 def test_news_reports_how_many_were_cut(store: Store) -> None:
     """자르는 것은 피할 수 없다. **자른 사실을 함께 싣는 것**이 요구다."""
     store.seed_config_defaults()
-    docs = [_doc("KR:900001", "d1", "distress", "거래정지")]
-    docs += [_doc(f"KR:9000{i:02d}", f"x{i}", "ownership", "지분변동") for i in range(2, 40)]
-    store.append("documents", docs, ingest_run_id="doc-3")
+    docs = [_doc(f"KR:9000{i:02d}", f"x{i}", "화제") for i in range(0, 39)]
+    store.append("documents", docs, ingest_run_id="doc-4")
     news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
     assert news.total == 39
-    assert len(news.rows) == 1
+    assert 0 < len(news.rows) <= 3, "config.reporting.news_rows 상한을 넘었다"
     assert news.criteria, "선별 기준이 비어 있다"
 
 
@@ -255,29 +299,41 @@ def test_news_keeps_the_source_url_and_title_verbatim(store: Store) -> None:
     store.seed_config_defaults()
     store.append(
         "documents",
-        [_doc("KR:900001", "d1", "distress", "주권매매거래정지    (주식의 병합)")],
-        ingest_run_id="doc-4",
+        [_doc("KR:900001", "d1", "삼성전자    3분기 실적 (잠정)")],
+        ingest_run_id="doc-5",
     )
     row = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news.rows[0]
     # 정렬용 연속 공백만 접는다 — 낱말은 그대로다.
-    assert row.title == "주권매매거래정지 (주식의 병합)"
-    assert row.url == "https://dart.example/d1"
+    assert row.title == "삼성전자 3분기 실적 (잠정)"
+    assert row.url == "https://news.example/d1"
 
 
 def test_news_does_not_cross_markets(store: Store) -> None:
-    """미장 공시가 국장 칸에 들어가지 않는다."""
+    """미장 기사가 국장 칸에 들어가지 않는다."""
     store.seed_config_defaults()
     store.append(
         "documents",
         [
-            _doc("KR:900001", "k1", "distress", "국장 거래정지"),
-            _doc("US:AAPL", "u1", "distress", "US halt"),
+            _doc("KR:900001", "k1", "국장 기사"),
+            _doc("US:AAPL", "u1", "US news"),
         ],
-        ingest_run_id="doc-5",
+        ingest_run_id="doc-6",
     )
     markets = briefing_module.build_briefing(store, as_of=NOW).markets
     assert {row.entity_id for row in markets["KR"].news.rows} == {"KR:900001"}
     assert {row.entity_id for row in markets["US"].news.rows} == {"US:AAPL"}
+
+
+def test_dart_source_is_excluded(store: Store) -> None:
+    """공시(dart)는 뺐다 — newsapi 가 아닌 source 는 안 실린다."""
+    store.seed_config_defaults()
+    store.append(
+        "documents",
+        [_doc("KR:900001", "d1", "공시", source="dart")],
+        ingest_run_id="doc-7",
+    )
+    news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
+    assert news.rows == []
 
 
 def test_empty_news_says_so(store: Store) -> None:
@@ -285,3 +341,84 @@ def test_empty_news_says_so(store: Store) -> None:
     news = briefing_module.build_briefing(store, as_of=NOW).markets["KR"].news
     assert news.rows == []
     assert news.note is not None
+
+
+def test_missing_us_news_names_the_collector_gap(store: Store) -> None:
+    """미장 뉴스가 아예 없으면(수집기가 아직 안 돈다) 그 사실을 적는다.
+
+    지어내지 않는다 — 국장 뉴스만 있고 미장은 창고에 한 건도 없는 것이
+    2026-08 현재 실제 상태다. 수집기가 돌기 시작하면 이 테스트는 그대로
+    두고 데이터만 채우면 된다(코드 변경 없음).
+    """
+    store.seed_config_defaults()
+    store.append(
+        "documents",
+        [_doc("KR:900001", "k1", "국장만 있다")],
+        ingest_run_id="doc-8",
+    )
+    us_news = briefing_module.build_briefing(store, as_of=NOW).markets["US"].news
+    assert us_news.rows == []
+    assert "미장" in (us_news.note or "")
+
+
+# -- 미장 뉴스 번역 --------------------------------------------------------------
+
+
+class _StubTranslate:
+    """``NewsTitleTranslate`` 흉내 — 실제 Claude 를 안 부른다."""
+
+    def __init__(self, table: dict[str, str]) -> None:
+        self.table = table
+        self.calls: list[list[Any]] = []
+
+    def translate(self, headlines: list[Any], *, as_of: datetime) -> dict[str, str]:
+        self.calls.append(headlines)
+        out = {}
+        for headline in headlines:
+            ko = self.table.get(headline.title)
+            if ko:
+                out[headline.fingerprint] = ko
+        return out
+
+
+def test_us_news_titles_get_translated_when_translator_is_given(store: Store) -> None:
+    """``translate`` 를 넘기면 미장 제목에 ``title_ko`` 가 채워진다."""
+    store.seed_config_defaults()
+    store.append(
+        "documents",
+        [_doc("US:META", "u1", "META unveils new data center")],
+        ingest_run_id="doc-9",
+    )
+    stub = _StubTranslate({"META unveils new data center": "메타, 새 데이터센터 공개"})
+    row = briefing_module.build_briefing(
+        store, as_of=NOW, translate=stub
+    ).markets["US"].news.rows[0]
+    assert row.title_ko == "메타, 새 데이터센터 공개"
+    assert row.title == "META unveils new data center", "원문이 지워지면 안 된다"
+
+
+def test_kr_news_is_never_sent_to_the_translator(store: Store) -> None:
+    """국장은 이미 한국어다 — 번역기를 아예 안 부른다."""
+    store.seed_config_defaults()
+    store.append(
+        "documents",
+        [_doc("KR:900001", "k1", "국장 기사")],
+        ingest_run_id="doc-10",
+    )
+    stub = _StubTranslate({})
+    briefing = briefing_module.build_briefing(store, as_of=NOW, translate=stub)
+    assert briefing.markets["KR"].news.rows[0].title_ko is None
+    assert stub.calls == [], "국장 뉴스가 번역기로 넘어갔다"
+
+
+def test_translator_none_leaves_titles_in_english(store: Store) -> None:
+    """``translate=None``(기본값)이면 미장 제목은 그대로 영어다 — 결정론을 지킨다."""
+    store.seed_config_defaults()
+    store.append(
+        "documents",
+        [_doc("US:META", "u1", "META unveils new data center")],
+        ingest_run_id="doc-11",
+    )
+    row = briefing_module.build_briefing(store, as_of=NOW).markets["US"].news.rows[0]
+    assert row.title_ko is None
+    assert row.title == "META unveils new data center"

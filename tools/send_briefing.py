@@ -45,6 +45,7 @@ from quant_rl_trading.reporting import (  # noqa: E402
     emailer,
     render,
 )
+from quant_rl_trading.reporting.translate import NewsTitleTranslate  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store, overlay  # noqa: E402
 
@@ -62,6 +63,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--send", action="store_true", help="실제로 메일을 보낸다. 기본은 보내지 않는다"
     )
     parser.add_argument("--store", help="창고 경로. 기본은 레포의 data/")
+    parser.add_argument(
+        "--persist-translations",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "미장 뉴스 제목 번역을 agent_cache 에 남긴다. 기본 켬(팀 리드 승인, "
+            "2026-08-15) — 매일 같은 기사를 다시 번역하면 돈을 버린다. "
+            "캐시 오염을 의심할 때 등은 --no-persist-translations 로 끄고 돌린다 "
+            "(reporting/translate.py 모듈 독스트링)"
+        ),
+    )
     parser.add_argument(
         "--config-overlay",
         metavar="DIR",
@@ -113,7 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     as_of = clock.now()
 
     store = open_store(args)
-    briefing = build_briefing(store, as_of=as_of, clock=clock)
+    translator = NewsTitleTranslate.from_env(store, clock, persist=args.persist_translations)
+    briefing = build_briefing(store, as_of=as_of, clock=clock, translate=translator)
     parts = render.render(briefing)
 
     print(parts["text"])
