@@ -169,6 +169,32 @@ def test_persist_true_caches_and_second_call_skips_the_api(store: Store) -> None
     assert client.messages.calls == 1, "캐시가 있는데 API 를 다시 불렀다"
 
 
+def test_cache_hits_and_misses_are_logged(store, caplog) -> None:  # type: ignore[no-untyped-def]
+    """캐시가 실제로 먹는지 로그로 알 수 있어야 한다 — 안 남기면 매번 미스가
+    나도 조용히 돈만 나간다."""
+    headline = _headline()
+    response = FakeResponse(
+        content=[FakeBlock(type="tool_use", input={"translations": [
+            {"id": headline.fingerprint, "ko": "번역됨"},
+        ]})],
+        usage=FakeUsage(),
+    )
+    translator = NewsTitleTranslate(
+        store=store, clock=ReplayClock(AS_OF), api_key="unused",
+        client=FakeClient(response), persist=True,
+    )
+    with caplog.at_level("INFO", logger="quant_rl_trading.reporting.translate"):
+        translator.translate([headline], as_of=AS_OF)  # 첫 호출 — 전부 미스
+    assert any("미스 1건" in record.message for record in caplog.records)
+    assert any("히트 0건" in record.message for record in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level("INFO", logger="quant_rl_trading.reporting.translate"):
+        translator.translate([headline], as_of=AS_OF)  # 두 번째 — 캐시 히트
+    assert any("히트 1건" in record.message for record in caplog.records)
+    assert any("미스 0건" in record.message for record in caplog.records)
+
+
 def test_empty_input_is_a_noop(store: Store) -> None:
     translator = NewsTitleTranslate(store=store, clock=ReplayClock(AS_OF), api_key="unused")
     assert translator.translate([], as_of=AS_OF) == {}

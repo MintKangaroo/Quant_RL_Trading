@@ -78,6 +78,10 @@ def defaults_rows(
 
     for name, value_json in flat.items():
         previous = known.get(name)
+        if _deployment_local(value_json, previous):
+            # **창고가 정본이다.** yaml 의 `""` 로 덮으면 실계좌 지문이 지워진다
+            # (`EMPTY` 주석 참고). 시딩이 이 키를 만지지 않는다.
+            continue
         if previous is None:
             rows.append(_row(name, value_json, DEFAULTS_EPOCH, 0))
         elif previous[0] != value_json:
@@ -97,12 +101,33 @@ def _row(name: str, value_json: str, moment: datetime, revision: int) -> dict[st
     }
 
 
+#: yaml 의 빈 문자열은 **"여기서 정하지 않는다"** 는 뜻이다. 값의 출처가
+#: 배포마다 다르고 저장소에 올리면 안 되는 것들이 여기 해당한다 — 지금은
+#: ``execution.live_account_fingerprint`` 하나다(sha256(appkey)[:12]).
+#:
+#: **이걸 안 가르면 시딩이 실계좌 지문을 지운다.** yaml 이 ``""`` 이고 창고에
+#: 값이 있으면 `changed_names` 가 "바뀌었다" 고 보고, ``effective_at`` 을 줘서
+#: 밀면 창고 값이 ``""`` 로 덮인다. 그 지문은 "모의인 줄 알았다" 를 막는
+#: 유일한 장치라(`tools/verify_live_order.py`), 지워지면 계좌 확인이 무력해진다.
+#:
+#: 2026-08-15 에 실제로 한 번 덮었고(복구했다), 같은 날 다른 작업이 또 밟을
+#: 뻔했다. 사람이 매번 조심하는 것으로는 못 막는다.
+EMPTY = '""'
+
+
+def _deployment_local(value_json: str, current: tuple[str, int] | None) -> bool:
+    """yaml 이 비었는데 창고에 값이 있으면 **창고가 정본이다.**"""
+    return value_json == EMPTY and current is not None and current[0] != EMPTY
+
+
 def changed_names(path: Path, current: dict[str, tuple[str, int]]) -> set[str]:
-    """파일과 창고의 값이 어긋난 설정 이름."""
+    """파일과 창고의 값이 어긋난 설정 이름. **배포 지역값은 세지 않는다.**"""
     return {
         name
         for name, value_json in flatten(path).items()
-        if name in current and current[name][0] != value_json
+        if name in current
+        and current[name][0] != value_json
+        and not _deployment_local(value_json, current.get(name))
     }
 
 
