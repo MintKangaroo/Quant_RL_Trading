@@ -656,6 +656,67 @@ function bindCalendarPopout() {
  * 붙이면 그게 더 큰 거짓말이다 (regime Analyst 는 이유가 있어 대용치를
  * 쓰지만 이 화면은 그 이유를 공유하지 않는다).
  */
+/* 그 달의 **누적 초과수익 곡선**. 일별 막대가 아니다.
+ *
+ * 이 전략은 저베타라(실측 베타 0.131 · 상승일 포착률 14%) 상승장에서 일별
+ * 초과가 음수인 날이 줄줄이 나오는 것이 **설계대로 굴러가는 모습**이다.
+ * 막대로 그리면 화면이 매일 "졌다" 고 스무 번 외친다 — 2026-07 실측으로
+ * 일별 부호가 22일 중 9~13번 뒤집혔다. 그리고 그 빨강은 손실이 아닌데
+ * 같은 패널의 캘린더 빨강은 **진짜 손실**이라, 한 패널에서 같은 색이 두
+ * 가지를 뜻하게 된다.
+ *
+ * 누적은 그 달의 결론이고, 곡선이면 **언제부터 벌어졌나**도 보인다.
+ *
+ * ECharts 를 안 쓰는 이유는 밀도다 — 이 패널은 달력 오른쪽의 좁은 칸이고
+ * 네 지수가 세로로 쌓인다. 축과 눈금이 들어갈 자리가 없고, 정확한 값은
+ * 오른쪽 숫자와 호버가 든다. */
+const BENCH_CURVE_H = 34;
+
+function benchCurve(row) {
+  const days = row.daily || [];
+  const values = days.map((d) => d.cumulative_excess);
+  if (values.length < 2) {
+    return `<p class="sub tiny">곡선을 그리려면 이틀은 있어야 한다 (지금 ${num(values.length)}일).</p>`;
+  }
+  // 0 을 반드시 범위에 넣는다 — 0선이 화면 밖으로 나가면 "앞섰나 뒤졌나" 를
+  // 곡선 모양만으로는 못 읽는다.
+  const lo = Math.min(0, ...values);
+  const hi = Math.max(0, ...values);
+  const span = hi - lo || 1e-9;
+  const px = (i) => (i / (values.length - 1)) * 100;
+  const py = (v) => BENCH_CURVE_H - 2 - ((v - lo) / span) * (BENCH_CURVE_H - 4);
+
+  const last = values[values.length - 1];
+  // **색은 마지막 값 하나로만.** 구간마다 바꾸면 막대와 같은 문제가 돌아온다.
+  const tone = last > 0 ? "up" : last < 0 ? "down" : "flat";
+  const line = values.map((v, i) => `${px(i)},${py(v)}`).join(" ");
+  const zero = py(0);
+
+  // 양쪽이 다 관측되지 않은 날. 그날은 한쪽 누적이 안 움직였다 — 즉 "그날
+  // 그쪽 수익률이 0" 이라고 가정한 셈이라, 지우지 않고 점으로 드러낸다.
+  const gaps = days
+    .map((d, i) => (d.paired ? "" : `<circle cx="${px(i)}" cy="${py(values[i])}" r="1.6" class="gap"/>`))
+    .join("");
+
+  // 호버 자리. polyline 에는 점마다 title 을 못 달아서 투명한 칸을 겹친다.
+  const width = 100 / values.length;
+  const hits = days
+    .map(
+      (d, i) => `<rect x="${Math.max(0, px(i) - width / 2)}" y="0" width="${width}" height="${BENCH_CURVE_H}"
+        fill="transparent"><title>${d.session}
+우리 ${d.ours === null || d.ours === undefined ? "—" : pct(d.ours)}
+지수 ${d.index === null || d.index === undefined ? "—" : pct(d.index)}
+누적 초과 ${pct(d.cumulative_excess)}${d.paired ? "" : "\n(한쪽 데이터 없음)"}</title></rect>`
+    )
+    .join("");
+
+  return `<svg class="bench-curve ${tone}" viewBox="0 0 100 ${BENCH_CURVE_H}" preserveAspectRatio="none">
+    <line class="zero" x1="0" y1="${zero}" x2="100" y2="${zero}"/>
+    <polyline points="${line}" fill="none" vector-effect="non-scaling-stroke"/>
+    ${gaps}${hits}
+  </svg>`;
+}
+
 function renderBenchmarkCompare(body) {
   const target = document.getElementById("bench-compare");
   if (!target) return;
@@ -674,19 +735,7 @@ function renderBenchmarkCompare(body) {
         </div>`;
       }
       const excess = b.cumulative_excess;
-      const bars = b.daily
-        .map((day) => {
-          if (day.excess === null || day.excess === undefined) {
-            return `<span class="bar na" title="${day.session} · 지수 데이터 없음"></span>`;
-          }
-          // 막대 높이는 그 달 안에서의 상대 크기다. 절대 기준을 두면 변동이
-          // 작은 달이 통째로 안 보인다 (calendar.js scaleOf 와 같은 이유).
-          const scale = Math.max(...b.daily.map((d) => Math.abs(d.excess || 0)), 1e-9);
-          const height = Math.max(8, (Math.abs(day.excess) / scale) * 100);
-          return `<span class="bar ${day.excess >= 0 ? "up" : "down"}" style="height:${height}%"
-            title="${day.session} · 우리 ${pct(day.ours)} · 지수 ${pct(day.index)} · 초과 ${pct(day.excess)}"></span>`;
-        })
-        .join("");
+      const missing = (b.daily || []).filter((d) => !d.paired).length;
       return `<div class="bench-row">
         <div class="head">
           <span class="label">${b.label} <span class="sub">${bc.month}</span></span>
@@ -695,7 +744,11 @@ function renderBenchmarkCompare(body) {
         <div class="head">
           <span class="label">우리 ${pct(b.cumulative_ours)} · 지수 ${pct(b.cumulative_index)}</span>
         </div>
-        <div class="bench-daily">${bars}</div>
+        ${benchCurve(b)}
+        ${missing
+          ? `<p class="sub tiny bench-gap-note">양쪽이 다 관측된 날이 아닌 ${num(missing)}일이 있다 —
+             그날은 한쪽이 안 움직인 것으로 잰다(점으로 표시).</p>`
+          : ""}
       </div>`;
     })
     .join("");

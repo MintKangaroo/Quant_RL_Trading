@@ -61,33 +61,34 @@
 
 .bench-row.unavailable .label { color: var(--dim); }
 
-/* 일별 초과수익 막대. 축·눈금 없는 스파크 막대다 — 정확한 값은 title 로 본다. */
-.bench-daily {
-  display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  height: 28px;
+/* 누적 초과수익 곡선. **일별 막대가 아니다** — 저베타 전략에서 하루하루의
+   승패는 잡음이고, 막대는 상승장에서 빨강만 줄줄이 뜬다(그게 정상 동작인데
+   화면은 매일 졌다고 말한다). 색은 **마지막 값 하나**로만 정한다. */
+.bench-curve {
+  display: block;
+  width: 100%;
+  height: 34px;
   margin-top: 6px;
+  overflow: visible;
 }
 
-.bench-daily .bar {
-  flex: 1 1 auto;
-  min-width: 2px;
-  background: var(--dim);
-  opacity: 0.85;
+.bench-curve polyline { stroke-width: 1.6px; }
+.bench-curve.up polyline { stroke: var(--up); }
+.bench-curve.down polyline { stroke: var(--down); }
+.bench-curve.flat polyline { stroke: var(--muted); }
+
+/* 0선 — 이게 없으면 곡선 모양만으로 "앞섰나 뒤졌나" 를 못 읽는다. */
+.bench-curve .zero {
+  stroke: var(--border);
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
 }
 
-.bench-daily .bar.up { background: var(--up); }
-.bench-daily .bar.down { background: var(--down); }
-.bench-daily .bar.na { background: transparent; }
+/* 양쪽이 다 관측되지 않은 날. 지우면 "그날도 잰 값" 처럼 보인다. */
+.bench-curve .gap { fill: var(--warn); }
 
-/* -- Positions 파이 --------------------------------------------------------- */
-
-.positions-body {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
+.bench-gap-note { margin: 4px 0 0; line-height: 1.45; }
 
 .positions-body > #positions { flex: 1 1 60%; min-width: 0; }
 

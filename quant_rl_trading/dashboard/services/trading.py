@@ -709,7 +709,20 @@ def calendar_payload(store: Store, *, as_of: datetime, lookback: int) -> dict[st
 
 
 def benchmark_compare(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
-    """캘린더 옆 "지수 대비" 패널. 이번 달 누적과 일별 초과수익.
+    """캘린더 옆 "지수 대비" 패널. 이번 달 누적과 **누적 초과 곡선**.
+
+    ## 왜 일별 막대가 아니라 누적 곡선인가
+
+    이 전략은 저베타다(실측 베타 0.131 · 상승일 포착률 14%). 상승장에서 일별
+    초과가 음수인 날이 줄줄이 나오는 것이 **설계대로 굴러가는 모습**인데,
+    막대로 그리면 화면이 매일 "졌다" 고 스무 번 외친다 — 실측으로 2026-07 에
+    일별 초과의 부호가 22일 중 9~13번 뒤집혔다. 신호 대 잡음이 나쁘다.
+
+    게다가 빨강이 손실로 읽힌다. 우리가 +1% 벌어도 지수가 +3% 면 빨강인데,
+    같은 패널의 캘린더 쪽 빨강은 **진짜 손실**이라 한 패널에서 같은 색이 두
+    가지를 뜻하게 된다.
+
+    누적은 그 달의 결론이고, 곡선이면 **언제부터 벌어졌나**도 보인다.
 
     **가격지수다, 총수익지수가 아니다.** KRX Open API·LS·FRED 세 곳 다 배당을
     반영한 총수익지수를 안 준다(실측). 배당수익률만큼(국내 대형주 연 2~3%p)
@@ -777,19 +790,39 @@ def benchmark_compare(store: Store, *, as_of: datetime, lookback: int) -> dict[s
                 cumulative_index *= 1.0 + idx_returns[day]
             cumulative_index -= 1.0
 
-        daily = [
-            {
-                "session": day,
-                "ours": our_by_day.get(day),
-                "index": idx_returns.get(day),
-                "excess": (
-                    our_by_day[day] - idx_returns[day]
-                    if day in our_by_day and day in idx_returns
-                    else None
-                ),
-            }
-            for day in month_days
-        ]
+        # 축은 **두 달력의 합집합**이다. 우리 거래일로만 자르면 지수가 그 달에
+        # 실제로 움직인 날 일부가 축에서 빠지고, 그러면 곡선의 끝점이
+        # ``cumulative_excess`` 와 안 맞는다 — 실측으로 국장에서 3.6~4.4%p
+        # 어긋났다. 화면의 숫자와 곡선이 다른 값을 말하는 것은 그 자체로 결함이다.
+        axis = sorted(set(month_days) | set(index_month_days))
+        daily = []
+        running_ours = 1.0
+        running_index = 1.0
+        for day in axis:
+            ours = our_by_day.get(day)
+            index = idx_returns.get(day)
+            if ours is not None:
+                running_ours *= 1.0 + ours
+            if index is not None:
+                running_index *= 1.0 + index
+            daily.append(
+                {
+                    "session": day,
+                    "ours": ours,
+                    "index": index,
+                    # **누적 초과**다. 일별 초과가 아니다 — 저베타 전략에서
+                    # 하루하루의 승패는 베타 차이가 만드는 잡음이고, 그 달의
+                    # 결론은 누적이다(실측: 2026-07 에 일별 부호가 22일 중
+                    # 9~13번 뒤집혔다. 막대로 그리면 화면이 매일 "졌다" 고
+                    # 외치는데 그게 설계대로 굴러가는 중이라는 뜻이었다).
+                    "cumulative_excess": running_ours - running_index,
+                    # 그날 양쪽이 다 관측됐나. 한쪽이 없는 날은 그쪽 누적이
+                    # 안 움직인다 — 즉 **"그날 그쪽 수익률이 0"** 이라고 가정한
+                    # 셈이다. 휴장이면 맞고 미수집이면 틀리는데 여기서는 둘을
+                    # 못 가른다. 그래서 지우지 않고 화면이 세어서 적는다.
+                    "paired": ours is not None and index is not None,
+                }
+            )
         benchmarks.append(
             {
                 "key": candidate["key"],
