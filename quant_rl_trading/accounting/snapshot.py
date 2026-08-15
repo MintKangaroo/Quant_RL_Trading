@@ -78,17 +78,33 @@ def last_prices(store: Store, *, as_of: datetime, entities: list[str]) -> dict[s
 
     거래정지로 그날 봉이 없는 종목은 창 안의 마지막 종가를 쓴다. 0 으로 치면
     그 종목이 사라진 것과 같아져 NAV 가 조용히 떨어진다 (nav.value 참조).
+
+    **0 이하를 먼저 걷어내고 그 다음에 마지막 행을 고른다. 순서가 전부다.**
+    반대로 하면 창의 마지막 세션이 종가 0 일 때 그 0 행이 뽑히고, 뒤이은
+    필터가 그것을 버리면서 **종목이 결과에서 통째로 사라진다.** 그러면
+    `nav.value` 가 "가격이 없다" 로 예외를 던지고 스냅샷이 죽는다 — 위
+    문장이 약속한 "창 안의 마지막 종가" 는 영영 쓰이지 않는다.
+
+    실제로 그렇게 죽었다. KRX 는 휴장일에도 전 종목을 0 으로 채운 표를 주고,
+    방어(`krx_source.ohlcv_on`)가 생기기 전에 2026-06-03(지방선거)·2026-07-17
+    두 세션이 그렇게 적재됐다. 워크포워드 백테스트가 06-03 세션에서
+    `KeyError: 'KR:138930: 가격이 없다'` 로 죽었고, 증상은 "며칠째 안 끝난다"
+    였다. 그 두 날은 받아올 시세가 존재하지 않으므로(소스가 지금도 0 을 준다)
+    **정정본으로 메울 수도 없다** — 읽는 쪽이 견뎌야 한다.
     """
     if not entities:
         return {}
     frame = store.get(PRICES, as_of=as_of, entity=entities, lookback=30)
     if frame.empty:
         return {}
+    close = pd.to_numeric(frame["close"], errors="coerce")
+    frame = frame[close.notna() & (close > 0)]
+    if frame.empty:
+        return {}
     latest = frame.sort_values(["valid_from", "observed_at"]).groupby("entity_id").tail(1)
     return {
         str(row["entity_id"]): float(row["close"])
         for row in latest.to_dict(orient="records")
-        if pd.notna(row["close"]) and float(row["close"]) > 0
     }
 
 

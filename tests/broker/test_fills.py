@@ -55,7 +55,10 @@ def t0425_response(rows: list[dict]) -> httpx.Response:
 def pending(*, order_id: str = "order-1", broker_order_no: str = "700001") -> PendingFill:
     return PendingFill(
         order_id=order_id,
-        entity_id="005930",
+        # 종목 코드가 아니라 **시장 접두어가 붙은 entity_id** 다. 프로덕션은
+        # `planned.order.entity_id`(=`KR:005930`)를 그대로 나른다 —
+        # 접두어 없는 값은 창고가 거부한다(TableSpec.market_prefixed_entity).
+        entity_id="KR:005930",
         side=Side.BUY,
         market="KR",
         broker_order_no=broker_order_no,
@@ -139,7 +142,7 @@ def test_next_poll_records_only_the_new_quantity(funded_store, ts) -> None:  # t
     book = ledger_module.build_book(
         funded_store, as_of=as_of, rates=Rates.from_store(funded_store, as_of=as_of)
     )
-    assert book.positions["005930"].quantity == 100.0
+    assert book.positions["KR:005930"].quantity == 100.0
 
 
 def test_repeated_observation_of_same_cumulative_state_does_not_double_count(
@@ -268,7 +271,7 @@ def test_live_fill_row_matches_backtest_trades_schema(funded_store, ts) -> None:
     book = ledger_module.build_book(
         funded_store, as_of=as_of, rates=Rates.from_store(funded_store, as_of=as_of)
     )
-    assert book.positions["005930"].quantity == 10.0
+    assert book.positions["KR:005930"].quantity == 10.0
 
 
 def test_fee_and_tax_come_from_config_not_broker_response(funded_store, ts) -> None:  # type: ignore[no-untyped-def]
