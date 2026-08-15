@@ -60,8 +60,20 @@ def _send(transport: MockTransport, **kwargs: object) -> emailer.SendResult:
 # -- 설정 ----------------------------------------------------------------------
 
 
-def test_missing_credentials_skip_instead_of_raising() -> None:
-    """``.env`` 가 없어도 안전하게 실패한다 (R-5 6번)."""
+def test_missing_credentials_skip_instead_of_raising(monkeypatch) -> None:
+    """``.env`` 가 없어도 안전하게 실패한다 (R-5 6번).
+
+    **환경을 비우고 잰다.** ``config=None`` 은 "설정이 없다" 가 아니라
+    **"환경에서 읽어라"** 라는 뜻이라(`send` 의 `config or load_config()`),
+    주변 환경에 자격증명이 있으면 이 테스트는 `sent` 를 본다.
+
+    실제로 그렇게 깨졌다 — 단독으로는 통과하는데 전체 스위트에서 실패했다.
+    `tests/dashboard` 가 `load_env()` 로 `.env` 를 **전역 `os.environ` 에**
+    올려놓고 정리하지 않아서, 뒤에 도는 이 테스트가 그것을 주워 들었다.
+    순서에 따라 답이 바뀌는 테스트는 언젠가 아무도 안 믿는다.
+    """
+    for key in emailer.REQUIRED:
+        monkeypatch.delenv(key, raising=False)
     assert emailer.load_config({}) is None
     result = emailer.send(subject="s", html="h", text="t", config=None, transport=MockTransport())
     assert result.status == "skipped"
