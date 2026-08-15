@@ -167,13 +167,30 @@ US_ETF_PANELS = (
 #: 가격지수와 갈라서 묶는다 — 등락에 손익 색도 쓰지 않는다.
 VOLATILITY_INDICES = frozenset({"US:IDX:VIX", "US:IDX:VXN", "US:IDX:RVX"})
 
-#: 오늘 많이 오른/내린 종목 줄 수.
-MOVER_ROWS = 5
+#: 순위표 4종 — **거래량(주식 수) 상위는 없다.**
+#:
+#: 2026-08-12 미장 거래량 상위 1·5위가 $1.52(RMCF, +126%) · $1.36(OFAL, +90.7%)
+#: 였다. **하한을 안 걸어서가 아니다** — 하한($1·$5M)은 거래량 순위에도 걸려
+#: 있었고 둘 다 통과했다. 주식 수로 세는 한 싼 쪽이 유리한 것은 **척도 자체의
+#: 성질**이라 하한은 바닥만 자를 뿐 순위의 기울기를 못 바꾼다. 같은 날 거래대금
+#: 상위는 MU·SPY·NVDA 였다 — 같은 자리를 훨씬 잘 채운다.
+#:
+#: 메일 브리핑이 먼저 같은 결론에 닿았다(`reporting/briefing.py` RANKINGS).
+#: **두 곳이 다른 순위표를 들면 사용자가 어느 쪽을 믿을지 모른다** —
+#: tests/dashboard 가 두 목록이 어긋나지 않는지 지킨다.
+#:
+#: ⚠️ **상승률과 하락률은 같은 모집단을 쓴다.** config 키 이름이 ``gainer_pool``
+#: 이라 상승 전용처럼 읽히는데 아니다 — 두 표가 **거래대금 상위 같은 300종목**
+#: 안에서 고른다. 한쪽에만 하한을 걸면 두 표가 서로 다른 세계를 보게 되고,
+#: "상위 5개는 다 급등주인데 하위 5개는 듣도 보도 못한 종목" 같은 화면이 된다.
+#: 키 이름은 창고에 이미 심겨 못 바꾸므로 여기 적어 둔다.
+RANKINGS = (
+    ("value", "거래대금 상위", "prices.value — 체결 금액"),
+    ("market_cap", "시가총액 상위", "market_stats.market_cap"),
+    ("gainers", "상승률 상위", "직전 세션 대비 등락률 — 거래대금 상위 모집단 안에서"),
+    ("losers", "하락률 상위", "직전 세션 대비 등락률 — 상승률과 같은 모집단"),
+)
 
-#: 등락 상위를 고르는 모집단 — **거래대금 상위 이만큼 안에서만 고른다.**
-#: 전 종목에서 고르면 하루 거래대금 몇백만 원짜리 동전주가 상위를 독차지한다.
-#: 그건 "오늘 시장이 어디로 움직였나" 의 답이 아니다.
-MOVER_POOL = 300
 
 
 def entity_names(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
@@ -555,49 +572,6 @@ def breadth(changes: pd.DataFrame, *, market: str) -> dict[str, Any]:
     }
 
 
-def movers(
-    store: Store, changes: pd.DataFrame, *, as_of: datetime
-) -> dict[str, list[dict[str, Any]]]:
-    """오늘 많이 오른 종목·많이 내린 종목·거래대금 상위.
-
-    등락 상위는 **거래대금 상위 ``MOVER_POOL`` 안에서만** 고른다 — 이유는
-    상수 주석 참고. 이 필터가 없으면 화면이 동전주 목록이 된다.
-    """
-    if changes.empty:
-        return {"gainers": [], "losers": [], "actives": []}
-
-    ranked = changes.sort_values("value", ascending=False)
-    pool = ranked.head(MOVER_POOL)
-    measured = pool[pool["change"].notna()].sort_values("change", ascending=False)
-
-    gainers = measured.head(MOVER_ROWS)
-    losers = measured.tail(MOVER_ROWS).iloc[::-1]
-    actives = ranked.head(MOVER_ROWS)
-
-    entities = sorted(
-        {str(e) for frame in (gainers, losers, actives) for e in frame.index}
-    )
-    names = entity_names(store, as_of=as_of, entities=entities)
-
-    def rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for entity, row in frame.iterrows():
-            key = str(entity)
-            change = row["change"]
-            out.append(
-                {
-                    "entity_id": key,
-                    "name": names.get(key, key),
-                    "close": float(row["close"]),
-                    "change": None if pd.isna(change) else float(change),
-                    "value": None if pd.isna(row["value"]) else float(row["value"]),
-                }
-            )
-        return out
-
-    return {"gainers": rows(gainers), "losers": rows(losers), "actives": rows(actives)}
-
-
 # -- 시가총액 상위 -------------------------------------------------------------
 
 
@@ -648,6 +622,187 @@ def leaders(
             }
         )
     return rows
+
+
+# -- 순위표 3종 -----------------------------------------------------------------
+
+
+def ranking_floor(store: Store, *, as_of: datetime, market: str) -> dict[str, Any] | None:
+    """순위 하한. **`config.reporting` 에서 읽는다 — 여기서 만들지 않는다.**
+
+    메일 브리핑이 쓰는 것과 **같은 값**이다(`reporting/briefing.py` `Floor`).
+    두 화면이 다른 "상승 종목" 을 말하면 안 되므로 출처가 하나여야 한다
+    (불변식 10).
+
+    셋을 같이 거는 이유: 거래대금만 걸면 저가주가 호가 한 칸으로 몇 %씩 뛰는
+    것을 못 막고, 주가만 걸면 거래가 거의 없는 고가주가 들어온다. 거기에
+    순위 하한(``pool``)이 셋째 축이다 — 상승률은 **거래대금 상위 ``pool``
+    안에서만** 고른다.
+
+    그 섹션이 창고에 없으면 ``None`` 이다. **기본값으로 때우지 않는다** —
+    코드가 조용히 자기 숫자를 들면 화면과 메일이 갈라지고, 갈라진 사실조차
+    아무도 모른다. 화면이 "설정이 없다" 고 말하는 편이 낫다.
+    """
+    try:
+        section = store.config("reporting", as_of=as_of)
+    except Exception:
+        return None
+    currency = CURRENCY.get(market, "")
+    suffix = currency.lower()
+    try:
+        return {
+            "currency": currency,
+            "min_turnover": float(section[f"min_turnover_{suffix}"]),
+            "min_price": float(section[f"min_price_{suffix}"]),
+            # 상승률·하락률 **두 표가 공유하는** 모집단이다. 이름이 gainer 로
+            # 시작하는 것은 이 키가 상승 표에서 먼저 생겼기 때문이다.
+            "pool": int(section["gainer_pool"]),
+            # 줄 수도 여기서 온다. 한때 모듈 상수였는데, 같은 값을 두 곳에
+            # 두면 언젠가 화면과 메일이 다른 줄 수를 든다 (불변식 10).
+            "rows": int(section["ranking_rows"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _rank_caps(store: Store, *, as_of: datetime, market: str) -> tuple[pd.Series, str | None]:
+    """종목별 최신 시가총액과 그 세션.
+
+    ``until=as_of`` 를 **반드시** 준다. ``lookback`` 은 valid_from 의 하한만
+    자르므로, 표지 날짜가 미래인 행이 있으면 그것이 "최신" 으로 뽑힌다 —
+    창고의 미장 ``shares`` 에 2028-08-01 짜리 행이 실제로 있다. 창 없이 읽으면
+    2년 뒤 값으로 순위를 매기게 된다(`reporting/briefing.py` `market_caps` 와
+    같은 이유, 같은 처방).
+    """
+    frame = store.get(
+        MARKET_STATS,
+        as_of=as_of,
+        lookback=RECENT_DAYS,
+        until=as_of,
+        market=market,
+        columns=["entity_id", "metric", "value", "valid_from"],
+    )
+    if frame.empty:
+        return pd.Series(dtype=float), None
+    caps = frame[frame["metric"] == "market_cap"].copy()
+    if caps.empty:
+        return pd.Series(dtype=float), None
+    caps["session"] = [_session(v) for v in caps["valid_from"]]
+    sessions = sorted({s for s in caps["session"] if s})
+    if not sessions:
+        return pd.Series(dtype=float), None
+    latest = caps[caps["session"] == sessions[-1]].drop_duplicates("entity_id", keep="last")
+    return latest.set_index("entity_id")["value"].astype(float), sessions[-1]
+
+
+def rankings(
+    store: Store, changes: pd.DataFrame, *, as_of: datetime, market: str
+) -> dict[str, Any]:
+    """한 시장의 순위표 3종. 시세는 ``changes``(이미 읽은 판)를 나눠 쓴다.
+
+    각 줄은 **종목명 · 가격 · 등락률 · 시총 + 그 표의 기준값**을 든다. 시총을
+    모든 표에 싣는 이유는 "거래대금 1위가 대형주인가 아닌가" 가 그 자체로
+    읽을거리이기 때문이다.
+
+    ## 표마다 세션이 다를 수 있다
+
+    시세와 시총은 다른 수집기가 넣는다. 실측(2026-08-15): 국장 시세는 08-14
+    인데 **시총은 08-11** 이다. 표마다 자기 ``session`` 을 들고 나가고, 화면이
+    그걸 적는다 — 나란히 놓으면 같은 날로 읽힌다.
+    """
+    floor = ranking_floor(store, as_of=as_of, market=market)
+    base = {
+        "market": market,
+        "currency": CURRENCY.get(market, ""),
+        "floor": floor,
+        "rows": None if floor is None else floor["rows"],
+        "universe": 0 if changes.empty else len(changes),
+        "eligible": 0,
+        "tables": [],
+    }
+    if floor is None:
+        # 하한을 모르면 순위를 매기지 않는다. 무엇이 없는지는 화면이 말한다.
+        base["reason"] = (
+            "config.reporting 이 창고에 없다 — 순위 하한(거래대금·주가·모집단)을 "
+            "읽을 수 없다. seed_config_defaults 로 심어야 한다."
+        )
+        return base
+
+    caps, cap_session = _rank_caps(store, as_of=as_of, market=market)
+    session = None if changes.empty else next((s for s in changes["session"] if s), None)
+
+    if changes.empty:
+        liquid = changes
+    else:
+        liquid = changes[
+            (changes["value"].fillna(0.0) >= floor["min_turnover"])
+            & (changes["close"] >= floor["min_price"])
+        ]
+    base["eligible"] = len(liquid)
+
+    limit = floor["rows"]
+
+    def rows_of(
+        frame: pd.DataFrame, column: str, *, ascending: bool = False
+    ) -> list[dict[str, Any]]:
+        if frame.empty:
+            return []
+        top = frame.sort_values(column, ascending=ascending).head(limit)
+        entities = [str(e) for e in top.index]
+        names = entity_names(store, as_of=as_of, entities=entities)
+        out: list[dict[str, Any]] = []
+        for entity, row in top.iterrows():
+            key = str(entity)
+            change = row.get("change")
+            close = row.get("close")
+            cap = caps.get(key)
+            out.append(
+                {
+                    "entity_id": key,
+                    # 미장 유니버스의 name 은 티커 그대로다(NVDA/NVDA) — 없는
+                    # 이름을 지어내지 않고 티커를 그대로 쓴다.
+                    "name": names.get(key, key),
+                    "close": None if close is None or pd.isna(close) else float(close),
+                    "change": None if change is None or pd.isna(change) else float(change),
+                    "market_cap": None if cap is None or pd.isna(cap) else float(cap),
+                    "metric": float(row[column]),
+                }
+            )
+        return out
+
+    for key, label, sort_by in RANKINGS:
+        if key == "market_cap":
+            if caps.empty:
+                base["tables"].append(
+                    {"key": key, "label": label, "sort_by": sort_by, "session": None,
+                     "rows": [], "pooled": None}
+                )
+                continue
+            frame = pd.DataFrame({"market_cap": caps})
+            if not changes.empty:
+                frame = frame.join(changes[["close", "change"]], how="left")
+            base["tables"].append(
+                {"key": key, "label": label, "sort_by": sort_by, "session": cap_session,
+                 "rows": rows_of(frame, "market_cap"), "pooled": None}
+            )
+            continue
+        if key in ("gainers", "losers"):
+            # **거래대금 상위 pool 안에서만 고른다.** 이 축이 없으면 등락률
+            # 순위는 시황이 아니라 동전주 목록이 된다. 두 표가 **같은 모집단**을
+            # 쓴다 — 한쪽에만 걸면 서로 다른 세계를 보게 된다.
+            pool = liquid.sort_values("value", ascending=False).head(floor["pool"])
+            measured = pool[pool["change"].notna()] if not pool.empty else pool
+            base["tables"].append(
+                {"key": key, "label": label, "sort_by": sort_by, "session": session,
+                 "rows": rows_of(measured, "change", ascending=key == "losers"),
+                 "pooled": len(pool)}
+            )
+            continue
+        base["tables"].append(
+            {"key": key, "label": label, "sort_by": sort_by, "session": session,
+             "rows": rows_of(liquid, key), "pooled": None}
+        )
+    return base
 
 
 # -- 거시지표 ------------------------------------------------------------------
@@ -731,7 +886,7 @@ def market_panel(
         "instrument_panels": panels,
         "indices": indices(store, as_of=as_of, market=market, exclude=paneled),
         "breadth": breadth(changes, market=market),
-        "movers": movers(store, changes, as_of=as_of),
+        "rankings": rankings(store, changes, as_of=as_of, market=market),
         "leaders": top[:LEADER_ROWS],
         "treemap": {"rows": top, "top_n": TREEMAP_TOP_N},
         "macro": macro_recent(store, as_of=as_of, market=market),

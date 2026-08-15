@@ -236,7 +236,10 @@ main { padding: 10px 12px 24px; display: grid; gap: 10px; }
 .kpi-stop.engaged { border-color: var(--warn); }
 .kpi-stop.engaged button { color: var(--warn); }
 
-.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
+/* ``min(420px, 100%)`` 이다. 420px 만 쓰면 화면이 그보다 좁을 때 칸이 420px 을
+   고집해 **본문이 통째로 가로로 밀린다**(390px 화면에서 76px 초과). min() 은
+   넓은 화면에서 420 그대로라 데스크톱 배치가 안 바뀐다. */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 14px; }
 
 /* 패널 — 머리글이 본문과 다른 줄에 앉는다. 제목을 본문과 같은 바탕에 두면
    패널이 몇 개인지가 안 읽히고, 화면이 카드 더미가 아니라 글자 벽이 된다. */
@@ -273,7 +276,11 @@ main { padding: 10px 12px 24px; display: grid; gap: 10px; }
 /* 목록이 긴 패널은 **패널 안에서** 스크롤한다. 페이지가 길어지면 화면 하나에
    전체를 못 담고(dashboard.md §2: 1920×1080 에서 스크롤 없이), 위쪽 지표를
    보려면 매번 스크롤을 올려야 한다. */
-.scroll { max-height: 420px; overflow-y: auto; }
+/* **가로도 자기 안에서 연다.** 이게 없으면 열이 많은 표가 본문을 밀어 페이지
+   전체가 가로로 흐르고, 그러면 좌우 배치가 통째로 무너진다. 표를 카드로 흩지
+   않는 것이 이 대시보드의 규칙이라(열끼리 견주는 것이 요점이다) 남는 길은
+   자기 컨테이너 안의 가로 스크롤이다. */
+.scroll { max-height: 420px; overflow-y: auto; overflow-x: auto; }
 
 /* 스크롤 영역에서 머리글이 따라온다. 40행을 내려간 뒤 어느 열이 무엇인지
    모르면 표가 아니라 글자 더미다. */
@@ -766,3 +773,44 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
   font-size: 10.5px; cursor: pointer; padding: 0;
 }
 .linky:hover { text-decoration: underline; }
+
+
+/* ===========================================================================
+   모바일 — 아이폰 13 Pro 가 CSS 폭 390px 이다.
+   ---------------------------------------------------------------------------
+   **추가이지 교체가 아니다.** 데스크톱 배치는 그대로 두고 좁을 때만 얹는다.
+   미디어쿼리 밖에 있는 것은 위의 `.grid2` min() 과 `.scroll` overflow-x 둘
+   뿐인데, 그 둘은 넓은 화면에서 값이 바뀌지 않아 데스크톱에 영향이 없다.
+   =========================================================================== */
+@media (max-width: 640px) {
+  /* 글씨 바닥. 데스크톱에서 10px 로 잡은 라벨이 손에서는 안 읽힌다.
+     **숫자는 줄이지 않는다** — 자릿수나 소수점을 자르면 화면이 다른 값을
+     말하게 된다. 줄이는 것은 글자가 아니라 줄 수다. */
+  .kpi-label, .kpi-note, .badge, .seg button, .dense .code,
+  .verdict, .decision-action .k, .linky, .chip { font-size: 11px; }
+  .cal-week, .cal-cell .d, .cal-cell .r { font-size: 10.5px; }
+
+  /* 손가락으로 누르는 것. 26px·20px 짜리는 옆 것을 같이 누른다. */
+  .tabs a { padding: 9px 13px; font-size: 12.5px; }
+  .seg button { padding: 7px 12px; font-size: 11px; }
+
+  /* 표는 **버리지 않는다.** 카드로 흩으면 열끼리 견주는 일을 못 하게 된다.
+     대신 자기 컨테이너 안에서 옆으로 밀고, 첫 열(종목명)을 고정해 무엇에
+     대한 줄인지가 스크롤 중에도 남게 한다. */
+  .scroll table { min-width: max-content; }
+  .scroll td:first-child, .scroll th:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--panel);
+  }
+  /* 머리글 첫 칸은 가로·세로 양쪽으로 붙으므로 겹침 순서를 한 단 올린다. */
+  .scroll thead th:first-child { z-index: 2; }
+
+  /* 뉴스 표의 첫 열 172px 은 390px 화면에서 절반을 먹는다. */
+  table.news th:first-child, table.news td:first-child { width: 108px; }
+
+  /* 패널 여백을 줄여 숫자 자리를 남긴다. */
+  main { padding: 8px 8px 20px; }
+  .panel > *:not(h2) { margin-left: 8px; margin-right: 8px; }
+  .panel h2 { padding: 6px 8px; }
+}

@@ -66,18 +66,17 @@
         <div id="breadth-kr"></div>
       </div>
 
-      <div class="panel">
-        <h2>오늘 움직인 종목
-          <span class="right"><span class="sub">거래대금 상위 안에서</span></span>
-        </h2>
-        <div id="movers-kr" class="scroll dense"></div>
-      </div>
+      {# 순위표 3종 — 거래대금 · 시가총액 · 상승률. **거래량(주식 수) 상위는
+         없다** — 주식 수로 세면 싼 쪽이 유리한 것이 척도의 성질이라 하한으로
+         못 고친다(services/market.py RANKINGS 주석).
 
+         이 패널이 옛 "오늘 움직인 종목" · "시가총액 상위" 를 대신한다. 둘을
+         같이 두면 한 화면에 하한이 다른 "거래대금 상위" 가 둘 생긴다. #}
       <div class="panel">
-        <h2>시가총액 상위
-          <span class="right"><span class="sub" id="leaders-count-kr"></span></span>
+        <h2>순위 TOP5
+          <span class="right"><span class="sub" id="rankings-note-kr"></span></span>
         </h2>
-        <div id="leaders-kr" class="scroll dense"></div>
+        <div id="rankings-kr" class="scroll dense"></div>
       </div>
 
       <div class="panel">
@@ -115,18 +114,17 @@
         <div id="breadth-us"></div>
       </div>
 
-      <div class="panel">
-        <h2>오늘 움직인 종목
-          <span class="right"><span class="sub">거래대금 상위 안에서</span></span>
-        </h2>
-        <div id="movers-us" class="scroll dense"></div>
-      </div>
+      {# 순위표 3종 — 거래대금 · 시가총액 · 상승률. **거래량(주식 수) 상위는
+         없다** — 주식 수로 세면 싼 쪽이 유리한 것이 척도의 성질이라 하한으로
+         못 고친다(services/market.py RANKINGS 주석).
 
+         이 패널이 옛 "오늘 움직인 종목" · "시가총액 상위" 를 대신한다. 둘을
+         같이 두면 한 화면에 하한이 다른 "거래대금 상위" 가 둘 생긴다. #}
       <div class="panel">
-        <h2>시가총액 상위
-          <span class="right"><span class="sub" id="leaders-count-us"></span></span>
+        <h2>순위 TOP5
+          <span class="right"><span class="sub" id="rankings-note-us"></span></span>
         </h2>
-        <div id="leaders-us" class="scroll dense"></div>
+        <div id="rankings-us" class="scroll dense"></div>
       </div>
 
       <div class="panel">

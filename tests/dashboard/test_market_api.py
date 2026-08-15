@@ -120,11 +120,16 @@ def desk(store):  # type: ignore[no-untyped-def]
         ingest_run_id="universe",
     )
     # 시총은 국장만 있다 — 미장 상장주식수를 받는 수집기가 아직 없다.
+    #
+    # 표지 날짜를 **어제**로 둔다. 실데이터가 그렇고(세션 자정), 시세보다 한
+    # 세션 늦은 상태를 그대로 재현한다 — 실측으로 국장 시세 08-14 · 시총
+    # 08-11 이었다. 그리고 ``until=as_of`` 는 **배타**라(valid_from < until)
+    # 표지가 as_of 와 같은 행은 아예 안 잡힌다.
     store.append(
         "market_stats",
         [
-            _row(KR_A, NOW, market="KR", metric="market_cap", value=5_000_000_000_000.0),
-            _row(KR_B, NOW, market="KR", metric="market_cap", value=1_000_000_000_000.0),
+            _row(KR_A, YESTERDAY, market="KR", metric="market_cap", value=5_000_000_000_000.0),
+            _row(KR_B, YESTERDAY, market="KR", metric="market_cap", value=1_000_000_000_000.0),
         ],
         ingest_run_id="stats",
     )
@@ -306,13 +311,80 @@ def test_등락을_못_잰_종목은_보합이_아니다(client) -> None:
     assert kr["unmeasured"] == 1
 
 
-def test_많이_움직인_종목이_시장별로_온다(client) -> None:
+def _table(panel: dict, key: str) -> dict:
+    return next(row for row in panel["rankings"]["tables"] if row["key"] == key)
+
+
+def test_순위표는_넷이다(client) -> None:
+    """거래대금 · 시가총액 · 상승률 · 하락률. **거래량(주식 수) 상위는 없다** —
+    주식 수로 세면 싼 쪽이 유리한 것이 척도의 성질이라 하한으로 못 고친다."""
     markets = client.get("/api/market").get_json()["data"]["markets"]
-    us = markets["US"]["movers"]
-    assert next(row["entity_id"] for row in us["gainers"]) == US_A
-    assert next(row["entity_id"] for row in us["losers"]) == US_B
-    assert us["actives"][0]["entity_id"] == US_A  # 거래대금 1위
-    assert us["gainers"][0]["change"] == pytest.approx(210.0 / 200.0 - 1.0)
+    for code in ("KR", "US"):
+        keys = [row["key"] for row in markets[code]["rankings"]["tables"]]
+        assert keys == ["value", "market_cap", "gainers", "losers"]
+
+
+def test_하락률은_상승률과_같은_모집단_반대_방향이다(client) -> None:
+    """config 키 이름이 ``gainer_pool`` 이지만 **두 표가 공유한다.**"""
+    us = client.get("/api/market").get_json()["data"]["markets"]["US"]
+    gainers, losers = _table(us, "gainers"), _table(us, "losers")
+    assert gainers["pooled"] == losers["pooled"]
+    assert losers["rows"][0]["entity_id"] == US_B  # 유일하게 내린 종목
+    assert losers["rows"][0]["change"] == pytest.approx(380.0 / 400.0 - 1.0)
+
+
+def test_줄_수는_config_ranking_rows_다(client) -> None:
+    """모듈 상수로 들면 화면과 메일이 다른 줄 수를 든다 (불변식 10)."""
+    us = client.get("/api/market").get_json()["data"]["markets"]["US"]["rankings"]
+    assert us["rows"] == us["floor"]["rows"] == 5
+
+
+def test_상승률_상위는_하한을_통과한_것만_고른다(client) -> None:
+    """하한이 없으면 시황이 아니라 동전주 목록이다. 값은 `config.reporting`
+    에서 오고, 메일 브리핑이 쓰는 것과 **같은 값**이다(불변식 10)."""
+    us = client.get("/api/market").get_json()["data"]["markets"]["US"]
+    floor = us["rankings"]["floor"]
+    assert floor is not None, "config.reporting 이 시딩되지 않았다"
+    assert floor["min_turnover"] == 5_000_000.0
+    assert floor["min_price"] == 1.0
+    assert floor["pool"] == 300
+
+    gainers = _table(us, "gainers")["rows"]
+    assert gainers and gainers[0]["entity_id"] == US_A
+    assert gainers[0]["change"] == pytest.approx(210.0 / 200.0 - 1.0)
+    # 줄마다 이름·가격·등락률·시총이 있어야 한다.
+    for row in gainers:
+        assert set(row) >= {"entity_id", "name", "close", "change", "market_cap", "metric"}
+
+
+def test_거래대금_순위는_금액으로_줄_세운다(client) -> None:
+    us = client.get("/api/market").get_json()["data"]["markets"]["US"]
+    rows = _table(us, "value")["rows"]
+    assert [row["entity_id"] for row in rows] == [US_A, US_B]
+    assert rows[0]["metric"] == pytest.approx(1.1e10)
+
+
+def test_하한이_없으면_순위를_매기지_않는다(store) -> None:
+    """**기본값으로 때우지 않는다.** 코드가 조용히 자기 숫자를 들면 화면과
+    메일이 갈라지고, 갈라진 사실조차 아무도 모른다."""
+    from quant_rl_trading.dashboard.services import market as service
+
+    # config 를 심지 않은 창고다 — reporting 섹션이 없다.
+    changes = service.session_changes(store, as_of=NOW, market="US")
+    result = service.rankings(store, changes, as_of=NOW, market="US")
+    assert result["floor"] is None
+    assert "config.reporting" in result["reason"]
+    assert all(not table["rows"] for table in result["tables"])
+
+
+def test_시가총액_순위는_시세와_다른_세션일_수_있다(client) -> None:
+    """시세와 시총은 다른 수집기가 넣는다 — 실측으로 국장 시세 08-14 ·
+    시총 08-11 이었다. 표마다 자기 세션을 들어야 화면이 그걸 말할 수 있다."""
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    caps = _table(markets["KR"], "market_cap")
+    assert [row["entity_id"] for row in caps["rows"]] == [KR_A, KR_B]
+    assert caps["session"] is not None
+    assert "session" in _table(markets["KR"], "value")
 
 
 def test_시가총액은_국장만_찬다(client) -> None:

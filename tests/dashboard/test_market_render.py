@@ -37,7 +37,7 @@ PAYLOADS = Path(__file__).parent / "payloads"
 #: 지수·ETF 패널은 여기 없다. 2026-08-15 에 **가로 한 줄**(`index-strip`)로
 #: 옮겨 갔기 때문이다 — 좌우 두 칸이 아니라서 짝 검사가 안 맞는다. 대신
 #: 시장 경계가 보이는지·양쪽 시장이 다 찼는지를 아래에서 따로 본다.
-PAIRED = ("indices", "breadth", "movers", "leaders", "macro")
+PAIRED = ("indices", "breadth", "rankings", "macro")
 
 HARNESS = """
 const ids = new Set(IDS);
@@ -114,6 +114,11 @@ def indexLabel(entity_id: str) -> str:
     """market.js 의 indexLabel 과 같은 규칙. "KR:IDX:KOSPI" → "KOSPI"."""
     head, _, tail = entity_id.partition("IDX:")
     return tail or entity_id
+
+
+def num_ko(value: float) -> str:
+    """market.js 의 num(). 천단위 구분이 들어가므로 문자열 비교에 필요하다."""
+    return f"{int(value):,}"
 
 
 def dec2(value: float) -> str:
@@ -201,12 +206,13 @@ def test_트리맵은_시장마다_따로_그린다(rendered: dict[str, str], su
 @pytest.mark.parametrize("suffix", ["kr", "us"])
 def test_시가총액이_없으면_이유를_적는다(rendered: dict[str, str], suffix: str) -> None:
     """미장 시가총액은 오래 0행이었다(상장주식수 수집기가 없어서). 빈 표로 두면
-    조인 버그처럼 보인다 — 화면이 이유를 말해야 엉뚱한 데를 파지 않는다."""
+    조인 버그처럼 보인다 — 화면이 이유를 말해야 엉뚱한 데를 파지 않는다.
+
+    옛 "시가총액 상위" 패널이 순위표로 바뀌면서 이 사실을 드는 자리는 **트리맵**
+    이 됐다. 검사를 지우지 않고 그쪽으로 옮긴다."""
     market = _payload()["data"]["markets"][suffix.upper()]
-    if market["leaders"]:
-        assert "상장주식수" not in rendered[f"leaders-{suffix}"]
-    else:
-        assert "상장주식수" in rendered[f"leaders-{suffix}"]
+    if not market["treemap"]["rows"]:
+        assert "상장주식수" in rendered[f"chart-treemap-{suffix}"]
 
 
 def _group(rendered: dict[str, str], suffix: str) -> str:
@@ -420,3 +426,135 @@ def test_환율_차트는_사라졌고_패널은_칸_안에_있다(rendered: dic
     assert "chart-indices" not in markup
     assert "chart:chart-fx" not in rendered
     assert "chart:chart-indices" not in rendered
+
+
+# -- 순위표 3종 -----------------------------------------------------------------
+
+
+def _rankings(suffix: str) -> dict:
+    return _payload()["data"]["markets"][suffix.upper()]["rankings"]
+
+
+def test_거래량_상위는_없다_그리고_다시_생기지_않는다() -> None:
+    """2026-08-12 미장 거래량 상위 1·5위가 $1.52(+126%) · $1.36(+90.7%) 였다.
+
+    **하한을 안 걸어서가 아니다** — 하한($1·$5M)은 거래량 순위에도 걸려 있었고
+    둘 다 통과했다. 주식 수로 세는 한 싼 쪽이 유리한 것은 **척도 자체의
+    성질**이라 하한은 바닥만 자를 뿐 순위의 기울기를 못 바꾼다. 그래서 표를
+    없앴다 — 하한을 올려서 되살리려는 시도를 이 테스트가 막는다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    keys = [key for key, _, _ in service.RANKINGS]
+    assert "volume" not in keys
+    assert keys == ["value", "market_cap", "gainers", "losers"]
+
+
+def test_화면과_메일이_같은_순위표를_든다() -> None:
+    """두 곳이 다른 순위표를 들면 사용자가 어느 쪽을 믿을지 모른다.
+
+    메일(`reporting/briefing.py`)은 거래대금·시가총액 둘이고, 화면은 거기에
+    상승률을 더한 셋이다. **화면에만 있는 것은 괜찮지만, 메일에 있는데 화면에
+    없는 것은 안 된다** — 그건 화면이 뒤처졌다는 뜻이다.
+
+    (import 방향에 주의: `briefing` 이 `dashboard.services.market` 을 부르므로
+    그 반대 방향 import 는 순환이다. 테스트에서만 둘을 함께 본다.)
+    """
+    from quant_rl_trading.dashboard.services import market as service
+    from quant_rl_trading.reporting import briefing
+
+    mail = {key for key, _, _ in briefing.RANKINGS}
+    screen = {key for key, _, _ in service.RANKINGS}
+    assert mail <= screen, f"메일에만 있는 순위표: {sorted(mail - screen)}"
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_하한을_화면이_적는다(rendered: dict[str, str], suffix: str) -> None:
+    """안 보이면 사용자는 이게 전체 순위인 줄 안다."""
+    data = _rankings(suffix)
+    dump = rendered[f"rankings-{suffix}"]
+    if data["floor"] is None:
+        # 하한을 모르면 순위를 안 매긴다 — 기본값으로 때우지 않는다.
+        assert not any(table["rows"] for table in data["tables"])
+        assert "config.reporting" in dump
+        return
+    assert "하한" in dump
+    assert num_ko(data["floor"]["pool"]) in dump, "상승률 모집단 크기를 안 적었다"
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_순위표는_표마다_자기_세션을_적는다(rendered: dict[str, str], suffix: str) -> None:
+    """시세와 시총은 다른 수집기가 넣는다 — 실측으로 국장 시세 08-14 ·
+    시총 08-11 이었다. 나란히 놓으면 같은 날로 읽힌다."""
+    dump = rendered[f"rankings-{suffix}"]
+    for table in _rankings(suffix)["tables"]:
+        assert table["label"] in dump
+        if table["session"]:
+            assert table["session"] in dump, f"{table['label']} 세션이 안 적혔다"
+
+
+def test_국장과_미장의_세션이_다르면_화면이_그걸_말한다(rendered: dict[str, str]) -> None:
+    """국장이 미장보다 앞선다(미장 prices 는 하루 늦다). 두 칸을 나란히 놓으면
+    같은 날로 읽히므로 각 칸이 자기 날짜를 들어야 한다."""
+    sessions = {}
+    for suffix in ("kr", "us"):
+        tables = _rankings(suffix)["tables"]
+        sessions[suffix] = {t["session"] for t in tables if t["session"]}
+    if sessions["kr"] and sessions["us"] and sessions["kr"] != sessions["us"]:
+        for suffix in ("kr", "us"):
+            for session in sessions[suffix]:
+                assert session in rendered[f"rankings-{suffix}"]
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_순위표_줄마다_이름_가격_등락_시총이_있다(rendered: dict[str, str], suffix: str) -> None:
+    dump = rendered[f"rankings-{suffix}"]
+    for table in _rankings(suffix)["tables"]:
+        for row in table["rows"]:
+            assert html.escape(row["name"]) in dump
+            if row["change"] is not None:
+                assert dec2(row["change"] * 100) + "%" in dump
+
+
+def test_상승률과_하락률은_같은_모집단을_쓴다(rendered: dict[str, str]) -> None:
+    """config 키가 ``gainer_pool`` 이라 상승 전용처럼 읽히는데 **아니다.**
+    한쪽에만 하한을 걸면 두 표가 서로 다른 세계를 보게 되고, "상위 5개는 다
+    급등주인데 하위 5개는 듣도 보도 못한 종목" 같은 화면이 된다.
+    """
+    for suffix in ("kr", "us"):
+        data = _rankings(suffix)
+        pooled = {t["key"]: t["pooled"] for t in data["tables"]}
+        assert pooled["gainers"] == pooled["losers"], "두 표의 모집단이 갈렸다"
+        # 시총·거래대금 표는 모집단 개념이 없다 — pooled 가 없어야 한다.
+        assert pooled["value"] is None and pooled["market_cap"] is None
+        if data["floor"]:
+            assert "상승률·하락률" in rendered[f"rankings-{suffix}"]
+
+
+def test_하락률_표는_아래에서부터_고른다(rendered: dict[str, str]) -> None:
+    """같은 모집단을 반대 방향으로 자른다. 정렬이 뒤집히지 않으면 상승률
+    표와 같은 종목이 뜬다 — 화면은 멀쩡해 보이고 값만 거짓이 된다."""
+    for suffix in ("kr", "us"):
+        tables = {t["key"]: t for t in _rankings(suffix)["tables"]}
+        losers = [row["change"] for row in tables["losers"]["rows"] if row["change"] is not None]
+        gainers = [row["change"] for row in tables["gainers"]["rows"] if row["change"] is not None]
+        if not losers or not gainers:
+            continue
+        assert losers == sorted(losers), "하락률이 오름차순이 아니다"
+        assert gainers == sorted(gainers, reverse=True), "상승률이 내림차순이 아니다"
+        assert min(losers) <= max(gainers)
+
+
+def test_줄_수는_config_가_정한다(rendered: dict[str, str]) -> None:
+    """한때 모듈 상수였다. 같은 값을 두 곳에 두면 언젠가 화면과 메일이 다른
+    줄 수를 든다 — `MOVER_POOL` 을 없앤 것과 같은 이유다 (불변식 10)."""
+    from quant_rl_trading.dashboard.services import market as service
+
+    assert not hasattr(service, "RANK_ROWS"), "줄 수가 다시 코드에 박혔다"
+    for suffix in ("kr", "us"):
+        data = _rankings(suffix)
+        if data["floor"] is None:
+            continue
+        assert data["rows"] == data["floor"]["rows"]
+        for table in data["tables"]:
+            assert len(table["rows"]) <= data["rows"]

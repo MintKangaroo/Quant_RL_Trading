@@ -237,6 +237,9 @@
   .index-group + .index-group { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
   .index-group-panels { flex-direction: column; }
   .index-panel { min-width: 0; flex: 1 1 auto; }
+  /* 트리맵 400px 은 세로로 접힌 화면에서 한 패널이 화면을 통째로 먹는다.
+     타일 60개가 390px 폭에 들어가면 어차피 글자가 안 보이므로 낮춘다. */
+  .market-col .chart.tall { height: 300px; }
 }
 
 /* 벤치마크와 화면 대표를 눈으로 가른다. **강조색은 손익이 아닌 것에만**
@@ -260,4 +263,28 @@
   border-radius: 4px;
   background: var(--panel);
   line-height: 1.5;
+}
+
+
+/* 순위표 넷 — **2×2 로 눕힌다.** 한 표에 넷을 쌓으면 패널 안에서 세로로만
+   길어져 넷째(하락률)까지 내려가는 사람이 없다. 칸 폭은 국장/미장 칸의 절반
+   (1920px 에서 ~460px)이라 종목명·숫자 네 열이 편하게 들어간다. */
+.rank-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 14px;
+}
+
+.rank-table { width: 100%; }
+
+/* 넷이 세로로 쌓이면 패널 안 스크롤이 길어진다 — 2×2 라 두 줄이면 되므로
+   높이를 조금 연다(.market-col .scroll 의 260px 을 덮는다). */
+#rankings-kr, #rankings-us { max-height: 420px; }
+
+.rank-floor { margin: 6px 0 2px; line-height: 1.5; }
+
+/* 좁은 화면에서는 한 줄에 하나. 460px 짜리 두 칸이 390px 화면에서 나란히
+   서면 종목명과 숫자가 겹친다 — 세로로 쌓는 편이 낫다. */
+@media (max-width: 640px) {
+  .rank-grid { grid-template-columns: minmax(0, 1fr); }
 }

@@ -1,6 +1,6 @@
 {
   "market": {
-    "as_of": "2026-08-15T08:04:43.167560+00:00",
+    "as_of": "2026-08-15T08:40:40.398848+00:00",
     "data": {
       "fx": {
         "change": -0.009602348957930773,
@@ -1622,118 +1622,217 @@
             }
           ],
           "market": "KR",
-          "movers": {
-            "actives": [
+          "rankings": {
+            "currency": "KRW",
+            "eligible": 870,
+            "floor": {
+              "currency": "KRW",
+              "min_price": 1000.0,
+              "min_turnover": 1000000000.0,
+              "pool": 300,
+              "rows": 5
+            },
+            "market": "KR",
+            "rows": 5,
+            "tables": [
               {
-                "change": 0.03264281230382915,
-                "close": 1645000.0,
-                "entity_id": "KR:000660",
-                "name": "SK하이닉스",
-                "value": 7489699281000.0
+                "key": "value",
+                "label": "거래대금 상위",
+                "pooled": null,
+                "rows": [
+                  {
+                    "change": 0.03264281230382915,
+                    "close": 1645000.0,
+                    "entity_id": "KR:000660",
+                    "market_cap": 1040951620125000.0,
+                    "metric": 7489699281000.0,
+                    "name": "SK하이닉스"
+                  },
+                  {
+                    "change": 0.02425373134328357,
+                    "close": 274500.0,
+                    "entity_id": "KR:005930",
+                    "market_cap": 1400183726616000.0,
+                    "metric": 5874450961500.0,
+                    "name": "삼성전자"
+                  },
+                  {
+                    "change": 0.03659347970725224,
+                    "close": 1558000.0,
+                    "entity_id": "KR:009150",
+                    "market_cap": 94263444352000.0,
+                    "metric": 1504282797000.0,
+                    "name": "삼성전기"
+                  },
+                  {
+                    "change": 0.033124440465532645,
+                    "close": 1154000.0,
+                    "entity_id": "KR:402340",
+                    "market_cap": 124700674770000.0,
+                    "metric": 759169507500.0,
+                    "name": "SK스퀘어"
+                  },
+                  {
+                    "change": 0.04153354632587858,
+                    "close": 195600.0,
+                    "entity_id": "KR:005935",
+                    "market_cap": 144587290780600.0,
+                    "metric": 744107274500.0,
+                    "name": "삼성전자우"
+                  }
+                ],
+                "session": "2026-08-14",
+                "sort_by": "prices.value — 체결 금액"
               },
               {
-                "change": 0.02425373134328357,
-                "close": 274500.0,
-                "entity_id": "KR:005930",
-                "name": "삼성전자",
-                "value": 5874450961500.0
+                "key": "market_cap",
+                "label": "시가총액 상위",
+                "pooled": null,
+                "rows": [
+                  {
+                    "change": 0.02425373134328357,
+                    "close": 274500.0,
+                    "entity_id": "KR:005930",
+                    "market_cap": 1400183726616000.0,
+                    "metric": 1400183726616000.0,
+                    "name": "삼성전자"
+                  },
+                  {
+                    "change": 0.03264281230382915,
+                    "close": 1645000.0,
+                    "entity_id": "KR:000660",
+                    "market_cap": 1040951620125000.0,
+                    "metric": 1040951620125000.0,
+                    "name": "SK하이닉스"
+                  },
+                  {
+                    "change": 0.04153354632587858,
+                    "close": 195600.0,
+                    "entity_id": "KR:005935",
+                    "market_cap": 144587290780600.0,
+                    "metric": 144587290780600.0,
+                    "name": "삼성전자우"
+                  },
+                  {
+                    "change": 0.033124440465532645,
+                    "close": 1154000.0,
+                    "entity_id": "KR:402340",
+                    "market_cap": 124700674770000.0,
+                    "metric": 124700674770000.0,
+                    "name": "SK스퀘어"
+                  },
+                  {
+                    "change": 0.03659347970725224,
+                    "close": 1558000.0,
+                    "entity_id": "KR:009150",
+                    "market_cap": 94263444352000.0,
+                    "metric": 94263444352000.0,
+                    "name": "삼성전기"
+                  }
+                ],
+                "session": "2026-08-11",
+                "sort_by": "market_stats.market_cap"
               },
               {
-                "change": 0.03659347970725224,
-                "close": 1558000.0,
-                "entity_id": "KR:009150",
-                "name": "삼성전기",
-                "value": 1504282797000.0
+                "key": "gainers",
+                "label": "상승률 상위",
+                "pooled": 300,
+                "rows": [
+                  {
+                    "change": 0.29984856133266025,
+                    "close": 2575.0,
+                    "entity_id": "KR:459550",
+                    "market_cap": 46708849372.0,
+                    "metric": 0.29984856133266025,
+                    "name": "알트"
+                  },
+                  {
+                    "change": 0.29928057553956844,
+                    "close": 9030.0,
+                    "entity_id": "KR:049630",
+                    "market_cap": 155378174350.0,
+                    "metric": 0.29928057553956844,
+                    "name": "재영솔루텍"
+                  },
+                  {
+                    "change": 0.2533333333333334,
+                    "close": 6580.0,
+                    "entity_id": "KR:092200",
+                    "market_cap": 203387215870.0,
+                    "metric": 0.2533333333333334,
+                    "name": "디아이씨"
+                  },
+                  {
+                    "change": 0.23739130434782618,
+                    "close": 14230.0,
+                    "entity_id": "KR:237880",
+                    "market_cap": 210711975980.0,
+                    "metric": 0.23739130434782618,
+                    "name": "클리오"
+                  },
+                  {
+                    "change": 0.20175438596491224,
+                    "close": 12330.0,
+                    "entity_id": "KR:212560",
+                    "market_cap": 140932336600.0,
+                    "metric": 0.20175438596491224,
+                    "name": "네오오토"
+                  }
+                ],
+                "session": "2026-08-14",
+                "sort_by": "직전 세션 대비 등락률 — 거래대금 상위 모집단 안에서"
               },
               {
-                "change": 0.033124440465532645,
-                "close": 1154000.0,
-                "entity_id": "KR:402340",
-                "name": "SK스퀘어",
-                "value": 759169507500.0
-              },
-              {
-                "change": 0.04153354632587858,
-                "close": 195600.0,
-                "entity_id": "KR:005935",
-                "name": "삼성전자우",
-                "value": 744107274500.0
+                "key": "losers",
+                "label": "하락률 상위",
+                "pooled": 300,
+                "rows": [
+                  {
+                    "change": -0.11977715877437323,
+                    "close": 15800.0,
+                    "entity_id": "KR:033160",
+                    "market_cap": 432355107420.0,
+                    "metric": -0.11977715877437323,
+                    "name": "엠케이전자"
+                  },
+                  {
+                    "change": -0.11783783783783786,
+                    "close": 8160.0,
+                    "entity_id": "KR:0039P0",
+                    "market_cap": 169266600000.0,
+                    "metric": -0.11783783783783786,
+                    "name": "매드업"
+                  },
+                  {
+                    "change": -0.10577971646673934,
+                    "close": 4100.0,
+                    "entity_id": "KR:027360",
+                    "market_cap": 442180731900.0,
+                    "metric": -0.10577971646673934,
+                    "name": "아주IB투자"
+                  },
+                  {
+                    "change": -0.10568454763811053,
+                    "close": 11170.0,
+                    "entity_id": "KR:144960",
+                    "market_cap": 518631446880.0,
+                    "metric": -0.10568454763811053,
+                    "name": "뉴파워프라즈마"
+                  },
+                  {
+                    "change": -0.10435931307793922,
+                    "close": 33900.0,
+                    "entity_id": "KR:327260",
+                    "market_cap": 345413184000.0,
+                    "metric": -0.10435931307793922,
+                    "name": "RF머트리얼즈"
+                  }
+                ],
+                "session": "2026-08-14",
+                "sort_by": "직전 세션 대비 등락률 — 상승률과 같은 모집단"
               }
             ],
-            "gainers": [
-              {
-                "change": 0.29984856133266025,
-                "close": 2575.0,
-                "entity_id": "KR:459550",
-                "name": "알트",
-                "value": 56835313270.0
-              },
-              {
-                "change": 0.29928057553956844,
-                "close": 9030.0,
-                "entity_id": "KR:049630",
-                "name": "재영솔루텍",
-                "value": 25960105315.0
-              },
-              {
-                "change": 0.2533333333333334,
-                "close": 6580.0,
-                "entity_id": "KR:092200",
-                "name": "디아이씨",
-                "value": 43337292865.0
-              },
-              {
-                "change": 0.23739130434782618,
-                "close": 14230.0,
-                "entity_id": "KR:237880",
-                "name": "클리오",
-                "value": 24653213010.0
-              },
-              {
-                "change": 0.20175438596491224,
-                "close": 12330.0,
-                "entity_id": "KR:212560",
-                "name": "네오오토",
-                "value": 44588658260.0
-              }
-            ],
-            "losers": [
-              {
-                "change": -0.11977715877437323,
-                "close": 15800.0,
-                "entity_id": "KR:033160",
-                "name": "엠케이전자",
-                "value": 63069467255.0
-              },
-              {
-                "change": -0.11783783783783786,
-                "close": 8160.0,
-                "entity_id": "KR:0039P0",
-                "name": "매드업",
-                "value": 25749696725.0
-              },
-              {
-                "change": -0.10577971646673934,
-                "close": 4100.0,
-                "entity_id": "KR:027360",
-                "name": "아주IB투자",
-                "value": 70906609082.0
-              },
-              {
-                "change": -0.10568454763811053,
-                "close": 11170.0,
-                "entity_id": "KR:144960",
-                "name": "뉴파워프라즈마",
-                "value": 29841405835.0
-              },
-              {
-                "change": -0.10435931307793922,
-                "close": 33900.0,
-                "entity_id": "KR:327260",
-                "name": "RF머트리얼즈",
-                "value": 10690694225.0
-              }
-            ]
+            "universe": 2873
           },
           "treemap": {
             "rows": [
@@ -3834,118 +3933,217 @@
             }
           ],
           "market": "US",
-          "movers": {
-            "actives": [
+          "rankings": {
+            "currency": "USD",
+            "eligible": 3045,
+            "floor": {
+              "currency": "USD",
+              "min_price": 1.0,
+              "min_turnover": 5000000.0,
+              "pool": 300,
+              "rows": 5
+            },
+            "market": "US",
+            "rows": 5,
+            "tables": [
               {
-                "change": 0.0492446921199281,
-                "close": 911.29,
-                "entity_id": "US:MU",
-                "name": "MU",
-                "value": 33821190568.0
+                "key": "value",
+                "label": "거래대금 상위",
+                "pooled": null,
+                "rows": [
+                  {
+                    "change": 0.0492446921199281,
+                    "close": 911.29,
+                    "entity_id": "US:MU",
+                    "market_cap": 1029204684574.7899,
+                    "metric": 33821190568.0,
+                    "name": "MU"
+                  },
+                  {
+                    "change": 0.0025046719269103956,
+                    "close": 772.49,
+                    "entity_id": "US:SPY",
+                    "market_cap": null,
+                    "metric": 25868394181.0,
+                    "name": "SPY"
+                  },
+                  {
+                    "change": 0.0302988505747126,
+                    "close": 224.09,
+                    "entity_id": "US:NVDA",
+                    "market_cap": 5422978000000.0,
+                    "metric": 24296829009.0,
+                    "name": "NVDA"
+                  },
+                  {
+                    "change": 0.09648135644084332,
+                    "close": 146.15,
+                    "entity_id": "US:SPCX",
+                    "market_cap": null,
+                    "metric": 23898065286.0,
+                    "name": "SPCX"
+                  },
+                  {
+                    "change": 0.007307397870415455,
+                    "close": 723.7,
+                    "entity_id": "US:QQQ",
+                    "market_cap": null,
+                    "metric": 21078514290.0,
+                    "name": "QQQ"
+                  }
+                ],
+                "session": "2026-08-12",
+                "sort_by": "prices.value — 체결 금액"
               },
               {
-                "change": 0.0025046719269103956,
-                "close": 772.49,
-                "entity_id": "US:SPY",
-                "name": "SPY",
-                "value": 25868394181.0
+                "key": "market_cap",
+                "label": "시가총액 상위",
+                "pooled": null,
+                "rows": [
+                  {
+                    "change": 0.0302988505747126,
+                    "close": 224.09,
+                    "entity_id": "US:NVDA",
+                    "market_cap": 5422978000000.0,
+                    "metric": 5422978000000.0,
+                    "name": "NVDA"
+                  },
+                  {
+                    "change": -0.00872388573677485,
+                    "close": 302.25,
+                    "entity_id": "US:AAPL",
+                    "market_cap": 4411090905000.0,
+                    "metric": 4411090905000.0,
+                    "name": "AAPL"
+                  },
+                  {
+                    "change": -0.0007562536358347582,
+                    "close": 343.54,
+                    "entity_id": "US:GOOGL",
+                    "market_cap": 4201494200000.0005,
+                    "metric": 4201494200000.0005,
+                    "name": "GOOGL"
+                  },
+                  {
+                    "change": -0.001836734693877573,
+                    "close": 342.37,
+                    "entity_id": "US:GOOG",
+                    "market_cap": 4187185100000.0,
+                    "metric": 4187185100000.0,
+                    "name": "GOOG"
+                  },
+                  {
+                    "change": -0.02258788035171988,
+                    "close": 492.43,
+                    "entity_id": "US:MSFT",
+                    "market_cap": 3656561366133.13,
+                    "metric": 3656561366133.13,
+                    "name": "MSFT"
+                  }
+                ],
+                "session": "2026-08-12",
+                "sort_by": "market_stats.market_cap"
               },
               {
-                "change": 0.0302988505747126,
-                "close": 224.09,
-                "entity_id": "US:NVDA",
-                "name": "NVDA",
-                "value": 24296829009.0
+                "key": "gainers",
+                "label": "상승률 상위",
+                "pooled": 300,
+                "rows": [
+                  {
+                    "change": 1.6860068259385663,
+                    "close": 7.87,
+                    "entity_id": "US:BOXL",
+                    "market_cap": 31493434.09,
+                    "metric": 1.6860068259385663,
+                    "name": "BOXL"
+                  },
+                  {
+                    "change": 0.3414066138798324,
+                    "close": 259.2,
+                    "entity_id": "US:NBIS",
+                    "market_cap": null,
+                    "metric": 0.3414066138798324,
+                    "name": "NBIS"
+                  },
+                  {
+                    "change": 0.19275907883082377,
+                    "close": 107.73,
+                    "entity_id": "US:CRWV",
+                    "market_cap": null,
+                    "metric": 0.19275907883082377,
+                    "name": "CRWV"
+                  },
+                  {
+                    "change": 0.19018987341772142,
+                    "close": 37.61,
+                    "entity_id": "US:SMCI",
+                    "market_cap": 22619349108.02,
+                    "metric": 0.19018987341772142,
+                    "name": "SMCI"
+                  },
+                  {
+                    "change": 0.16091707735161775,
+                    "close": 54.18,
+                    "entity_id": "US:HRB",
+                    "market_cap": 6867868015.26,
+                    "metric": 0.16091707735161775,
+                    "name": "HRB"
+                  }
+                ],
+                "session": "2026-08-12",
+                "sort_by": "직전 세션 대비 등락률 — 거래대금 상위 모집단 안에서"
               },
               {
-                "change": 0.09648135644084332,
-                "close": 146.15,
-                "entity_id": "US:SPCX",
-                "name": "SPCX",
-                "value": 23898065286.0
-              },
-              {
-                "change": 0.007307397870415455,
-                "close": 723.7,
-                "entity_id": "US:QQQ",
-                "name": "QQQ",
-                "value": 21078514290.0
+                "key": "losers",
+                "label": "하락률 상위",
+                "pooled": 300,
+                "rows": [
+                  {
+                    "change": -0.05900500194686553,
+                    "close": 314.17,
+                    "entity_id": "US:COR",
+                    "market_cap": 59952170428.05,
+                    "metric": -0.05900500194686553,
+                    "name": "COR"
+                  },
+                  {
+                    "change": -0.05758247422680418,
+                    "close": 1828.29,
+                    "entity_id": "US:MELI",
+                    "market_cap": 92688456128.58,
+                    "metric": -0.05758247422680418,
+                    "name": "MELI"
+                  },
+                  {
+                    "change": -0.0574763074763075,
+                    "close": 107.41,
+                    "entity_id": "US:PFGC",
+                    "market_cap": 16873020895.91,
+                    "metric": -0.0574763074763075,
+                    "name": "PFGC"
+                  },
+                  {
+                    "change": -0.05740912448334923,
+                    "close": 599.78,
+                    "entity_id": "US:AXON",
+                    "market_cap": 48724576768.7,
+                    "metric": -0.05740912448334923,
+                    "name": "AXON"
+                  },
+                  {
+                    "change": -0.0468181247646543,
+                    "close": 303.76,
+                    "entity_id": "US:APP",
+                    "market_cap": 101847994160.0,
+                    "metric": -0.0468181247646543,
+                    "name": "APP"
+                  }
+                ],
+                "session": "2026-08-12",
+                "sort_by": "직전 세션 대비 등락률 — 상승률과 같은 모집단"
               }
             ],
-            "gainers": [
-              {
-                "change": 1.6860068259385663,
-                "close": 7.87,
-                "entity_id": "US:BOXL",
-                "name": "BOXL",
-                "value": 413859689.0
-              },
-              {
-                "change": 0.3414066138798324,
-                "close": 259.2,
-                "entity_id": "US:NBIS",
-                "name": "NBIS",
-                "value": 15260426245.0
-              },
-              {
-                "change": 0.19275907883082377,
-                "close": 107.73,
-                "entity_id": "US:CRWV",
-                "name": "CRWV",
-                "value": 9423878860.0
-              },
-              {
-                "change": 0.19018987341772142,
-                "close": 37.61,
-                "entity_id": "US:SMCI",
-                "name": "SMCI",
-                "value": 6070216989.0
-              },
-              {
-                "change": 0.16091707735161775,
-                "close": 54.18,
-                "entity_id": "US:HRB",
-                "name": "HRB",
-                "value": 462636297.0
-              }
-            ],
-            "losers": [
-              {
-                "change": -0.05900500194686553,
-                "close": 314.17,
-                "entity_id": "US:COR",
-                "name": "COR",
-                "value": 828410908.0
-              },
-              {
-                "change": -0.05758247422680418,
-                "close": 1828.29,
-                "entity_id": "US:MELI",
-                "name": "MELI",
-                "value": 1275133857.0
-              },
-              {
-                "change": -0.0574763074763075,
-                "close": 107.41,
-                "entity_id": "US:PFGC",
-                "name": "PFGC",
-                "value": 479636943.0
-              },
-              {
-                "change": -0.05740912448334923,
-                "close": 599.78,
-                "entity_id": "US:AXON",
-                "name": "AXON",
-                "value": 656249940.0
-              },
-              {
-                "change": -0.0468181247646543,
-                "close": 303.76,
-                "entity_id": "US:APP",
-                "name": "APP",
-                "value": 2881770823.0
-              }
-            ]
+            "universe": 6647
           },
           "treemap": {
             "rows": [

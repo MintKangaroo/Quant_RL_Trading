@@ -381,78 +381,89 @@ function renderBreadth(body, code, suffix) {
       : ""}`;
 }
 
-/* -- 오늘 움직인 종목 --------------------------------------------------------- */
+/* -- 순위표 3종 --------------------------------------------------------------- */
 
-function moverRows(rows, currency, kind) {
-  if (!rows.length) return `<tr><td colspan="3" class="empty">—</td></tr>`;
-  return rows
-    .map(
-      (row) => `<tr>
-        <td><span class="name trunc" title="${esc(row.name)} (${esc(row.entity_id)})">${esc(row.name)}</span>
-            ${codeCell(row.entity_id, row.name)}</td>
-        <td class="r mono">${kind === "actives" ? money(row.value, currency) : num(row.close)}</td>
-        <td class="r mono ${signClass(row.change)}">${signed(row.change)}</td>
-      </tr>`
-    )
-    .join("");
+/* 표마다 기준값의 단위가 다르다. 거래대금은 금액, 시총도 금액, 상승률은 %.
+ * 같은 열에 섞어 찍으면 숫자가 무슨 뜻인지 매번 생각하게 된다. */
+const RANK_BY_CHANGE = new Set(["gainers", "losers"]);
+
+function rankMetric(table, row, currency) {
+  if (RANK_BY_CHANGE.has(table.key)) return signed(row.change);
+  return money(row.metric, currency);
 }
 
-function renderMovers(body, code, suffix) {
+function rankUnit(table) {
+  if (RANK_BY_CHANGE.has(table.key)) return "등락률";
+  return table.key === "value" ? "거래대금" : "시가총액";
+}
+
+/* 하한을 화면이 적는다. **안 보이면 사용자는 이게 전체 순위인 줄 안다.**
+ * 값은 config.reporting 에서 온 것이고 메일 브리핑과 같은 것이다. */
+function floorNote(data) {
+  const f = data.floor;
+  if (!f) return "";
+  const cut = num(data.universe - data.eligible);
+  return `<p class="sub tiny rank-floor">
+    하한 — 거래대금 ${money(f.min_turnover, f.currency)} 이상 ·
+    주가 ${f.currency === "USD" ? "$" + dec(f.min_price, 2) : num(f.min_price) + "원"} 이상.
+    <strong>상승률·하락률</strong>은 <strong>같은</strong> 모집단
+    — 거래대금 상위 ${num(f.pool)}종목 — 안에서 고른다. 하한이 없으면 시황이
+    아니라 동전주 목록이 되고, 한쪽에만 걸면 두 표가 서로 다른 세계를 본다.
+    ${data.universe ? `${num(data.eligible)}종목 통과 · ${cut}종목 제외` : ""}
+  </p>`;
+}
+
+function renderRankings(body, code, suffix) {
   const panel = body.data.markets[code];
-  const m = panel.movers;
-  const target = document.getElementById(`movers-${suffix}`);
-  if (!m.gainers.length && !m.losers.length && !m.actives.length) {
-    target.innerHTML = `<p class="empty">시세가 없다 — 오늘 움직인 종목을 못 고른다.</p>`;
+  const data = panel.rankings;
+  const target = document.getElementById(`rankings-${suffix}`);
+  const note = document.getElementById(`rankings-note-${suffix}`);
+
+  if (!data.floor) {
+    const label = code === "KR" ? "국장" : "미장";
+    if (note) note.textContent = "";
+    target.innerHTML = `<p class="empty">${label} 순위를 매길 수 없다 —
+      ${esc(data.reason || "하한을 읽을 수 없다")}</p>`;
     return;
   }
-  const block = (title, rows, kind, unit) => `
-    <tr class="section"><td colspan="3">${title}</td></tr>
-    <tr class="sub-head"><td>종목</td><td class="r">${unit}</td><td class="r">등락률</td></tr>
-    ${moverRows(rows, panel.currency, kind)}`;
-  target.innerHTML = `<table>
-    <tbody>
-      ${block("상승 상위", m.gainers, "gainers", "종가")}
-      ${block("하락 상위", m.losers, "losers", "종가")}
-      ${block("거래대금 상위", m.actives, "actives", "거래대금")}
-    </tbody>
-  </table>`;
-}
+  if (note) note.textContent = `${num(data.eligible)}종목 · 상위 ${num(data.rows)}`;
 
-/* -- 시가총액 상위 ------------------------------------------------------------ */
+  // 넷을 한 표에 쌓으면 패널 안에서 세로로만 길어져 넷째 표까지 내려가는
+  // 사람이 없다. **2×2 로 눕히고 좁으면 한 줄씩 쌓는다**(market.css).
+  const block = (table) => {
+    // **표마다 세션이 다를 수 있다.** 시세와 시총은 다른 수집기가 넣는다 —
+    // 실측으로 국장 시세 08-14 · 시총 08-11 이었다. 나란히 놓으면 같은 날로
+    // 읽히므로 표마다 자기 날짜를 적는다.
+    const head = `<tr class="section"><td colspan="4">${esc(table.label)}
+      <span class="sub">${table.session ? esc(table.session) : "세션 없음"}</span></td></tr>
+      <tr class="sub-head"><td>종목</td><td class="r">${rankUnit(table)}</td>
+      <td class="r">가격</td><td class="r">시총</td></tr>`;
+    if (!table.rows.length) {
+      return `${head}<tr><td colspan="4" class="empty">${
+        table.key === "market_cap"
+          ? esc(noCapReasonText(code))
+          : "하한을 넘은 종목이 없다"
+      }</td></tr>`;
+    }
+    const rows = table.rows
+      .map(
+        (row) => `<tr>
+          <td><span class="name trunc" title="${esc(row.name)} (${esc(row.entity_id)})">${esc(row.name)}</span>
+              ${codeCell(row.entity_id, row.name)}</td>
+          <td class="r mono ${table.key === "gainers" ? signClass(row.change) : ""}">${rankMetric(table, row, panel.currency)}</td>
+          <td class="r mono">${num(row.close)}
+              <span class="sub ${signClass(row.change)}">${signed(row.change)}</span></td>
+          <td class="r mono">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
+        </tr>`
+      )
+      .join("");
+    return head + rows;
+  };
 
-/* 없는 것은 없다고 말한다. **미장 시가총액이 0행인 이유는 조인 버그가
- * 아니라 수집기가 없어서다** — 화면이 그걸 말해야 엉뚱한 데를 파지 않는다. */
-function noCapReason(code) {
-  return code === "US"
-    ? `미장 시가총액은 아직 수집되지 않았다 — market_cap = 주가 × 상장주식수인데,
-       미장 상장주식수(shares outstanding)를 받는 수집기가 아직 없다. 국장은 KRX
-       Open API 로 받는다. <strong>시세·유니버스는 들어와 있다</strong> — 위의
-       시장 폭·움직인 종목이 그것으로 만든 것이다.`
-    : `market_stats 에 오늘 시총이 없다. KRX Open API 수집을 확인할 것.`;
-}
-
-function renderLeaders(body, code, suffix) {
-  const panel = body.data.markets[code];
-  const rows = panel.leaders;
-  document.getElementById(`leaders-count-${suffix}`).textContent =
-    rows.length ? `상위 ${rows.length}종목` : "";
-  const target = document.getElementById(`leaders-${suffix}`);
-  if (!rows.length) {
-    target.innerHTML = `<p class="empty">${noCapReason(code)}</p>`;
-    return;
-  }
-  const head = `<thead><tr><th>종목</th><th class="r">시가총액</th><th class="r">등락률</th></tr></thead>`;
-  const rendered = rows
-    .map(
-      (row) => `<tr>
-        <td><span class="name trunc" title="${esc(row.name)}">${esc(row.name)}</span>
-            ${codeCell(row.entity_id, row.name)}</td>
-        <td class="r mono">${money(row.market_cap, panel.currency)}</td>
-        <td class="r mono ${signClass(row.change)}">${signed(row.change)}</td>
-      </tr>`
-    )
-    .join("");
-  target.innerHTML = `<table>${head}<tbody>${rendered}</tbody></table>`;
+  target.innerHTML =
+    `<div class="rank-grid">${data.tables
+      .map((table) => `<table class="rank-table"><tbody>${block(table)}</tbody></table>`)
+      .join("")}</div>` + floorNote(data);
 }
 
 /* -- 시가총액 맵 (finviz 식) --------------------------------------------------- */
@@ -577,8 +588,7 @@ async function loadMarket() {
     renderColumnNote(body, code, suffix);
     renderIndices(body, code, suffix);
     renderBreadth(body, code, suffix);
-    renderMovers(body, code, suffix);
-    renderLeaders(body, code, suffix);
+    renderRankings(body, code, suffix);
     renderTreemap(body, code, suffix);
     renderMacro(body, code, suffix);
   }
@@ -603,6 +613,9 @@ async function loadMarket() {
           ? "미장 시가총액 미수집 — 상장주식수 소스가 없다"
           : "국장 시가총액이 비어 있다"
       );
+    }
+    if (!panel.rankings.floor) {
+      warnings.push(`${label} 순위 하한 설정(config.reporting)이 창고에 없다`);
     }
     if (!panel.macro.length) warnings.push(`${label} 거시지표가 비어 있다`);
   }
