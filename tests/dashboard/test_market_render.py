@@ -32,7 +32,7 @@ PAYLOADS = Path(__file__).parent / "payloads"
 
 #: 좌우 두 칸에 짝으로 존재해야 하는 패널들. 한쪽에만 있는 패널을 만들면
 #: 화면의 좌우 밀도가 갈라진다 — 그 자체가 이 작업이 고치려던 문제다.
-PAIRED = ("index-head", "indices", "breadth", "movers", "leaders", "macro")
+PAIRED = ("index-panels", "indices", "breadth", "movers", "leaders", "macro")
 
 HARNESS = """
 const ids = new Set(IDS);
@@ -103,6 +103,17 @@ runAll = async (jobs) => { for (const job of jobs) await job(); };
   (error) => { console.log("FAIL " + error.message); process.exitCode = 1; }
 );
 """
+
+
+def indexLabel(entity_id: str) -> str:
+    """market.js 의 indexLabel 과 같은 규칙. "KR:IDX:KOSPI" → "KOSPI"."""
+    head, _, tail = entity_id.partition("IDX:")
+    return tail or entity_id
+
+
+def dec2(value: float) -> str:
+    """market.js 의 dec(v, 2). 자릿수가 다르면 "안 적혔다" 로 오판한다."""
+    return f"{value:.2f}"
 
 
 def _payload() -> dict:
@@ -193,69 +204,98 @@ def test_시가총액이_없으면_이유를_적는다(rendered: dict[str, str],
         assert "상장주식수" in rendered[f"leaders-{suffix}"]
 
 
-def test_상단_지수_차트는_한_번만_그린다(rendered: dict[str, str]) -> None:
-    """대표 지수 넷은 좌우로 갈리기 전의 공통 줄이다 — 칸 안에 넣으면 "어느
-    시장이 앞서 가나" 를 두 그림을 번갈아 보며 풀어야 한다."""
-    assert rendered.get("chart:chart-indices"), "상단 지수 차트가 안 그려졌다"
-    assert "chart:chart-indices-kr" not in rendered
-    assert "chart:chart-indices-us" not in rendered
+def _panels(suffix: str) -> dict:
+    return _payload()["data"]["markets"][suffix.upper()]["index_panels"]
 
 
-def test_상단_차트가_창고에_있는_대표_지수를_다_그린다(rendered: dict[str, str]) -> None:
-    """서비스가 실은 시계열 수와 그린 선의 수가 같아야 한다. 하나를 흘리면
-    화면은 멀쩡해 보이는데 지수 하나가 조용히 사라진다."""
-    expected = _payload()["data"]["index_chart"]["series"]
-    drawn = json.loads(rendered["series:chart-indices"])
-    assert len(drawn) == len(expected)
-    for series, spec in zip(drawn, expected):
-        assert spec["entity_id"].endswith(series["name"]), (series["name"], spec["entity_id"])
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_지수마다_자기_패널을_갖는다(rendered: dict[str, str], suffix: str) -> None:
+    """한 차트에 겹치지 않는다 — 지수 하나당 패널 하나, 차트 하나다.
+
+    창고에 없는 지수도 **자리를 지킨다.** 통째로 빼면 좌우 두 칸의 패널 수가
+    갈리고, 그러면 "미장은 원래 볼 게 없다" 처럼 보인다.
+    """
+    data = _panels(suffix)
+    dump = rendered[f"index-panels-{suffix}"]
+    for panel in data["panels"]:
+        assert indexLabel(panel["entity_id"]) in dump, panel["entity_id"]
+        assert dec2(panel["close"]) in dump, f"{panel['entity_id']} 종가가 안 적혔다"
+    for gone in data["missing"]:
+        assert gone["entity_id"] in dump, "없는 지수의 자리가 통째로 사라졌다"
+
+    drawn = [key for key in rendered if key.startswith(f"chart:chart-index-{suffix}-")]
+    assert len(drawn) == len(data["panels"]), "패널 수와 그린 차트 수가 다르다"
 
 
-def test_대표는_실선_곁_지수는_점선(rendered: dict[str, str]) -> None:
-    """어느 선이 `config.benchmark` 가 정한 지수인지는 선 모양이 말한다 —
-    색은 시장(국장·미장)에 이미 쓰였다."""
-    expected = _payload()["data"]["index_chart"]["series"]
-    drawn = json.loads(rendered["series:chart-indices"])
-    for series, spec in zip(drawn, expected):
-        dashed = series["lineStyle"].get("type") == "dashed"
-        assert dashed == (spec["role"] != "headline"), series["name"]
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_차트는_원_종가다_정규화하지_않는다(rendered: dict[str, str], suffix: str) -> None:
+    """정규화는 축을 공유해야 할 때만 필요했던 트릭이다. 패널이 갈리면서
+    사라졌다 — 100 에서 출발하는 선이 있으면 그건 옛 동작이 남은 것이다."""
+    for i, panel in enumerate(_panels(suffix)["panels"]):
+        series = json.loads(rendered[f"chart:chart-index-{suffix}-{i}"])
+        assert series == [panel["closes"]], f"{panel['entity_id']} 가 원 종가가 아니다"
 
 
-def test_정규화했다는_사실을_화면이_말한다(rendered: dict[str, str]) -> None:
-    """기준일 100 정규화라 120 은 지수 포인트가 아니다. 화면이 그 말을 안 하면
-    사람이 코스피가 120 이라고 읽는다."""
-    chart = _payload()["data"]["index_chart"]
-    note = rendered["index-chart-note"]
-    assert "정규화" in note
-    assert chart["base_session"] in note
-
-    # 정규화가 지운 절대 수준은 범례가 되돌려 준다.
-    legend = rendered["index-chart-legend"]
-    for series in chart["series"]:
-        assert f"{series['close']:.2f}" in legend, series["entity_id"]
-
-    # 첫 값이 아니라 첫 **관측**이다 — 공통 기준일에 그 시장이 쉬었으면 그
-    # 지수의 출발점은 하루 뒤다(국장·미장은 휴장일이 다르다).
-    values = json.loads(rendered["chart:chart-indices"])
-    for row in values:
-        first = next((v for v in row if v is not None), None)
-        assert first == chart["base_value"], "기준일에서 100 으로 출발하지 않는다"
+def test_대표_지수는_config_가_정한_것이다(rendered: dict[str, str]) -> None:
+    """화면이 대표를 고르지 않는다. 창고에 없으면 대용치로 바꿔치기하지 않고
+    "없다" 고 적는다 — KRX 300 을 코스피라 부르는 순간 화면이 거짓말을 시작한다."""
+    for suffix in ("kr", "us"):
+        data = _panels(suffix)
+        heads = [row for row in data["panels"] + data["missing"] if row["role"] == "headline"]
+        assert len(heads) == 1, f"{suffix} 대표가 하나가 아니다"
+        assert "대표" in rendered[f"index-panels-{suffix}"]
 
 
-def test_변동성_지수는_상단_차트에_없다(rendered: dict[str, str]) -> None:
-    """VIX 는 가격지수가 아니다. 기준일 100 으로 정규화해 나스닥 옆에 두면
-    급등이 수익률로 읽힌다 — 목록에는 있되 **가격지수와 갈라서** 있어야 한다."""
-    drawn = {series["name"] for series in json.loads(rendered["series:chart-indices"])}
-    assert not (drawn & {"VIX", "VXN", "RVX"})
+def test_두_칸의_패널_수가_같다(rendered: dict[str, str]) -> None:
+    """미장에만 다우·나스닥100·SOX 를 더하면 좌우 눈높이가 어긋나 나란히
+    비교하는 배치 자체가 무너진다."""
+    kr = _panels("kr")
+    us = _panels("us")
+    assert len(kr["panels"]) + len(kr["missing"]) == len(us["panels"]) + len(us["missing"])
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_가격지수_배지를_계속_단다(rendered: dict[str, str], suffix: str) -> None:
+    """배당이 빠진 만큼 우리가 이긴 것처럼 보인다. config 가 total_return 을
+    true 로 바꾸기 전까지 배지는 화면에 남아야 한다."""
+    if _payload()["data"]["total_return"]:
+        assert "배당 미반영" not in rendered[f"index-panels-{suffix}"]
+    else:
+        assert "배당 미반영" in rendered[f"index-panels-{suffix}"]
+
+
+def test_변동성_지수는_패널로_세우지_않는다(rendered: dict[str, str]) -> None:
+    """VIX 는 가격지수가 아니다. 20 → 24 는 +20% 수익이 아니라 공포다 —
+    목록에는 있되 **가격지수와 갈라서** 있어야 한다."""
+    for suffix in ("kr", "us"):
+        data = _panels(suffix)
+        named = {row["entity_id"] for row in data["panels"] + data["missing"]}
+        assert not (named & {"US:IDX:VIX", "US:IDX:VXN", "US:IDX:RVX"})
 
     listed = _payload()["data"]["markets"]["US"]["indices"]["others"]
-    volatile = [row for row in listed if row["kind"] == "volatility"]
-    if volatile:
+    if [row for row in listed if row["kind"] == "volatility"]:
         assert "변동성 지수" in rendered["indices-us"], "가격지수와 구분되지 않는다"
 
 
-def test_환율_차트는_지수_차트에_자리를_내줬다(rendered: dict[str, str]) -> None:
-    """환율 자체는 KPI 카드와 스파크라인으로 남는다 — **차트만** 교체다.
-    옛 id 가 살아 있으면 새 JS + 옛 HTML 조합에서 두 차트가 겹친다."""
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_패널로_옮긴_지수는_목록에서_빠지고_그_사실을_적는다(
+    rendered: dict[str, str], suffix: str
+) -> None:
+    """같은 지수를 한 칸에 두 번 적으면 목록의 "N종" 이 무엇을 세는지 흐려진다.
+    다만 빠진 개수를 안 적으면 총 개수와 줄 수가 안 맞아 버그처럼 보인다."""
+    market = _payload()["data"]["markets"][suffix.upper()]["indices"]
+    listed = {row["entity_id"] for row in market["others"]}
+    assert not (listed & set(market["excluded"]))
+    if market["excluded"]:
+        assert "위 패널" in rendered[f"indices-count-{suffix}"]
+
+
+def test_환율_차트는_사라졌고_지수는_칸_안에_있다(rendered: dict[str, str]) -> None:
+    """환율 자체는 KPI 카드와 스파크라인으로 남는다. 그리고 지수는 두 칸 위에
+    걸친 공통 차트가 아니라 **각 칸 안**에 산다 — 옛 id 가 살아 있으면 새 JS +
+    옛 HTML 조합에서 죽는다(Flask 가 템플릿을 캐싱한다)."""
+    markup = (TEMPLATES / "market.html").read_text(encoding="utf-8")
+    assert "chart-fx" not in markup
+    assert "chart-indices" not in markup
     assert "chart:chart-fx" not in rendered
-    assert "chart-fx" not in (TEMPLATES / "market.html").read_text(encoding="utf-8")
+    assert "chart:chart-indices" not in rendered

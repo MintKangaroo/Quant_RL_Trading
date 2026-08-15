@@ -21,24 +21,6 @@
   {# 두 시장의 대표 지수와 환율. 좌우로 갈리기 전의 공통 줄이다. #}
   <section class="kpis" id="kpis"></section>
 
-  {# 대표 지수 넷. 좌우로 갈리기 전에 한 그림으로 둔다 — 이 자리의 질문은
-     "어느 시장이 앞서 가나" 이고, 그건 네 선을 겹쳐야만 보인다.
-
-     **기준일 100 정규화다.** 코스피 ~4,000 · 코스닥 ~900 · 나스닥 ~26,800 ·
-     S&P500 ~7,800 을 한 축에 원값으로 그리면 코스닥이 바닥의 직선이 된다.
-     정규화하면 절대 수준이 사라지므로 범례가 오늘 종가를 되돌려 주고,
-     정규화했다는 사실은 머리글이 계속 말한다.
-
-     변동성 지수(VIX·VXN·RVX)는 여기 없다 — 가격지수가 아니라서 같은 축에
-     두면 급등이 수익률로 읽힌다. 그건 아래 지수 목록에서 따로 묶는다. #}
-  <section class="panel">
-    <h2>대표 지수 <span id="index-chart-badge"></span>
-      <span class="right"><span class="sub" id="index-chart-note"></span></span>
-    </h2>
-    <div class="index-legend" id="index-chart-legend"></div>
-    <div class="chart short" id="chart-indices"></div>
-  </section>
-
   <section class="split">
     <!-- ============================ 국장 (KR) ============================ -->
     <div class="market-col">
@@ -46,11 +28,19 @@
         <span class="sub" id="col-note-kr"></span>
       </h2>
 
+      {# 대표 지수마다 패널 하나. **원 종가 그대로다 — 정규화하지 않는다.**
+         패널이 자기 축을 가지므로 스케일을 맞출 이유가 없고, 그러면 차트가
+         "지금 이 지수가 얼마인가" 에 직접 답한다.
+
+         시장당 둘로 맞춘다 — 미장에만 다우·나스닥100·SOX 를 더해 여섯을
+         세우면 좌우 두 칸의 눈높이가 어긋나 나란히 비교하는 배치가 무너진다.
+         그 셋은 시장 전체가 아니라 부분·섹터라 아래 목록의 몫이다. #}
+      <div class="index-panels" id="index-panels-kr"></div>
+
       <div class="panel">
-        <h2>지수
+        <h2>나머지 지수
           <span class="right"><span class="sub" id="indices-count-kr"></span></span>
         </h2>
-        <div id="index-head-kr"></div>
         <div id="indices-kr" class="scroll short dense"></div>
       </div>
 
@@ -96,11 +86,19 @@
         <span class="sub" id="col-note-us"></span>
       </h2>
 
+      {# 대표 지수마다 패널 하나. **원 종가 그대로다 — 정규화하지 않는다.**
+         패널이 자기 축을 가지므로 스케일을 맞출 이유가 없고, 그러면 차트가
+         "지금 이 지수가 얼마인가" 에 직접 답한다.
+
+         시장당 둘로 맞춘다 — 미장에만 다우·나스닥100·SOX 를 더해 여섯을
+         세우면 좌우 두 칸의 눈높이가 어긋나 나란히 비교하는 배치가 무너진다.
+         그 셋은 시장 전체가 아니라 부분·섹터라 아래 목록의 몫이다. #}
+      <div class="index-panels" id="index-panels-us"></div>
+
       <div class="panel">
-        <h2>지수
+        <h2>나머지 지수
           <span class="right"><span class="sub" id="indices-count-us"></span></span>
         </h2>
-        <div id="index-head-us"></div>
         <div id="indices-us" class="scroll short dense"></div>
       </div>
 
@@ -149,15 +147,15 @@
     지운 것이 아니라 <strong>오늘 변동이 큰 순으로 접은 것</strong>이고, 총 개수를
     패널 머리에 적어 둔다.
     <br>
-    <strong>상단 차트는 기준일 100 으로 정규화한 값이다</strong> — 지수 포인트가
-    아니다. 스케일이 열 배 넘게 벌어져(코스닥 ~900 · 나스닥 ~26,800) 원값으로는
-    한 축에 못 그린다. 선의 <strong>색은 시장</strong>(국장 하늘색 · 미장 흰색),
-    <strong>실선은 <code>config.benchmark</code> 가 정한 대표 지수</strong>,
-    점선은 그 곁 지수다. 오늘 종가는 범례가 적어 둔다.
+    <strong>지수 패널의 차트는 원 종가다 — 정규화하지 않았다.</strong> 패널마다
+    자기 축이 있어 스케일을 맞출 이유가 없고, 그래서 차트가 "지금 이 지수가
+    얼마인가" 에 직접 답한다. 축이 갈린 패널끼리는 <strong>창 등락</strong>으로
+    견준다. 선 색은 그 창 등락의 부호이고, 머리의 등락률은 <strong>전일
+    대비</strong>라 둘의 부호가 다를 수 있다.
     <br>
-    <strong>변동성 지수(VIX·VXN·RVX)는 가격지수가 아니다.</strong> 상단 차트에
-    넣지 않고 지수 목록에서 따로 묶으며, 등락에 손익 색을 쓰지 않는다 — VIX 가
-    오른 것은 수익이 아니라 공포다.
+    <strong>변동성 지수(VIX·VXN·RVX)는 가격지수가 아니다.</strong> 패널로 세우지
+    않고 목록에서 따로 묶으며, 등락에 손익 색을 쓰지 않는다 — VIX 가 오른 것은
+    수익이 아니라 공포다.
     <br>
     <strong>시가총액 맵</strong>은 넓이가 시가총액, 색이 전일 대비 등락률이다 —
     상승 초록 · 하락 빨강(한국식 빨강↑이 아니다). 회색은 등락을 못 잰 종목이다 —

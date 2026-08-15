@@ -74,16 +74,23 @@ function codeCell(entityId, name) {
  * 환율을 끝에 두면 두 시장 사이의 다리라는 것이 안 읽힌다. */
 function marketKpis(body, code) {
   const panel = body.data.markets[code];
-  const head = panel.indices.headline;
+  // 대표 지수는 config 가 정한다 — KPI 도 지수 패널도 같은 한 곳
+  // (index_panels)에서 읽는다. 화면이 두 군데서 "대표" 를 따로 고르면
+  // 언젠가 서로 다른 지수를 대표라 부른다.
+  const panels = panel.index_panels;
+  const head = panels.panels.find((row) => row.role === "headline");
+  const headId = head
+    ? head.entity_id
+    : (panels.missing.find((row) => row.role === "headline") || {}).entity_id;
   const b = panel.breadth;
   const label = code === "KR" ? "국장" : "미장";
   return [
     kpi(
-      `${label} 대표 · ${esc(indexLabel(panel.indices.headline_id))}`,
+      `${label} 대표 · ${esc(headId ? indexLabel(headId) : "—")}`,
       head ? dec(head.close, 2) : "—",
       head ? `${arrow(head.change)}${pct(head.change)}` : "창고에 없다",
       false,
-      { tone: head ? signClass(head.change) : "" }
+      { tone: head ? signClass(head.change) : "", spark: head ? head.closes : null }
     ),
     // 지수 하나로는 "지수는 올랐는데 종목의 70%는 내렸다" 를 볼 수 없다.
     kpi(
@@ -111,155 +118,125 @@ function renderKpis(body) {
   document.getElementById("kpis").innerHTML = cards.join("");
 }
 
-/* -- 상단 대표 지수 차트 ------------------------------------------------------ */
+/* -- 지수별 개별 패널 --------------------------------------------------------- */
 
-/* **색은 시장, 선 모양은 역할이다.**
- *
- * 네 선에 임의의 네 색을 주면 손익 색(초록·빨강)을 태우게 되는데, 이 화면에서
- * 초록·빨강은 등락 하나만 뜻해야 한다(§10). 그래서 색은 화면의 좌우 분할과
- * 같은 축 — **국장 강조색 · 미장 본문색** — 으로만 쓰고, 대표(config 가 정한
- * 벤치마크)와 곁 지수는 실선·점선으로 가른다. 어느 선이 우리가 견줘 평가받는
- * 지수인지가 선 모양만으로 읽힌다. */
-const INDEX_LINE = {
-  KR: COLOR.accent,
-  US: COLOR.text,
-};
-
-function indexLineStyle(series) {
-  const color = INDEX_LINE[series.market] || COLOR.muted;
-  return series.role === "headline"
-    ? { color, width: 1.8 }
-    : { color, width: 1.3, type: "dashed", opacity: 0.85 };
-}
-
-/* 정규화하면 절대 수준이 사라진다 — 그래서 범례가 그것을 되돌려 준다.
- * 이름 · 오늘 종가 · 기준일 대비 누적. 색은 **누적 수익률에만** 쓴다. */
-function indexLegend(chartData) {
-  return chartData.series
-    .map((s) => {
-      const style = indexLineStyle(s);
-      const dash = s.role === "headline" ? "" : " dashed";
-      return `<span class="idx-key" title="${esc(s.entity_id)} · 기준일 ${esc(s.base_session)} = ${dec(chartData.base_value, 0)}">
-        <span class="idx-swatch${dash}" style="--line:${style.color}"></span>
-        <span class="idx-name">${esc(indexLabel(s.entity_id))}</span>
-        ${s.role === "headline" ? `<span class="chip">대표</span>` : ""}
-        <span class="mono idx-close">${dec(s.close, 2)}</span>
-        <span class="mono ${signClass(s.total)}">${signed(s.total)}</span>
-      </span>`;
-    })
-    .join("");
-}
-
-/* 없으면 없다고 말한다 — 빈 차트는 조인 버그처럼 보인다. */
-function indexChartReason(chartData) {
-  const names = chartData.missing.map((m) => `<code>${esc(m.entity_id)}</code>`).join(" · ");
-  return `창의 lookback ${num(chartData.lookback)}일 안에 대표 지수의 종가가
-    하나도 없다 (${names || "요청한 지수 없음"}). 백필(bf-indices)이 이 창까지
-    닿았는지 확인할 것 — 다른 지수로 바꿔치기하지 않는다.`;
-}
-
-/* 가격지수 배지. **배당이 빠져 있어 그만큼 우리가 유리하게 보인다** — 상단
- * 차트와 두 칸의 대표 지수 줄이 같은 배지를 쓴다. 언제 떼는지는 config
- * (benchmark.total_return)만 안다. */
+/* 가격지수 배지. **배당이 빠져 있어 그만큼 우리가 유리하게 보인다** — 지수
+ * 패널마다 단다. 언제 떼는지는 config(benchmark.total_return)만 안다. */
 function prBadge(body) {
   return body.data.total_return
     ? ""
     : `<span class="chip warn-chip" title="총수익지수(TR)를 못 구한다 — 배당만큼 우리가 유리하게 보인다">가격지수 · 배당 미반영</span>`;
 }
 
-function renderIndexChart(body) {
-  const c = body.data.index_chart;
-  const target = document.getElementById("chart-indices");
-  const legend = document.getElementById("index-chart-legend");
-  const note = document.getElementById("index-chart-note");
-  const badge = document.getElementById("index-chart-badge");
-  if (badge) badge.innerHTML = prBadge(body);
-  if (!c.sessions.length) {
-    legend.innerHTML = "";
-    if (note) note.textContent = "";
-    target.innerHTML = `<p class="empty">${indexChartReason(c)}</p>`;
-    return;
-  }
+/* 없으면 없다고 말한다 — 빈 차트는 조인 버그처럼 보인다. */
+function panelMissingReason(entityId, lookback) {
+  return `<p class="empty"><code>${esc(entityId)}</code> 의 종가가 창(${num(lookback)}일)
+    안에 없다. 백필(bf-indices)이 이 창까지 닿았는지 확인할 것 —
+    다른 지수로 바꿔치기하지 않는다.</p>`;
+}
 
-  legend.innerHTML = indexLegend(c);
-  // **정규화했다는 사실을 화면이 말한다.** 이 문구가 없으면 120 이 지수
-  // 포인트로 읽힌다.
-  if (note) {
-    const gone = c.missing.length
-      ? ` · 창고에 없어 뺀 지수 ${c.missing.map((m) => indexLabel(m.entity_id)).join("·")}`
-      : "";
-    note.textContent =
-      `기준일 ${c.base_session} = ${dec(c.base_value, 0)} 으로 정규화 · ${num(c.sessions.length)}세션${gone}`;
-  }
-
-  chart("chart-indices").setOption({
+/* 지수 하나짜리 패널. **원 종가 그대로 그린다 — 정규화하지 않는다.**
+ * 패널이 자기 축을 가지므로 스케일을 맞출 이유가 없어졌고, 그러면 "지금
+ * 코스피가 얼마인가" 에 차트가 직접 답한다.
+ *
+ * 선 색은 **창 전체 등락의 부호**다. 이건 수익률이라 손익 색을 쓰는 것이
+ * 맞다(§10) — 머리의 전일대비와 부호가 다를 수 있어서, 창 등락을 머리 오른쪽에
+ * 숫자로도 적어 색이 무엇을 말하는지 못박는다. */
+function indexPanelChart(elId, panel) {
+  const tone = panel.total === null || panel.total === undefined
+    ? COLOR.muted
+    : panel.total > 0 ? COLOR.up : panel.total < 0 ? COLOR.down : COLOR.muted;
+  chart(elId).setOption({
     ...BASE,
-    grid: { ...BASE.grid, left: 44, right: 16, top: 10, bottom: 24 },
+    grid: { left: 46, right: 8, top: 8, bottom: 18 },
     legend: { show: false },
     tooltip: {
       ...BASE.tooltip,
-      // 정규화값만 보여주면 "지수가 120 이다" 로 읽힌다 — 원 종가를 같이 적는다.
       formatter: (rows) => {
         if (!rows || !rows.length) return "";
-        const lines = rows.map((row) => {
-          const s = c.series[row.seriesIndex];
-          const raw = s ? s.closes[row.dataIndex] : null;
-          const value = row.value === null || row.value === undefined ? "—" : dec(row.value, 2);
-          return `${esc(row.seriesName)} <b>${value}</b>`
-            + ` <span class="sub">(종가 ${raw === null || raw === undefined ? "—" : dec(raw, 2)})</span>`;
-        });
-        return `${esc(rows[0].axisValue)}<br>${lines.join("<br>")}`;
+        const row = rows[0];
+        return `${esc(row.axisValue)}<br>${esc(indexLabel(panel.entity_id))} <b>${dec(row.value, 2)}</b>`;
       },
     },
-    xAxis: { type: "category", data: c.sessions, boundaryGap: false, ...AXIS },
+    xAxis: { type: "category", data: panel.sessions, boundaryGap: false, ...AXIS,
+             axisLabel: { ...AXIS.axisLabel, showMaxLabel: true } },
+    // scale:true 가 필수다. 0 부터 그리면 지수는 위쪽 몇 %에 눌린 직선이 된다.
     yAxis: { type: "value", scale: true, ...AXIS },
-    series: c.series.map((s) => ({
-      name: indexLabel(s.entity_id),
+    series: [{
+      name: indexLabel(panel.entity_id),
       type: "line",
-      data: s.values,
+      data: panel.closes,
       showSymbol: false,
-      // 국장·미장은 휴장일이 다르다. 그 시장이 쉰 날은 null 인데, 점을 끊으면
-      // 선이 조각나 추세가 안 읽힌다 — 이어 긋되 값을 지어내지는 않는다
-      // (툴팁은 그날 "—" 라고 적는다).
-      connectNulls: true,
-      lineStyle: indexLineStyle(s),
-      itemStyle: { color: indexLineStyle(s).color },
-    })),
+      lineStyle: { color: tone, width: 1.6 },
+      areaStyle: { color: tone, opacity: 0.08 },
+    }],
   });
 }
 
-/* -- 지수 ------------------------------------------------------------------ */
-
-/* 대표 지수 한 줄. **가격지수 배지를 단다** — 배당이 빠져 있어 그만큼 우리가
- * 유리하게 보인다. 언제 떼는지는 config(benchmark.total_return)만 안다. */
-function renderIndexHead(body, code, suffix) {
-  const panel = body.data.markets[code].indices;
-  const head = panel.headline;
-  const target = document.getElementById(`index-head-${suffix}`);
+function renderIndexPanels(body, code, suffix) {
+  const data = body.data.markets[code].index_panels;
+  const target = document.getElementById(`index-panels-${suffix}`);
   const badge = prBadge(body);
-  if (!head) {
-    target.innerHTML = `<p class="empty">대표 지수 <code>${esc(panel.headline_id)}</code> 가
-      아직 창고에 없다. 수집이 들어오면 이 자리가 찬다 — 다른 지수로
-      바꿔치기하지 않는다.</p>`;
+
+  // 창고에 없는 지수도 **자리를 지킨다.** 통째로 빼면 좌우 두 칸의 패널 수가
+  // 갈리고, 그러면 "미장은 원래 볼 게 없다" 처럼 보인다.
+  const cards = [
+    ...data.panels.map((panel) => ({ panel, entityId: panel.entity_id })),
+    ...data.missing.map((gone) => ({ panel: null, entityId: gone.entity_id, role: gone.role })),
+  ];
+  if (!cards.length) {
+    target.innerHTML = `<p class="empty">이 시장의 대표 지수가 config 에 없다.</p>`;
     return;
   }
-  target.innerHTML = `<div class="headline">
-    <div class="headline-name">${esc(indexLabel(head.entity_id))} ${badge}</div>
-    <div class="headline-value mono ${signClass(head.change)}">${dec(head.close, 2)}</div>
-    <div class="headline-change mono ${signClass(head.change)}">${signed(head.change)}</div>
-  </div>`;
+
+  target.innerHTML = cards
+    .map(({ panel, entityId, role }, i) => {
+      const elId = `chart-index-${suffix}-${i}`;
+      const isHead = (panel ? panel.role : role) === "headline";
+      const head = `<div class="index-panel-head">
+        <span class="index-panel-name">${esc(indexLabel(entityId))}</span>
+        ${isHead ? `<span class="chip">대표</span>` : ""}
+        ${badge}
+        <span class="index-panel-nums">
+          <span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
+          <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
+        </span>
+      </div>`;
+      const body_ = panel
+        ? `<div class="chart mini" id="${elId}"></div>
+           <div class="index-panel-foot sub tiny">
+             ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
+             창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
+           </div>`
+        : panelMissingReason(entityId, data.lookback);
+      return `<div class="index-panel">${head}${body_}</div>`;
+    })
+    .join("");
+
+  // innerHTML 을 먼저 넣어야 컨테이너가 생긴다 — 순서를 바꾸면 ECharts 가
+  // 크기 0 인 요소에 붙어 아무것도 안 그린다.
+  cards.forEach(({ panel }, i) => {
+    if (panel) indexPanelChart(`chart-index-${suffix}-${i}`, panel);
+  });
 }
+
+/* -- 나머지 지수 목록 --------------------------------------------------------- */
+
 
 function renderIndices(body, code, suffix) {
   const panel = body.data.markets[code].indices;
   const rows = panel.others;
   // 자른 목록이 아니다 — 오늘 변동이 큰 순으로 쌓고 패널 안에서 스크롤한다.
-  document.getElementById(`indices-count-${suffix}`).textContent =
-    panel.total ? `${panel.total}종 · 변동 큰 순` : "";
+  // 위에서 개별 패널로 세운 지수는 여기서 빠지는데, 빠진 개수를 적어야
+  // "총 N종" 과 눈에 보이는 줄 수가 안 맞는 것이 버그처럼 안 보인다.
+  const moved = (panel.excluded || []).length;
+  document.getElementById(`indices-count-${suffix}`).textContent = panel.total
+    ? `${panel.total}종${moved ? ` · ${moved}종은 위 패널` : ""} · 변동 큰 순`
+    : "";
   const target = document.getElementById(`indices-${suffix}`);
   if (!rows.length) {
     target.innerHTML = panel.total
-      ? `<p class="empty">대표 지수 말고는 이 시장에 지수가 없다.</p>`
+      ? `<p class="empty">위 패널의 지수 말고는 이 시장에 지수가 없다.</p>`
       : `<p class="empty">지수가 없다. 백필(bf-indices)이 돌았는지 확인할 것.</p>`;
     return;
   }
@@ -514,10 +491,9 @@ async function loadMarket() {
   const body = await fetchJson("market");
   showScope(body);
   renderKpis(body);
-  renderIndexChart(body);
   for (const [code, suffix] of COLUMNS) {
     renderColumnNote(body, code, suffix);
-    renderIndexHead(body, code, suffix);
+    renderIndexPanels(body, code, suffix);
     renderIndices(body, code, suffix);
     renderBreadth(body, code, suffix);
     renderMovers(body, code, suffix);
@@ -528,19 +504,19 @@ async function loadMarket() {
 
   const warnings = [];
   if (body.data.fx.rate === null) warnings.push("환율이 비어 있다 — NAV 평가에도 영향을 준다");
-  // 한 줄로 묶는다. 네 지수를 따로 세우면 창고가 통째로 빈 시점에서 경고
-  // 넷이 아래 "대표 지수가 없다" 와 겹쳐 알림줄이 같은 말로 도배된다.
-  const gone = body.data.index_chart.missing;
-  if (gone.length) {
-    warnings.push(
-      `상단 차트에서 ${gone.map((m) => indexLabel(m.entity_id)).join("·")} 가 빠졌다 — 창(${num(body.data.index_chart.lookback)}일) 안에 종가가 없다`
-    );
-  }
   for (const [code] of COLUMNS) {
     const panel = body.data.markets[code];
     const label = code === "KR" ? "국장" : "미장";
-    if (!panel.indices.headline) {
-      warnings.push(`${label} 대표 지수(${panel.indices.headline_id})가 창고에 없다`);
+    // 시장마다 한 줄로 묶는다. 지수를 따로 세우면 창고가 통째로 빈 시점에
+    // 알림줄이 같은 말로 도배된다. 대표는 따로 짚는다 — 대표가 없는 것과
+    // 곁 지수가 없는 것은 무게가 다르다.
+    for (const gone of panel.index_panels.missing) {
+      const what = indexLabel(gone.entity_id);
+      warnings.push(
+        gone.role === "headline"
+          ? `${label} 대표 지수(${gone.entity_id})가 창(${num(panel.index_panels.lookback)}일) 안에 없다`
+          : `${label} ${what} 패널이 비었다 — 창 안에 종가가 없다`
+      );
     }
     if (!panel.breadth.traded) warnings.push(`${label} 시세가 비어 있다`);
     if (!panel.treemap.rows.length) {

@@ -6,7 +6,8 @@
 1. **as_of 를 지킨다** — 되감으면 그 시점 이후 값이 안 보인다 (불변식 9)
 2. **없는 것은 null 이다** — 환율·지수가 없으면 0 이 아니라 null
 3. **대표 지수는 config 가 정한다** — 화면이 고르지 않는다 (불변식 10).
-   그 이름이 창고에 없으면 대용치로 바꿔치기하지 않고 ``None`` 이다
+   그 이름이 창고에 없으면 대용치로 바꿔치기하지 않고 ``index_panels.missing``
+   으로 나간다. 지수마다 패널 하나이고 값은 **원 종가**다 — 정규화하지 않는다
 4. **KR·US 판은 같은 모양이다** — 한쪽에만 있는 칸을 만들지 않는다
 5. **예정된 거시지표는 여기 없다** — 발표 완료만. 예정은 뉴스·일정 탭의 몫이다
 6. **등락을 못 잰 종목은 null 이다** — 0% 로 채우면 "보합" 이라는 다른 사실이
@@ -169,13 +170,32 @@ def test_두_시장이_같은_모양의_판을_받는다(client) -> None:
     assert set(markets["KR"]) == set(markets["US"])
 
 
+def _headline(panel: dict) -> dict:
+    """그 시장의 대표 지수 패널. 대표는 **하나뿐이어야** 한다."""
+    heads = [
+        row
+        for row in panel["index_panels"]["panels"] + panel["index_panels"]["missing"]
+        if row["role"] == "headline"
+    ]
+    assert len(heads) == 1, heads
+    return heads[0]
+
+
 def test_대표_지수는_config_가_정한다(client) -> None:
     markets = client.get("/api/market").get_json()["data"]["markets"]
     # config.benchmark 의 kr_index / us_index 그대로다.
-    assert markets["KR"]["indices"]["headline_id"] == "KR:IDX:KOSPI"
-    assert markets["US"]["indices"]["headline_id"] == "US:IDX:SP500"
-    assert markets["KR"]["indices"]["headline"]["change"] == pytest.approx(0.01)
-    assert markets["US"]["indices"]["headline"]["change"] == pytest.approx(-0.01)
+    assert _headline(markets["KR"])["entity_id"] == "KR:IDX:KOSPI"
+    assert _headline(markets["US"])["entity_id"] == "US:IDX:SP500"
+    assert _headline(markets["KR"])["change"] == pytest.approx(0.01)
+    assert _headline(markets["US"])["change"] == pytest.approx(-0.01)
+
+
+def test_지수_패널은_원_종가를_싣는다(client) -> None:
+    """정규화는 축을 공유해야 할 때만 필요했던 트릭이었다. 패널이 갈리면서
+    사라졌다 — 100 에서 출발하는 값이 있으면 옛 동작이 남은 것이다."""
+    head = _headline(client.get("/api/market").get_json()["data"]["markets"]["KR"])
+    assert head["closes"][-1] == head["close"]
+    assert head["close"] > 100.0  # 지수 포인트이지 정규화값이 아니다
 
 
 def test_대표_지수가_없으면_대용치로_바꿔치기하지_않는다(store) -> None:
@@ -186,15 +206,18 @@ def test_대표_지수가_없으면_대용치로_바꿔치기하지_않는다(st
     """
     store.seed_config_defaults()
     client = _build_app(store=store, clock=ReplayClock(NOW)).test_client()
-    kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]["indices"]
-    assert kr["headline"] is None
-    assert kr["headline_id"] == "KR:IDX:KOSPI"  # 무엇이 없는지는 말한다
+    kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]
+    head = _headline(kr)
+    assert head in kr["index_panels"]["missing"]  # 값이 아니라 "없음" 으로 나간다
+    assert head["entity_id"] == "KR:IDX:KOSPI"  # 무엇이 없는지는 말한다
 
 
-def test_대표_지수는_나머지_목록에_다시_안_나온다(client) -> None:
+def test_패널로_세운_지수는_나머지_목록에_다시_안_나온다(client) -> None:
+    """같은 지수를 한 칸에 두 번 적으면 목록의 "N종" 이 무엇을 세는지 흐려진다."""
     kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]["indices"]
     assert [row["entity_id"] for row in kr["others"]] == ["KR:IDX:KRX 반도체"]
     assert kr["total"] == 2  # 접은 것이지 지운 것이 아니다
+    assert "KR:IDX:KOSPI" in kr["excluded"]  # 어디로 갔는지 화면이 말할 수 있다
 
 
 def test_지수는_시장별로_갈린다(client) -> None:
@@ -278,7 +301,8 @@ def test_없는_데이터는_0이_아니라_null이다(store) -> None:
     assert data["fx"]["rate"] is None
     for code in ("KR", "US"):
         panel = data["markets"][code]
-        assert panel["indices"]["headline"] is None
+        assert panel["index_panels"]["panels"] == []
+        assert panel["index_panels"]["missing"]  # 무엇이 없는지는 말한다
         assert panel["leaders"] == []
         assert panel["macro"] == []
         assert panel["breadth"]["value"] is None

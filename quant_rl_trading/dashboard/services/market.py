@@ -11,10 +11,13 @@
 만들면 화면의 좌우 밀도가 갈라지고, 그러면 "미장은 원래 볼 게 없다" 처럼
 보인다 — 실제로는 **없는 것이 아니라 아직 안 받은 것**이다.
 
-시장을 가르지 않고 함께 보는 것은 둘이다 — **원달러 환율**(두 시장 사이의
-다리이지 어느 한쪽의 지표가 아니다)과 **상단의 대표 지수 차트**
-(`index_chart`). 후자는 좌우로 갈라 놓으면 답이 안 나오는 질문 하나를 맡는다:
-"지금 어느 시장이 앞서 가나." 그건 네 선을 겹쳐야만 보인다.
+시장을 가르지 않고 함께 보는 것은 **원달러 환율 하나뿐**이다. 그건 두 시장
+사이의 다리이지 어느 한쪽의 지표가 아니라, 좌우로 갈리기 전의 공통 줄(KPI)에
+있다.
+
+대표 지수는 한때 넷을 한 그림에 겹쳐 정규화했었다. 지금은 **지수마다 자기
+패널**이고(`index_panels`), 각 패널이 자기 축을 가지므로 **원 종가를 그대로**
+그린다 — 정규화는 축을 공유해야 할 때만 필요했던 트릭이었다.
 
 ## 이 화면에서 계산하지 않는 것
 
@@ -128,20 +131,21 @@ TREEMAP_TOP_N = 60
 #: 맡는다 — 여기는 "방금 무엇이 발표됐나" 만 짚는다.
 MACRO_ROWS = 5
 
-#: 상단 차트가 그리는 **대표 지수의 짝**. 시장마다 config 가 정한 대표 지수
-#: (`benchmark.kr_index` / `us_index`) 하나에 이 한 종을 더해 넷이 된다.
+#: 패널로 세우는 **대표 지수의 짝**. 시장마다 config 가 정한 대표 지수
+#: (`benchmark.kr_index` / `us_index`) 하나에 이 한 종을 더해 **시장당 둘**이
+#: 된다. 둘로 맞추는 이유는 좌우 두 칸의 밀도를 같게 하는 것이다.
 #:
 #: 여기 적힌 이름은 **창고의 entity_id 그대로**다. config 가 정하는 것은
 #: "우리가 견줘 평가받는 지수" 이고 그건 시장마다 하나뿐인데, 화면의 질문은
 #: "그 시장이 어떤가" 라 대형주 지수 하나로는 답이 안 된다 — 2026-08 처럼
-#: 코스피가 오르는 동안 코스닥이 내리는 국면이 그 차이다. 그래서 대표를
-#: 바꿔치기하지 않고 **옆에 나란히 놓는다**. 대표가 무엇인지는 응답의
-#: ``role`` 이 계속 말한다.
+#: 코스피가 오르는 동안 코스닥이 내리는 국면이 그 차이다(같은 창에서 코스피
+#: -9.4% · 코스닥 -22.5%). 그래서 대표를 바꿔치기하지 않고 **옆에 나란히
+#: 놓는다**. 대표가 무엇인지는 응답의 ``role`` 이 계속 말한다.
 COMPANION_INDICES = {"KR": ("KR:IDX:KOSDAQ",), "US": ("US:IDX:NASDAQ",)}
 
 #: **변동성 지수는 가격지수가 아니다.** VIX 는 옵션 내재변동성이라 "20 → 24"
-#: 가 +20% 수익이 아니고, 기준일 100 으로 정규화해 가격지수와 같은 축에 두면
-#: 급등이 수익률로 읽힌다. 상단 차트에서 빼고, 목록에서는 따로 묶는다.
+#: 가 +20% 수익이 아니라 공포가 커진 것이다. 패널로 세우지 않고, 목록에서는
+#: 가격지수와 갈라서 묶는다 — 등락에 손익 색도 쓰지 않는다.
 VOLATILITY_INDICES = frozenset({"US:IDX:VIX", "US:IDX:VXN", "US:IDX:RVX"})
 
 #: 오늘 많이 오른/내린 종목 줄 수.
@@ -153,7 +157,7 @@ MOVER_ROWS = 5
 MOVER_POOL = 300
 
 
-def _names(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
+def entity_names(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
     if not entities:
         return {}
     frame = store.get(
@@ -182,8 +186,7 @@ def fx(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
 
     **시장별 판에 넣지 않는다.** 환율은 국장의 지표도 미장의 지표도 아니라
     둘 사이의 다리다. 화면에서도 좌우로 갈리기 전의 공통 줄(KPI)에 있다 —
-    상단 차트 자리는 대표 지수 넷이 가져갔고(``index_chart``), 환율은 KPI
-    카드와 그 스파크라인으로 남는다. ``sessions``·``rates`` 는 그 스파크라인이
+    카드와 그 스파크라인이 전부다. ``sessions``·``rates`` 는 그 스파크라인이
     쓴다.
 
     창고에 있는 것은 USDKRW 하나다 (KR-US 사이에서만 거래하므로). 다른
@@ -217,18 +220,25 @@ def _kind(entity_id: str) -> str:
     return "volatility" if entity_id in VOLATILITY_INDICES else "price"
 
 
-def indices(store: Store, *, as_of: datetime, market: str, headline: str) -> dict[str, Any]:
-    """한 시장의 지수 현황. 종가와 직전 세션 대비 등락률.
+def indices(
+    store: Store, *, as_of: datetime, market: str, exclude: set[str] | None = None
+) -> dict[str, Any]:
+    """한 시장의 **나머지** 지수 목록. 종가와 직전 세션 대비 등락률.
 
-    ``headline`` 은 config 가 정한 대표 지수다 — 여기서 고르지 않는다(모듈
-    docstring 참고). 창고에 그 이름이 없으면 ``headline`` 은 ``None`` 이고,
-    화면이 "아직 안 들어왔다" 고 말한다. **대용치로 바꿔치기하지 않는다** —
-    KRX 300 을 코스피라 부르는 순간 화면이 거짓말을 시작한다.
+    ``exclude`` 는 이미 개별 패널로 세운 지수다(:func:`index_panels`). 대표
+    지수를 여기서 고르지 않는다는 규칙은 그대로다 — 무엇이 대표인지는
+    ``config.benchmark`` 만 알고, 이 함수는 그 결정을 **전달받을 뿐**이다.
+
+    **목록은 자르지 않는다.** 국장 44종·미장 10종을 그냥 깔면 왼쪽이 몇 배
+    높아지므로 패널 높이를 고정하고 안에서 스크롤한다(market.css). 순서만
+    오늘 변동이 큰 순이고, 빠지는 지수는 위 패널로 옮겨 간 것뿐이다 —
+    ``total`` 이 그 사실을 셀 수 있게 옮겨 가기 전 개수를 센다.
 
     `indices` 테이블에는 국장 KRX 업종·테마 지수와 해외 지수가 함께 산다
     (prices 와 나눈 이유는 store/tables.py 참고 — 종목 유니버스에 지수가
     섞이면 커버리지 통계가 오염된다).
     """
+    excluded = exclude or set()
     frame = store.get(
         INDICES,
         as_of=as_of,
@@ -237,7 +247,7 @@ def indices(store: Store, *, as_of: datetime, market: str, headline: str) -> dic
         columns=["entity_id", "market", "close", "valid_from"],
     )
     if frame.empty:
-        return {"headline": None, "headline_id": headline, "others": [], "total": 0}
+        return {"others": [], "total": 0, "excluded": sorted(excluded)}
 
     rows: list[dict[str, Any]] = []
     for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
@@ -260,8 +270,7 @@ def indices(store: Store, *, as_of: datetime, market: str, headline: str) -> dic
             }
         )
 
-    by_entity = {row["entity_id"]: row for row in rows}
-    others = [row for row in rows if row["entity_id"] != headline]
+    others = [row for row in rows if row["entity_id"] not in excluded]
     # 가격지수 먼저, 변동성 지수는 뒤로 묶는다 — 한 목록에서 섞이면 VIX 의
     # +12% 가 나스닥의 +12% 와 같은 뜻으로 읽힌다. 그 안에서 오늘 많이 움직인
     # 순. 등락을 못 잰 지수는 뒤로 — 앞자리는 "오늘 무슨 일이 있었나" 에
@@ -274,14 +283,14 @@ def indices(store: Store, *, as_of: datetime, market: str, headline: str) -> dic
         )
     )
     return {
-        "headline": by_entity.get(headline),
-        "headline_id": headline,
         "others": others,
+        # 옮겨 가기 전 전체 개수. 화면이 "44종 중 2종은 위 패널" 이라고 적는다.
         "total": len(rows),
+        "excluded": sorted(excluded),
     }
 
 
-# -- 상단 대표 지수 차트 ---------------------------------------------------------
+# -- 지수별 개별 패널 ------------------------------------------------------------
 
 
 def _index_history(
@@ -318,122 +327,92 @@ def _index_history(
     return out
 
 
-def index_chart(
-    store: Store, *, as_of: datetime, lookback: int, headlines: dict[str, str]
+def index_panels(
+    store: Store, *, as_of: datetime, lookback: int, market: str, headline: str
 ) -> dict[str, Any]:
-    """상단 차트 — **대표 지수 넷을 기준일 100 으로 정규화한 한 그림**.
+    """그 시장의 **대표 지수마다 패널 하나**. 이름·종가·등락률·차트.
 
-    ## 왜 한 축에 정규화인가 — 네 조각이 아니라
+    ## 왜 한 축에 겹치지 않고 쪼개는가 — 그리고 왜 정규화를 버렸는가
 
-    코스피 ~4,000 · 코스닥 ~900 · 나스닥 ~26,800 · S&P500 ~7,800 이다. 한 축에
-    원값을 그대로 그리면 코스닥은 바닥에 붙은 직선이 된다. 남는 선택은 둘이다.
+    한때 넷을 한 차트에 겹쳐 기준일 100 으로 정규화했다. 스케일이 열 배 넘게
+    벌어져(코스닥 ~860 · 나스닥 ~26,800) **한 축에 두려면 정규화가 강제**됐기
+    때문이다. 정규화는 그 강제에 대한 대응이지 그 자체로 좋은 것이 아니었다 —
+    120 이 지수 포인트인지 기준일 대비인지를 화면이 매번 설명해야 했고,
+    "지금 코스피가 얼마인가" 라는 제일 흔한 질문에 차트가 답하지 못했다.
 
-    - **차트를 넷으로 쪼갠다**: 각 지수의 절대 수준은 살지만, 화면이 답해야 하는
-      질문 — "지금 어느 시장이 앞서 가나" — 은 눈으로 네 그림을 옮겨 다니며
-      풀어야 한다. 상단 한 줄에 넷을 넣으면 각 그림이 폭 1/4 라 축도 못 단다.
-    - **기준일 100 정규화**: 네 선의 벌어진 간격이 곧 그 답이다. 잃는 것은 절대
-      수준인데, 그건 이미 KPI 스트립과 지수 패널이 종가로 말하고 있다.
+    **패널을 쪼개면 축을 공유할 이유가 사라지고, 그러면 정규화할 이유도 같이
+    사라진다.** 각 패널은 자기 축을 가지므로 원 종가를 그대로 그린다. 잃는 것은
+    "어느 시장이 앞서 가나" 를 한눈에 겹쳐 보는 것인데, 그건 각 패널이 적는
+    **기간 등락**(``total``)으로 숫자로 견줄 수 있다.
 
-    그래서 정규화를 고른다. 기준값은 ``benchmark.base_value`` 로, 회계가 벤치마크
-    지수를 이어붙일 때 쓰는 것과 같은 100 이다 — 화면이 따로 들지 않는다.
+    ## 무엇을 패널로 세우나 — 시장당 둘
 
-    ## 기준일은 넷이 **다 있는 첫 세션**이다
+    ``headline``(= ``config.benchmark`` 가 정한 지수)과 :data:`COMPANION_INDICES`
+    한 종. 시장당 둘로 맞추는 이유는 **좌우 두 칸이 같은 밀도여야** 하기
+    때문이다(dashboard.md §8-3). 미장에만 다우·나스닥100·SOX 를 더해 여섯을
+    세우면 두 칸의 눈높이가 어긋나 나란히 비교하는 배치 자체가 무너진다.
 
-    지수마다 창고에 들어온 시점이 다르다. 각자 자기 첫 세션에서 100 으로 잡으면
-    기준일이 서로 다른 선을 겹쳐 놓게 되고, 그러면 벌어진 간격이 성과 차이가
-    아니라 출발선 차이가 된다. 그래서 **모두가 값을 가진 첫 세션**을 공통
-    기준일로 잡고 그 앞은 자른다.
-
-    국장과 미장은 휴장일이 다르다 — 축은 두 달력의 합집합이고, 그 시장이 쉰
-    날은 ``None`` 이다. 0 이나 직전값으로 메우지 않는다.
+    그리고 그 셋은 **시장 전체가 아니다** — 다우는 30종목 가격가중, 나스닥100 은
+    나스닥의 부분집합, SOX 는 반도체 섹터다. 이 화면의 질문은 "그 시장이 지금
+    어떤가" 라 광의 지수가 답이고, 나머지는 지수 목록 패널이 하나도 자르지 않고
+    전부 든다.
 
     ## 변동성 지수는 여기 없다
 
-    VIX·VXN·RVX 는 가격지수가 아니다(``VOLATILITY_INDICES``). 정규화해 같은 축에
-    두면 급등이 수익률로 읽힌다.
+    VIX·VXN·RVX 는 가격지수가 아니다(:data:`VOLATILITY_INDICES`). 20 → 24 는
+    +20% 수익이 아니라 공포가 커진 것이다. 목록에서 따로 묶는 것과 같은 이유로
+    패널로도 세우지 않는다.
+
+    ## 없으면 없다고 말한다
+
+    창 안에 종가가 없는 지수는 빈 차트가 아니라 ``missing`` 으로 나가고, 화면이
+    이유를 적는다. **대용치로 바꿔치기하지 않는다.**
     """
-    base_value = float(store.config("benchmark.base_value", as_of=as_of))
+    wanted: list[tuple[str, str]] = [(headline, "headline")]
+    wanted += [(entity, "companion") for entity in COMPANION_INDICES.get(market, ())]
 
-    wanted: list[tuple[str, str, str]] = []  # (entity_id, market, role)
-    for code in MARKETS:
-        wanted.append((headlines[code], code, "headline"))
-        wanted.extend((entity, code, "companion") for entity in COMPANION_INDICES.get(code, ()))
-
-    history: dict[str, pd.Series] = {}
-    for code in MARKETS:
-        entities = [entity for entity, market, _ in wanted if market == code]
-        history.update(
-            _index_history(
-                store, as_of=as_of, lookback=lookback, market=code, entities=entities
-            )
-        )
-
-    missing = [
-        {"entity_id": entity, "market": market, "role": role}
-        for entity, market, role in wanted
-        if entity not in history
-    ]
-    present = [(entity, market, role) for entity, market, role in wanted if entity in history]
-    if not present:
-        return {
-            "base_value": base_value,
-            "base_session": None,
-            "sessions": [],
-            "series": [],
-            "missing": missing,
-            "lookback": lookback,
-        }
-
-    # 공통 기준일 — 모두가 값을 가진 첫 세션. 그 앞은 자른다.
-    base_session = max(str(history[entity].index[0]) for entity, _, _ in present)
-    sessions = sorted(
-        {s for entity, _, _ in present for s in history[entity].index if str(s) >= base_session}
+    history = _index_history(
+        store,
+        as_of=as_of,
+        lookback=lookback,
+        market=market,
+        entities=[entity for entity, _ in wanted],
     )
 
-    series: list[dict[str, Any]] = []
-    for entity, market, role in present:
-        window = history[entity]
-        window = window[[str(s) >= base_session for s in window.index]]
-        base = float(window.iloc[0])
-        closes = [float(window[s]) if s in window.index else None for s in sessions]
-        series.append(
+    panels: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for entity, role in wanted:
+        window = history.get(entity)
+        if window is None or window.empty:
+            missing.append({"entity_id": entity, "market": market, "role": role})
+            continue
+        first = float(window.iloc[0])
+        last = float(window.iloc[-1])
+        panels.append(
             {
                 "entity_id": entity,
                 "market": market,
                 "role": role,
-                # 자기 첫 세션이 공통 기준일과 다를 수 있다 — 그날 그 시장이
-                # 쉬었으면 하루 뒤가 자기 기준일이다. 화면이 그대로 적는다.
-                "base_session": str(window.index[0]),
-                "base_close": base,
-                "close": float(window.iloc[-1]),
+                "sessions": [str(s) for s in window.index],
+                # 원 종가 그대로다. 정규화하지 않는다 — 패널마다 자기 축이 있다.
+                "closes": [float(v) for v in window],
+                "close": last,
                 "session": str(window.index[-1]),
-                "change": (float(window.iloc[-1]) / float(window.iloc[-2]) - 1.0)
-                if len(window) >= 2
-                else None,
-                # 기준일 대비 누적. 정규화했다는 사실 자체를 화면이 말해야 하므로
-                # 원 종가(``closes``)도 같이 실어 툴팁이 둘 다 보여준다.
-                "values": [
-                    None if c is None else round(c / base * base_value, 4) for c in closes
-                ],
-                "closes": closes,
-                "total": float(window.iloc[-1]) / base - 1.0,
+                # 전일 대비. 세션이 하나뿐이면 못 잰다 — 0 으로 채우지 않는다.
+                "change": (last / float(window.iloc[-2]) - 1.0) if len(window) >= 2 else None,
+                # 창 전체 등락. 축이 갈린 패널들을 숫자로 견주는 유일한 자리다.
+                "total": (last / first - 1.0) if first else None,
+                "first_session": str(window.index[0]),
             }
         )
 
-    return {
-        "base_value": base_value,
-        "base_session": base_session,
-        "sessions": [str(s) for s in sessions],
-        "series": series,
-        "missing": missing,
-        "lookback": lookback,
-    }
+    return {"panels": panels, "missing": missing, "lookback": lookback}
 
 
 # -- 시세로 만드는 것 — 시장 폭 · 많이 움직인 종목 ---------------------------------
 
 
-def _changes(store: Store, *, as_of: datetime, market: str) -> pd.DataFrame:
+def session_changes(store: Store, *, as_of: datetime, market: str) -> pd.DataFrame:
     """종목별 **직전 세션 대비 등락**. 시장 폭·movers 가 같은 표를 나눠 쓴다.
 
     돌려주는 표는 entity_id 색인에 ``close``·``prev``·``change``·``value``·
@@ -531,7 +510,7 @@ def movers(
     entities = sorted(
         {str(e) for frame in (gainers, losers, actives) for e in frame.index}
     )
-    names = _names(store, as_of=as_of, entities=entities)
+    names = entity_names(store, as_of=as_of, entities=entities)
 
     def rows(frame: pd.DataFrame) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -583,7 +562,7 @@ def leaders(
     top = latest.sort_values("value", ascending=False).head(limit)
     entities = [str(e) for e in top["entity_id"]]
 
-    names = _names(store, as_of=as_of, entities=entities)
+    names = entity_names(store, as_of=as_of, entities=entities)
     changed = changes["change"] if not changes.empty else pd.Series(dtype=float)
 
     rows: list[dict[str, Any]] = []
@@ -655,23 +634,31 @@ def macro_recent(store: Store, *, as_of: datetime, market: str) -> list[dict[str
 
 
 def market_panel(
-    store: Store, *, as_of: datetime, market: str, headline: str
+    store: Store, *, as_of: datetime, lookback: int, market: str, headline: str
 ) -> dict[str, Any]:
     """한 시장의 판 전부. KR·US 가 **같은 함수, 같은 모양**이다.
 
-    시세는 한 번만 읽는다(`_changes`). 시장 폭·movers·리더 등락률·트리맵이
+    시세는 한 번만 읽는다(`session_changes`). 시장 폭·movers·리더 등락률·트리맵이
     전부 그 한 표에서 나온다 — 패널마다 따로 읽으면 같은 파티션을 네 번 연다.
 
     ``universe`` 는 그 시장에서 오늘 시세가 잡힌 종목 수다. 명단
     (`universe` 테이블) 이 아니라 **거래가 관측된 수**라 breadth 의 분모와
     같은 숫자다.
     """
-    changes = _changes(store, as_of=as_of, market=market)
+    changes = session_changes(store, as_of=as_of, market=market)
     top = leaders(store, changes, as_of=as_of, market=market, limit=TREEMAP_TOP_N)
+    panels = index_panels(
+        store, as_of=as_of, lookback=lookback, market=market, headline=headline
+    )
+    # 개별 패널로 세운 지수는 목록에서 뺀다 — 같은 지수를 한 칸에 두 번 적으면
+    # 목록의 "N종" 이 무엇을 세는 숫자인지 흐려진다. 뺀 사실은 화면이 적는다.
+    paneled = {row["entity_id"] for row in panels["panels"]}
+    paneled |= {row["entity_id"] for row in panels["missing"]}
     return {
         "market": market,
         "currency": CURRENCY.get(market, ""),
-        "indices": indices(store, as_of=as_of, market=market, headline=headline),
+        "index_panels": panels,
+        "indices": indices(store, as_of=as_of, market=market, exclude=paneled),
         "breadth": breadth(changes, market=market),
         "movers": movers(store, changes, as_of=as_of),
         "leaders": top[:LEADER_ROWS],
@@ -694,12 +681,15 @@ def payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     headlines = {code: str(section[BENCHMARK_KEY[code]]) for code in MARKETS}
     return {
         "fx": fx(store, as_of=as_of, lookback=lookback),
-        "index_chart": index_chart(
-            store, as_of=as_of, lookback=lookback, headlines=headlines
-        ),
         "total_return": bool(section.get("total_return", False)),
         "markets": {
-            code: market_panel(store, as_of=as_of, market=code, headline=headlines[code])
+            code: market_panel(
+                store,
+                as_of=as_of,
+                lookback=lookback,
+                market=code,
+                headline=headlines[code],
+            )
             for code in MARKETS
         },
     }

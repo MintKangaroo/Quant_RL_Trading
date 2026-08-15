@@ -63,48 +63,49 @@
    좌우로 나눈 이유가 나란히 비교하는 것인데 줄이 어긋나면 그게 안 된다. */
 .market-col .scroll.short { height: 148px; }
 
-/* 대표 지수 한 줄 — 카드가 아니라 줄이다. 카드로 만들면 KPI 줄과 두 번
-   같은 말을 하게 된다. */
-.headline {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 0 8px;
-}
-
-.headline-name { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.headline-value { font-size: 19px; }
-.headline-change { font-size: 12.5px; }
-
 /* 가격지수 배지. 경고색을 쓰는 이유 — 배당이 빠진 만큼 우리가 이긴 것처럼
    보이는 값이라, 무채색으로 두면 그냥 라벨로 읽힌다. */
 .chip.warn-chip { color: var(--warn); border-color: var(--warn); }
 
-/* 상단 대표 지수 차트의 범례 — **정규화가 지운 절대 수준을 되돌려 주는 줄**이다.
-   ECharts 기본 범례는 이름만 찍어서 "지금 코스피가 몇인가" 에 답하지 못한다.
-   한 줄에 넷을 눕히되 좁은 화면에서는 접힌다. */
-.index-legend {
+/* 지수 패널 — 한 칸 안에서 **둘이 나란히** 선다. 세로로 쌓으면 지수 둘이
+   화면 절반을 먹고 그 아래 시장 폭·움직인 종목이 접힌 아래로 밀린다.
+   minmax(0,1fr) 인 이유는 grid 칸 기본 최소폭이 auto 라서다 — 안 걸면 차트가
+   칸을 밀어내 좌우 배치가 가로로 흐른다. */
+.index-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.index-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px 4px;
+  min-width: 0;
+}
+
+.index-panel-head {
   display: flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  gap: 4px 18px;
-  padding: 2px 0 6px;
-  font-size: 11.5px;
+  gap: 4px 6px;
+  padding-bottom: 2px;
 }
 
-.idx-key { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.idx-key .idx-name { color: var(--muted); }
-.idx-key .idx-close { color: var(--text); font-size: 12px; }
+.index-panel-name { font-size: 12px; font-weight: 600; color: var(--text); }
 
-/* 선 모양을 그대로 보여준다 — 차트에서 실선이 대표, 점선이 곁 지수다.
-   범례가 색만 찍으면 그 구분이 안 건너온다. */
-.idx-swatch {
-  width: 16px;
-  height: 0;
-  align-self: center;
-  border-top: 2px solid var(--line);
-}
-.idx-swatch.dashed { border-top-style: dashed; }
+/* 숫자는 오른쪽 끝으로 민다 — 지수 이름 길이가 제각각이라(코스피 3자,
+   NASDAQ 6자) 왼쪽에 붙이면 두 패널의 종가가 서로 다른 x 에 앉는다. */
+.index-panel-nums { margin-left: auto; display: flex; align-items: baseline; gap: 6px; }
+.index-panel-close { font-size: 14px; }
+.index-panel-nums .mono:last-child { font-size: 11.5px; }
+
+.index-panel-foot { margin: 0; padding-top: 1px; color: var(--dim); }
+
+/* 패널이 좁으니 차트도 낮다. 이건 추세의 모양을 보는 자리이지 눈금을 읽는
+   자리가 아니다 — 정확한 값은 바로 위 머리에 있다. */
+.chart.mini { height: 108px; }
 
 /* 변동성 지수 줄. **가격지수와 눈으로 갈려야 한다** — 여기서 등락률에 손익
    색을 안 쓰므로(VIX 상승은 수익이 아니다) 색만으로는 차이가 안 보인다. */
@@ -188,4 +189,10 @@
 @media (max-width: 1280px) {
   .split { grid-template-columns: minmax(0, 1fr); }
   .market-col .chart.tall { height: 400px; }
+}
+
+/* 아주 좁은 화면에서는 지수 패널을 세로로 쌓는다. 폭이 150px 밑으로 내려가면
+   선이 뭉개져 추세가 안 읽히는데, 그러면 차트가 자리만 먹는 장식이 된다. */
+@media (max-width: 560px) {
+  .index-panels { grid-template-columns: minmax(0, 1fr); }
 }
