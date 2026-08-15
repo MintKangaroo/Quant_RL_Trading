@@ -510,6 +510,22 @@ def test_USD_주문가능금액을_읽는다_원화5원이_아니다():
     assert balance.net_asset == 9.49  # WonDpsBalAmt(5) 를 읽으면 안 된다
 
 
+def test_예수금_TR_의_통화행을_보유종목으로_세지_않는다():
+    """`COSOQ02701` 은 **예수금**이지 잔고평가가 아니다.
+
+    OutBlock3 의 행은 **통화**(USD·KRW…)이지 종목이 아니다. 그걸 positions 에
+    담으면 화면이 **"보유 1종목"** 이라고 말한다 — 실제로 그렇게 찍혔고 계좌엔
+    아무것도 없었다(`COSOQ00201` 이 "조회내역이 없습니다"). 실주문 직전에
+    잔고를 오독하게 만드는 자리다.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return us_deposit_response()
+
+    balance = fetch_balance_us(make_us_client(handler, live_trading=True))
+
+    assert balance.positions == (), "통화 행이 보유 종목으로 셌다"
+
+
 def test_USD_예수금보다_큰_주문은_거부된다():
     """상한(20.0)은 통과하지만 주문가능금액(9.49)을 넘는 주문."""
     def handler(request: httpx.Request) -> httpx.Response:

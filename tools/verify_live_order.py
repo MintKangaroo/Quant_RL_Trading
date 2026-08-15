@@ -383,9 +383,13 @@ def fetch_balance_us(client: LSClient) -> BalanceSummary:
         return BalanceSummary(net_asset=0.0, positions=(), paper=True)
     rows = data.get(f"{TR_BALANCE_US}OutBlock3") or []
     usd = next((row for row in rows if str(row.get("CrcyCode", "")).upper() == "USD"), {})
-    return BalanceSummary(
-        net_asset=_num(usd, "FcurrOrdAbleAmt"), positions=(usd,) if usd else (), paper=False
-    )
+    # **``positions`` 는 비워 둔다.** 이 TR 은 예수금이지 잔고평가가 아니다 —
+    # OutBlock3 의 행은 **통화**(USD·KRW…)이지 종목이 아니다. 그걸 그대로
+    # positions 에 담으면 화면이 **"보유 1종목"** 이라고 말한다. 실제로 그랬고,
+    # 계좌에는 아무것도 없었다(``COSOQ00201`` 이 "조회내역이 없습니다").
+    # 실주문 직전에 잔고를 오독하게 만드는 자리다. 보유 종목이 필요하면
+    # 잔고평가(``COSOQ00201``)를 따로 불러야 한다.
+    return BalanceSummary(net_asset=_num(usd, "FcurrOrdAbleAmt"), positions=(), paper=False)
 
 
 def fetch_quote_us(client: LSClient, symbol: str) -> Quote | None:
@@ -771,8 +775,14 @@ def run(
             )
         out(f"  드라이런 — 전송하지 않는다. 보낼 본문: {body}")
         if is_us:
-            out(f"  참고 — 취소 본문: {us_cancel_body(order_no='0', quantity=quantity, market_code=quote.market_code)}")
-            out(f"  참고 — 정정 본문: {us_modify_body(order_no='0', price=buy_summary.price, market_code=quote.market_code)}")
+            cancel = us_cancel_body(
+                order_no="0", quantity=quantity, market_code=quote.market_code
+            )
+            out(f"  참고 — 취소 본문: {cancel}")
+            modify = us_modify_body(
+                order_no="0", price=buy_summary.price, market_code=quote.market_code
+            )
+            out(f"  참고 — 정정 본문: {modify}")
             out("  (원주문번호 0 은 자리표시다. 취소·정정 본문은 아직 한 번도 보낸 적이 없다.)")
         out(
             "드라이런이라 이후 단계(체결조회·정정·취소·매도)도 실물 없이는 "
@@ -1008,7 +1018,9 @@ def main(argv: list[str] | None = None) -> int:
         "--market", choices=sorted(PROFILES), default="KR",
         help="검증할 시장 (기본 KR). US 는 LS_US_* 자격증명을 쓴다.",
     )
-    parser.add_argument("--symbol", required=True, help="국장 6자리 코드(005930) 또는 미장 심볼(WEN)")
+    parser.add_argument(
+        "--symbol", required=True, help="국장 6자리 코드(005930) 또는 미장 심볼(WEN)"
+    )
     parser.add_argument("--quantity", type=int, default=1, help="검증 수량 (기본 1주)")
     parser.add_argument(
         "--max-order-value", type=float, default=None,
