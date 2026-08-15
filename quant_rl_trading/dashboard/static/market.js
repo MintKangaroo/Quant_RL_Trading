@@ -111,23 +111,120 @@ function renderKpis(body) {
   document.getElementById("kpis").innerHTML = cards.join("");
 }
 
-function renderFxChart(body) {
-  const f = body.data.fx;
-  const target = document.getElementById("chart-fx");
-  if (!f.sessions.length) {
-    target.innerHTML = `<p class="empty">fx 가 비어 있다. FRED 수집을 확인할 것.</p>`;
+/* -- 상단 대표 지수 차트 ------------------------------------------------------ */
+
+/* **색은 시장, 선 모양은 역할이다.**
+ *
+ * 네 선에 임의의 네 색을 주면 손익 색(초록·빨강)을 태우게 되는데, 이 화면에서
+ * 초록·빨강은 등락 하나만 뜻해야 한다(§10). 그래서 색은 화면의 좌우 분할과
+ * 같은 축 — **국장 강조색 · 미장 본문색** — 으로만 쓰고, 대표(config 가 정한
+ * 벤치마크)와 곁 지수는 실선·점선으로 가른다. 어느 선이 우리가 견줘 평가받는
+ * 지수인지가 선 모양만으로 읽힌다. */
+const INDEX_LINE = {
+  KR: COLOR.accent,
+  US: COLOR.text,
+};
+
+function indexLineStyle(series) {
+  const color = INDEX_LINE[series.market] || COLOR.muted;
+  return series.role === "headline"
+    ? { color, width: 1.8 }
+    : { color, width: 1.3, type: "dashed", opacity: 0.85 };
+}
+
+/* 정규화하면 절대 수준이 사라진다 — 그래서 범례가 그것을 되돌려 준다.
+ * 이름 · 오늘 종가 · 기준일 대비 누적. 색은 **누적 수익률에만** 쓴다. */
+function indexLegend(chartData) {
+  return chartData.series
+    .map((s) => {
+      const style = indexLineStyle(s);
+      const dash = s.role === "headline" ? "" : " dashed";
+      return `<span class="idx-key" title="${esc(s.entity_id)} · 기준일 ${esc(s.base_session)} = ${dec(chartData.base_value, 0)}">
+        <span class="idx-swatch${dash}" style="--line:${style.color}"></span>
+        <span class="idx-name">${esc(indexLabel(s.entity_id))}</span>
+        ${s.role === "headline" ? `<span class="chip">대표</span>` : ""}
+        <span class="mono idx-close">${dec(s.close, 2)}</span>
+        <span class="mono ${signClass(s.total)}">${signed(s.total)}</span>
+      </span>`;
+    })
+    .join("");
+}
+
+/* 없으면 없다고 말한다 — 빈 차트는 조인 버그처럼 보인다. */
+function indexChartReason(chartData) {
+  const names = chartData.missing.map((m) => `<code>${esc(m.entity_id)}</code>`).join(" · ");
+  return `창의 lookback ${num(chartData.lookback)}일 안에 대표 지수의 종가가
+    하나도 없다 (${names || "요청한 지수 없음"}). 백필(bf-indices)이 이 창까지
+    닿았는지 확인할 것 — 다른 지수로 바꿔치기하지 않는다.`;
+}
+
+/* 가격지수 배지. **배당이 빠져 있어 그만큼 우리가 유리하게 보인다** — 상단
+ * 차트와 두 칸의 대표 지수 줄이 같은 배지를 쓴다. 언제 떼는지는 config
+ * (benchmark.total_return)만 안다. */
+function prBadge(body) {
+  return body.data.total_return
+    ? ""
+    : `<span class="chip warn-chip" title="총수익지수(TR)를 못 구한다 — 배당만큼 우리가 유리하게 보인다">가격지수 · 배당 미반영</span>`;
+}
+
+function renderIndexChart(body) {
+  const c = body.data.index_chart;
+  const target = document.getElementById("chart-indices");
+  const legend = document.getElementById("index-chart-legend");
+  const note = document.getElementById("index-chart-note");
+  const badge = document.getElementById("index-chart-badge");
+  if (badge) badge.innerHTML = prBadge(body);
+  if (!c.sessions.length) {
+    legend.innerHTML = "";
+    if (note) note.textContent = "";
+    target.innerHTML = `<p class="empty">${indexChartReason(c)}</p>`;
     return;
   }
-  chart("chart-fx").setOption({
+
+  legend.innerHTML = indexLegend(c);
+  // **정규화했다는 사실을 화면이 말한다.** 이 문구가 없으면 120 이 지수
+  // 포인트로 읽힌다.
+  if (note) {
+    const gone = c.missing.length
+      ? ` · 창고에 없어 뺀 지수 ${c.missing.map((m) => indexLabel(m.entity_id)).join("·")}`
+      : "";
+    note.textContent =
+      `기준일 ${c.base_session} = ${dec(c.base_value, 0)} 으로 정규화 · ${num(c.sessions.length)}세션${gone}`;
+  }
+
+  chart("chart-indices").setOption({
     ...BASE,
-    grid: { ...BASE.grid, top: 12, bottom: 24 },
-    xAxis: { type: "category", data: f.sessions, ...AXIS },
+    grid: { ...BASE.grid, left: 44, right: 16, top: 10, bottom: 24 },
+    legend: { show: false },
+    tooltip: {
+      ...BASE.tooltip,
+      // 정규화값만 보여주면 "지수가 120 이다" 로 읽힌다 — 원 종가를 같이 적는다.
+      formatter: (rows) => {
+        if (!rows || !rows.length) return "";
+        const lines = rows.map((row) => {
+          const s = c.series[row.seriesIndex];
+          const raw = s ? s.closes[row.dataIndex] : null;
+          const value = row.value === null || row.value === undefined ? "—" : dec(row.value, 2);
+          return `${esc(row.seriesName)} <b>${value}</b>`
+            + ` <span class="sub">(종가 ${raw === null || raw === undefined ? "—" : dec(raw, 2)})</span>`;
+        });
+        return `${esc(rows[0].axisValue)}<br>${lines.join("<br>")}`;
+      },
+    },
+    xAxis: { type: "category", data: c.sessions, boundaryGap: false, ...AXIS },
     yAxis: { type: "value", scale: true, ...AXIS },
-    series: [
-      { name: "USDKRW", type: "line", data: f.rates, showSymbol: false,
-        lineStyle: { color: COLOR.accent, width: 1.6 },
-        areaStyle: { color: COLOR.accent, opacity: 0.08 } },
-    ],
+    series: c.series.map((s) => ({
+      name: indexLabel(s.entity_id),
+      type: "line",
+      data: s.values,
+      showSymbol: false,
+      // 국장·미장은 휴장일이 다르다. 그 시장이 쉰 날은 null 인데, 점을 끊으면
+      // 선이 조각나 추세가 안 읽힌다 — 이어 긋되 값을 지어내지는 않는다
+      // (툴팁은 그날 "—" 라고 적는다).
+      connectNulls: true,
+      lineStyle: indexLineStyle(s),
+      itemStyle: { color: indexLineStyle(s).color },
+    })),
   });
 }
 
@@ -139,9 +236,7 @@ function renderIndexHead(body, code, suffix) {
   const panel = body.data.markets[code].indices;
   const head = panel.headline;
   const target = document.getElementById(`index-head-${suffix}`);
-  const badge = body.data.total_return
-    ? ""
-    : `<span class="chip warn-chip" title="총수익지수(TR)를 못 구한다 — 배당만큼 우리가 유리하게 보인다">가격지수 · 배당 미반영</span>`;
+  const badge = prBadge(body);
   if (!head) {
     target.innerHTML = `<p class="empty">대표 지수 <code>${esc(panel.headline_id)}</code> 가
       아직 창고에 없다. 수집이 들어오면 이 자리가 찬다 — 다른 지수로
@@ -169,14 +264,23 @@ function renderIndices(body, code, suffix) {
     return;
   }
   const head = `<thead><tr><th>지수</th><th class="r">종가</th><th class="r">등락률</th></tr></thead>`;
+  // 변동성 지수는 가격지수가 아니다 — 서비스가 뒤로 묶어 주고, 화면은 그
+  // 경계에 머리글을 하나 끼워 넣는다. 등락에 손익 색을 쓰지 않는다:
+  // **VIX 가 오른 것은 수익이 아니라 공포다.**
+  let seenVol = false;
   const rendered = rows
-    .map(
-      (row) => `<tr>
+    .map((row) => {
+      const vol = row.kind === "volatility";
+      const divider = vol && !seenVol
+        ? `<tr class="section"><td colspan="3">변동성 지수 — 가격지수가 아니다 · 수익률로 읽지 말 것</td></tr>`
+        : "";
+      if (vol) seenVol = true;
+      return `${divider}<tr${vol ? ' class="vol"' : ""}>
         <td><span class="name trunc" title="${esc(indexLabel(row.entity_id))}">${esc(indexLabel(row.entity_id))}</span></td>
         <td class="r mono">${dec(row.close, 2)}</td>
-        <td class="r mono ${signClass(row.change)}">${signed(row.change)}</td>
-      </tr>`
-    )
+        <td class="r mono ${vol ? "" : signClass(row.change)}">${signed(row.change)}</td>
+      </tr>`;
+    })
     .join("");
   target.innerHTML = `<table>${head}<tbody>${rendered}</tbody></table>`;
 }
@@ -410,7 +514,7 @@ async function loadMarket() {
   const body = await fetchJson("market");
   showScope(body);
   renderKpis(body);
-  renderFxChart(body);
+  renderIndexChart(body);
   for (const [code, suffix] of COLUMNS) {
     renderColumnNote(body, code, suffix);
     renderIndexHead(body, code, suffix);
@@ -424,6 +528,9 @@ async function loadMarket() {
 
   const warnings = [];
   if (body.data.fx.rate === null) warnings.push("환율이 비어 있다 — NAV 평가에도 영향을 준다");
+  for (const gone of body.data.index_chart.missing) {
+    warnings.push(`상단 차트에서 ${indexLabel(gone.entity_id)} 가 빠졌다 — 창 안에 종가가 없다`);
+  }
   for (const [code] of COLUMNS) {
     const panel = body.data.markets[code];
     const label = code === "KR" ? "국장" : "미장";

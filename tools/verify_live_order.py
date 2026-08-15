@@ -436,6 +436,22 @@ def run(
         out(f"  {buy_summary.reason} — 중단한다.")
         return 1
 
+    # **신용·미수 금지 — 예수금 안에서만 산다.**
+    # 주문 본문의 ``MgntrnCode="000"``(보통매매)은 **신용거래**만 막는다.
+    # 신용이 아니어도 예수금을 넘겨 사면 **미수금**이 잡히고 D+2 에 못 갚으면
+    # 반대매매가 나간다. 그건 우리가 고른 포지션이 아니라 증권사가 정한
+    # 시점·가격에 강제로 팔리는 것이다 — 잔고를 읽어 놓고 검사하지 않으면
+    # 그 숫자는 화면 장식일 뿐이다.
+    if not balance.paper:
+        need = buy_summary.amount
+        if need > balance.net_asset:
+            out(
+                f"  예수금 부족 — 필요 {need:,.0f} > 예수금 {balance.net_asset:,.0f}. "
+                "미수가 되므로 중단한다."
+            )
+            return 1
+        out(f"  예수금 확인 {balance.net_asset:,.0f} ≥ 주문금액 {need:,.0f} — 현금 범위 안")
+
     if dry_run:
         body = _order_body(
             symbol=symbol, side=Side.BUY, quantity=quantity, limit_price=buy_summary.price

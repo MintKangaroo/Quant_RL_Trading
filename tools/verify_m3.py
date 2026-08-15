@@ -105,6 +105,88 @@ def _shadow_store(live_root: Path) -> Store | None:
     return Store(root=layer.root)
 
 
+#: 원 단위 잡음. 이보다 작은 차이는 "NAV 가 움직였다" 의 근거로 안 쓴다.
+_NAV_EPSILON = 0.005
+
+
+def _days(days: set[date]) -> str:
+    """근거에 찍는 날짜 목록. ``repr`` 로 두면 ``datetime.date(2026, 8, 14)`` 가
+    그대로 새어 나와 사람이 읽을 것이 아니게 된다."""
+    return ", ".join(day.isoformat() for day in sorted(days))
+
+
+def _stale_pnl_days(
+    shadow: Store, as_of: datetime, lookback: int, filled_days: set[date]
+) -> tuple[set[date], list[str]]:
+    """체결이 있었는데 **손익 경로가 안 돈** 날들. 그리고 그 근거 문장.
+
+    ## 왜 "NAV 가 전부 같으면 정체" 가 아닌가
+
+    처음 판정은 이랬다 — nav_daily 값이 전부 같으면 손익 경로가 안 돈 것이다.
+    거칠다. **매수만 있고 종가가 안 움직인 하루는 NAV 가 거의 안 변하는 것이
+    정상이다** (현금↓ + 주식평가↑ 로 상쇄되고 수수료만큼만 준다). 실제
+    2026-08-14 이 그랬다: 올바른 NAV 는 9,999,654.76 으로 초기 자본과 345원
+    차이였다. 반올림 자리 하나만 달랐어도 "정체" 판정이 통째로 뒤집힌다.
+
+    그래서 NAV 값의 **다양성**이 아니라 그날 회계가 체결을 **반영했는지**를
+    본다. 두 가지 중 하나면 반영된 것이다:
+
+    1. **보유 평가액이 0 이 아니다** — 산 주식이 그날 값으로 평가됐다.
+       체결이 장부에 안 들어가면 이 값이 정확히 0 이다.
+    2. **NAV 가 누적 입금액과 다르다** — 수수료든 평가손익이든 손익 경로를
+       한 번은 지났다는 뜻이다. 입금만 있고 아무 일도 없으면 정확히 같다.
+
+    둘 다 아니면 그 날은 "무사고" 가 아니라 **미검증**이다.
+    """
+    notes: list[str] = []
+    if not filled_days:
+        return set(), ["체결일이 없어 손익 경로를 잴 대상이 없다"]
+
+    # nav_daily 는 market 컬럼이 없는 단일 펀드 표라 market= 을 넘기면
+    # SchemaViolation 이 난다.
+    nav = shadow.get(
+        "nav_daily", as_of=as_of, lookback=lookback,
+        columns=["nav", "cash_krw", "cash_usd", "equity_kr", "equity_us", "fx_rate"],
+    )
+    flows = shadow.get(
+        "capital_flows", as_of=as_of, lookback=lookback, columns=["currency", "amount"]
+    )
+
+    by_day = {row["valid_from"].date(): row for row in nav.to_dict("records")}
+    stale: set[date] = set()
+    for day in sorted(filled_days):
+        row = by_day.get(day)
+        if row is None:
+            stale.add(day)
+            notes.append(f"{day} 체결이 있는데 nav_daily 행이 없다 — 스냅샷이 안 남았다")
+            continue
+
+        equity = float(row["equity_kr"]) + float(row["equity_us"])
+        rate = float(row["fx_rate"])
+        deposited = 0.0
+        for flow in flows.to_dict("records"):
+            if flow["valid_from"].date() > day:
+                continue
+            amount = float(flow["amount"])
+            deposited += amount if str(flow["currency"]) == "KRW" else amount * rate
+        nav_value = float(row["nav"])
+        moved = abs(nav_value - deposited) > _NAV_EPSILON
+
+        if equity <= 0.0 and not moved:
+            stale.add(day)
+            notes.append(
+                f"{day} 손익 경로 미검증 — 체결이 있는데 보유 평가액 0원이고 "
+                f"NAV {nav_value:,.2f} 가 누적 입금 {deposited:,.2f} 과 같다. "
+                "체결이 장부에 안 들어간 것이다(무사고가 아니라 미검증)."
+            )
+            continue
+        notes.append(
+            f"{day} 손익 경로 확인 — 보유 평가 {equity:,.0f}원, "
+            f"NAV {nav_value:,.2f} vs 누적 입금 {deposited:,.2f}"
+        )
+    return stale, notes
+
+
 def check_shadow(live_store: Store, as_of: datetime) -> Check:
     name = f"shadow {REQUIRED_SHADOW_DAYS}거래일 무사고"
     shadow = _shadow_store(live_store.root)
@@ -143,50 +225,29 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
         engaged = killswitch[killswitch["state"] == "ENGAGED"]
         engaged_days = set(engaged["valid_from"].dt.date.unique())
 
-    # NAV 정체 함정 — nav_daily 는 market 컬럼이 없는 단일 펀드 표라
-    # market= 을 넘기면 SchemaViolation 이 난다.
-    nav_note: str
-    nav_pinned = False
     try:
-        nav = shadow.get("nav_daily", as_of=as_of, lookback=lookback, columns=["nav"])
-        nav = nav[nav["valid_from"].dt.date >= SHADOW_RESTART_DATE] if not nav.empty else nav
-        nav_by_day = {
-            row["valid_from"].date(): round(float(row["nav"]), 2)
-            for row in nav.to_dict("records")
-        }
-        distinct = sorted(set(nav_by_day.values()))
-        if filled_days and len(distinct) <= 1:
-            nav_pinned = True
-            nav_note = (
-                f"NAV 정체 — 체결이 {len(filled_days)}일 있었는데 nav_daily 값이 "
-                f"전부 {distinct[0] if distinct else '?'}로 고정돼 있다. "
-                "손익 경로가 안 돈 것이다(무사고가 아니라 미검증)."
-            )
-        else:
-            nav_note = f"NAV {len(distinct)}종 관측 — 정체 없음"
+        stale_days, nav_notes = _stale_pnl_days(shadow, as_of, lookback, filled_days)
     except Exception as exc:
-        nav_note = f"nav_daily 를 못 읽었다: {exc}"
+        stale_days, nav_notes = set(filled_days), [f"nav_daily 를 못 읽었다: {exc}"]
 
     incidents = incomplete_days | engaged_days
-    verified_days = (filled_days - incidents) if not nav_pinned else set()
+    verified_days = filled_days - incidents - stale_days
 
     evidence = [
         f"{SHADOW_RESTART_DATE.isoformat()} 재시작 이후 세션 {len(by_day)}일 "
         f"({sorted(by_day)[0]} ~ {sorted(by_day)[-1]})",
-        f"체결 발생일 {len(filled_days)}일: {sorted(filled_days)}",
+        f"체결 발생일 {len(filled_days)}일: {_days(filled_days)}",
         f"파이프라인 중도 종료 {len(incomplete_days)}일"
-        + (f": {sorted(incomplete_days)}" if incomplete_days else ""),
+        + (f": {_days(incomplete_days)}" if incomplete_days else ""),
         f"킬스위치 발동 {len(engaged_days)}일"
-        + (f": {sorted(engaged_days)}" if engaged_days else ""),
-        nav_note,
+        + (f": {_days(engaged_days)}" if engaged_days else ""),
+        *nav_notes,
         f"→ 검증된 무사고 체결일 {len(verified_days)}/{REQUIRED_SHADOW_DAYS}"
-        + (f": {sorted(verified_days)}" if verified_days else ""),
+        + (f": {_days(verified_days)}" if verified_days else ""),
     ]
 
     if incidents:
         return Check(name, "FAIL", evidence)
-    if nav_pinned:
-        return Check(name, "미측정", evidence)
     if len(verified_days) < REQUIRED_SHADOW_DAYS:
         return Check(name, "미측정", evidence)
     return Check(name, "PASS", evidence)

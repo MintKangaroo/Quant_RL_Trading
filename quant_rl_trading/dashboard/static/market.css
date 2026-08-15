@@ -81,6 +81,44 @@
    보이는 값이라, 무채색으로 두면 그냥 라벨로 읽힌다. */
 .chip.warn-chip { color: var(--warn); border-color: var(--warn); }
 
+/* 상단 대표 지수 차트의 범례 — **정규화가 지운 절대 수준을 되돌려 주는 줄**이다.
+   ECharts 기본 범례는 이름만 찍어서 "지금 코스피가 몇인가" 에 답하지 못한다.
+   한 줄에 넷을 눕히되 좁은 화면에서는 접힌다. */
+.index-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 2px 0 6px;
+  font-size: 11.5px;
+}
+
+.idx-key { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.idx-key .idx-name { color: var(--muted); }
+.idx-key .idx-close { color: var(--text); font-size: 12px; }
+
+/* 선 모양을 그대로 보여준다 — 차트에서 실선이 대표, 점선이 곁 지수다.
+   범례가 색만 찍으면 그 구분이 안 건너온다. */
+.idx-swatch {
+  width: 16px;
+  height: 0;
+  align-self: center;
+  border-top: 2px solid var(--line);
+}
+.idx-swatch.dashed { border-top-style: dashed; }
+
+/* 변동성 지수 줄. **가격지수와 눈으로 갈려야 한다** — 여기서 등락률에 손익
+   색을 안 쓰므로(VIX 상승은 수익이 아니다) 색만으로는 차이가 안 보인다. */
+#indices-kr tr.section td,
+#indices-us tr.section td {
+  padding-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--warn);
+  border-bottom: 1px solid var(--border);
+}
+#indices-kr tr.vol td,
+#indices-us tr.vol td { color: var(--muted); }
+
 /* 시장 폭 — 숫자 다섯 칸과 막대 하나. */
 .breadth {
   display: grid;

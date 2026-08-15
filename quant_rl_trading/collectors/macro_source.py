@@ -103,9 +103,28 @@ FRED_RELEASES: dict[int, tuple[str, str, str]] = {
 #: 시리즈 ID 는 짐작하지 않고 ``/fred/series`` 로 이름을 대조했다(2026-08-15):
 #: ``NASDAQCOM`` = "NASDAQ Composite" (1971-02-05~, Daily Close),
 #: ``SP500`` = "S&P 500" (2016-08-15~ — FRED 는 10년치만 준다).
+#: FRED 시리즈 → (entity_id, 표시명).
+#:
+#: **전부 실호출로 존재를 확인한 것만 싣는다** (2026-08-15). 없는 것을 적어 두면
+#: 수집이 조용히 0행으로 끝나고, 화면은 "아직 안 들어왔다" 와 구분이 안 된다.
+#:
+#: 확인했으나 **FRED 에 없어서 못 싣는 것**: 러셀 2000 지수 자체(변동성
+#: ``RVXCLS`` 만 있다) · 윌셔 5000(``WILL5000PR`` 400) · ``RUT``·``SOX`` 같은
+#: 티커 표기. 필라델피아 반도체는 ``SOX`` 가 아니라 **``NASDAQSOX``** 로 있다 —
+#: 티커로 짐작했으면 "FRED 에 없다" 는 틀린 결론을 냈을 것이다(검색으로 찾았다).
 FRED_INDICES: dict[str, tuple[str, str]] = {
     "SP500": ("US:IDX:SP500", "S&P 500"),
     "NASDAQCOM": ("US:IDX:NASDAQ", "나스닥 종합"),
+    "NASDAQ100": ("US:IDX:NASDAQ100", "나스닥 100"),
+    "DJIA": ("US:IDX:DJIA", "다우존스 산업평균"),
+    "DJTA": ("US:IDX:DJTA", "다우존스 운송"),
+    "DJUA": ("US:IDX:DJUA", "다우존스 유틸리티"),
+    "NASDAQSOX": ("US:IDX:SOX", "필라델피아 반도체"),
+    # 변동성 지수 — **가격지수가 아니다.** 수익률·벤치마크로 쓰면 안 되고
+    # 시장 상태를 읽는 용도다. 벤치마크 후보에 섞이지 않게 화면에서 갈라 놓는다.
+    "VIXCLS": ("US:IDX:VIX", "VIX 변동성"),
+    "VXNCLS": ("US:IDX:VXN", "나스닥100 변동성"),
+    "RVXCLS": ("US:IDX:RVX", "러셀2000 변동성"),
 }
 
 
