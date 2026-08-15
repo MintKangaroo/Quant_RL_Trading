@@ -27,10 +27,10 @@ from quant_rl_trading.collectors.news_source import NewsCollector, NewsSource  #
 from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store.prices import read_prices  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 UNIVERSE = "universe"
-PRICES = "prices"
 
 #: 후보를 고르는 창(달력일). 거래대금은 하루만 보면 이벤트성 급등에 흔들린다.
 LOOKBACK_DAYS = 10
@@ -44,8 +44,8 @@ def top_by_turnover(
     검색어로 티커가 아니라 **종목명**을 쓴다. 국장에서 "005930" 으로는 기사가
     안 잡히고, 미장에서 "A" 같은 티커로 찾으면 관련 없는 기사가 쏟아진다.
     """
-    prices = store.get(
-        PRICES,
+    prices = read_prices(
+        store,
         as_of=as_of,
         lookback=LOOKBACK_DAYS,
         columns=["value"],

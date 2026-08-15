@@ -19,11 +19,12 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.store.prices import read_prices
+
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 UNIVERSE = "universe"
-PRICES = "prices"
 DOCUMENTS = "documents"
 
 #: 거래대금 평균을 낼 창(거래일).
@@ -120,8 +121,10 @@ def tradable_universe(
         dropped[entity] = "상장 6개월 미만"
     alive = [entity for entity in alive if entity not in young]
 
-    prices = store.get(
-        PRICES, as_of=as_of, entity=alive, lookback=TURNOVER_WINDOW * 2, market=market
+    # 휴장일 행이 섞이면 그날이 창의 마지막이 되어 ``last_close`` 가 0 이 되고,
+    # 살아 있는 종목이 통째로 "종가 없음" 으로 탈락한다.
+    prices = read_prices(
+        store, as_of=as_of, entity=alive, lookback=TURNOVER_WINDOW * 2, market=market
     )
     if prices.empty:
         for entity in alive:

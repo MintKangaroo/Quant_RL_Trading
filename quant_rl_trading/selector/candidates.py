@@ -33,11 +33,12 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.store.prices import read_prices
+
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 VERDICTS = "verdicts"
-PRICES = "prices"
 SECTORS = "sectors"
 
 #: 섹터를 읽는 창(거래일). 며칠 안 받아진 날이 있어도 직전 관측을 찾을 만큼.
@@ -142,11 +143,29 @@ def correlation_matrix(
     빠진 종목은 페널티를 못 받는데, 그건 **상관이 낮다는 뜻이 아니라 모른다는
     뜻이다.** 모르는 것을 0 으로 채우면 신규 상장주가 항상 분산 효과가 큰
     것처럼 보인다 — 그래서 여기서는 채우지 않고, 호출부가 '모름' 을 흔적에 남긴다.
+
+    **시세는 ``read_prices`` 로만 읽는다.** 휴장일의 종가 0 이 한 행이라도
+    남으면 전 종목이 같은 날 -100% 가 되고, 그 공통 하루가 60일 상관을 통째로
+    지배한다. 그 결과 후보 절반이 음수 알파로 뒤집혔다.
+
+    실측 — **KR 상위 300종목**(entity_id 순), ``CORRELATION_WINDOW`` = 60,
+    비대각 쌍 전체의 평균. 2026-06-03(지방선거)·2026-07-17(제헌절)이 창에
+    들어오는 날을 골랐다:
+
+    | as_of | 있는 그대로 | 0 행 제거 | \\|corr\\|>0.7 인 쌍 |
+    |---|---|---|---|
+    | 2026-06-02 | +0.282 | +0.282 | 1.5% → 1.5% (0 세션이 창 밖) |
+    | 2026-06-04 | +0.878 | **+0.246** | 91.1% → **0.7%** |
+    | 2026-08-14 | +0.920 | **+0.302** | 94.0% → **3.5%** |
+
+    **종목 집합과 as_of 를 바꾸면 숫자가 달라진다.** 같은 사고를 500종목·다른
+    날짜로 재면 0.168 → 0.644 가 나온 적도 있다 — 방향과 배율이 재현의 기준이지
+    소수점이 아니다 (``store/prices.py`` 참조).
     """
     if not entities:
         return pd.DataFrame()
-    prices = store.get(
-        PRICES,
+    prices = read_prices(
+        store,
         as_of=as_of,
         entity=list(entities),
         lookback=CORRELATION_WINDOW * 2,

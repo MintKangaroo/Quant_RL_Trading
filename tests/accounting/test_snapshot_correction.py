@@ -119,6 +119,26 @@ def test_값이_그대로면_다시_쓰지_않는다(funded) -> None:
     assert int(stored["revision"].iloc[0]) == 0
 
 
+def test_정정본은_자기_자신을_어제로_보지_않는다(funded) -> None:
+    """재계산 시 창고에는 **이미 그날 행이 있다.** 그걸 어제로 잡으면 TWR 이
+    "오늘 대 오늘" 이 되고, 누적지수가 그 가짜 수익률만큼 어긋난다. 낙폭은
+    지수로 재므로 그 어긋남은 MDD 까지 따라간다.
+
+    첫날이므로 정정 뒤에도 수익률 0 · 지수 100 이어야 한다 — 비교할 어제가
+    실제로 없기 때문이다.
+    """
+    clock = ReplayClock(DAY1)
+    snapshot.write(funded, clock, snapshot=snapshot.take(funded, clock, as_of=DAY1))
+    _buy(funded, DAY1, price=70_000.0, fee=1_050.0, run_id="t-late")
+
+    corrected = snapshot.take(funded, clock, as_of=DAY1)
+
+    assert corrected.valuation.nav == pytest.approx(10_000_000.0 - 1_050.0)
+    assert corrected.twr_return == 0.0
+    assert corrected.index_value == pytest.approx(100.0)
+    assert corrected.drawdown == pytest.approx(0.0)
+
+
 def test_정정된_NAV가_다음날_수익률의_기준이_된다(funded) -> None:
     """정정본이 안 이기면 다음 날 TWR 이 얼어붙은 어제로 계산된다."""
     clock = ReplayClock(DAY1)

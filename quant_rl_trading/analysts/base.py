@@ -24,8 +24,8 @@ from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.schemas.signal import Evidence, Signal, score_from_z
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.prices import read_prices
 
-PRICES = "prices"
 UNIVERSE = "universe"
 
 
@@ -177,15 +177,15 @@ class Analyst(ABC):
 
         거래 가능한 종목만 남긴다 — 데이터 유니버스와 매매 유니버스는 다르다.
 
-        **종가 0 은 가격이 아니라 결측이다.** 창고에는 전 종목 종가가 0 인
-        세션이 섞여 있다(수집 실패로 보인다). 그대로 두면 ``pct_change`` 가
-        그 자리에서 ``±inf`` 를 내고, inf 가 하나만 있어도 그 종목의 표준편차·
-        상관·베타가 통째로 NaN 이 된다. 종목 하나가 아니라 **그날을 지나는 모든
-        종목**이 같이 죽으므로, 피처가 조용히 비고 Analyst 는 아무 말도 하지
-        않게 된다. 0 을 여기서 NaN 으로 바꾸면 창 계산이 그 세션만 건너뛴다.
+        **종가 0 세션은 ``read_prices`` 가 뺀다.** 예전에는 여기서 0 을 NaN 으로
+        바꿨는데, 그건 두 가지가 부족했다. 첫째로 이 자리를 안 타는 경로
+        (``selector``·``session``·``backtest``·``ic``)가 그대로 오염됐고, 둘째로
+        NaN 은 휴장일 앞뒤를 잇는 수익률까지 끊어 창에서 관측을 2개 버렸다.
+        휴장일이므로 **그 날은 없었던 날**이 사실에 가깝다
+        (``store/prices.py`` 참조).
         """
-        prices = self.store.get(
-            PRICES,
+        prices = read_prices(
+            self.store,
             as_of=as_of,
             lookback=lookback,
             columns=list(self.price_columns),
@@ -198,8 +198,6 @@ class Analyst(ABC):
             return prices
         prices = prices.copy()
         prices["session"] = prices["valid_from"].dt.date
-        if "close" in prices.columns:
-            prices.loc[prices["close"] <= 0.0, "close"] = float("nan")
 
         tradable = self.tradable_entities(as_of, lookback=lookback)
         if tradable is not None:

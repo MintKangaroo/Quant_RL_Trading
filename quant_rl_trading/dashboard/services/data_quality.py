@@ -118,10 +118,25 @@ def _span(as_of: datetime, edge: datetime, window: int) -> int:
 
 
 def collect_coverage(
-    store: Store, *, as_of: datetime, lookback: int, window: int = WINDOW_DAYS
+    store: Store,
+    *,
+    as_of: datetime,
+    lookback: int,
+    window: int = WINDOW_DAYS,
+    market: Market | None = None,
 ) -> Coverage:
+    """세션별 행 수·종목 수.
+
+    ``market`` 을 주지 않으면 창고의 **모든 시장**을 함께 센다. 커버리지를
+    ``trading_days(market)`` 과 나누는 쪽은 반드시 이것을 줘야 한다. 안 주면
+    분자는 KR∪US 세션이고 분모는 KR 거래일이라 비율이 부풀고, 한국 휴장일마다
+    미장 행이 그 날을 "커버된 세션" 으로 만든다 (실측: 2026-03-02 삼일절 대체
+    휴일에 KR 0행 / US 6,271행).
+    """
     coverage = Coverage()
-    for frame in iter_windows(store, PRICES, as_of=as_of, lookback=lookback, window=window):
+    for frame in iter_windows(
+        store, PRICES, as_of=as_of, lookback=lookback, window=window, market=market
+    ):
         coverage.absorb(frame)
     return coverage
 
@@ -149,8 +164,11 @@ def _window_edges(as_of: datetime, lookback: int, window: int) -> list[datetime]
 def coverage_series(
     store: Store, *, as_of: datetime, lookback: int, market: Market = Market.KR
 ) -> dict[str, Any]:
-    """일별 종목 수와 기대 거래일 대비 커버리지."""
-    coverage = collect_coverage(store, as_of=as_of, lookback=lookback)
+    """일별 종목 수와 기대 거래일 대비 커버리지.
+
+    분모가 ``market`` 의 거래일이므로 분자도 같은 시장으로 좁힌다.
+    """
+    coverage = collect_coverage(store, as_of=as_of, lookback=lookback, market=market)
     sessions = coverage.sessions
     if not sessions:
         return {"points": [], "expected_sessions": 0, "covered_sessions": 0, "ratio": None}

@@ -19,11 +19,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.replay.fills import MarketState
+from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
-
-PRICES = "prices"
 
 #: 평균 거래량을 재는 창(거래일). session/daily.py 의 STATS_WINDOW 와 같다.
 VOLUME_WINDOW = 20
@@ -55,8 +54,8 @@ def states(
     """
     if not entities:
         return {}
-    frame = store.get(
-        PRICES,
+    frame = read_prices(
+        store,
         as_of=as_of,
         entity=entities,
         lookback=VOLUME_WINDOW * 3,

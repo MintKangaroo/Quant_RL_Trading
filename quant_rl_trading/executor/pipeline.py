@@ -135,8 +135,19 @@ def run(
         store, as_of=as_of, market=market, entities=entities
     )
     if not quality:
-        result.blocked_by = quality.reason
-        return result
+        # **매도는 막지 않는다.** 킬스위치·서킷브레이커와 같은 이유다 — 청산까지
+        # 막는 안전장치는 빠져나올 길을 막는 것이라 안전장치가 아니다. 여기만
+        # 통째로 막고 있었다.
+        #
+        # 결측은 대개 한 종목의 거래정지로 온다(`missing_warn` 이 0.01 이라
+        # 24종목 중 하나만 빠져도 넘는다). 거래정지는 나쁜 소식과 함께 오고,
+        # 그때가 정확히 나머지를 정리해야 할 때다. 게다가 신용·미수를 안 쓰므로
+        # **매도가 유일한 현금 조달 수단**이다 — 그걸 막는 게이트는 덫이다.
+        #
+        # 시세를 모르는 종목 자체는 그대로 못 판다. `sizing` 의 `price <= 0`
+        # 가드가 남아 있고, 그건 옳다 — 가격을 모르면 수량을 못 낸다.
+        liquidation_only = True
+        result.notes.append(f"{quality.reason} — 청산만 허용")
 
     # 3. 서킷 브레이커
     breaker = guards.check_circuit_breaker(store, as_of=as_of, board=board)

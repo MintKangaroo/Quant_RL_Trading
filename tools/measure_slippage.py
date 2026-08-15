@@ -45,6 +45,7 @@ if str(REPO_ROOT) not in sys.path:
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.replay.fills import FillParams, MarketState, impact_bps  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store.prices import read_prices  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 #: 완료 기준의 허용 오차. 실측이 예측의 (1±TOLERANCE) 안에 들어와야 한다.
@@ -161,7 +162,9 @@ def measure(
         )
         return [], notes
 
-    prices = store.get("prices", as_of=as_of, lookback=lookback + ADV_WINDOW * 2, market=market)
+    prices = read_prices(
+        store, as_of=as_of, lookback=lookback + ADV_WINDOW * 2, market=market
+    )
     if prices.empty:
         notes.append("prices 0행 — 기준가를 알 수 없다")
         return [], notes

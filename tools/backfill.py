@@ -68,6 +68,7 @@ from quant_rl_trading.settings import (
     load_env,
 )
 from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
+from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
 FLOW_LS = "flows-ls"
@@ -226,7 +227,8 @@ def flow_symbols(store: Store, clock: Clock, market: Market) -> list[str]:
         {str(value) for value in universe["entity_id"]} if not universe.empty else set()
     )
 
-    prices = store.get("prices", as_of=now, lookback=90)
+    # 휴장일 행은 거래대금도 0 이라 유동성 중앙값을 끌어내린다.
+    prices = read_prices(store, as_of=now, lookback=90)
     if prices.empty:
         ranked: list[str] = []
     else:
@@ -357,7 +359,10 @@ def run_us_universe_backfill(
     now = clock.now()
 
     print(f"{market} 명단 — 시세에서 유도 (최근 {years}년)", flush=True)
-    frame = store.get(
+    # 여기서 묻는 것은 "그 세션에 봉이 있었나" 하나이고 종가는 읽지도 않는다.
+    # 거르려고 close 를 얹으면 5년 스캔에 컬럼 하나가 통째로 더 붙는다.
+    # 미장이라 KRX 휴장일 0 세션 자체가 없다.
+    frame = store.get(  # invariant-allow: price-read
         PRICES,
         as_of=now,
         lookback=365 * years + 10,
@@ -573,8 +578,8 @@ def run_us_market_cap_backfill(
         # 시가총액이 없었다(1,252 거래일 중 1,249). 하루를 더해 닫힌 끝을
         # 열린 끝으로 옮긴다.
         stop = window_end + timedelta(days=1)
-        frame = store.get(
-            PRICES,
+        frame = read_prices(
+            store,
             as_of=now,
             lookback=(today - window_start).days,
             until=datetime(stop.year, stop.month, stop.day, tzinfo=UTC),

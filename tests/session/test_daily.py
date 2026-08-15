@@ -12,11 +12,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from quant_rl_trading.replay.clock import ReplayClock
+from quant_rl_trading.schemas.order import Side
 from quant_rl_trading.session import daily
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)      # 한국시간 10:00
 SESSIONS = [NOW - timedelta(days=offset) for offset in range(400, -1, -1)]
 ENTITIES = ["KR:000100", "KR:000200", "KR:000300"]
+#: 시세는 있는데 신호가 없어 후보에 못 드는 종목. 보유만 남은 상태를 만든다.
+ORPHAN = "KR:000400"
 
 
 @pytest.fixture
@@ -110,7 +113,14 @@ def test_같은_as_of_는_같은_주문을_낸다(fund, tmp_path) -> None:
 
 
 def test_보유_중인데_목표에서_빠진_종목은_매도_대상이_된다(fund) -> None:
-    """안 넣으면 팔 기회가 영영 오지 않는다."""
+    """안 넣으면 팔 기회가 영영 오지 않는다.
+
+    ⚠️ **이 테스트만으로는 부족하다.** ``KR:999999`` 는 창고에 시세가 아예
+    없는 종목이라, 시세를 안 가져와서 못 파는 것과 시세가 없어서 못 파는 것을
+    구분하지 못한다 — 실제로 2026-08 OOS 백테스트에서 후보 밖 보유 3,109건
+    (종목×일) 에 매도 주문이 0건 나가는 동안 이 테스트는 통과하고 있었다.
+    구분은 아래 ``test_후보에서_빠진_보유종목도_매도_주문이_나간다`` 가 한다.
+    """
     result = daily.run(
         fund, ReplayClock(NOW), as_of=NOW, market="KR",
         holdings={"KR:999999": 100},
@@ -118,6 +128,102 @@ def test_보유_중인데_목표에서_빠진_종목은_매도_대상이_된다(
 
     # 가격이 없는 종목이라 주문은 안 나가지만, 대상에는 들어가 사유가 남는다.
     assert "KR:999999" not in result.weights
+
+
+@pytest.fixture
+def fund_with_orphan(fund):  # type: ignore[no-untyped-def]
+    """``fund`` + **시세는 있는데 신호가 없는 종목** 하나.
+
+    신호가 없으면 합성 점수가 안 나오고, 점수가 없으면 후보에 못 든다. 그런데
+    보유는 하고 있다 — 실전에서 흔한 모습이다(어제까지 top-N 이었다가 오늘
+    밀려난 종목). **이게 청산되어야 할 종목이다.**
+    """
+    rows_universe = []
+    rows_price = []
+    for index, day in enumerate(SESSIONS):
+        rows_universe.append({
+            "entity_id": ORPHAN, "valid_from": day, "observed_at": day,
+            "source": "test", "market": "KR", "name": ORPHAN,
+            "is_listed": True, "is_tradable": True, "delisted_on": None,
+        })
+        close = 12_000.0 + index * 5
+        rows_price.append({
+            "entity_id": ORPHAN, "valid_from": day, "observed_at": day,
+            "source": "test", "market": "KR",
+            "open": close, "high": close, "low": close, "close": close,
+            "volume": 100_000.0, "value": 5_000_000_000.0, "adj_factor": None,
+        })
+    fund.append("universe", rows_universe, ingest_run_id="u-orphan")
+    fund.append("prices", rows_price, ingest_run_id="p-orphan")
+    return fund
+
+
+def test_후보에서_빠진_보유종목도_매도_주문이_나간다(fund_with_orphan) -> None:
+    """**사고 재현.** 후보 밖으로 밀린 보유 종목이 팔리지 않으면 장부는 한
+    방향 래칫이 된다 — top-N 에 들어야 살 수 있고, top-N 에 남아 있어야만
+    팔 수 있다.
+
+    2026-08 OOS 백테스트에서 실제로 그랬다. 매도 주문 191건이 전부 그날의
+    후보였던 종목이고, 후보 밖 보유 3,109건(종목×일) 에는 한 건도 안 나갔다.
+    2026-02-27~03-13 은 11세션 연속 주문 0건으로 -13% 급락을 통과했다.
+
+    원인은 ``session/daily.py`` 가 시세를 **후보 종목만** 조회한 것이다. 후보
+    밖 보유 종목은 ``price=0`` 이 되고, ``sizing`` 이 그것을 "시세 없음" 으로
+    스킵했다. 스킵은 옳다 — 가격을 모르면 수량을 못 낸다. 틀린 것은 **알 수
+    있는 가격을 안 가져온 쪽**이다.
+    """
+    result = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR",
+        holdings={ORPHAN: 100},
+    )
+
+    assert ORPHAN not in result.weights, "신호가 없으니 목표 비중은 0 이어야 한다"
+    sells = [
+        planned.order for planned in result.orders
+        if planned.order.entity_id == ORPHAN and planned.order.side is Side.SELL
+    ]
+    assert sells, "후보에서 빠진 보유 종목의 매도 주문이 없다 — 영영 못 판다"
+    assert sum(order.quantity for order in sells) == 100, "전량 청산이어야 한다"
+
+
+def test_시세_결측일에도_청산은_나간다(fund_with_orphan) -> None:
+    """**데이터 품질 실패는 매수만 막는다.** 매도까지 막으면 덫이다.
+
+    이 테스트는 원래 반대를 못 박고 있었다 — ``data_quality.missing_warn`` 이
+    0.01 이라 시세 없는 종목 하나가 섞이면 결측 비율이 1% 를 넘어 게이트가
+    세션을 통째로 막았고(``blocked_by``), 그 동작을 그대로 고정했다. 뒤집은
+    이유는 ``executor/pipeline.py`` 가 스스로 답을 적어 뒀기 때문이다 —
+    *"청산까지 막는 안전장치는 빠져나올 길을 막는 것이라 안전장치가 아니다."*
+    킬스위치와 서킷브레이커는 그 이유로 매도를 열어 두는데 데이터 품질
+    게이트만 같이 막고 있었다.
+
+    실전에서 결측은 대개 한 종목의 거래정지로 온다. 거래정지는 나쁜 소식과
+    함께 오고, 그때가 정확히 나머지를 정리해야 할 때다. 신용·미수를 안 쓰므로
+    **매도가 유일한 현금 조달 수단**이기도 하다.
+    """
+    result = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR",
+        holdings={"KR:999999": 100, ORPHAN: 100},
+    )
+
+    assert not result.blocked_by, f"통째로 막히면 안 된다: {result.blocked_by}"
+    assert any(
+        "청산만 허용" in note for note in result.notes
+    ), f"매수가 왜 없는지 화면이 말할 수 없다: {result.notes}"
+
+    sides = {planned.order.side for planned in result.orders}
+    assert Side.BUY not in sides, "결측일에 신규매수가 나갔다"
+    assert [
+        planned for planned in result.orders
+        if planned.order.entity_id == ORPHAN and planned.order.side is Side.SELL
+    ], "시세가 있는 보유 종목은 결측일에도 팔 수 있어야 한다"
+
+    # 시세를 모르는 종목 자체는 여전히 못 판다 — sizing 의 price<=0 가드는 옳다.
+    assert not [
+        planned for planned in result.orders
+        if planned.order.entity_id == "KR:999999"
+    ]
+    assert any("청산 불가" in note and "KR:999999" in note for note in result.notes)
 
 
 def test_자본이_0이면_주문하지_않는다(store) -> None:

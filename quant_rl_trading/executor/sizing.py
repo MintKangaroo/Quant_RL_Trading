@@ -104,7 +104,17 @@ def size_orders(
 
     for target in targets:
         if target.price <= 0:
-            skipped.append(Skipped(target.entity_id, target.weight, "가격 없음"))
+            # **보유 중인데 시세가 없는 것은 평범한 스킵이 아니라 경보다.**
+            # 못 빠져나오는 포지션이라는 뜻이고, 하락장에서 그게 낙폭을 만든다.
+            # 사유를 하나로 뭉뚱그리면 "살 종목 하나를 못 골랐다" 와 "들고 있는
+            # 종목을 못 판다" 가 로그에서 같은 모습이 된다 — 실제로 그래서
+            # 2026-08 OOS 백테스트의 청산 불가가 오래 안 보였다.
+            reason = (
+                f"청산 불가 — 보유 {holdings[target.entity_id]}주인데 시세가 없다"
+                if holdings.get(target.entity_id, 0) != 0
+                else "시세 없음"
+            )
+            skipped.append(Skipped(target.entity_id, target.weight, reason))
             continue
         if target.adv_value <= 0:
             # 유동성을 모르면 상한을 계산할 수 없다. 0 으로 치면 상한이 사라진다.

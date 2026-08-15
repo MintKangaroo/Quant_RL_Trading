@@ -92,6 +92,11 @@ runAll = async (jobs) => { for (const job of jobs) await job(); };
       dump[id] = el.innerHTML + "\\u0000" + el.textContent;
     for (const [id, option] of Object.entries(drawn)) {
       dump["chart:" + id] = JSON.stringify((option.series || []).map((s) => s.data || []));
+      // 이름·선 모양은 data 에 안 담긴다 — 상단 지수 차트는 "무엇을 그렸나" 와
+      // "어느 선이 대표인가" 를 이걸로 잡는다.
+      dump["series:" + id] = JSON.stringify(
+        (option.series || []).map((s) => ({ name: s.name, lineStyle: s.lineStyle || {} }))
+      );
     }
     console.log("DUMP " + JSON.stringify(dump));
   },
@@ -188,9 +193,69 @@ def test_시가총액이_없으면_이유를_적는다(rendered: dict[str, str],
         assert "상장주식수" in rendered[f"leaders-{suffix}"]
 
 
-def test_환율은_한_번만_그린다(rendered: dict[str, str]) -> None:
-    """환율은 어느 한쪽의 지표가 아니라 두 시장 사이의 다리다 — 칸 안에
-    넣으면 미장 시총을 원화로 환산하는 숫자가 국장 것처럼 보인다."""
-    assert rendered.get("chart:chart-fx"), "환율 차트가 안 그려졌다"
-    assert "chart:chart-fx-kr" not in rendered
-    assert "chart:chart-fx-us" not in rendered
+def test_상단_지수_차트는_한_번만_그린다(rendered: dict[str, str]) -> None:
+    """대표 지수 넷은 좌우로 갈리기 전의 공통 줄이다 — 칸 안에 넣으면 "어느
+    시장이 앞서 가나" 를 두 그림을 번갈아 보며 풀어야 한다."""
+    assert rendered.get("chart:chart-indices"), "상단 지수 차트가 안 그려졌다"
+    assert "chart:chart-indices-kr" not in rendered
+    assert "chart:chart-indices-us" not in rendered
+
+
+def test_상단_차트가_창고에_있는_대표_지수를_다_그린다(rendered: dict[str, str]) -> None:
+    """서비스가 실은 시계열 수와 그린 선의 수가 같아야 한다. 하나를 흘리면
+    화면은 멀쩡해 보이는데 지수 하나가 조용히 사라진다."""
+    expected = _payload()["data"]["index_chart"]["series"]
+    drawn = json.loads(rendered["series:chart-indices"])
+    assert len(drawn) == len(expected)
+    for series, spec in zip(drawn, expected):
+        assert spec["entity_id"].endswith(series["name"]), (series["name"], spec["entity_id"])
+
+
+def test_대표는_실선_곁_지수는_점선(rendered: dict[str, str]) -> None:
+    """어느 선이 `config.benchmark` 가 정한 지수인지는 선 모양이 말한다 —
+    색은 시장(국장·미장)에 이미 쓰였다."""
+    expected = _payload()["data"]["index_chart"]["series"]
+    drawn = json.loads(rendered["series:chart-indices"])
+    for series, spec in zip(drawn, expected):
+        dashed = series["lineStyle"].get("type") == "dashed"
+        assert dashed == (spec["role"] != "headline"), series["name"]
+
+
+def test_정규화했다는_사실을_화면이_말한다(rendered: dict[str, str]) -> None:
+    """기준일 100 정규화라 120 은 지수 포인트가 아니다. 화면이 그 말을 안 하면
+    사람이 코스피가 120 이라고 읽는다."""
+    chart = _payload()["data"]["index_chart"]
+    note = rendered["index-chart-note"]
+    assert "정규화" in note
+    assert chart["base_session"] in note
+
+    # 정규화가 지운 절대 수준은 범례가 되돌려 준다.
+    legend = rendered["index-chart-legend"]
+    for series in chart["series"]:
+        assert f"{series['close']:.2f}" in legend, series["entity_id"]
+
+    # 첫 값이 아니라 첫 **관측**이다 — 공통 기준일에 그 시장이 쉬었으면 그
+    # 지수의 출발점은 하루 뒤다(국장·미장은 휴장일이 다르다).
+    values = json.loads(rendered["chart:chart-indices"])
+    for row in values:
+        first = next((v for v in row if v is not None), None)
+        assert first == chart["base_value"], "기준일에서 100 으로 출발하지 않는다"
+
+
+def test_변동성_지수는_상단_차트에_없다(rendered: dict[str, str]) -> None:
+    """VIX 는 가격지수가 아니다. 기준일 100 으로 정규화해 나스닥 옆에 두면
+    급등이 수익률로 읽힌다 — 목록에는 있되 **가격지수와 갈라서** 있어야 한다."""
+    drawn = {series["name"] for series in json.loads(rendered["series:chart-indices"])}
+    assert not (drawn & {"VIX", "VXN", "RVX"})
+
+    listed = _payload()["data"]["markets"]["US"]["indices"]["others"]
+    volatile = [row for row in listed if row["kind"] == "volatility"]
+    if volatile:
+        assert "변동성 지수" in rendered["indices-us"], "가격지수와 구분되지 않는다"
+
+
+def test_환율_차트는_지수_차트에_자리를_내줬다(rendered: dict[str, str]) -> None:
+    """환율 자체는 KPI 카드와 스파크라인으로 남는다 — **차트만** 교체다.
+    옛 id 가 살아 있으면 새 JS + 옛 HTML 조합에서 두 차트가 겹친다."""
+    assert "chart:chart-fx" not in rendered
+    assert "chart-fx" not in (TEMPLATES / "market.html").read_text(encoding="utf-8")

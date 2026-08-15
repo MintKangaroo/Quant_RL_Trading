@@ -36,6 +36,7 @@ DEFAULT_ROOTS = ("quant_rl_trading", "tools", "scripts")
 
 RULE_WALLCLOCK = "wallclock"
 RULE_DATA_ACCESS = "data-access"
+RULE_PRICE_READ = "price-read"
 
 ALLOW_MARKER = "# invariant-allow:"
 
@@ -111,6 +112,25 @@ DATA_ACCESS_MODULES = frozenset({
 
 PARQUET_SUFFIX = ".parquet"  # invariant-allow: data-access
 
+# -----------------------------------------------------------------------------
+# 시세 읽기 — prices 는 store.prices.read_prices 를 경유한다.
+# -----------------------------------------------------------------------------
+# 창고의 ``prices`` 에는 전 종목 종가가 0 인 휴장일 세션이 있다(2026-06-03·
+# 2026-07-17). 그 행이 한 줄만 남아도 ``pct_change`` 가 전 종목을 같은 날
+# -100% 로 만들고, 그 공통 하루가 60일 상관행렬을 지배한다 — 실측으로 상관
+# 상한을 넘는 쌍이 3.5% → 94.0% 로 뛰었고 후보 절반이 음수 알파로 뒤집혔다.
+#
+# **헬퍼를 두는 것만으로는 안 막힌다.** 다음 사람이 ``store.get("prices", ...)``
+# 를 한 번 더 쓰면 그 경로만 조용히 오염된다. 그래서 규칙으로 막는다.
+PRICES_TABLE = "prices"
+
+#: ``store.get(PRICES, ...)`` 처럼 상수로 부르는 관례도 잡는다. 이 저장소는
+#: 모듈마다 ``PRICES = "prices"`` 를 두는 쪽이 더 흔하다.
+PRICES_ALIASES = frozenset({"PRICES"})
+
+#: 시세를 읽는 게이트 메서드. ``latest_by_entity`` 도 같은 행을 준다.
+PRICE_READ_METHODS = frozenset({"get", "latest_by_entity"})
+
 
 @dataclass(frozen=True)
 class Violation:
@@ -178,6 +198,27 @@ def _is_data_gate(path: str) -> bool:
     return normalized == DATA_GATE_PREFIX or normalized.startswith(f"{DATA_GATE_PREFIX}/")
 
 
+def _reads_prices(node: ast.Call) -> bool:
+    """이 호출의 첫 인자가 ``prices`` 테이블인가.
+
+    문자열 리터럴과 ``PRICES`` 상수 두 관례를 다 본다. 두 번째 인자부터는
+    보지 않는다 — 게이트의 테이블 인자는 언제나 첫 자리이고, 넓히면
+    ``config.get("prices_note")`` 같은 무관한 호출이 걸린다.
+
+    ``as_of`` 를 함께 요구한다. 그게 게이트 호출의 지문이고, 없으면
+    ``report.counts.get("prices", 0)`` 같은 평범한 dict 조회까지 잡힌다 —
+    실제로 그렇게 잡혔다. 오탐이 한 번 나오면 사람은 규칙을 끄고 싶어진다.
+    """
+    if not node.args:
+        return False
+    if not any(keyword.arg == "as_of" for keyword in node.keywords):
+        return False
+    first = node.args[0]
+    if isinstance(first, ast.Constant):
+        return first.value == PRICES_TABLE
+    return isinstance(first, ast.Name) and first.id in PRICES_ALIASES
+
+
 def scan_source(source: str, path: str) -> list[Violation]:
     """소스 한 벌을 검사한다. ``path`` 는 레포 기준 상대 경로여야 한다.
 
@@ -193,6 +234,7 @@ def scan_source(source: str, path: str) -> list[Violation]:
     exempt: dict[str, set[int]] = {
         RULE_WALLCLOCK: _allowed_lines(source, RULE_WALLCLOCK),
         RULE_DATA_ACCESS: _allowed_lines(source, RULE_DATA_ACCESS),
+        RULE_PRICE_READ: _allowed_lines(source, RULE_PRICE_READ),
     }
     in_data_gate = _is_data_gate(path)
     found: list[Violation] = []
@@ -219,6 +261,15 @@ def scan_source(source: str, path: str) -> list[Violation]:
                     RULE_WALLCLOCK,
                     f"{dotted}()",
                     "벽시계 직접 호출. 시간은 Clock 주입으로만 얻는다 (불변식 2)",
+                )
+
+            if not in_data_gate and leaf in PRICE_READ_METHODS and _reads_prices(node):
+                report(
+                    node,
+                    RULE_PRICE_READ,
+                    f"{dotted}({PRICES_TABLE!r}, ...)",
+                    "시세는 store.prices.read_prices 를 경유한다 — "
+                    "휴장일 종가 0 이 수익률·상관을 통째로 뒤집는다",
                 )
 
             if not in_data_gate and (

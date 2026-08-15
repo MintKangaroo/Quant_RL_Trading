@@ -43,12 +43,12 @@ from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.selector.combine import contributions
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.prices import read_prices
 
 NAV_DAILY = "nav_daily"
 ORDERS = "orders"
 TRADES = "trades"
 SIGNALS = "signals"
-PRICES = "prices"
 UNIVERSE = "universe"
 REALIZED_WEIGHTS = "realized_weights"
 INDICES = "indices"
@@ -814,8 +814,8 @@ def candles(
     **1분봉이 아니라 일봉이다.** 창고에 있는 것이 일봉이고, 없는 봉을 그리면
     화면이 창고보다 많이 아는 것처럼 보인다.
     """
-    frame = store.get(
-        PRICES,
+    frame = read_prices(
+        store,
         as_of=as_of,
         entity=entity_id,
         lookback=lookback,
@@ -825,12 +825,9 @@ def candles(
     if frame.empty:
         return {"entity_id": entity_id, "sessions": [], "ohlc": [], "volume": [], "ma": {}}
 
+    # 휴장일 종가 0 은 ``read_prices`` 가 이미 뺐다 (2026-06-03·2026-07-17).
+    # 그대로 그리면 y축이 0까지 늘어나 나머지 봉이 전부 납작해진다.
     ordered = frame.sort_values("valid_from")
-    # 휴장일이 종가 0 으로 적재된 세션이 있다 (2026-06-03·2026-07-17). 그대로
-    # 그리면 y축이 0까지 늘어나 나머지 봉이 전부 납작해진다. **0원에 거래된
-    # 날은 없다** — 없는 봉을 지우는 것이지 불편한 값을 감추는 것이 아니다.
-    # 수집 쪽은 이제 그 응답을 거부한다 (krx_source.ohlcv_on).
-    ordered = ordered[ordered["close"].astype(float) > 0]
     if ordered.empty:
         return {"entity_id": entity_id, "sessions": [], "ohlc": [], "volume": [], "ma": {}}
     closes = ordered["close"].astype(float)
@@ -911,8 +908,8 @@ def _quotes(
     """종가·등락률·거래대금. 등락률은 직전 세션 대비다."""
     if not entities:
         return {}
-    frame = store.get(
-        PRICES,
+    frame = read_prices(
+        store,
         as_of=as_of,
         entity=entities,
         lookback=10,

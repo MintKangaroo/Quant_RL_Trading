@@ -95,6 +95,24 @@ def test_거래대금을_모르면_주문하지_않는다() -> None:
     assert "거래대금" in skipped[0].reason
 
 
+def test_시세가_없을_때_보유_여부로_사유가_갈린다() -> None:
+    """**"못 골랐다" 와 "못 판다" 는 다른 사건이다.**
+
+    스킵 자체는 옳다 — 가격을 모르면 수량을 못 낸다. 문제는 사유가 한 줄로
+    뭉뚱그려져 있던 것이다. 보유 중인데 시세가 없으면 그건 평범한 스킵이
+    아니라 **못 빠져나오는 포지션**이고, 하락장에서 그게 낙폭을 만든다.
+    2026-08 OOS 백테스트의 청산 불가가 오래 안 보인 이유가 정확히 이것이다.
+    """
+    target = [Target("KR:A", weight=0.0, price=0.0, adv_value=1e10)]
+
+    _, held = size_orders(targets=target, holdings={"KR:A": 100}, equity=1e8, params=PARAMS)
+    _, unheld = size_orders(targets=target, holdings={}, equity=1e8, params=PARAMS)
+
+    assert "청산 불가" in held[0].reason and "100" in held[0].reason
+    assert unheld[0].reason == "시세 없음"
+    assert held[0].reason != unheld[0].reason
+
+
 def test_최소금액_미달은_매수만_막는다() -> None:
     """소액이라 못 파는 규칙은 포지션을 영영 남긴다."""
     buy = [Target("KR:A", weight=0.05, price=1_000.0, adv_value=1e10)]

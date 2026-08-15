@@ -69,8 +69,9 @@ from datetime import date, datetime
 import numpy as np
 import pandas as pd
 
-from quant_rl_trading.analysts.base import PRICES, UNIVERSE, Analyst, combine, rank_score
+from quant_rl_trading.analysts.base import UNIVERSE, Analyst, combine, rank_score
 from quant_rl_trading.schemas.signal import Evidence
+from quant_rl_trading.store.prices import read_prices
 
 #: 상장 경과일을 세려면 창이 길어야 한다. 짧으면 전부 "오래된 종목" 으로 보인다.
 LOOKBACK_DAYS = 400
@@ -139,7 +140,9 @@ class EventAnalyst(Analyst):
         universe = universe[universe["market"] == str(self.market)].copy()
         universe["session"] = universe["valid_from"].dt.date
 
-        prices = self.store.get(PRICES, as_of=as_of, lookback=LOOKBACK_DAYS)
+        # ``price_panel`` 을 안 타는 자리다. 그래서 여기만 따로 오염됐다 —
+        # 시세를 읽는 곳은 예외 없이 ``read_prices`` 를 거친다.
+        prices = read_prices(self.store, as_of=as_of, lookback=LOOKBACK_DAYS)
         if prices.empty:
             return pd.DataFrame()
         prices = prices[prices["market"] == str(self.market)].copy()

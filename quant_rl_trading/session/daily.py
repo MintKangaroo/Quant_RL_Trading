@@ -34,12 +34,11 @@ from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
 from quant_rl_trading.replay.events import EventLog, payload_hash
 from quant_rl_trading.selector import pipeline as selector_pipeline
+from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.replay.clock import Clock
     from quant_rl_trading.store import Store
-
-PRICES = "prices"
 
 #: 변동성·거래대금을 재는 창(거래일).
 STATS_WINDOW = 20
@@ -83,11 +82,18 @@ def market_stats(
     """(종가, 20일 평균 거래대금, 일간 변동성).
 
     셋을 한 번에 내는 이유는 같은 프레임을 세 번 읽지 않기 위해서다.
+
+    **시세는 ``read_prices`` 로만 읽는다.** 아래 ``closes.iloc[-1] <= 0`` 가드는
+    창의 **마지막 종가만** 보므로 창 안쪽의 휴장일 0 을 못 막았다. 그래서
+    ``pct_change`` 가 ``inf`` 를 내고 ``std`` 가 nan 이 되어 그 종목이 변동성
+    사전에서 조용히 빠졌다 — 실측으로 휴장일 이후 21세션 동안 후보 400개 중
+    변동성이 나온 종목이 1개였다. 역변동성 가중이 그동안 동일가중으로
+    퇴화한다 (``store/prices.py`` 참조).
     """
     if not entities:
         return {}, {}, {}
-    frame = store.get(
-        PRICES,
+    frame = read_prices(
+        store,
         as_of=as_of,
         entity=entities,
         lookback=STATS_WINDOW * 3,
@@ -201,7 +207,13 @@ def run(
 
     # 2. 목표 비중
     params = AllocatorParams.from_store(store, as_of=as_of)
-    entities = list(result.candidates)
+    # **후보 + 보유.** 후보만 조회하면 후보에서 밀려난 보유 종목의 시세가 0 이
+    # 되고, sizing 이 그것을 "시세 없음" 으로 스킵해 **영영 못 판다** — 장부가
+    # 한 방향 래칫이 된다(top-N 에 들어야 사고, top-N 에 남아야만 판다).
+    # 2026-08 OOS 백테스트에서 실제로 그랬다: 매도 주문 191건이 전부 그날의
+    # 후보였던 종목이고, 후보 밖 보유 3,109건(종목×일) 에는 한 건도 안 나갔다.
+    # 밑의 targets 주석이 막으려던 것이 바로 이 자리에서 무너져 있었다.
+    entities = list(dict.fromkeys([*result.candidates, *holdings]))
     prices, adv, volatility = market_stats(
         store, as_of=as_of, entities=entities, market=market
     )
@@ -243,6 +255,13 @@ def run(
     )
     result.orders = execution.planned
     result.notes.extend(execution.notes)
+    # **못 판 보유 종목은 노트로 올린다.** ``execution.skipped`` 에만 남기면
+    # 화면과 리포트가 그것을 못 보고, 청산 불가가 조용히 쌓인다.
+    result.notes.extend(
+        f"{item.entity_id}: {item.reason}"
+        for item in execution.skipped
+        if item.entity_id in holdings
+    )
     result.blocked_by = execution.blocked_by
     log.record(
         "execute",

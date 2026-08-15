@@ -21,12 +21,12 @@ from quant_rl_trading.accounting import ledger
 from quant_rl_trading.accounting.book import Book
 from quant_rl_trading.accounting.nav import BASE_INDEX, Valuation, twr_return, value
 from quant_rl_trading.accounting.rates import Rates
+from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.replay.clock import Clock
     from quant_rl_trading.store import Store
 
-PRICES = "prices"
 SOURCE = "accounting"
 
 
@@ -94,11 +94,9 @@ def last_prices(store: Store, *, as_of: datetime, entities: list[str]) -> dict[s
     """
     if not entities:
         return {}
-    frame = store.get(PRICES, as_of=as_of, entity=entities, lookback=30)
-    if frame.empty:
-        return {}
-    close = pd.to_numeric(frame["close"], errors="coerce")
-    frame = frame[close.notna() & (close > 0)]
+    # 거르는 규칙은 ``store/prices.py`` 한 벌뿐이다. 여기에 따로 두면 두 곳이
+    # 서로 다르게 자라고, 어느 쪽이 맞는지 아무도 모르게 된다.
+    frame = read_prices(store, as_of=as_of, entity=entities, lookback=30)
     if frame.empty:
         return {}
     latest = frame.sort_values(["valid_from", "observed_at"]).groupby("entity_id").tail(1)
@@ -161,7 +159,16 @@ def take(
 
 
 def _peak_index(store: Store, *, as_of: datetime, current: float) -> float:
+    """지금까지의 최고 누적지수. **오늘은 ``current`` 로만 센다.**
+
+    창고에 있는 그날 행은 빼야 한다 — 정정 중이라면 그건 **낡은 오늘**이고,
+    낡은 값이 더 높으면 그 차이가 그대로 가짜 낙폭이 된다. 오늘의 올바른
+    값은 이미 ``current`` 로 들어온다 (ledger.previous_snapshot 참고).
+    """
     frame = store.get(ledger.NAV_DAILY, as_of=as_of, entity=ledger.ACCOUNT)
+    if frame.empty:
+        return current
+    frame = frame[frame["valid_from"] < pd.Timestamp(as_of)]
     if frame.empty:
         return current
     return max(float(frame["index_value"].max()), current)

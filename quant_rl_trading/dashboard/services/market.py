@@ -45,7 +45,8 @@ NAV·낙폭·손익은 여기 없다. 그건 트레이딩 탭의 것이고 회�
 
 ## 나머지 지수는 "오늘 많이 움직인 순" 으로 쌓는다 — 자르지 않는다
 
-창고의 KR 지수는 44종(코스피·코스닥 + KRX 업종·테마)이고 US 는 2종이다.
+창고의 KR 지수는 44종(코스피·코스닥 + KRX 업종·테마)이고 US 는 10종이다
+(2026-08-15 에 2종에서 늘었다 — 다우 3종·NASDAQ100·SOX·변동성 3종).
 44종을 그냥 깔면 왼쪽이 오른쪽의 몇 배 높이가 되어 좌우로 나눈 의미가
 없어진다. 그래서 **줄 수를 자르는 대신 패널을 낮게 고정하고 그 안에서
 스크롤한다**(market.css). 자르면 오늘 조용했던 코스닥이 목록에서 사라지는데,
@@ -93,13 +94,13 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.prices import read_prices
 
 INDICES = "indices"
 MARKET_STATS = "market_stats"
 FX = "fx"
 MACRO_RELEASES = "macro_releases"
 UNIVERSE = "universe"
-PRICES = "prices"
 
 #: 화면이 다루는 시장. 좌우 두 칸의 순서이기도 하다.
 MARKETS = ("KR", "US")
@@ -285,7 +286,7 @@ def indices(store: Store, *, as_of: datetime, market: str, headline: str) -> dic
 
 def _index_history(
     store: Store, *, as_of: datetime, lookback: int, market: str, entities: list[str]
-) -> dict[str, "pd.Series"]:
+) -> dict[str, pd.Series]:
     """지수별 ``세션 → 종가``. 종가 0·NaN 세션은 버린다.
 
     시장으로 한 번, entity 로 한 번 좁혀 읽는다 — 창고의 지수는 KR 44종·US
@@ -307,7 +308,9 @@ def _index_history(
             group["close"].astype(float).to_numpy(),
             index=[_session(v) for v in group["valid_from"]],
         )
-        series = series[series > 0]
+        # 종가 0/NaN 인 세션, 그리고 valid_from 이 NaT 라 세션을 못 짚은 행을
+        # 버린다. 후자를 남기면 색인에 None 이 섞여 정렬이 터진다.
+        series = series[(series > 0) & pd.notna(series.index)]
         # 같은 세션이 여러 관측으로 들어올 수 있다(정정본). 마지막 것만.
         series = series[~series.index.duplicated(keep="last")].sort_index()
         if not series.empty:
@@ -437,8 +440,10 @@ def _changes(store: Store, *, as_of: datetime, market: str) -> pd.DataFrame:
     ``session`` 을 담는다. 종가가 하나뿐인 종목(신규 상장·거래정지 복귀)은
     ``change`` 가 NaN 이다 — 0 으로 채우면 "보합" 이라는 다른 사실이 된다.
     """
-    frame = store.get(
-        PRICES,
+    # 휴장일 종가 0 은 ``read_prices`` 가 뺀다. 여기서 또 거르면 규칙이 두
+    # 벌이 되고, 두 벌은 언젠가 서로 달라진다.
+    frame = read_prices(
+        store,
         as_of=as_of,
         lookback=RECENT_DAYS,
         market=market,
@@ -448,9 +453,7 @@ def _changes(store: Store, *, as_of: datetime, market: str) -> pd.DataFrame:
     if frame.empty:
         return empty
 
-    live = frame[frame["close"].astype(float) > 0].copy()
-    if live.empty:
-        return empty
+    live = frame.copy()
     live = live.sort_values(["entity_id", "valid_from"]).drop_duplicates(
         ["entity_id", "valid_from"], keep="last"
     )

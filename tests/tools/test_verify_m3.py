@@ -231,12 +231,25 @@ def test_shadow_NAV가_고정돼_있으면_체결이_있어도_미측정이다(
         "trades", [_trade_row(day, source="broker")],
         ingest_run_id="shadow-trade", source="broker",
     )
+    # **입금을 심어야 사고가 재현된다.** 판정이 "NAV 가 누적 입금과 같은가" 를
+    # 보므로, 입금 기록이 없으면 NAV 1천만원이 "0원에서 움직인 것" 으로 읽혀
+    # 정상 판정이 난다. 실제 shadow 는 자본 1천만원을 넣고 시작한다.
+    shadow.append(
+        "capital_flows",
+        [_row("FUND", day, currency="KRW", amount=1e7, kind="deposit")],
+        ingest_run_id="shadow-seed",
+    )
     shadow.append("nav_daily", [_nav_row(day, 1e7, 0.0)], ingest_run_id="shadow-nav")
 
     check = verify_m3.check_shadow(store, day + timedelta(hours=6))
 
     assert check.status == "미측정"
-    assert any("정체" in line for line in check.evidence)
+    # 근거는 **"NAV 값이 전부 같다"** 가 아니다. 매수만 있고 종가가 안 움직인
+    # 하루는 NAV 가 거의 안 변하는 것이 정상이라(현금↓ + 주식평가↑) 그 기준으로는
+    # 정상과 고장을 못 가른다 — 실제 2026-08-14 의 올바른 NAV 는 초기 자본과
+    # 345원 차이였다. 지금은 **회계가 체결을 반영했는지**를 본다
+    # (`verify_m3._stale_pnl_days` 독스트링).
+    assert any("손익 경로 미검증" in line for line in check.evidence)
 
 
 def test_shadow_파이프라인이_중도에_끊기면_실패다(

@@ -36,6 +36,7 @@ from quant_rl_trading.backtest.loop import SEOUL  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock, ReplayClock  # noqa: E402
 from quant_rl_trading.store import Store, overlay  # noqa: E402
+from quant_rl_trading.store.prices import read_prices  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 #: 이 창고에서만 새로 쓰는 표. 나머지는 실전 창고를 읽는다.
@@ -59,8 +60,8 @@ SNAPSHOT_TIME = time(15, 40)
 
 
 def close_on(store: Store, entity: str, *, as_of: datetime) -> float | None:
-    frame = store.get(
-        "prices", as_of=as_of, entity=entity, lookback=10, market="KR", columns=["close"]
+    frame = read_prices(
+        store, as_of=as_of, entity=entity, lookback=10, market="KR", columns=["close"]
     )
     if frame.empty:
         return None
@@ -88,8 +89,8 @@ def main(argv: list[str] | None = None) -> int:
     # 시계는 주입으로만 얻는다 (불변식 2). 도구라고 예외를 두면 그 예외가
     # 언젠가 라이브 경로로 새어 들어간다.
     now = LiveClock().now()
-    latest = store.get(
-        "prices", as_of=now, lookback=90, market="KR",
+    latest = read_prices(
+        store, as_of=now, lookback=90, market="KR",
         entity="KR:005930", columns=["close"],
     )
     if latest.empty:

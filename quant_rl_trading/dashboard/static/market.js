@@ -528,8 +528,13 @@ async function loadMarket() {
 
   const warnings = [];
   if (body.data.fx.rate === null) warnings.push("환율이 비어 있다 — NAV 평가에도 영향을 준다");
-  for (const gone of body.data.index_chart.missing) {
-    warnings.push(`상단 차트에서 ${indexLabel(gone.entity_id)} 가 빠졌다 — 창 안에 종가가 없다`);
+  // 한 줄로 묶는다. 네 지수를 따로 세우면 창고가 통째로 빈 시점에서 경고
+  // 넷이 아래 "대표 지수가 없다" 와 겹쳐 알림줄이 같은 말로 도배된다.
+  const gone = body.data.index_chart.missing;
+  if (gone.length) {
+    warnings.push(
+      `상단 차트에서 ${gone.map((m) => indexLabel(m.entity_id)).join("·")} 가 빠졌다 — 창(${num(body.data.index_chart.lookback)}일) 안에 종가가 없다`
+    );
   }
   for (const [code] of COLUMNS) {
     const panel = body.data.markets[code];

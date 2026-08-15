@@ -478,16 +478,52 @@ class SharesTimeline:
         return self.values[index - 1]
 
 
+def _cover_date_after_filing(row: Mapping[str, Any]) -> bool:
+    """표지 기준일이 제출일보다 뒤인가 — 있을 수 없는 일이므로 오타다.
+
+    ``valid_from`` 은 ``end`` 의 UTC 자정(``_midnight``)이고 ``observed_at`` 은
+    ``filed`` 의 EDGAR 마감시각(ET, ``filing_moment``)이다. **시각끼리 비교하면
+    안 된다** — 마감시각이 UTC 로는 다음 날이라, 같은 날 제출된 정상 행이 몇
+    시간 차이로 걸린다. 각자 자기 시간대의 달력 날짜로 되돌려 비교한다.
+    """
+    valid_from, observed_at = row.get("valid_from"), row.get("observed_at")
+    if valid_from is None or observed_at is None:
+        return False
+    end = valid_from.astimezone(UTC).date()
+    filed = observed_at.astimezone(ZoneInfo(EDGAR_TIMEZONE)).date()
+    return end > filed
+
+
 def build_timelines(rows: Iterable[Mapping[str, Any]]) -> dict[str, SharesTimeline]:
     """``market_stats``(metric=shares) 행 → 종목별 시계열.
 
     같은 관측시각에 값이 둘이면(정정본) ``revision`` 이 큰 쪽이 이긴다 —
     게이트의 정정본 선택과 같은 규칙이다.
+
+    ## 표지 날짜가 제출일보다 뒤인 행은 버린다 — 쓰기 규칙과 대칭이다
+
+    ``shares_rows`` 가 ``fact.end > fact.filed`` 를 이미 막지만(위 참조),
+    **그 방어가 생기기 전에 들어온 행이 창고에 99행 남아 있다**(82종목,
+    실측 2026-08-15). 창고는 append-only 라 지울 수 없고, 자연키가
+    ``(entity_id, valid_from, metric)`` 이라 **정정본으로 덮이지도 않는다** —
+    날짜가 다르면 다른 행이다. 게다가 고쳐진 수집기는 그 사실을 정정하는 게
+    아니라 버리므로, **재수집해도 정정본 자체가 만들어지지 않는다.**
+
+    그래서 읽는 쪽에서 막는다. 창고의 과거는 못 고치니 읽는 쪽이 견딘다 —
+    ``store/prices.py`` 의 종가 0 세션과 같은 처지다.
+
+    영향은 시계열의 값이지 날짜가 아니다. 시가총액은 ``valid_from`` 을 보지
+    않고 ``observed_at`` 축으로만 고르므로(``known_at``), 미래 날짜가 "영원한
+    최신 행" 이 되는 일은 이 경로에서는 일어나지 않는다. 실제로 틀어지는
+    것은 그 행이 timeline 에 얹은 **값**이다 — 실측으로 최근 400세션에서
+    21종목 1,293행의 시가총액이 달라졌고, 최대 편차는 -92%/+102% 였다.
     """
     staged: dict[str, dict[datetime, tuple[int, float]]] = {}
     for row in rows:
         entity = str(row["entity_id"])
         moment = row["observed_at"]
+        if _cover_date_after_filing(row):
+            continue
         revision = int(row.get("revision") or 0)
         current = staged.setdefault(entity, {}).get(moment)
         if current is None or revision >= current[0]:

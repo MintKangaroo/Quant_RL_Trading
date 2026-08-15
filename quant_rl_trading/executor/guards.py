@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-import pandas as pd
+from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -157,7 +157,10 @@ def check_data_quality(
     """
     if not entities:
         return GateResult(passed=True)
-    prices = store.get("prices", as_of=as_of, entity=entities, lookback=5, market=market)
+    # 휴장일 행에는 종가 0 이 들어 있다. 그대로 세면 "시세가 있다" 로 통과한
+    # 뒤 0 원짜리 가격으로 주문 수량을 만들게 된다 — 행이 있다는 것과 가격이
+    # 있다는 것은 다르다.
+    prices = read_prices(store, as_of=as_of, entity=entities, lookback=5, market=market)
     if prices.empty:
         return GateResult(passed=False, reason="시세가 없다")
 

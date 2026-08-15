@@ -12,7 +12,9 @@ from typing import Any
 
 import pytest
 
+from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.dashboard import create_app
+from quant_rl_trading.dashboard.services import data_quality as dq
 from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2024, 3, 20, tzinfo=UTC)
@@ -290,3 +292,64 @@ def test_page_renders(client) -> None:
 
     assert response.status_code == 200
     assert b"Data Quality" in response.data
+
+
+# -----------------------------------------------------------------------------
+# 커버리지 분모·분자 — 유령 거래일과 시장 섞임
+# -----------------------------------------------------------------------------
+
+#: 2026-07-17 은 제헌절(휴장)인데 exchange_calendars 의 XKRX 는 거래일이라 한다.
+JULY = [datetime(2026, 7, day, tzinfo=UTC) for day in (16, 20, 21)]
+
+
+def price_row(code: str, market: str, session: datetime) -> dict[str, Any]:
+    return {
+        "entity_id": code, "valid_from": session, "observed_at": observed(session),
+        "source": "test", "market": market,
+        "open": 1000.0, "high": 1100.0, "low": 990.0, "close": 1050.0,
+        "volume": 10000.0, "value": None, "adj_factor": None,
+    }
+
+
+@pytest.fixture
+def july(store):  # type: ignore[no-untyped-def]
+    """KR 은 7/16·20·21 세 세션. 미장은 **제헌절에도** 장이 선다."""
+    store.seed_config_defaults()
+    for session in JULY:
+        store.append(
+            "prices", [price_row("KR:000100", "KR", session)],
+            ingest_run_id=f"kr-{session:%Y%m%d}",
+        )
+    holiday = datetime(2026, 7, 17, tzinfo=UTC)
+    store.append(
+        "prices", [price_row("US:AAPL", "US", holiday)], ingest_run_id="us-holiday",
+    )
+    return store
+
+
+def test_유령_거래일은_결측으로_보고되지_않는다(july) -> None:
+    """휴장을 구멍으로 세면 화면이 없는 결함을 경고한다.
+
+    달력이 7/17 을 거래일이라 하면, KR 행이 없는 그 날이 결측 세션으로 잡힌다.
+    """
+    series = dq.coverage_series(
+        july, as_of=datetime(2026, 8, 1, tzinfo=UTC), lookback=60, market=Market.KR
+    )
+
+    assert "2026-07-17" not in series["missing_sessions"]
+    assert series["missing_sessions"] == []
+
+
+def test_커버리지는_다른_시장의_세션을_세지_않는다(july) -> None:
+    """분모가 KR 거래일이면 분자도 KR 이어야 한다.
+
+    미장 행은 한국 휴장일에도 들어온다. 시장을 안 좁히면 그 날이 "커버된
+    세션" 이 되어 비율이 100% 를 넘고, 넘은 비율은 구멍을 가린다.
+    """
+    series = dq.coverage_series(
+        july, as_of=datetime(2026, 8, 1, tzinfo=UTC), lookback=60, market=Market.KR
+    )
+
+    assert series["covered_sessions"] == len(JULY)
+    assert series["expected_sessions"] == len(JULY)
+    assert series["ratio"] == 1.0

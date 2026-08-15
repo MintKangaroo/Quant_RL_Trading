@@ -26,9 +26,9 @@ import numpy as np
 import pandas as pd
 
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.prices import read_prices
 
 VERDICTS = "verdicts"
-PRICES = "prices"
 
 
 def _returns_between(
@@ -61,7 +61,7 @@ def evaluate_blocks(
     if settled.empty:
         return _empty(pending=len(blocked))
 
-    prices = store.get(PRICES, as_of=as_of, lookback=lookback)
+    prices = read_prices(store, as_of=as_of, lookback=lookback)
     if prices.empty:
         return _empty(pending=len(blocked))
 

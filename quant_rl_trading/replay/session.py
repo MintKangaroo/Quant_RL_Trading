@@ -20,6 +20,7 @@ from quant_rl_trading.replay.events import EventLog, canonical_json, payload_has
 from quant_rl_trading.replay.fills import Fill, FillParams, MarketState, simulate_fill
 from quant_rl_trading.schemas.order import Order
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.prices import read_prices
 
 #: as_of 시점의 관측을 받아 주문을 내는 것. M3 에서 Selector→Allocator→Executor 가 들어온다.
 Strategy = Callable[[pd.DataFrame, datetime], Sequence[Order]]
@@ -79,7 +80,9 @@ def run_session(
     )
     effective = params or FillParams.from_store(store, as_of=as_of)
 
-    observation = store.get("prices", as_of=as_of, lookback=lookback)
+    # 관측도 게이트 그대로다. 휴장일 종가 0 만 뺀다 — 전략이 그 행을 보면
+    # 0 원짜리 지정가를 내고, 체결 시뮬레이터는 그것을 체결로 적는다.
+    observation = read_prices(store, as_of=as_of, lookback=lookback)
     log.record(
         "observe",
         "store",

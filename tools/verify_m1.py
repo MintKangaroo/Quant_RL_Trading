@@ -103,28 +103,67 @@ def build_state(observation: pd.DataFrame, entity_id: str) -> MarketState:
 
 
 def check_backfill(store: Store, as_of: datetime, market: Market) -> Check:
-    coverage = dq.collect_coverage(store, as_of=as_of, lookback=REPORT_SPAN_DAYS)
+    # market 을 안 주면 창고의 모든 시장을 센다. 분모가 KR 거래일이므로 분자도
+    # KR 로 좁혀야 한다 — 안 그러면 한국 휴장일에 들어온 미장 행이 그 날을
+    # "커버된 세션" 으로 만들어 비율이 100% 를 넘는다.
+    coverage = dq.collect_coverage(
+        store, as_of=as_of, lookback=REPORT_SPAN_DAYS, market=market
+    )
     if not coverage.rows:
-        return Check("과거 5년치 전종목 백필", False, ["prices 가 비어 있다"])
+        return Check("과거 5년치 전종목 백필", False, [f"{market} prices 가 비어 있다"])
 
     sessions = coverage.sessions
     expected = trading_days(market, sessions[0], sessions[-1])
     ratio = len(sessions) / len(expected)
 
+    # **비율이 아니라 구멍 목록으로 판정한다.**
+    #
+    # ``ratio >= 1.0`` 은 "구멍 하나 + 유령 하나" 를 만점으로 읽는다. 실제로
+    # 그랬다 — 2026-08-11 이 통째로 비어 있는데 종가 0 세션 둘이 분자를 채워
+    # 100.08% 가 나왔다. 서로 다른 두 결함이 상쇄돼 기준을 통과했고, 그래서
+    # 아무도 그 하루가 비었다는 것을 몰랐다.
+    #
+    # 고치면 떨어지는 기준은 기준이 아니다. #28 이 종가 0 행을 지우면 비율은
+    # 99.92% 로 내려간다 — 창고가 나아졌는데 점수는 나빠진다.
+    missing = [day for day in expected if day not in coverage.rows]
+    # 기대 밖 세션. 달력이 휴장이라 한 날에 행이 있다는 뜻이라, 구멍과는
+    # **다른** 고장을 가리킨다 (종가 0 세션이거나 달력 예외가 빠진 것).
+    unexpected = [day for day in sessions if day not in set(expected)]
+
     delisted, listed = _universe_state(store, as_of)
     years = (sessions[-1] - sessions[0]).days / 365.25
 
+    evidence = [
+        f"구간 {sessions[0]} ~ {sessions[-1]} ({years:.1f}년)",
+        # 비율은 참고값으로 남긴다. 100% 를 넘는지 미달인지가 서로 다른
+        # 고장을 가리키므로 숫자 자체는 계속 보여야 한다.
+        f"거래일 {len(sessions)} / 기대 {len(expected)} = {ratio:.1%} (참고값)",
+        f"prices {coverage.total:,}행, 종목(누적) {len(coverage.entities):,}개",
+        f"현재 상장 {listed:,} / 상장폐지 감지 {delisted:,}"
+        + ("" if delisted else "  ← 0이면 생존편향 미제거"),
+    ]
+    evidence.append(
+        "결측 세션 0개"
+        if not missing
+        else f"결측 세션 {len(missing)}개: {_sample(missing)}  ← 판정 기준"
+    )
+    if unexpected:
+        evidence.append(
+            f"기대 밖 세션 {len(unexpected)}개: {_sample(unexpected)}"
+            "  ← 휴장일에 행이 있다 (종가 0 세션이거나 달력 예외 누락)"
+        )
+
     return Check(
         "과거 5년치 전종목 curated 백필 (상장폐지 종목 포함)",
-        ratio >= 1.0 and years >= 4.9 and delisted > 0,
-        [
-            f"구간 {sessions[0]} ~ {sessions[-1]} ({years:.1f}년)",
-            f"거래일 {len(sessions)} / 기대 {len(expected)} = {ratio:.1%}",
-            f"prices {coverage.total:,}행, 종목(누적) {len(coverage.entities):,}개",
-            f"현재 상장 {listed:,} / 상장폐지 감지 {delisted:,}"
-            + ("" if delisted else "  ← 0이면 생존편향 미제거"),
-        ],
+        not missing and years >= 4.9 and delisted > 0,
+        evidence,
     )
+
+
+def _sample(days: list[date], limit: int = 8) -> str:
+    """날짜 목록을 한 줄로. 길면 앞쪽만 보이고 나머지는 개수로 접는다."""
+    shown = ", ".join(day.isoformat() for day in days[:limit])
+    return shown if len(days) <= limit else f"{shown} … 외 {len(days) - limit}개"
 
 
 def _universe_state(store: Store, as_of: datetime) -> tuple[int, int]:
@@ -153,7 +192,12 @@ def _universe_state(store: Store, as_of: datetime) -> tuple[int, int]:
 def check_determinism(
     store: Store, as_of: datetime, market: Market, *, samples: int, verbose: bool
 ) -> Check:
-    coverage = dq.collect_coverage(store, as_of=as_of, lookback=REPORT_SPAN_DAYS)
+    # 리플레이 대상은 그 시장이 실제로 장을 연 날이어야 한다. 시장을 안 좁히면
+    # 한국 휴장일(미장만 있는 날)이 표본에 섞이고, 그 날은 KR 관측이 비어 빈
+    # 주문끼리 일치한다 — 결정론이 아니라 공백이 재현된 것이다.
+    coverage = dq.collect_coverage(
+        store, as_of=as_of, lookback=REPORT_SPAN_DAYS, market=market
+    )
     sessions = coverage.sessions
     if len(sessions) < samples:
         return Check(

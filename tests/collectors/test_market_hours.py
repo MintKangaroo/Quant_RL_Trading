@@ -20,6 +20,8 @@ from quant_rl_trading.collectors.market_hours import (
     _KR_EXTRA_HOLIDAYS,
     _OVERRIDES,
     SPECS,
+    VETTED_THROUGH,
+    VETTING_NOTICE_DAYS,
     Market,
     is_trading_day,
     previous_trading_day,
@@ -90,6 +92,39 @@ def test_override_entries_are_still_needed() -> None:
         f"exchange_calendars 가 이제 이 날들을 휴장으로 안다: {stale}. "
         "market_hours._KR_EXTRA_HOLIDAYS 에서 지워라."
     )
+
+
+def test_vetting_horizon_has_not_run_out() -> None:
+    """**대조한 구간이 바닥나기 전에 사람을 부른다.**
+
+    이 테스트가 깨지면 코드가 틀린 게 아니다 — ``VETTED_THROUGH`` 를 넘어가는
+    구간을 아직 아무도 확인하지 않았다는 뜻이다. LS_KR 의 휴일 파일이 조용히
+    썩은 이유가 정확히 이것이었고(2026년만 커버, 만료를 아무도 안 물어봄),
+    그때는 물어보는 장치가 없었다.
+
+    할 일은 상수를 미루는 것이 아니라 **그 구간을 실측하는 것**이다:
+    XKRX 가 그 구간에 내놓는 KR 휴장일을 훑고, 빠진 날을 창고나 KRX 응답으로
+    확인해 ``_KR_EXTRA_HOLIDAYS`` 에 넣은 뒤 ``VETTED_THROUGH`` 를 옮긴다.
+    확인 못 한 날은 넣지 않는다 — 빠뜨린 휴장일은 전 종목 종가 0 으로
+    드러나지만, 잘못 넣은 휴장일은 장이 열린 날을 조용히 건너뛴다.
+    """
+    remaining = (VETTED_THROUGH - date.today()).days
+
+    assert remaining > VETTING_NOTICE_DAYS, (
+        f"KR 휴장일을 대조한 구간이 {VETTED_THROUGH} 까지인데 {remaining}일 남았다. "
+        "다음 구간을 실측해서 market_hours._KR_EXTRA_HOLIDAYS 와 VETTED_THROUGH 를 "
+        "갱신하라. 상수만 미루면 안 된다."
+    )
+
+
+def test_vetting_horizon_is_within_the_library_calendar() -> None:
+    """대조했다고 적은 구간이 라이브러리 달력 밖으로 나가면 안 된다.
+
+    달력이 답하지 않는 구간은 확인할 방법 자체가 없었다는 뜻이다.
+    """
+    calendar = xcals.get_calendar(SPECS[Market.KR].calendar)
+
+    assert VETTED_THROUGH <= calendar.last_session.date()
 
 
 def test_override_days_are_weekdays() -> None:

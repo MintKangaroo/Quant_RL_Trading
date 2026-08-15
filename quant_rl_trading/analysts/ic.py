@@ -30,8 +30,7 @@ import numpy as np
 import pandas as pd
 
 from quant_rl_trading.store import Store
-
-PRICES = "prices"
+from quant_rl_trading.store.prices import PRICES, drop_dead_sessions
 
 #: 타깃 기간. agents.md §10 — 5일로 통일한다.
 HORIZON_DAYS = 5
@@ -163,8 +162,14 @@ def build_targets(
         # 두 시장을 한 줄에 세우게 되고, 그건 비교가 아니다.
         market=market,
     )
+    # **휴장일의 종가 0 을 여기서 뺀다.** ``iter_windows`` 는 테이블을 가리지
+    # 않는 일반 도구라 거르지 않는다 — 거르면 0 을 세는 것이 일인
+    # ``data_quality`` 가 자기 사실을 못 보게 된다. 그대로 두면
+    # ``forward_returns`` 가 ``entry_close=0`` 에서 ``inf`` 를,
+    # ``forward_close=0`` 에서 정확히 ``-1.0`` 을 내고, 그 세션의 횡단면 z 가
+    # 통째로 NaN 이 된다 — 실측 4세션 11,491행(라벨의 5.3%)이 조용히 사라졌다.
     frames = [
-        chunk.loc[:, ["entity_id", "valid_from", "close"]]
+        drop_dead_sessions(chunk).loc[:, ["entity_id", "valid_from", "close"]]
         for chunk in windows
         if not chunk.empty
     ]
@@ -388,8 +393,8 @@ def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int]:
 
 __all__ = [
     "EMBARGO_DAYS",
-    "NO_EVIDENCE_CONFIDENCE",
     "HORIZON_DAYS",
+    "NO_EVIDENCE_CONFIDENCE",
     "ICResult",
     "build_targets",
     "cross_sectional_z",

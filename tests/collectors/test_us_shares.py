@@ -374,6 +374,70 @@ def test_같은_순간의_공시는_포함된다(timeline: dict[str, Any]) -> No
     assert market_cap_rows([one], timeline)[0]["value"] == pytest.approx(900.0)
 
 
+def test_표지날짜가_제출일보다_뒤인_행은_시계열에서_빠진다() -> None:
+    """창고에 이미 들어간 99행(82종목)을 읽는 쪽에서 막는다.
+
+    수집기(``shares_rows``)는 이제 그런 사실을 버리지만, 그 방어가 생기기
+    전에 적재된 행은 창고에 남아 있다. append-only 라 지울 수 없고, 자연키가
+    ``(entity_id, valid_from, metric)`` 이라 **정정본으로 덮이지도 않는다** —
+    게다가 고쳐진 수집기는 그 사실을 정정하는 게 아니라 버리므로 재수집해도
+    정정본이 만들어지지 않는다. 그래서 읽는 쪽이 막는 것 말고는 길이 없다.
+    """
+    good = filing_moment(date(2026, 4, 30))
+    bad = filing_moment(date(2026, 5, 6))
+    lines = build_timelines(
+        [
+            {
+                "entity_id": "US:X",
+                "valid_from": datetime(2026, 3, 31, tzinfo=UTC),
+                "observed_at": good,
+                "value": 100.0,
+                "revision": 0,
+            },
+            {
+                # 표지에 2028년이라 적힌 오타. 값은 진짜지만 날짜가 미래다.
+                "entity_id": "US:X",
+                "valid_from": datetime(2028, 8, 1, tzinfo=UTC),
+                "observed_at": bad,
+                "value": 777.0,
+                "revision": 0,
+            },
+        ]
+    )
+    assert lines["US:X"].known_at(bad) == 100.0, "미래 표지 날짜 행이 시계열에 얹혔다"
+
+
+def test_같은_날_제출은_오타가_아니다() -> None:
+    """``end == filed`` 는 정상이다.
+
+    ``valid_from`` 은 UTC 자정이고 ``observed_at`` 은 ET 마감시각이라 **시각으로
+    비교하면 같은 날 제출된 정상 행이 걸린다.** 날짜로 되돌려 비교하는 이유가
+    이것이다 — 실측에서 이 함정 때문에 정상 행 수십 건을 오타로 셀 뻔했다.
+    """
+    day = date(2026, 5, 15)
+    lines = build_timelines(
+        [
+            {
+                "entity_id": "US:Y",
+                "valid_from": datetime(day.year, day.month, day.day, tzinfo=UTC),
+                "observed_at": filing_moment(day),
+                "value": 42.0,
+                "revision": 0,
+            }
+        ]
+    )
+    assert lines["US:Y"].known_at(filing_moment(day)) == 42.0
+
+
+def test_valid_from이_없는_행은_그대로_통과한다() -> None:
+    """옛 호출부는 ``observed_at``·``value`` 만 넘긴다. 그걸 깨지 않는다."""
+    moment = filing_moment(date(2026, 4, 30))
+    lines = build_timelines(
+        [{"entity_id": "US:Z", "observed_at": moment, "value": 55.0, "revision": 0}]
+    )
+    assert lines["US:Z"].known_at(moment) == 55.0
+
+
 def test_정정본이_같은_순간에_있으면_최신_revision이_이긴다() -> None:
     moment = filing_moment(date(2026, 4, 30))
     lines = build_timelines(

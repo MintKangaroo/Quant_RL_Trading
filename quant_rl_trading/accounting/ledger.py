@@ -267,8 +267,21 @@ def daily_inflow(store: Store, *, as_of: datetime, since: datetime) -> float:
 
 
 def previous_snapshot(store: Store, *, as_of: datetime) -> dict[str, object] | None:
-    """직전 회계 스냅샷. 없으면 None — 첫날이다."""
+    """**as_of 보다 앞선** 회계 스냅샷. 없으면 None — 첫날이다.
+
+    ``valid_from < as_of`` 로 자른다. ``<=`` 로 두면 **그날 스냅샷을 다시
+    계산할 때 자기 자신이 어제로 잡힌다.** 그러면 TWR 이 "오늘 대 오늘" 이
+    되어 0 에 가까워지고, 누적지수가 그 가짜 수익률만큼 어긋난다. 낙폭은
+    지수로 재므로(snapshot.take) 그 어긋남은 MDD 까지 따라간다.
+
+    재계산은 예외가 아니라 정상 경로다 — 늦게 도착한 체결 때문에 그날 회계가
+    정정되면(snapshot.write) ``take`` 가 같은 as_of 로 다시 불린다. 그때
+    창고에는 이미 그날 행이 있다. 실제로 shadow 2026-08-14 이 그 모양이었다.
+    """
     frame = store.get(NAV_DAILY, as_of=as_of, entity=ACCOUNT)
+    if frame.empty:
+        return None
+    frame = frame[frame["valid_from"] < pd.Timestamp(as_of)]
     if frame.empty:
         return None
     return _ordered(frame)[-1]

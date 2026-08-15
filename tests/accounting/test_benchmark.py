@@ -193,6 +193,24 @@ def test_오래된_종가는_휴장이_아니라_구멍이다(funded) -> None:
     assert "지수 종가 없음" in str(result.note)
 
 
+def test_유령_거래일은_구멍으로_세지_않는다(funded) -> None:
+    """휴장을 구멍으로 오판하면 없는 결함을 benchmark_note 에 적는다.
+
+    2026-07-17(제헌절)은 KRX 휴장인데 ``exchange_calendars`` 의 XKRX 는
+    거래일이라고 답한다 — ``market_hours`` 의 예외층이 그것을 덮는다.
+    덮지 않으면 직전 거래일(7/16) 종가가 최신인데도 "하루치 종가가 빠졌다"
+    로 읽혀 벤치마크가 통째로 null 이 된다. KR 의 허용 지연은 0 거래일이라
+    유령 날 하나로 바로 넘어간다(KNOWABLE_LAG).
+    """
+    thursday = datetime(2026, 7, 16, 6, 40, tzinfo=UTC)  # 한국시간 15:40
+    holiday = datetime(2026, 7, 17, 6, 40, tzinfo=UTC)   # 제헌절 — 휴장
+    seed_indices(funded, thursday, kr=1_000.0, us=5_000.0, run="idx-thu")
+
+    result = benchmark_module.level(funded, as_of=holiday, fx_rate=FX)
+
+    assert result.index_value is not None
+
+
 def test_벤치마크는_NAV_와_같은_시각_같은_환율로_잰다(funded) -> None:
     """스냅샷이 NAV 평가에 쓴 환율을 그대로 받는다. 여기서 다시 조회하면 그
     사이 들어온 정정본을 집어 두 값이 갈리고, 갈린 만큼이 가짜 초과수익이다."""
