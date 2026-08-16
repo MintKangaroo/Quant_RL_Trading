@@ -30,11 +30,12 @@ from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
+from quant_rl_trading.broker import Broker
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
 from quant_rl_trading.replay.events import EventLog, payload_hash
 from quant_rl_trading.selector import pipeline as selector_pipeline
-from quant_rl_trading.store.prices import read_prices
+from quant_rl_trading.store.prices import adjust, read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.replay.clock import Clock
@@ -98,12 +99,21 @@ def market_stats(
         entity=entities,
         lookback=STATS_WINDOW * 3,
         market=market,
-        columns=["close", "value"],
+        columns=["close", "value", "adj_factor"],
     )
     if frame.empty:
         return {}, {}, {}
 
     ordered = frame.sort_values("valid_from")
+    # **한 프레임에서 두 값을 뽑는다 — 가격은 원주가, 변동성은 보정가.**
+    #
+    # 가격은 목표비중을 수량으로 바꾸는 데 쓰이므로 실제로 거래되는 값이어야
+    # 한다. 보정가로 주문을 내면 분할 직후 수량이 배율만큼 틀어진다.
+    #
+    # 변동성은 수익률로 재므로 반대다. 분할 하루가 -90% 로 남으면 그 종목의
+    # 변동성이 통째로 부풀고, 역변동성 가중이 그 종목의 비중을 0 에 가깝게
+    # 눌러 버린다 — 실제로는 아무 일도 없었는데.
+    adjusted = adjust(ordered)
     prices: dict[str, float] = {}
     adv: dict[str, float] = {}
     volatility: dict[str, float] = {}
@@ -116,6 +126,11 @@ def market_stats(
         values = group["value"].astype(float).tail(STATS_WINDOW)
         if not values.empty and float(values.mean()) > 0:
             adv[str(entity)] = float(values.mean())
+
+    for entity, group in adjusted.groupby("entity_id"):
+        if str(entity) not in prices:
+            continue
+        closes = group["close"].astype(float).tail(STATS_WINDOW + 1)
         returns = closes.pct_change(fill_method=None).dropna()
         if len(returns) >= 5:
             deviation = float(returns.std())
@@ -135,8 +150,13 @@ def run(
     market_open: datetime | None = None,
     board: str = "KOSPI",
     wall_clock: Clock | None = None,
+    broker: Broker | None = None,
 ) -> DailySession:
-    """하루치 결정. 주문을 만들고 기록한다. **보내지는 않는다.**
+    """하루치 결정. 주문을 만들고 기록한다.
+
+    ``broker`` 를 안 주면 **보내지 않는다**(``PaperBroker``). 실전은 호출자가
+    ``broker.factory.build_broker`` 로 만들어 주입한다 — 이 함수 안에 분기는
+    없고, 갈리는 것은 주입된 브로커뿐이다(불변식 5).
 
     ``wall_clock`` 은 "언제 이 계산을 실제로 돌렸나" 다. 라이브에서는 ``clock``
     과 같고, 리플레이에서는 다르다 — 이벤트의 ``observed_at`` 이 이것이라,
@@ -252,6 +272,7 @@ def run(
         cash=cash,
         market_open=market_open,
         board=board,
+        broker=broker,
     )
     result.orders = execution.planned
     result.notes.extend(execution.notes)

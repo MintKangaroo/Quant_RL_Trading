@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -20,6 +21,7 @@ import pytest
 from quant_rl_trading.backtest import execution as execution_module
 from quant_rl_trading.backtest import loop
 from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.session import daily as daily_module
 
 SEOUL = ZoneInfo("Asia/Seoul")
 
@@ -229,3 +231,45 @@ def test_창고가_낡았으면_같다고_하지_않는다(store) -> None:
 
     assert "낡았다" in note
     assert "1,004주" in note and "1,496주" in note
+
+
+def test_워밍업_날에는_브로커를_주지_않는다(warehouse) -> None:
+    """**틀리면 실제 돈이 나간다.**
+
+    ``run_session.py`` 는 D+1 체결 단계를 돌리려고 항상 전날을 워밍업으로 같이
+    굴린다. 그 전날의 주문은 이미 지나간 결정이라, 실제로 내보내면 어제 가격으로
+    오늘 주문을 내는 것이 된다. 브로커가 워밍업 날에 닿으면 실전 세션마다 전날
+    주문이 한 벌씩 더 나간다.
+    """
+    from quant_rl_trading.broker import PaperBroker
+
+    class RecordingBroker(PaperBroker):
+        """``PaperBroker`` 그대로 — 아무것도 안 보낸다. 닿았는지만 센다."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.submitted = 0
+
+        def submit(self, order, *, as_of):  # type: ignore[no-untyped-def]
+            self.submitted += 1
+            return super().submit(order, as_of=as_of)
+
+    broker = RecordingBroker()
+    seen: list[tuple[date, object]] = []
+    real_run = daily_module.run
+
+    def spy(store, clock, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append((kwargs["as_of"].date(), kwargs.get("broker")))
+        return real_run(store, clock, **kwargs)
+
+    with mock.patch.object(daily_module, "run", spy):
+        loop.run(
+            warehouse, start=END, end=END, market="KR",
+            capital=100_000_000.0, warmup_days=1, broker=broker,
+        )
+
+    assert len(seen) >= 2, f"워밍업이 안 돌았다: {seen}"
+    # 마지막 날(보고 대상)만 브로커를 받는다.
+    assert seen[-1][1] is broker
+    # 그 앞은 전부 워밍업이다 — 하나도 브로커를 받으면 안 된다.
+    assert all(item is None for _, item in seen[:-1]), seen

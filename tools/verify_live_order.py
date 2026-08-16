@@ -104,6 +104,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.broker import BrokerError, RejectedOrder  # noqa: E402
+from quant_rl_trading.broker import factory as broker_factory  # noqa: E402
 from quant_rl_trading.broker.fills import NO_ROWS, PendingFill, sync_fills  # noqa: E402
 from quant_rl_trading.broker.ls_order import (  # noqa: E402
     ORD_CNDI_NONE,
@@ -533,7 +534,7 @@ PROFILES: dict[str, MarketProfile] = {
         env_prefix="LS_",
         currency="KRW",
         default_max_order_value=DEFAULT_MAX_ORDER_VALUE,
-        fingerprint_key="execution.live_account_fingerprint",
+        fingerprint_key=broker_factory.FINGERPRINT_KEY_KR,
         allow_unpinned=True,
         balance_tr=TR_BALANCE,
         quote_tr=TR_QUOTE,
@@ -546,7 +547,7 @@ PROFILES: dict[str, MarketProfile] = {
         env_prefix="LS_US_",
         currency="USD",
         default_max_order_value=DEFAULT_MAX_ORDER_VALUE_US,
-        fingerprint_key="execution.live_account_fingerprint_us",
+        fingerprint_key=broker_factory.FINGERPRINT_KEY_US,
         allow_unpinned=False,
         balance_tr=TR_BALANCE_US,
         quote_tr=TR_QUOTE_US,

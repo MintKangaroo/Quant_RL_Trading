@@ -27,6 +27,7 @@ from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest import execution as execution_module
 from quant_rl_trading.backtest import stats as stats_module
+from quant_rl_trading.broker import Broker
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.collectors.publication import publication_policy
 from quant_rl_trading.executor import orders as orders_module
@@ -195,8 +196,17 @@ def run(
     warmup_days: int = 0,
     produce_signals: bool = True,
     on_day: DayCallback | None = None,
+    broker: Broker | None = None,
 ) -> BacktestResult:
     """구간 백테스트.
+
+    ``broker`` 를 안 주면 **주문이 나가지 않는다**(``PaperBroker``). 백테스트와
+    shadow 는 언제나 그 상태이고, 실전 세션만 ``tools/run_session.py`` 가
+    ``broker.factory.build_broker`` 로 만들어 넘긴다. 이 루프에 실전 분기는
+    없다 — 갈리는 것은 주입된 브로커뿐이다(불변식 5).
+
+    ⚠️ **구간을 여러 날로 잡고 브로커를 주면 과거 날짜의 주문이 실제로
+    나간다.** 실전 호출부는 반드시 하루만 돌린다(``run_session.py``).
 
     ``capital`` 이 0 보다 크면 첫 거래일 **전날**에 입금 한 행을 넣는다. 이미
     자본이 들어와 있는 창고(이어 돌리기)에서는 0 으로 두면 된다.
@@ -305,6 +315,15 @@ def run(
             holdings=holdings,
             board=board,
             wall_clock=clock,
+            # **워밍업 날에는 브로커를 주지 않는다.** 워밍업은 과거 재생이다 —
+            # 신호 이력을 쌓고 어제 주문을 오늘 체결시키려고 다시 굴리는 것이라,
+            # 그날의 주문은 이미 지나간 결정이다. 그것을 실제로 내보내면 어제
+            # 가격으로 오늘 주문을 내는 것이 된다.
+            #
+            # ``run_session.py`` 가 체결 단계를 돌리려고 항상 전날을 워밍업으로
+            # 같이 굴리기 때문에(그렇게 안 하면 D+1 체결이 아예 안 돈다), 이
+            # 한 줄이 없으면 실전 세션마다 전날 주문이 한 벌씩 더 나간다.
+            broker=None if day in warmup_set else broker,
         )
         elapsed["결정"] = perf_counter() - mark
         # 최대 RSS(MB). **메모리는 조용히 는다** — 2026-08-14 실행이 5.3GB 에서

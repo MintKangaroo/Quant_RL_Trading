@@ -51,6 +51,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.backtest import loop  # noqa: E402
+from quant_rl_trading.broker import factory as broker_factory  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
@@ -94,7 +95,24 @@ def main(argv: list[str] | None = None) -> int:
         default=0.0,
         help="첫 실행에 넣을 자본. 두 번째부터는 0 (창고가 중복을 거부한다)",
     )
+    parser.add_argument(
+        "--live-broker",
+        action="store_true",
+        help="실브로커를 붙인다. **주문이 실제로 나간다** — execution.live_trading "
+        "과 계좌 지문이 둘 다 맞아야 실제로 열린다(broker/factory.py)",
+    )
     args = parser.parse_args(argv)
+
+    if args.live_broker and not args.live_store:
+        # 샌드박스에 쓰면서 실주문을 내면 **체결이 실계좌에 쌓이는데 장부는
+        # 샌드박스에 남는다.** 다음 세션이 실전 창고에서 장부를 접으면 보유
+        # 수량이 0 으로 보이고, 같은 종목을 또 산다.
+        print(
+            "--live-broker 는 --live-store 와 함께 써야 한다. "
+            "실주문을 내면서 장부를 샌드박스에 적으면 보유가 장부에서 사라진다.",
+            file=sys.stderr,
+        )
+        return 2
 
     load_env()
     source = build_store(None)
@@ -117,6 +135,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"{market} {day} · 창고 {store.root}")
+
+    # **실브로커는 여기서 딱 한 번 만든다.** 조건이 안 맞으면 PaperBroker 와
+    # 이유가 돌아오고 세션은 평소대로 끝까지 돈다 — 무인 실행에서 예외로
+    # 죽이면 주문만 안 나가는 게 아니라 회계·기록까지 안 남는다.
+    broker = None
+    if args.live_broker:
+        broker, reason = broker_factory.build_broker(
+            store, market=args.market, as_of=LiveClock().now()
+        )
+        print(f"  브로커: {reason}")
+
     result = loop.run(
         store,
         start=day,
@@ -128,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         warmup_days=1,
         # 신호는 일일 실행기가 실전 창고에 이미 쌓았다. 여기서 또 만들지 않는다.
         produce_signals=False,
+        broker=broker,
     )
     for note in result.notes:
         print(f"  ⚠️  {note}")
