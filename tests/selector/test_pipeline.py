@@ -341,3 +341,48 @@ def test_섹터_미상_종목은_한_바구니로_묶이지_않는다(seeded) ->
     assert by_id["KR:000100"].sector == "반도체"
     assert by_id["KR:000200"].sector is None
     assert by_id["KR:000300"].sector is None
+
+
+class Test침묵의_이유:
+    """합성 점수 0건은 셋 중 하나다. 셋은 서로 완전히 다른 사건이다.
+
+    "확인할 것" 으로 뭉뚱그리면 매번 같은 조사를 처음부터 다시 한다 —
+    2026-08-12 세션이 실제로 그렇게 시간을 먹었다.
+    """
+
+    @staticmethod
+    def _signals(analysts, confidence):
+        import pandas as pd
+
+        return pd.DataFrame(
+            [
+                {"entity_id": f"KR:00{index}", "analyst": name,
+                 "score": 0.5, "confidence": confidence}
+                for index, name in enumerate(analysts)
+            ]
+        )
+
+    def test_confidence가_전원_0이면_그렇게_말한다(self) -> None:
+        note = pipeline._silent_score_reason(
+            self._signals(["risk", "event"], 0.0), {"risk": 1.0, "event": 1.0}
+        )
+        assert "confidence 가 전원 0" in note
+        # 기다리면 풀린다는 것까지 말해야 판단이 선다.
+        assert "이력이 쌓이면 풀린다" in note
+
+    def test_가중치가_없으면_기다려도_안_풀린다고_말한다(self) -> None:
+        note = pipeline._silent_score_reason(
+            self._signals(["risk"], 1.0), {"risk": 0.0}
+        )
+        assert "가중치를 받은 Analyst 가 없다" in note
+        assert "기다려서 풀리지 않는다" in note
+
+    def test_점수와_가중치가_안_겹치면_배선_사고다(self) -> None:
+        """가장 조용하고 가장 나쁜 경우 — 양쪽 다 0 이 아닌데 곱이 0 이다."""
+        note = pipeline._silent_score_reason(
+            self._signals(["chart"], 1.0), {"risk": 1.0}
+        )
+        assert "안 겹친다" in note
+        assert "배선 사고" in note
+        # 어느 쪽이 무엇인지 이름까지 나와야 바로 고칠 수 있다.
+        assert "chart" in note and "risk" in note

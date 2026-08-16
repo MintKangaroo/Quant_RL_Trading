@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import pandas as pd
+
 from quant_rl_trading.selector import candidates as candidates_module
 from quant_rl_trading.selector import filters as filters_module
 from quant_rl_trading.selector.candidates import Candidate, SelectionParams, SelectionTrace
@@ -91,11 +93,13 @@ def run(
             # **침묵의 이유를 남긴다.** 신호는 왔는데 점수가 0건이면 원인은
             # 거의 언제나 confidence 다(전원 0 이면 분모가 0). 이유가 없으면
             # "오늘 살 게 없다" 와 구분되지 않아 진단에 반나절이 든다.
-            trace.note(
-                f"신호 {len(signals)}행이 있는데 합성 점수가 0건이다. "
-                "가중치×confidence 가 전부 0 인지 확인할 것 (analysts/ic.py "
-                "NO_EVIDENCE_CONFIDENCE)"
-            )
+            #
+            # **어느 쪽이었는지까지 적는다.** "확인할 것" 은 사람에게 숙제를
+            # 넘기는 것이고, 그 답은 여기서 이미 손에 있다. 실제로 2026-08-12
+            # 세션이 이 자리에서 멈췄는데 — 신호 13,746행이 전부 confidence 0
+            # 이었다(롤링 IC 이력이 그날까지 관측된 적이 없다) — 문구가
+            # 가리키지 않아 원인을 찾는 데 시간이 들었다.
+            trace.note(_silent_score_reason(signals, weights))
         return Selection(as_of, market, (), weights, trace)
 
     # 3. News·SNS 거부 — 상관보다 **먼저**. 상관 계산은 비싸고, 거부될 종목까지
@@ -144,3 +148,46 @@ def run(
         trace=trace,
     )
     return Selection(as_of, market, tuple(chosen), weights, trace)
+
+
+def _silent_score_reason(signals: pd.DataFrame, weights: Mapping[str, float]) -> str:
+    """합성 점수가 0건인 이유를 **범인까지 지목해서** 돌려준다.
+
+    ``combined_scores`` 는 ``weight × confidence`` 가 0 인 행을 버린다. 그래서
+    0건이 되는 길은 셋뿐이고, 셋은 서로 완전히 다른 사건이다:
+
+    - **confidence 가 전원 0** — 롤링 IC 이력이 아직 없다. 시간이 지나면
+      저절로 풀린다. 2026-08-12 가 이 경우였다
+    - **가중치가 전원 0** — IC 를 통과한 Analyst 가 하나도 없다. 저절로
+      풀리지 않는다. 피처로 돌아가야 한다
+    - **점수를 낸 Analyst 와 가중치를 받은 Analyst 가 안 겹친다** — 배선
+      사고다. 가장 조용하고 가장 나쁘다
+
+    셋을 "확인할 것" 으로 뭉뚱그리면 매번 같은 조사를 처음부터 다시 한다.
+    """
+    scored = set(signals["analyst"].astype(str).unique())
+    weighted = {name for name, value in weights.items() if abs(float(value)) > 0.0}
+    max_confidence = float(signals["confidence"].astype(float).max())
+    head = f"신호 {len(signals)}행이 있는데 합성 점수가 0건이다"
+
+    if not weighted:
+        return (
+            f"{head} — **가중치를 받은 Analyst 가 없다**. IC 를 통과한 것이 "
+            "하나도 없다는 뜻이고, 기다려서 풀리지 않는다"
+        )
+    if not (scored & weighted):
+        return (
+            f"{head} — **점수를 낸 Analyst 와 가중치를 받은 Analyst 가 "
+            f"안 겹친다.** 점수 {sorted(scored)} · 가중치 {sorted(weighted)}. "
+            "배선 사고다"
+        )
+    if max_confidence <= 0.0:
+        return (
+            f"{head} — **confidence 가 전원 0 이다**(최대 {max_confidence:.3f}). "
+            "롤링 IC 이력이 아직 없다는 뜻이다 (analysts/ic.py "
+            "NO_EVIDENCE_CONFIDENCE). 이력이 쌓이면 풀린다"
+        )
+    return (
+        f"{head} — 가중치도 confidence 도 0 이 아닌데 비었다"
+        f"(최대 confidence {max_confidence:.3f}). combine.combined_scores 를 볼 것"
+    )
