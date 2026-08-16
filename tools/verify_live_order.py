@@ -171,6 +171,34 @@ def default_confirm(prompt: str) -> bool:
     return answer in {"y", "yes"}
 
 
+#: 무인 실행에서 **자동 승인하지 않는** 확인의 표지.
+#:
+#: 이 도구의 확인은 두 종류다. "1단계 — 토큰을 발급받는다. 계속할까?" 는
+#: 절차를 넘기는 물음이고, "킬스위치가 걸려 있다. **그래도** 계속할까?" 는
+#: **위험을 알면서 밀고 갈까** 라는 물음이다. 둘을 한 스위치로 자동 승인하면
+#: 무인 실행이 킬스위치를 스스로 무시한다 — 안전장치를 켜 둔 의미가 없다.
+OVERRIDE_MARKER = "그래도 계속할까"
+
+
+def auto_confirm(prompt: str) -> bool:
+    """``--assume-yes`` 의 확인 구현. **위험 확인은 거부한다.**
+
+    거부하면 그 자리에서 절차가 멈추고 종료코드가 0 이 아니게 된다. 무인
+    실행에서 그게 옳다 — 킬스위치가 걸렸거나 정규장이 아니면 사람이 봐야 한다.
+    """
+    if OVERRIDE_MARKER in prompt:
+        print(f"  [무인] 거부 — 사람이 봐야 한다: {prompt}")
+        return False
+    print(f"  [무인] 승인: {prompt}")
+    return True
+
+
+def auto_prompt(prompt: str) -> str:
+    """``--assume-yes`` 의 입력 구현. 빈 문자열 = 그 자리의 기본값."""
+    print(f"  [무인] 기본값: {prompt}")
+    return ""
+
+
 def default_prompt(prompt: str) -> str:
     try:
         return input(f"{prompt}: ").strip()
@@ -1040,6 +1068,11 @@ def main(argv: list[str] | None = None) -> int:
         help="--live 여부와 무관하게 주문·정정·취소는 전송하지 않고 본문만 출력",
     )
     parser.add_argument("--data-root", type=Path, help="창고 루트 (기본: 표준 위치)")
+    parser.add_argument(
+        "--assume-yes", action="store_true",
+        help="사람 확인을 자동 승인한다(무인 실행). **위험 확인은 자동 거부다** — "
+        "킬스위치·장외시간·거래제한이면 그 자리에서 멈춘다",
+    )
     args = parser.parse_args(argv)
 
     load_env()
@@ -1065,8 +1098,11 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         market=args.market,
     )
+    hooks = (
+        {"confirm": auto_confirm, "prompt": auto_prompt} if args.assume_yes else {}
+    )
     try:
-        return run(config, store=store, client=client, clock=clock)
+        return run(config, store=store, client=client, clock=clock, **hooks)
     finally:
         client.close()
 
