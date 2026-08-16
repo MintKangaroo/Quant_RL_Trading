@@ -167,11 +167,56 @@ def run(
     result.fills = tuple(fills)
     if rows:
         run_id = f"backtest-trades-{session_id}"
-        if not store.ingest_run_recorded(TRADES, run_id):
+        if store.ingest_run_recorded(TRADES, run_id):
+            result.notes.insert(0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows))
+        else:
             try:
                 result.rows_written = int(
                     store.append(TRADES, rows, ingest_run_id=run_id, source=SOURCE)
                 )
             except DuplicateIngestRun:
                 result.rows_written = 0
+                result.notes.insert(
+                    0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows)
+                )
     return result
+
+
+def _stale_note(
+    store: Store, *, as_of: datetime, run_id: str, rows: list[dict]
+) -> str:
+    """이미 적재된 세션을 다시 체결시켰을 때의 경고문.
+
+    ``ingest_run_id`` 가 같은 세션을 두 번 쓰는 것을 막는 것은 옳다 — 체결을
+    두 번 적으면 보유 수량이 두 배가 된다. **말없이 막는 것이 틀렸다.**
+
+    막힌 자리에서 호출부는 방금 계산한 ``filled`` 를 보고하는데 회계는 창고의
+    옛 행에서 장부를 접는다. 둘이 다르면 화면과 장부가 서로 다른 세계를
+    가리키고, 그 상태가 "정상"으로 보인다. 실제로 shadow 2026-08-13 세션이
+    그랬다 — 화면은 1,496주 · 재계산 20여 종목인데 창고에는 실행기를 고치기
+    전에 적힌 ``KR:000890`` 1,004주 한 행뿐이었고, 아무도 그 차이를 몰랐다.
+
+    그래서 **창고의 기존 체결을 읽어 나란히 보여 준다.** 같으면 재실행이
+    무해했다는 뜻이고, 다르면 창고 쪽이 낡았다는 뜻이다 — 어느 쪽인지 사람이
+    판정할 수 있어야 한다. 판정 자체를 여기서 하지는 않는다. 정정 여부는
+    회계(`accounting.snapshot.write`)처럼 값 비교로 결정할 문제이고, 체결은
+    되돌리기가 회계보다 훨씬 위험하다.
+    """
+    fresh_quantity = sum(float(row["quantity"]) for row in rows)
+    stored = store.get(TRADES, as_of=as_of, lookback=10, columns=["quantity", "ingest_run_id"])
+    if not stored.empty:
+        stored = stored[stored["ingest_run_id"] == run_id]
+    stored_rows = len(stored)
+    stored_quantity = float(stored["quantity"].sum()) if stored_rows else 0.0
+
+    verdict = (
+        "같다"
+        if stored_rows == len(rows) and abs(stored_quantity - fresh_quantity) < 1e-6
+        else "**다르다 — 창고 쪽이 낡았다**"
+    )
+    return (
+        f"{run_id} 는 이미 적재돼 있다 — 체결을 다시 쓰지 않았다. "
+        f"창고 {stored_rows}행/{stored_quantity:,.0f}주 · "
+        f"재계산 {len(rows)}행/{fresh_quantity:,.0f}주 → {verdict}. "
+        "회계는 창고 쪽을 쓴다"
+    )

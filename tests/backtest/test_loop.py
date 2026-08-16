@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from quant_rl_trading.backtest import execution as execution_module
 from quant_rl_trading.backtest import loop
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 
@@ -37,7 +38,6 @@ def warehouse(store):  # type: ignore[no-untyped-def]
     """3종목 · 400세션 · IC 가중치. 실제 Analyst 가 돌 만큼의 이력을 깐다."""
     store.seed_config_defaults()
     history = [START - timedelta(days=offset) for offset in range(400, -1, -1)]
-    opening = _moment(history[0])
 
     # 환율은 **매일** 있어야 한다. ledger.fx_rate 의 조회 창이 10일이라,
     # 한 행만 심어 두면 그 창을 벗어나는 순간 NAV 가 통째로 실패한다.
@@ -175,3 +175,57 @@ def test_거래일이_없으면_조용히_0일이_아니라_이유를_남긴다(
     )
     assert result.days == []
     assert result.notes
+
+
+def test_이미_적재된_세션을_다시_체결시키면_말을_한다(warehouse) -> None:
+    """``ingest_run_id`` 가 막는 것은 옳다. **말없이 막는 것이 틀렸다.**
+
+    막힌 자리에서 호출부는 방금 계산한 체결 수량을 보고하는데 회계는 창고의
+    옛 행에서 장부를 접는다. 둘이 갈라져도 화면은 정상으로 보인다 — shadow
+    2026-08-13 이 그렇게 20여 종목과 1종목 사이에서 갈라져 있었다.
+    """
+    first = loop.run(
+        warehouse, start=START, end=END, market="KR", capital=100_000_000.0
+    )
+    if not any(day.filled for day in first.days):
+        pytest.skip("이 표본에서는 체결이 없었다 — 막힐 적재 자체가 없다")
+
+    second = loop.run(warehouse, start=START, end=END, market="KR", capital=0.0)
+
+    notes = [note for day in second.days for note in day.notes]
+    stale = [note for note in notes if "이미 적재돼 있다" in note]
+    assert stale, f"재실행이 조용했다. 남은 말: {notes}"
+    # 같은 입력을 다시 돌린 것이므로 창고와 재계산이 일치해야 한다.
+    assert all("같다" in note for note in stale), stale
+
+
+def test_창고가_낡았으면_같다고_하지_않는다(store) -> None:
+    """재계산이 창고와 다르면 그 사실이 문구에 나와야 한다.
+
+    실행기를 고친 뒤 옛 세션을 다시 돌리면 정확히 이 모양이 된다. "같다" 로
+    뭉뚱그리면 고침이 반영됐는지 아닌지를 영영 알 수 없다.
+    """
+    moment = _moment(START)
+    store.append(
+        "trades",
+        [{
+            "entity_id": "KR:000890", "valid_from": moment, "observed_at": moment,
+            "source": "backtest", "market": "KR", "side": "buy",
+            "quantity": 1_004.0, "price": 1_484.12, "currency": "KRW",
+            "fee": 223.5, "tax": 0.0, "order_id": "KR-2026-08-03|KR:000890|buy",
+        }],
+        ingest_run_id="backtest-trades-KR-2026-08-03",
+    )
+
+    note = execution_module._stale_note(
+        store,
+        as_of=moment,
+        run_id="backtest-trades-KR-2026-08-03",
+        rows=[
+            {"quantity": 1_004.0},
+            {"quantity": 492.0},
+        ],
+    )
+
+    assert "낡았다" in note
+    assert "1,004주" in note and "1,496주" in note
