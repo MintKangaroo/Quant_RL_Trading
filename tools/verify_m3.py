@@ -57,7 +57,7 @@ from tools.backfill import build_store, load_env  # noqa: E402
 from tools.measure_slippage import measure as measure_slippage  # noqa: E402
 from tools.measure_slippage import render as render_slippage  # noqa: E402
 
-_STATUSES = ("PASS", "FAIL", "미측정")
+_STATUSES = ("PASS", "FAIL", "미측정", "이월")
 
 
 @dataclass
@@ -374,15 +374,53 @@ def check_live_trade(store: Store, as_of: datetime, market: str) -> Check:
 
 _SLIPPAGE_EXIT_STATUS = {0: "PASS", 1: "FAIL", 2: "미측정"}
 
+#: 판정에 필요한 최소 표본. ``measure_slippage`` 도 30건 미만이면 "통과로
+#: 읽지 마라" 를 찍는다.
+MIN_SLIPPAGE_SAMPLES = 30
+
 
 def check_slippage(store: Store, as_of: datetime, market: str) -> Check:
-    """``tools/measure_slippage.py`` 를 그대로 불러 쓴다 — 다시 구현하지 않는다."""
+    """``tools/measure_slippage.py`` 를 그대로 불러 쓴다 — 다시 구현하지 않는다.
+
+    ## 이 기준은 M3 를 막지 않는다 (사용자 결정 2026-08-17)
+
+    표본을 쌓으려면 실전을 돌려야 하고, 실전을 돌리려면 M3 를 닫아야 한다 —
+    **순환이다.** 게다가 배선 검증용 1주 주문은 시장에 충격을 안 줘서, 그
+    체결로 잰 오차는 전략의 체결 비용을 말해주지 않는다. 모델이 예측하는
+    충격은 거의 0 인데 실제로는 스프레드 절반이 붙어, 비율로 보면 통과하든
+    실패하든 숫자가 아무 뜻이 없다.
+
+    그래서 M3 는 **"배선이 도는가"** 까지만 보고(기준 4번이 그것이다),
+    **"모델이 현실과 맞는가" 는 실제 물량이 60거래일 쌓인 뒤 자본 증액
+    게이트에서 판정한다** — ``tools/verify_capital_gate.py``.
+
+    **검증을 뺀 것이 아니라 옮긴 것이다.** 옮긴 자리가 더 세다: 거기서는
+    표본 30건 미만이면 통과를 아예 안 준다. 그리고 그 게이트는 이 결정 전까지
+    ``config.capital`` 에 값만 있고 **읽는 코드가 0건**이었다 — 이 결정과
+    함께 검증기를 만들었다. 안 그러면 "미룬다" 가 "영영 안 잰다" 가 된다.
+
+    표본이 충분해지면 이 검사도 다시 실질 판정을 낸다. 이월은 **영구 면제가
+    아니다.**
+    """
     name = "슬리피지 실측이 모델 예측의 ±30% 이내"
     measurements, notes = measure_slippage(
         store, as_of=as_of, market=market, lookback=60, source=BROKER_SOURCE
     )
     text, code = render_slippage(measurements, notes, source=BROKER_SOURCE)
-    return Check(name, _SLIPPAGE_EXIT_STATUS[code], text.splitlines())
+    lines = text.splitlines()
+    if len(measurements) < MIN_SLIPPAGE_SAMPLES:
+        return Check(
+            name, "이월",
+            [
+                *lines,
+                f"표본 {len(measurements)}건 < {MIN_SLIPPAGE_SAMPLES}건.",
+                "→ 자본 증액 게이트로 이월한다 (tools/verify_capital_gate.py).",
+                "  표본을 쌓으려면 실전을 돌려야 하고 실전을 돌리려면 M3 를",
+                "  닫아야 한다 — 순환이라 M3 를 막지 않는다. 검증을 뺀 것이",
+                "  아니라 표본이 쌓이는 자리로 옮긴 것이다.",
+            ],
+        )
+    return Check(name, _SLIPPAGE_EXIT_STATUS[code], lines)
 
 
 # -----------------------------------------------------------------------------
@@ -415,8 +453,17 @@ def main(argv: list[str] | None = None) -> int:
     failed = [c for c in checks if c.status == "FAIL"]
     unmeasured = [c for c in checks if c.status == "미측정"]
     passed = [c for c in checks if c.status == "PASS"]
+    # **이월은 M3 완주를 막지 않는다.** 다른 게이트에서 판정하기로 한 것이라
+    # 미측정과 다르다 — 미측정은 "여기서 재야 하는데 못 쟀다" 이고, 이월은
+    # "여기서 잴 자리가 아니다" 다. 둘을 같이 세면 영원히 안 닫힌다.
+    deferred = [c for c in checks if c.status == "이월"]
 
-    print(f"PASS {len(passed)} · FAIL {len(failed)} · 미측정 {len(unmeasured)} / {len(checks)}")
+    print(
+        f"PASS {len(passed)} · FAIL {len(failed)} · 미측정 {len(unmeasured)} · "
+        f"이월 {len(deferred)} / {len(checks)}"
+    )
+    for check in deferred:
+        print(f"  이월: {check.name} → tools/verify_capital_gate.py")
     if failed:
         print("실패 — M4 로 넘어가지 않는다.")
         for c in failed:
