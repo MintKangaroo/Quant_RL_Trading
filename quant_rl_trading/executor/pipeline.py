@@ -116,9 +116,8 @@ def run(
         # **매도는 막지 않는다.** 청산까지 막는 안전장치는 빠져나올 길을 막는
         # 것이라 안전장치가 아니다. force_liquidation 이면 전량 청산까지 간다.
         liquidation_only = True
-        result.notes.append(
-            f"{switch.reason} — {'전 포지션 청산' if switch.force_liquidation else '신규매수만 차단'}"
-        )
+        scope = "전 포지션 청산" if switch.force_liquidation else "신규매수만 차단"
+        result.notes.append(f"{switch.reason} — {scope}")
         if switch.force_liquidation:
             targets = [
                 replace_weight(target, 0.0) for target in targets
@@ -128,11 +127,28 @@ def run(
                 if entity not in {item.entity_id for item in targets}
             ]
 
-    entities = [target.entity_id for target in targets]
-
-    # 2. 데이터 품질
+    # 2. 데이터 품질 — **살 종목만 센다.**
+    #
+    # 이 게이트가 묻는 것은 "오늘 살 종목의 데이터가 믿을 만한가" 다. 그런데
+    # ``targets`` 에는 팔려고 넣어 둔 보유 종목이 섞여 있고(weight 0), 그중
+    # 상장폐지된 것은 **시세가 영영 없다.** 그걸 결측으로 세면 게이트가
+    # 영구히 걸린다:
+    #
+    #     상장폐지 종목 보유 → 시세 없음 → 결측률이 임계를 넘음
+    #       → liquidation_only → 신규매수 전면 차단
+    #       → 그런데 그 종목은 시세가 없어 팔 수도 없다 (sizing 의 price<=0 가드)
+    #       → 게이트가 풀릴 길이 없다. **데드락.**
+    #
+    # 2026-08-17 보정가 OOS 백테스트가 정확히 그랬다. ``KR:005390`` 이
+    # 2025-09-29 상장폐지된 뒤로 매수가 한 건도 안 나갔고, 주식비중이
+    # 81% → 3.7% 로 단조 감소하다 그 한 종목만 남았다. 후보 24종목은 매일
+    # 정상이었고 점수도 양수였고 현금도 1억이 있었는데, 못 파는 보유 하나가
+    # 전부를 잠갔다.
+    #
+    # 결측 종목이 **후보 중에** 있으면 여전히 걸린다 — 그게 이 게이트의 일이다.
+    buyable = [target.entity_id for target in targets if target.weight > 0.0]
     quality = guards.check_data_quality(
-        store, as_of=as_of, market=market, entities=entities
+        store, as_of=as_of, market=market, entities=buyable
     )
     if not quality:
         # **매도는 막지 않는다.** 킬스위치·서킷브레이커와 같은 이유다 — 청산까지
@@ -148,6 +164,21 @@ def run(
         # 가드가 남아 있고, 그건 옳다 — 가격을 모르면 수량을 못 낸다.
         liquidation_only = True
         result.notes.append(f"{quality.reason} — 청산만 허용")
+
+    # **못 파는 보유는 게이트를 걸지 않되, 조용히 넘어가지도 않는다.** 시세가
+    # 없으면 sizing 이 그 종목을 건너뛰므로 영원히 장부에 남는다. 그 사실이
+    # 어디에도 안 적히면 "왜 이 종목이 계속 있지" 를 아무도 못 묻는다.
+    stranded = [
+        target.entity_id
+        for target in targets
+        if target.weight <= 0.0 and target.price <= 0.0 and target.entity_id in holdings
+    ]
+    if stranded:
+        result.notes.append(
+            f"시세 없는 보유 {len(stranded)}종목은 팔 수 없다 — {', '.join(stranded[:5])}"
+            f"{' 외' if len(stranded) > 5 else ''}. 상장폐지·장기정지로 보이며 "
+            "데이터 품질 게이트에는 세지 않는다(세면 매수가 영구히 잠긴다)"
+        )
 
     # 3. 서킷 브레이커
     breaker = guards.check_circuit_breaker(store, as_of=as_of, board=board)
