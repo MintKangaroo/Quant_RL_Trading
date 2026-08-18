@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,6 +39,8 @@ PAYLOADS = Path(__file__).parent / "payloads"
 #: 옮겨 갔기 때문이다 — 좌우 두 칸이 아니라서 짝 검사가 안 맞는다. 대신
 #: 시장 경계가 보이는지·양쪽 시장이 다 찼는지를 아래에서 따로 본다.
 PAIRED = ("indices", "breadth", "rankings", "macro")
+
+from tests.dashboard._browser import style_shim
 
 HARNESS = """
 const ids = new Set(IDS);
@@ -61,6 +64,7 @@ function element(id) {
   };
 }
 global.document = {
+  documentElement: element("html"),
   getElementById(id) {
     if (!ids.has(id) && !made.has(id)) return null;   // 브라우저와 같다
     return (cache[id] = cache[id] || element(id));
@@ -68,6 +72,7 @@ global.document = {
   querySelectorAll: () => [], querySelector: () => null,
   createElement: () => element("made"), addEventListener() {},
 };
+
 global.window = {
   location: { search: "" }, addEventListener() {},
   setInterval() { return 0; }, clearInterval() {}, open() { return null; },
@@ -84,7 +89,7 @@ global.echarts = {
   }),
 };
 global.fetch = async () => { throw new Error("fetch 는 스텁이 가로챈다"); };
-"""
+""" + style_shim()
 
 DRIVER = """
 // 괄호가 필요하다 — 화살표 함수 뒤의 중괄호는 객체가 아니라 본문으로 읽힌다.

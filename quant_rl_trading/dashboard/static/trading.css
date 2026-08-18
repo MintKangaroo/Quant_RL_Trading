@@ -3,6 +3,22 @@
  * (지수 대비 · Positions 파이) 이다.
  */
 
+:root {
+  /* 캔들 위 MA20 선 색. app.css 의 :root 에는 없는 색이다 — 있는 토큰
+     (up/down/warn/muted) 을 재사용하면 MA5·MA60 과 헷갈린다. trading.js 가
+     token("--chart-ma20") 로 읽어 캔들 차트에 쓴다. */
+  --chart-ma20: #3e7bfa;
+
+  /* Underwater 차트의 배경 밴드(자유·페널티·급증)와 캔들 확대축소 손잡이의
+     채움색. app.css 가 상태 배지에 쓰는 것과 같은 color-mix 패턴이다 — JS
+     안에 rgba(...) 리터럴을 두면 :root 토큰을 바꿔도 여기만 안 따라온다.
+     trading.js 가 token() 으로 읽어 echarts 에 문자열 그대로 넘긴다. */
+  --band-free: color-mix(in srgb, var(--up) 7%, transparent);
+  --band-warn: color-mix(in srgb, var(--warn) 10%, transparent);
+  --band-hard: color-mix(in srgb, var(--down) 13%, transparent);
+  --chart-ma20-fill: color-mix(in srgb, var(--chart-ma20) 12%, transparent);
+}
+
 /* -- 캘린더 옆 지수 대비 --------------------------------------------------- */
 
 /* 달력이 패널 폭의 일부만 쓴다(cal-month 는 flex 1 1 260px). 그 오른쪽
@@ -101,4 +117,73 @@
 @media (max-width: 1400px) {
   .positions-body { flex-direction: column; }
   .positions-pie { width: 100%; }
+}
+
+/* -- 캘린더 전체화면 오버레이 ------------------------------------------------ */
+
+/* 모바일에서 [표시하기] 가 새 창 대신 여는 자리 (trading.js openCalendarOverlay).
+   /calendar 를 그대로 iframe 에 담으므로 렌더러가 갈라질 일이 없다. */
+.calendar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.calendar-overlay-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--head);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* 44px 최소 터치 타겟은 app.css 의 전역 `button` 규칙(768px 이하)이 준다 —
+   여기서 다시 선언하지 않는다. */
+.calendar-overlay-bar button {
+  padding: 0 14px;
+  color: var(--muted);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+}
+
+.calendar-overlay-bar button:hover { color: var(--text); }
+
+#calendar-overlay-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: none;
+  background: var(--bg);
+}
+
+/* -- 모바일 (≤768px) -------------------------------------------------------- */
+
+/* app.css 의 640px 규칙에 **더한다** — 지우거나 뒤집지 않는다. 여기 있는
+   것은 이 탭에만 있는 패널(지수 대비 · Positions 파이 · 캘린더)의 크기와
+   배치뿐이다. 데스크톱 규칙은 그대로 둔다. */
+@media (max-width: 768px) {
+  /* 캘린더 패널의 폭 전체를 달력이 먼저 쓰게 하고, 지수 대비는 그 아래로
+     내린다 — 나란히 두면 달력 칸이 손끝보다 작아진다. */
+  .cal-compare { gap: 12px; }
+  .cal-compare > .cal { flex-basis: 100%; }
+  .bench-compare { flex-basis: 100%; min-width: 0; }
+
+  /* 캘린더 칸 자체는 app.css 쪽 .cal-cell 이 맡고, 여기서는 옆에 붙는
+     지수 대비 카드만 줄인다 — 숫자 넷이 세로로 쌓이면 스크롤이 길어진다. */
+  .bench-row { padding: 6px 8px; }
+  .bench-curve { height: 28px; }
+
+  /* Positions 파이는 이미 1400px 에서 세로로 내려와 있다. 폭이 손바닥만
+     해지면 260px 높이가 화면의 반을 먹으므로 더 줄인다 — 지우지는 않는다. */
+  .positions-pie { height: 180px; min-width: 0; }
+
+  /* 44px 최소 높이는 app.css 전역 `button` 규칙이 이미 준다 — 여백만 맞춘다. */
+  #calendar-popout { padding: 0 12px; }
+
+  .calendar-overlay-bar { padding: 8px 10px; font-size: 12.5px; }
 }

@@ -554,9 +554,9 @@ function renderUnderwater(body) {
         markArea: {
           silent: true,
           data: [
-            band(0, bands.free, "rgba(34,197,94,0.07)", `자유 ${(bands.free * 100).toFixed(0)}%`),
-            band(bands.free, bands.warn, "rgba(245,165,36,0.10)", `페널티 ${(bands.warn * 100).toFixed(0)}%`),
-            band(bands.warn, bands.hard, "rgba(239,68,68,0.13)", `급증 ${(bands.hard * 100).toFixed(0)}%`),
+            band(0, bands.free, token("--band-free"), `자유 ${(bands.free * 100).toFixed(0)}%`),
+            band(bands.free, bands.warn, token("--band-warn"), `페널티 ${(bands.warn * 100).toFixed(0)}%`),
+            band(bands.warn, bands.hard, token("--band-hard"), `급증 ${(bands.hard * 100).toFixed(0)}%`),
           ],
         },
       },
@@ -629,7 +629,7 @@ async function renderCandles(entityId, positions) {
         bottom: 6, height: 18,
         backgroundColor: "transparent",
         borderColor: COLOR.border,
-        fillerColor: "rgba(62,123,250,0.12)",
+        fillerColor: token("--chart-ma20-fill"),
         handleStyle: { color: COLOR.muted, borderColor: COLOR.border },
         moveHandleStyle: { color: COLOR.border },
         textStyle: { color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono" },
@@ -660,11 +660,14 @@ async function renderCandles(entityId, positions) {
         markLine: { symbol: "none", data: guides, silent: true },
       },
       { name: "MA5", type: "line", data: c.ma.ma5, showSymbol: false,
-        lineStyle: { width: 1, color: "#f5a524" } },
+        lineStyle: { width: 1, color: COLOR.warn } },
+      // MA20 은 토큰에 없는 색이라 trading.css 에 --chart-ma20 로 따로 선언했다
+      // (다른 이동평균과 헷갈리지 않게 하려면 warn/up/down 재사용이 아니라
+      // 전용 색이 있어야 한다).
       { name: "MA20", type: "line", data: c.ma.ma20, showSymbol: false,
-        lineStyle: { width: 1, color: "#3e7bfa" } },
+        lineStyle: { width: 1, color: token("--chart-ma20") } },
       { name: "MA60", type: "line", data: c.ma.ma60, showSymbol: false,
-        lineStyle: { width: 1, color: "#8a93a0" } },
+        lineStyle: { width: 1, color: COLOR.muted } },
       { name: "거래량", type: "bar", data: c.volume, xAxisIndex: 1, yAxisIndex: 1,
         itemStyle: { color: COLOR.border } },
     ],
@@ -690,6 +693,36 @@ function renderCalendarPanel(body) {
 
 /* 새 창은 지금 보고 있는 as_of·창을 그대로 물려받는다. 안 넘기면 달력만
  * 조용히 지금을 보게 되고, 두 화면이 다른 시점을 말한다. */
+/* 모바일에서는 새 창(window.open) 이 대부분 새 탭으로 강제 전환된다 — 크기
+ * 지정이 안 먹고, 탭을 나가면 이 화면의 스크롤 위치가 날아간다. 그래서
+ * 좁은 화면에서는 같은 /calendar 페이지를 iframe 으로 띄운 전체화면
+ * 오버레이로 대신한다. **기능은 그대로다** — 같은 렌더러(calendar.js)를
+ * 그대로 쓰는 같은 페이지고, as_of/창도 그대로 물려준다.
+ */
+function openCalendarOverlay(url) {
+  let overlay = document.getElementById("calendar-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "calendar-overlay";
+    overlay.className = "calendar-overlay";
+    overlay.hidden = true;
+    overlay.innerHTML = `
+      <div class="calendar-overlay-bar">
+        <span>수익률 캘린더</span>
+        <button type="button" id="calendar-overlay-close">닫기 ✕</button>
+      </div>
+      <iframe id="calendar-overlay-frame" title="수익률 캘린더"></iframe>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("#calendar-overlay-close").addEventListener("click", () => {
+      overlay.hidden = true;
+      // src 를 비워 iframe 을 죽인다 — 안 그러면 닫아도 백그라운드에서 계속 로드된 채로 남는다.
+      overlay.querySelector("#calendar-overlay-frame").src = "about:blank";
+    });
+  }
+  overlay.querySelector("#calendar-overlay-frame").src = url;
+  overlay.hidden = false;
+}
+
 function bindCalendarPopout() {
   const button = document.getElementById("calendar-popout");
   // 지금은 loadTrading 이 한 번만 돌지만, 나중에 자동 갱신이 붙으면 누를 때마다
@@ -698,8 +731,12 @@ function bindCalendarPopout() {
   button.dataset.bound = "1";
   button.addEventListener("click", () => {
     const query = params().toString();
-    window.open(`/calendar${query ? "?" + query : ""}`, "quant-rl-calendar",
-                "width=980,height=860,scrollbars=yes");
+    const url = `/calendar${query ? "?" + query : ""}`;
+    if (window.matchMedia("(max-width: 768px)").matches) {
+      openCalendarOverlay(url);
+      return;
+    }
+    window.open(url, "quant-rl-calendar", "width=980,height=860,scrollbars=yes");
   });
 }
 

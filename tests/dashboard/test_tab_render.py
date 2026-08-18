@@ -41,6 +41,8 @@ TABS = [
     ("calendar_page", "calendar.html", "calendar_page.js", ("calendar.js",)),
 ]
 
+from tests.dashboard._browser import style_shim
+
 HARNESS = """
 const ids = new Set(IDS);
 const made = new Set();          // JS 가 innerHTML 로 만들어 넣는 요소
@@ -87,7 +89,7 @@ global.setInterval = () => 0;
 global.clearInterval = () => {};
 global.echarts = { init: () => ({ setOption() {}, resize() {}, on() {} }) };
 global.fetch = async () => { throw new Error("fetch 는 스텁이 가로챈다"); };
-"""
+""" + style_shim()
 
 #: 마지막 ``runAll([...]);`` 를 걷어내고 그 목록을 우리가 직접 돌린다.
 #: `global.` 로 얹으면 같은 이름의 함수 선언이 호이스팅으로 이겨서 스텁이 안 걸린다.

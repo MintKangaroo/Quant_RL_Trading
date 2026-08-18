@@ -34,6 +34,39 @@ _SPECS: dict[str, TableSpec] = {
         observation_lag_days=3,
         doc="일봉. 원주가 기준.",
     ),
+    "prices_intraday": TableSpec(
+        name="prices_intraday",
+        columns={
+            "market": pa.string(),
+            # "1m"·"5m"·"15m"·"1H"·"4H" — LS ncnt(분)를 화면 버튼 이름으로
+            # 옮긴 값. collectors/intraday_collector.py 참고.
+            "interval": pa.string(),
+            "open": pa.float64(),
+            "high": pa.float64(),
+            "low": pa.float64(),
+            "close": pa.float64(),
+            "volume": pa.float64(),
+            "value": pa.float64(),
+        },
+        # 같은 종목·같은 시각에 여러 해상도(1m/5m/...)가 공존한다 — 마감
+        # 시각이 정각에 겹치는 두 봉(예: 09:05 의 1분봉과 09:00~09:05 5분봉을
+        # 마감시각으로 찍으면 둘 다 valid_from=09:05)은 interval 없이는
+        # 같은 자연키로 충돌해 한쪽이 정정본으로 밀려난다.
+        natural_key=("entity_id", "valid_from", "interval"),
+        # 이 표는 "보유·워치리스트 종목의 최근 며칠" 만 하루 한 번 받는다
+        # (수집 범위를 좁힌 이유는 intraday_collector.py 모듈독스트링 참고).
+        # 그 말은 valid_from(며칠 전 봉)과 observed_at(오늘 수집 시각) 사이
+        # 간격이 며칠까지 벌어질 수 있다는 뜻이다 — prices 의 3일보다 넉넉히
+        # 잡는다. 이 값보다 좁히면 대시보드가 lookback 을 줘도 하한 프루닝이
+        # 방금 수집한 옛 봉이 든 파티션을 조용히 건너뛴다.
+        observation_lag_days=20,
+        doc=(
+            "분봉. prices(일봉)와 절대 섞지 않는다 — prices 를 읽는 코드 "
+            "전부(회계·백테스트·store/prices.py 의 0-세션 제거)가 '하루에 "
+            "한 행'을 전제로 짜여 있다. 대시보드의 분봉 캔들 전용 입력이고, "
+            "전 종목·전 구간을 받지 않는다."
+        ),
+    ),
     "flows": TableSpec(
         name="flows",
         columns={

@@ -29,6 +29,8 @@ SCOPE_TEMPLATE = REPO_ROOT / "quant_rl_trading" / "dashboard" / "templates" / "_
 
 #: 렌더러가 부르는 DOM API 만 흉내 낸다. 요소가 템플릿에 있으면 객체를,
 #: 없으면 **null 을** 돌려준다 — 브라우저와 같은 실패를 재현하기 위해서다.
+from tests.dashboard._browser import style_shim
+
 HARNESS = """
 const ids = new Set(IDS);
 const made = new Set();          // JS 가 innerHTML 로 만들어 넣는 요소
@@ -62,7 +64,7 @@ global.document = {
 global.window = { location: { search: "" }, addEventListener() {} };
 global.echarts = { init: () => ({ setOption() {}, resize() {} }) };
 global.fetch = async () => { throw new Error("fetch 는 스텁이 가로챈다"); };
-"""
+""" + style_shim()
 
 DRIVER = """
 // scope.js 가 선언한 함수를 우리 것으로 갈아 끼운다. `global.` 로 얹으면

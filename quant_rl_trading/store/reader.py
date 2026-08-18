@@ -16,6 +16,7 @@ as_of 는 요청한 시점 하나로 고정한다.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
@@ -72,6 +73,32 @@ def _duckdb_type(dtype: pa.DataType) -> str:
     return "VARCHAR"
 
 
+#: 파일 집합 지문 → 그 집합에 실제로 있는 컬럼 이름들.
+#:
+#: **무효화 조건: 파일 목록이 달라지면 키가 달라진다. 그게 전부다.**
+#: 이 창고는 append-only 이고(writer.append 가 이미 있는 경로에 쓰려 하면
+#: StoreError 로 거부한다) 합치기(compact)는 원본을 지우고 새 이름으로 쓴다.
+#: 그래서 **같은 경로 집합은 언제나 같은 내용**이고, 스키마도 같다. 늦게
+#: 도착한 정정본은 새 파일로 들어오므로 집합이 바뀌어 캐시를 못 탄다 —
+#: 이 저장소가 여러 번 낸 "캐시가 늦게 온 입력을 영영 못 받는" 사고가
+#: 여기서는 구조적으로 안 난다.
+#:
+#: 경로 목록을 통째로 키로 들면 테이블 하나에 1MB 씩 쌓이므로 해시로 접는다.
+_SCHEMA_CACHE: dict[bytes, frozenset[str]] = {}
+
+#: 캐시 상한. 창고에 파일이 하나 들어올 때마다 새 지문이 생기므로 무한정
+#: 늘어난다 — 대시보드 프로세스는 며칠씩 떠 있다.
+_SCHEMA_CACHE_MAX = 256
+
+
+def _schema_key(spec: TableSpec, files: Sequence[str]) -> bytes:
+    digest = hashlib.blake2b(spec.name.encode(), digest_size=16)
+    for path in files:
+        digest.update(b"\0")
+        digest.update(str(path).encode())
+    return digest.digest()
+
+
 def _scan_columns(
     connection: duckdb.DuckDBPyConnection,
     spec: TableSpec,
@@ -93,15 +120,27 @@ def _scan_columns(
 
     append-only 창고에서 컬럼 추가는 정상적인 진화다. 옛 행에 그 값이 없었다는
     것은 사실이고, 그 사실은 NULL 이다. 예외가 아니다.
+
+    **이 질의는 parquet 푸터를 전부 연다.** 조각이 많은 표에서는 그 자체가
+    본 질의만큼 비싸다 — 실측으로 ``ingest_latency``(파일 6,391개)는 조회
+    1.9초 중 0.54초가 여기였고, Data Quality 요약 한 번이 이걸 14번 불렀다.
+    그래서 파일 집합 단위로 캐싱한다(``_SCHEMA_CACHE`` 의 무효화 조건 참고).
     """
-    available = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT column_name FROM "
-            "(DESCRIBE SELECT * FROM read_parquet(?, union_by_name = true))",
-            [list(files)],
-        ).fetchall()
-    }
+    key = _schema_key(spec, files)
+    available = _SCHEMA_CACHE.get(key)
+    if available is None:
+        available = frozenset(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT column_name FROM "
+                "(DESCRIBE SELECT * FROM read_parquet(?, union_by_name = true))",
+                [list(files)],
+            ).fetchall()
+        )
+        if len(_SCHEMA_CACHE) >= _SCHEMA_CACHE_MAX:
+            # 오래된 것부터 버린다 (dict 는 삽입 순서를 지킨다).
+            del _SCHEMA_CACHE[next(iter(_SCHEMA_CACHE))]
+        _SCHEMA_CACHE[key] = available
     return [
         name
         if name in available

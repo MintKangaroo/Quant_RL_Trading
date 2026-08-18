@@ -227,12 +227,11 @@
   .market-col .chart.tall { height: 400px; }
 }
 
-/* 아주 좁은 화면에서는 지수 패널을 세로로 쌓는다. 폭이 150px 밑으로 내려가면
-   선이 뭉개져 추세가 안 읽히는데, 그러면 차트가 자리만 먹는 장식이 된다. */
-/* 아주 좁은 화면(휴대폰)에서는 한 줄을 포기하고 세로로 쌓는다. 가로 스크롤로
-   여섯을 미는 것은 마우스가 있을 때 이야기이고, 390px 에서는 첫 패널만 보고
+/* 휴대폰 폭(아이폰 13 Pro 390px 기준) — 다른 소유 탭과 같은 경계값
+   768px 로 통일한다. 한 줄을 포기하고 세로로 쌓는다: 가로 스크롤로 여섯을
+   미는 것은 마우스가 있을 때 이야기이고, 손가락으로는 첫 패널만 보고
    나머지가 있는 줄도 모른다. */
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .index-strip { flex-direction: column; overflow-x: visible; gap: 12px; }
   .index-group + .index-group { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
   .index-group-panels { flex-direction: column; }
@@ -240,6 +239,9 @@
   /* 트리맵 400px 은 세로로 접힌 화면에서 한 패널이 화면을 통째로 먹는다.
      타일 60개가 390px 폭에 들어가면 어차피 글자가 안 보이므로 낮춘다. */
   .market-col .chart.tall { height: 300px; }
+  /* 순위표 2×2 — 460px 짜리 두 칸이 390px 화면에서 나란히 서면 종목명과
+     숫자가 겹친다. 세로로 하나씩 쌓는다(아래 .rank-grid 정의와 짝). */
+  .rank-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* 벤치마크와 화면 대표를 눈으로 가른다. **강조색은 손익이 아닌 것에만**
@@ -283,8 +285,5 @@
 
 .rank-floor { margin: 6px 0 2px; line-height: 1.5; }
 
-/* 좁은 화면에서는 한 줄에 하나. 460px 짜리 두 칸이 390px 화면에서 나란히
-   서면 종목명과 숫자가 겹친다 — 세로로 쌓는 편이 낫다. */
-@media (max-width: 640px) {
-  .rank-grid { grid-template-columns: minmax(0, 1fr); }
-}
+/* 좁은 화면 대응은 위쪽 768px 모바일 블록에 있다(한 파일에 같은 경계값을
+   두 번 열지 않는다). */

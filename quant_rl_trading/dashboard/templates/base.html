@@ -2,7 +2,9 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover 가 없으면 env(safe-area-inset-*) 가 전부 0 으로
+       계산된다 — 아이폰 노치·홈바 아래로 헤더·본문이 그대로 깔린다. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Quant_RL_Trading{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,6 +20,90 @@
 </head>
 <body>
 {% block body %}{% endblock %}
+<script>
+/* 하단 탭 바(모바일 전용) — 상단 nav.tabs(_scope.html) 를 그대로 소스로
+   쓴다. 탭 목록을 여기 다시 적으면 _scope.html 에서 탭이 늘 때 두 곳을
+   고쳐야 하고, 하나만 고치면 조용히 어긋난다. 대신 이미 렌더된 링크를
+   런타임에 읽어 하단 바 4개 + "더보기" 시트로 재배치한다.
+   아이콘은 CDN 금지(오프라인에서도 떠야 한다)라 인라인 SVG 로 직접
+   그린다 — 자주 쓰는 4개(트레이딩·마켓·학습·시스템)만 아이콘이 있고,
+   나머지는 더보기 시트에 텍스트 목록으로만 뜬다. */
+(function () {
+  var MAIN_HREFS = ["/trading", "/market", "/learning", "/system"];
+  var ICONS = {
+    "/trading": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="4" x2="6" y2="20"/><rect x="4" y="9" width="4" height="6"/><line x1="12" y1="2" x2="12" y2="22"/><rect x="10" y="6" width="4" height="9"/><line x1="18" y1="6" x2="18" y2="18"/><rect x="16" y="10" width="4" height="5"/></svg>',
+    "/market": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg>',
+    "/learning": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5c3-1.3 6-1.3 8 0v14c-2-1.3-5-1.3-8 0z"/><path d="M20 5c-3-1.3-6-1.3-8 0v14c2-1.3 5-1.3 8 0z"/></svg>',
+    "/system": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2"/></svg>'
+  };
+  var MORE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+
+  function init() {
+    var links = document.querySelectorAll("header nav.tabs a");
+    if (!links.length) return;
+
+    var main = [];
+    var rest = [];
+    links.forEach(function (a) {
+      var href = a.getAttribute("href");
+      (MAIN_HREFS.indexOf(href) !== -1 ? main : rest).push(a);
+    });
+    if (!main.length) return;
+
+    // 지금 탭이 더보기 안에 있으면 더보기 아이콘 자체가 활성 색이어야
+    // 한다 — 안 그러면 하단 바 전체가 회색이라 길을 잃는다.
+    var restOn = rest.some(function (a) { return a.classList.contains("on"); });
+
+    var bar = document.createElement("nav");
+    bar.className = "bottom-tabs";
+    main.forEach(function (a) {
+      var href = a.getAttribute("href");
+      var item = document.createElement("a");
+      item.href = href;
+      item.className = "bottom-tab" + (a.classList.contains("on") ? " on" : "");
+      item.innerHTML = (ICONS[href] || "") + "<span>" + a.textContent + "</span>";
+      bar.appendChild(item);
+    });
+
+    var moreBtn = document.createElement("button");
+    moreBtn.type = "button";
+    moreBtn.className = "bottom-tab" + (restOn ? " on" : "");
+    moreBtn.innerHTML = MORE_ICON + "<span>더보기</span>";
+    bar.appendChild(moreBtn);
+    document.body.appendChild(bar);
+
+    if (!rest.length) return;
+
+    var sheet = document.createElement("div");
+    sheet.className = "more-sheet";
+    sheet.hidden = true;
+    var list = rest.map(function (a) {
+      return '<a href="' + a.getAttribute("href") + '" class="' +
+        (a.classList.contains("on") ? "on" : "") + '">' + a.textContent + "</a>";
+    }).join("");
+    sheet.innerHTML =
+      '<div class="more-sheet-backdrop"></div>' +
+      '<div class="more-sheet-panel">' +
+        '<div class="more-sheet-head"><span>더보기</span>' +
+        '<button type="button" class="more-sheet-close" aria-label="닫기">✕</button></div>' +
+        '<div class="more-sheet-list">' + list + "</div>" +
+      "</div>";
+    document.body.appendChild(sheet);
+
+    function open() { sheet.hidden = false; }
+    function close() { sheet.hidden = true; }
+    moreBtn.addEventListener("click", open);
+    sheet.querySelector(".more-sheet-backdrop").addEventListener("click", close);
+    sheet.querySelector(".more-sheet-close").addEventListener("click", close);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

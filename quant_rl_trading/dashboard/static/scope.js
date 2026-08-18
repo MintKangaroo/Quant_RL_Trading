@@ -9,12 +9,19 @@
  * 화면이 생기지 않는다.
  */
 
-/* app.css 의 :root 와 같은 값이다. 차트는 CSS 변수를 못 읽으므로 여기 한 벌
-   더 있다 — 한쪽만 고치면 봉과 표의 색이 갈라진다. */
+/* 캔버스·SVG 차트는 CSS 변수를 직접 못 읽는다(echarts style 값, rgba() 보간
+   등). 그렇다고 여기 hex 를 다시 적으면 app.css 의 :root 를 고쳤을 때 이
+   파일만 옛 색으로 남는다 — 그래서 리터럴을 두지 않고 :root 에서 매번
+   읽는다. */
+function token(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 const COLOR = {
-  text: "#e6e9ee", muted: "#8a93a0", dim: "#5a626d", border: "#1e2733",
-  panel: "#0d1219", warn: "#f5a524", up: "#22c55e", down: "#ef4444",
-  bench: "#6b7280", accent: "#38bdf8",
+  text: token("--text"), muted: token("--muted"), dim: token("--dim"), border: token("--border"),
+  panel: token("--panel"), panel2: token("--panel2"),
+  warn: token("--warn"), up: token("--up"), down: token("--down"),
+  bench: token("--bench"), accent: token("--accent"),
 };
 
 const AXIS = {
@@ -104,9 +111,25 @@ function kpi(label, value, note, warn, extra = {}) {
   </div>`;
 }
 
+/* 시점 표시. **지금을 보고 있을 때는 아무 말도 하지 않는다.**
+
+   전에는 라이브에도 `as_of 2026-08-18T07:21:40.413669+00:00 (live) · 창 90일`
+   을 늘 찍었다. 모바일에서 두 줄을 먹었고, 매번 같은 말이라 아무도 안 읽는다.
+   읽히지 않는 경고는 경고가 아니다.
+
+   되감았을 때만, 그때는 **눈에 띄게** 말한다 — 화면이 과거를 보여주는데 그
+   사실을 모르면 지금이라고 착각한 채로 판단하게 된다(불변식 9). 그래서
+   조건을 뒤집었지 지운 것이 아니다. */
 function showScope(body) {
-  document.getElementById("as-of-label").textContent =
-    `as_of ${body.as_of}${body.live ? " (live)" : ""} · 창 ${body.lookback_days}일`;
+  const label = document.getElementById("as-of-label");
+  if (body.live) {
+    label.hidden = true;
+    return;
+  }
+  label.hidden = false;
+  label.classList.add("rewound");
+  const stamp = String(body.as_of).replace("T", " ").slice(0, 16);
+  label.textContent = `⏱ ${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
 }
 
 function showAlerts(warnings) {
@@ -127,56 +150,17 @@ async function runAll(jobs) {
   }
 }
 
-document.getElementById("scope-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  const query = new URLSearchParams();
-  const asOf = document.getElementById("as-of").value;
-  const lookback = document.getElementById("lookback").value;
-  // datetime-local 은 타임존이 없다. 브라우저의 오프셋을 붙여서 보낸다 —
-  // 타임존 없는 as_of 는 API 가 거부한다.
-  if (asOf) query.set("as_of", new Date(asOf).toISOString());
-  if (lookback) query.set("lookback", lookback);
-  window.location.search = query.toString();
-});
-
-document.getElementById("live").addEventListener("click", () => {
-  window.location.search = "";
-});
-
 window.addEventListener("resize", () => {
   Object.values(charts).forEach((instance) => instance.resize());
 });
 
-/* 타임머신 접기. **되감은 채로 접혀 있으면 안 된다** — 화면이 과거를 보여주는데
-   그 사실이 헤더에 안 보이면, 지금을 보고 있다고 착각한 채로 판단하게 된다.
-   그래서 as_of 나 창이 걸려 있으면 무조건 펼친 채로 시작한다. */
-(function bindScopeToggle() {
-  const button = document.getElementById("scope-toggle");
-  const form = document.getElementById("scope-form");
-  if (!button || !form) return;
+/* 타임머신 폼은 헤더에서 걷어냈다(2026-08-18). **되감기 자체는 살아 있다** —
+   ``?as_of=...&lookback=...`` 를 URL 에 붙이면 params() 가 그대로 읽어
+   모든 /api 호출에 실어 보낸다.
 
-  const search = new URLSearchParams(window.location.search);
-  const rewound = Boolean(search.get("as_of") || search.get("lookback"));
-  form.hidden = !rewound;
-  button.classList.toggle("on", rewound);
+   폼을 지우면서 그 폼을 잡던 핸들러도 같이 지웠다. 남겨 두면
+   ``getElementById("scope-form")`` 이 null 을 주고 거기서 이 파일 전체가
+   죽는다 — scope.js 는 모든 탭이 먼저 읽는 파일이라 화면 아홉 개가 한꺼번에
+   빈다. 오늘 마켓 탭이 정의 없는 함수 하나로 통째로 죽은 것과 같은 종류다.
 
-  button.addEventListener("click", () => {
-    form.hidden = !form.hidden;
-    button.classList.toggle("on", !form.hidden);
-  });
-})();
-
-(function fillScopeForm() {
-  const search = new URLSearchParams(window.location.search);
-  const asOf = search.get("as_of");
-  if (asOf) {
-    const local = new Date(asOf);
-    if (!Number.isNaN(local.valueOf())) {
-      const offset = local.getTimezoneOffset() * 60000;
-      document.getElementById("as-of").value =
-        new Date(local.valueOf() - offset).toISOString().slice(0, 16);
-    }
-  }
-  const lookback = search.get("lookback");
-  if (lookback) document.getElementById("lookback").value = lookback;
-})();
+   되감은 상태는 as-of 배지가 계속 말해 준다(fillScope 의 `(live)` 표시). */

@@ -30,8 +30,12 @@ function scaleOf(days) {
 function cellColor(value, scale) {
   if (value === null || value === undefined) return "transparent";
   const strength = Math.min(1, Math.abs(value) / scale);
-  const rgb = value > 0 ? "34,197,94" : value < 0 ? "239,68,68" : "90,98,109";
-  return `rgba(${rgb},${(0.14 + strength * 0.7).toFixed(2)})`;
+  // app.css 가 상태 배지·게이지에 쓰는 것과 같은 패턴이다(color-mix). 진하기는
+  // 값마다 다른 연속량이라 :root 에 고정 변수로 못 둔다 — 대신 섞을 비율만
+  // 여기서 정하고, 실제 색 계산은 CSS 에 맡긴다. JS 는 rgb 숫자를 만들지 않는다.
+  const token = value > 0 ? "--up" : value < 0 ? "--down" : "--dim";
+  const mix = (14 + strength * 70).toFixed(0);
+  return `color-mix(in srgb, var(${token}) ${mix}%, transparent)`;
 }
 
 /** 달 하나를 요일에 맞춘 격자로. `days` 는 그 달의 거래일만 들어온다. */

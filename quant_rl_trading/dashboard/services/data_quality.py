@@ -27,6 +27,10 @@ LATENCY = "ingest_latency"
 #: 이 화면이 지연 표에서 실제로 쓰는 컬럼. 한 벌로 두어 요청 캐시가 걸리게 한다.
 LATENCY_COLUMNS = ["observed_at", "stage", "elapsed_ms", "ok", "detail"]
 
+#: ``Coverage`` 가 세는 데 필요한 컬럼 전부. 자연키(entity_id·valid_from)는
+#: 게이트가 늘 얹어 주므로 여기 안 적는다.
+COVERAGE_COLUMNS = ["close", "volume"]
+
 #: 백분위. p99 까지 보는 이유는 꼬리가 실제 사고를 만들기 때문이다.
 PERCENTILES = (50, 90, 99)
 
@@ -134,8 +138,17 @@ def collect_coverage(
     휴일에 KR 0행 / US 6,271행).
     """
     coverage = Coverage()
+    # 세는 데 쓰는 것은 종가·거래량 둘뿐이다. 컬럼을 안 좁히면 창 하나에
+    # 20만 행 × 15컬럼이 통째로 올라오고, 요약 화면은 그 창을 여섯 번 읽는다
+    # (실측 창 하나 0.50s → 0.23s).
     for frame in iter_windows(
-        store, PRICES, as_of=as_of, lookback=lookback, window=window, market=market
+        store,
+        PRICES,
+        as_of=as_of,
+        lookback=lookback,
+        window=window,
+        columns=COVERAGE_COLUMNS,
+        market=market,
     ):
         coverage.absorb(frame)
     return coverage

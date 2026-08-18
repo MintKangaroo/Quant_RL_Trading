@@ -484,6 +484,15 @@ function renderRankings(body, code, suffix) {
 
 /* -- 시가총액 맵 (finviz 식) --------------------------------------------------- */
 
+/* 16진 문자열 → RGB 세 자리. treemap 은 색을 섞어야 해서(옅은 등락일수록
+ * 배경에 가깝게) COLOR 의 hex 를 그대로 못 쓴다 — 숫자 세 개로 풀어야 mix 가
+ * 된다. 리터럴 hex 를 여기 새로 적지 않고 COLOR(scope.js, app.css 와 값이
+ * 같다)에서만 읽는다. */
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
 /* 등락률 → 색. **상승 초록 · 하락 빨강** — 이 대시보드의 고정 색 규칙이다
  * (scope.js COLOR.up/down). 한국식(빨강↑)을 쓰면 다른 탭과 색이 갈린다.
  * 등락을 못 잰 종목은 회색(COLOR.dim)이다 — 0% 로 칠하면 "보합" 이라는
@@ -494,9 +503,12 @@ function treemapColor(change) {
   // 종목의 ±30% 한 건이 나머지 전부를 흐리게 만들면 맵을 못 읽는다.
   const cap = 0.05;
   const ratio = Math.min(1, Math.abs(change) / cap);
-  const base = change >= 0 ? [34, 197, 94] : [239, 68, 68]; // COLOR.up / COLOR.down
-  const panel = [20, 27, 36]; // --panel2 근사 — 옅은 등락은 배경에 가깝게
-  const mix = panel.map((c, i) => Math.round(c + (base[i] - c) * (0.2 + ratio * 0.8)));
+  const base = hexToRgb(change >= 0 ? COLOR.up : COLOR.down);
+  // 옅은 등락은 배경에 가깝게 섞여야 "안 읽는다" 가 아니라 "약하다" 로
+  // 보인다. **배경값을 여기 복제하지 않는다** — 숫자로 박아 두면 --panel2 를
+  // 바꿨을 때 트리맵만 옛 배경을 쓰고, 그 어긋남은 눈에 잘 안 띈다.
+  const panel2 = hexToRgb(COLOR.panel2);
+  const mix = panel2.map((c, i) => Math.round(c + (base[i] - c) * (0.2 + ratio * 0.8)));
   return `rgb(${mix.join(",")})`;
 }
 
@@ -542,7 +554,7 @@ function renderTreemap(body, code, suffix) {
         nodeClick: false,
         breadcrumb: { show: false },
         label: {
-          color: "#fff", fontFamily: "IBM Plex Mono", fontSize: 11, overflow: "truncate",
+          color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11, overflow: "truncate",
         },
         itemStyle: { borderColor: COLOR.panel, gapWidth: 1 },
         levels: [

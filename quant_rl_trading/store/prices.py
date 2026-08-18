@@ -130,9 +130,12 @@ def read_prices(
     if requested is not None:
         needed = [PRICE_COLUMN]
         if adjusted:
-            # 보정에 필요한 컬럼도 같이 얹는다. 요청한 것만 돌려주므로
+            # 배율 컬럼만 얹는다. ``adjust`` 는 **프레임에 있는** 가격 컬럼만
+            # 곱하므로, 호출부가 안 달라고 한 open·high·low 까지 끌어올 이유가
+            # 없다 — 예전에는 그 셋을 퍼왔다가 ``_project`` 에서 도로 버렸다
+            # (실측 55만 행에서 0.64s → 0.44s). 요청한 것만 돌려주므로
             # 호출부가 받는 축은 달라지지 않는다.
-            needed = [*needed, FACTOR_COLUMN, *ADJUSTED_COLUMNS]
+            needed = [*needed, FACTOR_COLUMN]
         extra = [name for name in needed if name not in requested]
         if extra:
             fetch = [*requested, *dict.fromkeys(extra)]

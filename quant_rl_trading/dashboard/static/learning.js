@@ -42,7 +42,7 @@ async function renderGate() {
     const state = !item.measured
       ? `<span class="tag dim">미측정</span>`
       : item.passed
-        ? `<span class="tag pass">가중치 있음</span>`
+        ? `<span class="tag pass">매매에 쓰임</span>`
         : `<span class="tag observe">관찰</span>`;
     const icCell = item.ic === null
       ? "—"
@@ -58,7 +58,7 @@ async function renderGate() {
 
   document.getElementById("gate").innerHTML = `<table>
     <thead><tr>
-      <th>Analyst</th><th>상태</th><th class="num">IC</th>
+      <th>애널리스트</th><th>상태</th><th class="num">적중도</th>
       <th class="num">가중치</th><th class="num">측정 시각</th>
     </tr></thead>
     <tbody>${rows.join("")}</tbody></table>`;
@@ -77,14 +77,14 @@ async function renderKpis() {
 
   document.getElementById("kpis").innerHTML = [
     kpi("RL 학습(M4)", s.active ? "가동" : "미착수", s.milestone),
-    kpi("IC 게이트 통과", num(g.active_count), `측정 ${num(g.measured_count)}/${num(g.total)}`,
+    kpi("매매에 쓰이는 애널리스트", num(g.active_count), `잰 것 ${num(g.measured_count)}/${num(g.total)}`,
       g.active_count === 0),
-    kpi("가중치 합", dec(g.active_weight, 1), "0이면 아무도 매매에 못 쓴다", g.active_weight === 0),
-    kpi("측정 Analyst", num(g.measured_count), `전체 ${num(g.total)}명`),
+    kpi("가중치 합", dec(g.active_weight, 1), "0 이면 아무도 매매에 못 쓴다", g.active_weight === 0),
+    kpi("적중도를 잰 애널리스트", num(g.measured_count), `전체 ${num(g.total)}명`),
   ].join("");
 
   const warnings = [];
-  if (g.active_count === 0) warnings.push("가중치를 받는 Analyst 가 없다 — 아무도 매매에 못 쓴다");
+  if (g.active_count === 0) warnings.push("합격선을 넘은 애널리스트가 없다 — 아무도 매매에 못 쓴다");
   showAlerts(warnings);
 }
 
@@ -130,7 +130,7 @@ async function renderIcHistory() {
       {
         // 합격선을 배경에 깐다. store.config 에서 읽은 값이지 코드에 적은
         // 숫자가 아니다 (services/learning.py 가 매 요청 다시 읽는다).
-        name: "합격선", type: "line", data: stamps.map(() => data.threshold),
+        name: "합격선(0.03)", type: "line", data: stamps.map(() => data.threshold),
         showSymbol: false, lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
       },
     ],
@@ -163,8 +163,8 @@ async function renderWalkForward() {
 
   document.getElementById("walk-forward").innerHTML = `<table>
     <thead><tr>
-      <th>Analyst</th><th>워크포워드 판정</th><th class="num">워크포워드 IC</th>
-      <th class="num">라이브 IC</th><th class="num">차이(라이브−워크포워드)</th>
+      <th>애널리스트</th><th>과거 검증 판정</th><th class="num">과거 검증</th>
+      <th class="num">지금 실측</th><th class="num">차이(지금−과거)</th>
     </tr></thead>
     <tbody>${rows.join("")}</tbody></table>`;
 }
