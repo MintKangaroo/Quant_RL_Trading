@@ -413,6 +413,22 @@ function floorNote(data) {
   </p>`;
 }
 
+/** 시가총액 순위가 빈 이유. **"없다" 와 "못 만든다" 는 다르다.**
+ *
+ * 시총은 상장주식수 × 종가라, 주식수가 없으면 종목이 통째로 빠진다. 그걸
+ * 그냥 "종목이 없다" 로 적으면 수집이 멈춘 것을 시장이 조용한 것으로 읽게
+ * 된다 — 이 저장소가 반복해서 겪은 결함 계열이다.
+ *
+ * 이 함수가 없어서 마켓 탭이 통째로 안 떴다(2026-08-18, ReferenceError).
+ * 호출은 있는데 정의가 없었다.
+ */
+function noCapReasonText(code) {
+  return code === "KR"
+    ? "시가총액을 만들 수 없다 — KRX 상장주식수가 그 세션에 없다."
+    : "시가총액을 만들 수 없다 — SEC 상장주식수가 그 세션에 없다 " +
+      "(ADR·ETF 는 주식수가 없어 원래 빠진다).";
+}
+
 function renderRankings(body, code, suffix) {
   const panel = body.data.markets[code];
   const data = panel.rankings;

@@ -61,7 +61,9 @@ def evaluate_blocks(
     if settled.empty:
         return _empty(pending=len(blocked))
 
-    prices = read_prices(store, as_of=as_of, lookback=lookback)
+    # 구간 수익률을 낸다 — **보정가여야 한다.** 판정 구간에 분할이 끼면 그
+    # 종목의 성적이 배율만큼 찍히고, Analyst 가 하지 않은 실수로 점수를 잃는다.
+    prices = read_prices(store, as_of=as_of, lookback=lookback, adjusted=True)
     if prices.empty:
         return _empty(pending=len(blocked))
 

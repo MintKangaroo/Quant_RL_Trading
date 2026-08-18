@@ -37,6 +37,7 @@ DEFAULT_ROOTS = ("quant_rl_trading", "tools", "scripts")
 RULE_WALLCLOCK = "wallclock"
 RULE_DATA_ACCESS = "data-access"
 RULE_PRICE_READ = "price-read"
+RULE_PRICE_ADJUST = "price-adjust"
 
 ALLOW_MARKER = "# invariant-allow:"
 
@@ -130,6 +131,35 @@ PRICES_ALIASES = frozenset({"PRICES"})
 
 #: 시세를 읽는 게이트 메서드. ``latest_by_entity`` 도 같은 행을 준다.
 PRICE_READ_METHODS = frozenset({"get", "latest_by_entity"})
+
+# -----------------------------------------------------------------------------
+# 시세로 수익률을 만들면 기업행위를 보정한다.
+# -----------------------------------------------------------------------------
+# 창고에 든 것은 **원주가**다. 액면분할·무상증자·감자·주식병합이 보정되지
+# 않으면 실제 손실이 아닌 가격 급변이 수익률로 계산되고, 창이 250일이면 사건
+# 하나가 그 뒤 250세션을 오염시킨다 (collectors/corporate_actions.py).
+#
+# 5년 국장 기준으로 유니버스의 4분의 1이 닿는다. **급락 필터로는 못 잡는다** —
+# 5% 무상증자는 가격이 5% 내려갈 뿐이다.
+#
+# 규칙은 **파일 단위**다. 한 파일이 시세를 읽고 그것으로 수익률을 만드는데
+# 보정을 한 번도 안 켰으면 위반이다. 표현식 단위로 추적하면(어느 프레임이
+# 어느 read_prices 에서 왔나) 오탐이 쏟아지고, 오탐이 나오면 사람은 규칙을
+# 끈다 — price-read 규칙에서 배운 것이다.
+#
+# 원주가로 수익률을 내야 하는 자리가 실제로 있다(체결가 대비 실측 등). 그런
+# 곳은 ``# invariant-allow: price-adjust`` 를 달고 **왜인지 적는다.**
+
+#: 시세를 읽는 헬퍼. 이 파일이 시세를 다룬다는 표지다.
+PRICE_HELPERS = frozenset({"read_prices", "drop_dead_sessions"})
+
+#: 수익률을 만드는 호출. 이게 있으면 그 파일은 보정을 켰어야 한다.
+RETURN_METHODS = frozenset({"pct_change"})
+
+#: 보정을 켰다는 증거. ``read_prices(..., adjusted=True)`` 이거나 프레임을
+#: 손에 들고 ``adjust(...)`` 를 부르거나 — 둘 다 같은 규칙 한 벌을 탄다.
+ADJUST_CALL = "adjust"
+ADJUST_KEYWORD = "adjusted"
 
 
 @dataclass(frozen=True)
@@ -235,9 +265,15 @@ def scan_source(source: str, path: str) -> list[Violation]:
         RULE_WALLCLOCK: _allowed_lines(source, RULE_WALLCLOCK),
         RULE_DATA_ACCESS: _allowed_lines(source, RULE_DATA_ACCESS),
         RULE_PRICE_READ: _allowed_lines(source, RULE_PRICE_READ),
+        RULE_PRICE_ADJUST: _allowed_lines(source, RULE_PRICE_ADJUST),
     }
     in_data_gate = _is_data_gate(path)
     found: list[Violation] = []
+
+    # price-adjust 는 파일 단위 규칙이라 한 번 훑고 나서 판정한다.
+    reads_prices = False
+    adjusts_prices = False
+    return_calls: list[tuple[ast.Call, str]] = []
 
     def report(node: ast.AST, rule: str, symbol: str, message: str) -> None:
         line = getattr(node, "lineno", 0)
@@ -248,6 +284,13 @@ def scan_source(source: str, path: str) -> list[Violation]:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
+            # price-adjust 수집은 **점 표기 해석보다 먼저** 한다.
+            # ``frame["close"].pct_change()`` 는 중간이 Subscript 라
+            # ``_dotted_name`` 이 None 을 내고, 아래 ``continue`` 에 걸려
+            # 통째로 안 보인다 — 실제로 그래서 규칙이 한 건도 안 잡혔다.
+            if isinstance(node.func, ast.Attribute) and node.func.attr in RETURN_METHODS:
+                return_calls.append((node, f"...{node.func.attr}"))
+
             dotted = _dotted_name(node.func)
             if dotted is None:
                 continue
@@ -272,6 +315,12 @@ def scan_source(source: str, path: str) -> list[Violation]:
                     "휴장일 종가 0 이 수익률·상관을 통째로 뒤집는다",
                 )
 
+            if leaf in PRICE_HELPERS:
+                reads_prices = True
+            if leaf == ADJUST_CALL or any(
+                keyword.arg == ADJUST_KEYWORD for keyword in node.keywords
+            ):
+                adjusts_prices = True
             if not in_data_gate and (
                 resolved in DATA_ACCESS_QUALIFIED or leaf in DATA_ACCESS_METHODS
             ):
@@ -319,6 +368,18 @@ def scan_source(source: str, path: str) -> list[Violation]:
                     node.value,
                     "store/ 밖에서 Parquet 경로를 다룬다 (불변식 1)",
                 )
+
+    if not in_data_gate and reads_prices and not adjusts_prices:
+        for node, dotted in return_calls:
+            report(
+                node,
+                RULE_PRICE_ADJUST,
+                f"{dotted}()",
+                "원주가로 수익률을 만든다 — 액면분할·무상증자·감자가 그대로 "
+                "수익률이 된다. read_prices(..., adjusted=True) 를 쓰거나 "
+                "store.prices.adjust() 로 접어라 "
+                "(collectors/corporate_actions.py)",
+            )
 
     return sorted(found, key=lambda v: (v.path, v.line, v.rule))
 

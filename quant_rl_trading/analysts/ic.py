@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from quant_rl_trading.store import Store
-from quant_rl_trading.store.prices import PRICES, drop_dead_sessions
+from quant_rl_trading.store.prices import PRICES, adjust, drop_dead_sessions
 
 #: 타깃 기간. agents.md §10 — 5일로 통일한다.
 HORIZON_DAYS = 5
@@ -157,7 +157,11 @@ def build_targets(
         as_of=as_of,
         lookback=lookback,
         window=window,
-        columns=["close"],
+        # ``adj_factor`` 를 같이 받는다. **라벨은 보정가로 만들어야 한다** —
+        # 액면분할·무상증자가 보정되지 않으면 그 세션의 forward_return 이
+        # 배율만큼(1/10 분할이면 -90%) 찍히고, 횡단면 z 가 그 종목을 최하위로
+        # 밀어 라벨 자체가 거짓이 된다.
+        columns=["close", "adj_factor"],
         # 라벨도 한 시장 것만 만든다. 다른 시장 종목이 섞이면 횡단면 z 가
         # 두 시장을 한 줄에 세우게 되고, 그건 비교가 아니다.
         market=market,
@@ -169,7 +173,9 @@ def build_targets(
     # ``forward_close=0`` 에서 정확히 ``-1.0`` 을 내고, 그 세션의 횡단면 z 가
     # 통째로 NaN 이 된다 — 실측 4세션 11,491행(라벨의 5.3%)이 조용히 사라졌다.
     frames = [
-        drop_dead_sessions(chunk).loc[:, ["entity_id", "valid_from", "close"]]
+        drop_dead_sessions(chunk).loc[
+            :, ["entity_id", "valid_from", "close", "adj_factor"]
+        ]
         for chunk in windows
         if not chunk.empty
     ]
@@ -180,6 +186,9 @@ def build_targets(
     # 창이 서로 겹치게 잘려 있어서 중복이 생긴다 (_span 이 하루 넉넉히 잡는다).
     frames.clear()
     prices = prices.drop_duplicates(subset=["entity_id", "valid_from"], keep="last")
+    # **접기는 창을 이어 붙인 뒤에 한다.** 조각마다 접으면 누적곱이 조각
+    # 안에서만 돌아, 조각 경계를 넘는 사건이 그 앞 구간에 반영되지 않는다.
+    prices = adjust(prices)
     prices["session"] = prices["valid_from"].dt.date
 
     forward = forward_returns(prices, horizon=horizon)

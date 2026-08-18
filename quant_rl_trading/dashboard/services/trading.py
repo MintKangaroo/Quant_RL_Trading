@@ -124,6 +124,57 @@ def build_context(
 # -- KPI -----------------------------------------------------------------------
 
 
+def _live_valuation(context: Context, valuation: Any) -> dict[str, Any]:
+    """장중 시세로 다시 계산한 총자산. **회계가 아니라 화면용이다.**
+
+    보유 수량은 장부에서, 가격은 장중 시세에서 가져온다. 장중 값이 없는
+    종목은 **종가로 메운다** — 빼 버리면 그 종목이 사라진 것처럼 총자산이
+    줄어 폭락으로 보인다(nav.value 가 예외를 던지는 것과 같은 이유).
+
+    몇 종목이 장중 값을 받았는지(``covered``)를 같이 돌려준다. 절반만 받은
+    수치를 "지금 총자산" 이라고 말하면 안 되고, 화면이 그 사실을 적어야 한다.
+
+    현금은 그대로다. 미장분은 종가 환율을 쓴다 — 장중 환율은 받지 않는다.
+    """
+    cache = getattr(context, "live_quotes", None)
+    positions = {
+        entity: position
+        for entity, position in context.book.positions.items()
+        if position.quantity > 0
+    }
+    if cache is None or not positions:
+        return {"nav": None, "change": None, "equity": None, "covered": 0}
+
+    quotes = cache.get(list(positions))
+    if not quotes:
+        return {"nav": None, "change": None, "equity": None, "covered": 0}
+
+    equity = 0.0
+    covered = 0
+    for entity, position in positions.items():
+        quote = quotes.get(entity)
+        if quote is not None and quote.price > 0:
+            price = quote.price
+            covered += 1
+        else:
+            price = context.prices.get(entity)
+            if price is None:
+                continue
+        value = price * position.quantity
+        # 미장분은 종가 환율로 환산한다. 장중 환율은 수집하지 않는다.
+        equity += value * (valuation.fx_rate if entity.startswith("US:") else 1.0)
+
+    cash = valuation.cash_krw + valuation.cash_usd * valuation.fx_rate
+    live_nav = cash + equity + valuation.accrued_dividend - valuation.payable
+    closing = valuation.nav
+    return {
+        "nav": live_nav,
+        "change": (live_nav / closing - 1.0) if closing > 0 else None,
+        "equity": equity,
+        "covered": covered,
+    }
+
+
 def kpis(store: Store, context: Context) -> dict[str, Any]:
     """상단 스트립. **낙폭과 액션 반영률이 수익률과 나란히 선다.**
 
@@ -174,9 +225,19 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         win_rate = float((traded > 0).mean()) if len(traded) else None
         mdd = float(ordered["drawdown"].astype(float).min())
 
+    live = _live_valuation(context, valuation)
+
     return {
         "nav": nav,
         "nav_after_tax": valuation.nav_after_tax,
+        # **장중 재평가 — 참고값이다.** 위의 nav·daily_return·mdd 는 전부
+        # 종가 기준이고(accounting.md §2 — 15:40 하루 한 번), 벤치마크도 같은
+        # 시각으로 잰다. 그 둘을 섞으면 차이가 통째로 가짜 초과수익이 된다.
+        # 그래서 **따로 담고 화면도 따로 그린다.** nav_daily 에 쓰지 않는다.
+        "live_nav": live["nav"],
+        "live_change": live["change"],
+        "live_equity": live["equity"],
+        "live_covered": live["covered"],
         "principal": principal or None,
         "today_pnl": today_pnl,
         "total_pnl": total_pnl,

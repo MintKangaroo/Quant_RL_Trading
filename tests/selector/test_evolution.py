@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -327,3 +328,407 @@ def test_evolve는_작은_규모에서_실제_백테스트_위를_완주한다(w
     assert call_count == 4 * 2
     assert len(result.fitnesses) == 4
     assert result.stability.top_n >= 1
+
+
+# ---------------------------------------------------------------------------
+# 다양성 — 세대마다 기록한다
+# ---------------------------------------------------------------------------
+
+
+def test_같은_배합만_모이면_다양성이_0이다() -> None:
+    # 유전자는 다르지만 정규화하면 같은 배합 — 합성 공식이 스케일 불변이라
+    # 표현형은 하나다.
+    population = [
+        evolution.Individual(analysts=("a", "b"), genes=(0.2, 0.4)),
+        evolution.Individual(analysts=("a", "b"), genes=(0.4, 0.8)),
+        evolution.Individual(analysts=("a", "b"), genes=(0.1, 0.2)),
+    ]
+    assert evolution.mean_pairwise_distance(population) == pytest.approx(0.0)
+    # 표현형은 붕괴했어도 유전형은 아직 퍼져 있다 — 둘을 따로 재는 이유다.
+    assert evolution.gene_spread(population) > 0.0
+
+
+def test_서로_다른_방향이면_다양성이_크다() -> None:
+    population = [
+        evolution.Individual(analysts=("a", "b"), genes=(1.0, 0.0)),
+        evolution.Individual(analysts=("a", "b"), genes=(0.0, 1.0)),
+    ]
+    # one-hot 두 개는 L1 거리 최대 2 다.
+    assert evolution.mean_pairwise_distance(population) == pytest.approx(2.0)
+
+
+def test_세대기록이_다양성과_실패개수를_담는다() -> None:
+    def evaluate(individual: evolution.Individual, generation: int) -> evolution.FitnessResult:
+        # 첫 개체만 -inf — "폴드가 전부 결과를 못 냈다" 를 흉내 낸다.
+        fitness = float("-inf") if individual.genes[0] < 0.05 else individual.genes[0]
+        return evolution.FitnessResult(
+            individual=individual, fitness=fitness, ir_median=0.0,
+            turnover_median=0.0, l1_term=0.0,
+        )
+
+    result = evolution.evolve(
+        analysts=("a", "b", "c"), population_size=12, generations=3,
+        evaluate=evaluate, seed=11,
+    )
+    for record in result.history:
+        assert record.diversity > 0.0
+        assert record.gene_spread > 0.0
+        # 평균·표준편차는 -inf 를 빼고 낸다 — 안 그러면 통계가 통째로 -inf 다.
+        assert record.std_fitness == record.std_fitness  # NaN 아님
+        assert record.worst_fitness > float("-inf") or record.failed == 12
+
+
+# ---------------------------------------------------------------------------
+# 체크포인트 — 중단이 기본값이라 보고 매 세대 남긴다
+# ---------------------------------------------------------------------------
+
+
+def _rising_evaluate(
+    individual: evolution.Individual, generation: int
+) -> evolution.FitnessResult:
+    fitness = individual.normalized().get("a", 0.0)
+    return evolution.FitnessResult(
+        individual=individual, fitness=fitness, ir_median=fitness,
+        turnover_median=0.0, l1_term=0.0,
+    )
+
+
+def test_체크포인트가_세대마다_한_줄씩_남는다(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "nested" / "run.jsonl"
+    result = evolution.evolve(
+        analysts=("a", "b"), population_size=6, generations=4,
+        evaluate=_rising_evaluate, seed=3,
+        checkpoint=evolution.JsonlCheckpoint(path),
+    )
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == result.generations_run == 4
+    records = [json.loads(line) for line in lines]
+    assert [r["generation"] for r in records] == [0, 1, 2, 3]
+    assert records[0]["best_weights"].keys() == {"a", "b"}
+    assert "diversity" in records[0] and "gene_spread" in records[0]
+
+
+def test_진화가_도중에_죽어도_거기까지가_남는다(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """이 테스트가 이 기능의 존재 이유다.
+
+    2026-08-15 새벽, 16×15 진화가 3시간을 돌다 중단됐는데 세대 기록이 한 줄도
+    안 남았다 — ``evolve`` 가 ``history`` 를 다 모은 뒤에야 호출부가 찍는
+    구조였기 때문이다. 3세대까지 간 것이 통째로 사라졌다.
+    """
+    path = tmp_path / "crash.jsonl"
+
+    def dies_in_generation_2(
+        individual: evolution.Individual, generation: int
+    ) -> evolution.FitnessResult:
+        if generation == 2:
+            raise MemoryError("램이 모자라 죽었다고 치자")
+        return _rising_evaluate(individual, generation)
+
+    with pytest.raises(MemoryError):
+        evolution.evolve(
+            analysts=("a", "b"), population_size=5, generations=10,
+            evaluate=dies_in_generation_2, seed=4,
+            checkpoint=evolution.JsonlCheckpoint(path),
+        )
+
+    lines = path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 2  # 0세대 · 1세대 는 살아남았다
+    assert [json.loads(line)["generation"] for line in lines] == [0, 1]
+
+
+def test_체크포인트는_기존_기록을_덮어쓰지_않는다(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "append.jsonl"
+    for _ in range(2):
+        evolution.evolve(
+            analysts=("a", "b"), population_size=4, generations=2,
+            evaluate=_rising_evaluate, seed=5,
+            checkpoint=evolution.JsonlCheckpoint(path),
+        )
+    assert len(path.read_text(encoding="utf-8").strip().splitlines()) == 4
+
+
+def test_체크포인트_주기를_늘리면_그만큼만_남는다(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "every2.jsonl"
+    evolution.evolve(
+        analysts=("a", "b"), population_size=4, generations=5,
+        evaluate=_rising_evaluate, seed=6,
+        checkpoint=evolution.JsonlCheckpoint(path, every=2),
+    )
+    generations = [
+        json.loads(line)["generation"]
+        for line in path.read_text(encoding="utf-8").strip().splitlines()
+    ]
+    assert generations == [0, 2, 4]
+
+
+def test_체크포인트_주기가_0이면_거부한다(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    with pytest.raises(ValueError, match="1 이상"):
+        evolution.JsonlCheckpoint(tmp_path / "x.jsonl", every=0)
+
+
+# ---------------------------------------------------------------------------
+# 홀드아웃 — selector.md §4 "최종 검증은 별도 테스트 폴드에서 딱 한 번"
+# ---------------------------------------------------------------------------
+
+
+def _result(individual: evolution.Individual, ir: float) -> evolution.FitnessResult:
+    return evolution.FitnessResult(
+        individual=individual, fitness=ir, ir_median=ir, turnover_median=0.0, l1_term=0.0,
+    )
+
+
+def test_동일가중_개체는_모든_가중치가_같다() -> None:
+    uniform = evolution.uniform_individual(("a", "b", "c", "d"))
+    assert list(uniform.normalized().values()) == pytest.approx([0.25] * 4)
+
+
+def test_홀드아웃은_동일가중을_같은_폴드에서_같이_잰다() -> None:
+    best = evolution.Individual(analysts=("a", "b"), genes=(0.9, 0.1))
+    seen: list[evolution.Individual] = []
+
+    def evaluate(individual: evolution.Individual) -> evolution.FitnessResult:
+        seen.append(individual)
+        # 최고 개체가 동일가중보다 낫다.
+        return _result(individual, 0.5 if individual == best else 0.2)
+
+    report = evolution.holdout_report(
+        best, analysts=("a", "b"), folds=[date(2026, 5, 4)],
+        train_fitness=0.9, evaluate=evaluate,
+    )
+    assert len(seen) == 2  # 최고 개체 + 동일가중
+    assert seen[1].normalized() == {"a": 0.5, "b": 0.5}
+    assert report.beats_uniform
+    assert report.edge == pytest.approx(0.3)
+    # 학습 0.9 → 홀드아웃 0.5. 그 낙차가 일반화 격차다.
+    assert report.generalization_gap == pytest.approx(0.4)
+
+
+def test_홀드아웃에서_동일가중에_지면_동일가중을_권한다() -> None:
+    best = evolution.Individual(analysts=("a", "b"), genes=(0.9, 0.1))
+
+    def evaluate(individual: evolution.Individual) -> evolution.FitnessResult:
+        return _result(individual, 0.1 if individual == best else 0.4)
+
+    report = evolution.holdout_report(
+        best, analysts=("a", "b"), folds=[date(2026, 5, 4)],
+        train_fitness=0.9, evaluate=evaluate,
+    )
+    assert not report.beats_uniform
+    assert "동일가중" in report.verdict
+
+
+def test_홀드아웃_폴드가_없으면_거부한다() -> None:
+    with pytest.raises(ValueError, match="홀드아웃 폴드가 없다"):
+        evolution.holdout_report(
+            evolution.Individual(analysts=("a",), genes=(1.0,)),
+            analysts=("a",), folds=[], train_fitness=0.0,
+            evaluate=lambda ind: _result(ind, 0.0),
+        )
+
+
+def test_홀드아웃에서_성적을_못_내면_채택_근거가_없다고_말한다() -> None:
+    best = evolution.Individual(analysts=("a",), genes=(1.0,))
+
+    def evaluate(individual: evolution.Individual) -> evolution.FitnessResult:
+        return evolution.FitnessResult(
+            individual=individual, fitness=float("-inf"), ir_median=0.0,
+            turnover_median=0.0, l1_term=0.0,
+        )
+
+    report = evolution.holdout_report(
+        best, analysts=("a",), folds=[date(2026, 5, 4)],
+        train_fitness=0.5, evaluate=evaluate,
+    )
+    assert "근거가 없다" in report.verdict
+
+
+# ---------------------------------------------------------------------------
+# 안정성 검사의 한계 — 이 상수가 거짓말을 막는다
+# ---------------------------------------------------------------------------
+
+
+def test_옛_판정은_신호가_없어도_통과했다() -> None:
+    """고쳐진 것이 **무엇이었는지**를 남긴다.
+
+    귀무분포를 끄면(``null_replicates=0``) 옛 판정이 그대로 재현된다 — 적합도가
+    유전자와 무관한 난수인데도 pop 16 × gen 15 에서 과반이 "채택 가능" 으로
+    나온다. 검사가 재던 것은 지형의 봉우리가 아니라 작은 개체군의 유전적
+    드리프트였다.
+
+    같은 조건에서 귀무분포를 켜면 떨어진다는 것은
+    ``test_노이즈_지형은_거의_전부_불안정으로_떨어진다`` 가 지킨다. 두 테스트가
+    쌍으로 있어야 "고쳤다" 가 주장이 아니라 측정이 된다.
+    """
+    old_style = sum(
+        evolution.evolve(
+            analysts=("a", "b", "c"), population_size=16, generations=15,
+            evaluate=_noise_evaluate_factory(9_000 + seed), seed=seed,
+            patience=999, null_replicates=0,
+        ).adopt
+        for seed in range(20)
+    )
+    assert old_style >= 12, (
+        f"옛 방식 거짓 양성이 {old_style}/20 — 실측(18/20) 과 크게 다르면 "
+        "NOISE_FLOOR_DISTANCE 의 근거를 다시 재라"
+    )
+    assert (16, 15) in evolution.NOISE_FLOOR_DISTANCE
+
+
+# ---------------------------------------------------------------------------
+# 드리프트 귀무분포 — 대조군이 곧 테스트다
+# ---------------------------------------------------------------------------
+
+
+def _noise_evaluate_factory(seed: int):  # type: ignore[no-untyped-def]
+    """적합도가 **유전자와 완전히 무관한** 난수. 신호가 0인 지형."""
+    rng = np.random.default_rng(seed)
+
+    def evaluate(
+        individual: evolution.Individual, generation: int
+    ) -> evolution.FitnessResult:
+        value = float(rng.normal(0.0, 1.0))
+        return evolution.FitnessResult(
+            individual=individual, fitness=value, ir_median=value,
+            turnover_median=0.0, l1_term=0.0,
+        )
+
+    return evaluate
+
+
+def _peak_evaluate(
+    individual: evolution.Individual, generation: int
+) -> evolution.FitnessResult:
+    """진짜 봉우리가 있는 지형 — b 가 제일 크게 기여한다."""
+    w = individual.normalized()
+    value = 0.3 * w["a"] + 0.5 * w["b"] + 0.2 * w["c"]
+    return evolution.FitnessResult(
+        individual=individual, fitness=value, ir_median=value,
+        turnover_median=0.0, l1_term=0.0,
+    )
+
+
+def test_귀무분포는_복제마다_다른_값을_준다() -> None:
+    params = evolution.GAParams(n_analysts=3, population_size=8, generations=4)
+    distances = evolution.drift_null_distances(params, replicates=6, seed=0)
+    assert len(distances) == 6
+    assert distances == sorted(distances)
+    assert len(set(distances)) > 1  # 전부 같은 값이면 분포가 아니다
+
+
+def test_귀무분포는_같은_시드면_같다() -> None:
+    params = evolution.GAParams(n_analysts=3, population_size=8, generations=4)
+    first = evolution.drift_null_distances(params, replicates=5, seed=3)
+    second = evolution.drift_null_distances(params, replicates=5, seed=3)
+    assert first == second
+
+
+def test_귀무분포_복제가_0이면_거부한다() -> None:
+    params = evolution.GAParams(n_analysts=3, population_size=6, generations=2)
+    with pytest.raises(ValueError, match="1 이상"):
+        evolution.drift_null_distances(params, replicates=0)
+
+
+def test_노이즈_지형은_거의_전부_불안정으로_떨어진다() -> None:
+    """**이 테스트가 안정성 검사의 존재 이유다.**
+
+    적합도가 유전자와 무관한 난수인데도 옛 판정(절대 문턱 0.25 하나)은
+    pop 16 × gen 15 에서 20번 중 18번 "안정" 을 냈다. 드리프트 귀무분포를
+    끼운 뒤에는 정의상 ``NULL_ALPHA``(5%) 근처로 떨어져야 한다.
+
+    합성 데이터로 통과하는 테스트가 현실을 안 말해준 전례가 이 저장소에 있다
+    ([[constant-feature-eats-weight]]). 여기서는 그 교훈을 뒤집어 쓴다 —
+    **노이즈를 넣으면 반드시 떨어진다** 를 못 박는다.
+    """
+    adopted = sum(
+        evolution.evolve(
+            analysts=("a", "b", "c"), population_size=16, generations=15,
+            evaluate=_noise_evaluate_factory(50_000 + seed), seed=seed,
+            patience=999, null_replicates=40,
+        ).adopt
+        for seed in range(20)
+    )
+    assert adopted <= 4, (
+        f"노이즈 지형에서 {adopted}/20 이 채택됐다 — 검사가 다시 드리프트를 "
+        "봉우리로 읽고 있다"
+    )
+
+
+def test_봉우리_지형은_채택된다() -> None:
+    """거짓 양성만 잡고 진짜 신호까지 죽이면 검사가 아니라 거부기다."""
+    adopted = sum(
+        evolution.evolve(
+            analysts=("a", "b", "c"), population_size=16, generations=15,
+            evaluate=_peak_evaluate, seed=seed, patience=999, null_replicates=40,
+        ).adopt
+        for seed in range(10)
+    )
+    assert adopted >= 6, f"진짜 봉우리인데 {adopted}/10 만 채택됐다"
+
+
+def test_귀무분포_없이_판정하면_믿지_말라고_적는다() -> None:
+    """옛 방식(절대 문턱만)으로도 돌아가되, 리포트가 스스로 경고한다."""
+    result = evolution.evolve(
+        analysts=("a", "b", "c"), population_size=16, generations=15,
+        evaluate=_noise_evaluate_factory(7), seed=0, patience=999,
+        null_replicates=0,
+    )
+    assert result.stability.null_quantile is None
+    if result.stability.stable:
+        assert "믿으면 안 된다" in result.stability.verdict or (
+            "재지 않았다" in result.stability.verdict
+        )
+
+
+def test_드리프트_수준으로_몰린_것은_봉우리가_아니라고_말한다() -> None:
+    top = [
+        evolution.Individual(analysts=("a", "b"), genes=(0.50, 0.50)),
+        evolution.Individual(analysts=("a", "b"), genes=(0.51, 0.49)),
+    ]
+    # 관측 거리(0.02)가 귀무 5%분위보다 크게 만든다.
+    report = evolution.stability_report(top, null_distances=[0.001, 0.002, 0.003, 0.9])
+    assert not report.stable
+    assert "드리프트" in report.verdict
+    assert report.null_quantile is not None
+
+
+def test_귀무분포보다_촘촘하면_봉우리_증거로_친다() -> None:
+    top = [
+        evolution.Individual(analysts=("a", "b"), genes=(0.500, 0.500)),
+        evolution.Individual(analysts=("a", "b"), genes=(0.501, 0.499)),
+    ]
+    report = evolution.stability_report(top, null_distances=[0.3, 0.4, 0.5, 0.6])
+    assert report.stable
+    assert "홀드아웃" in report.verdict  # 최종 근거는 여전히 홀드아웃이다
+
+
+# ---------------------------------------------------------------------------
+# 폴드 겹침 — "다중 시작일" 이 사실은 한 개였다
+# ---------------------------------------------------------------------------
+
+
+def test_최소_간격을_주면_겹치는_폴드를_안_뽑는다() -> None:
+    starts = [date(2026, 3, 2) + timedelta(days=offset) for offset in range(60)]
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        picked = evolution.resample_folds(starts, 2, rng, min_gap_days=21)
+        assert len(picked) == 2
+        assert abs((picked[0] - picked[1]).days) >= 21
+
+
+def test_간격을_안_주면_옛_동작_그대로다() -> None:
+    starts = [date(2026, 3, 2) + timedelta(days=offset) for offset in range(10)]
+    picked_a = evolution.resample_folds(starts, 3, np.random.default_rng(5))
+    picked_b = evolution.resample_folds(starts, 3, np.random.default_rng(5))
+    assert picked_a == picked_b
+    assert len(picked_a) == 3
+
+
+def test_간격을_못_채우면_지어내지_않고_적게_준다() -> None:
+    # 후보가 다닥다닥 붙어 있어 21일 간격으로는 하나밖에 못 뽑는다.
+    starts = [date(2026, 3, 2) + timedelta(days=offset) for offset in range(5)]
+    picked = evolution.resample_folds(starts, 3, np.random.default_rng(0), min_gap_days=21)
+    assert len(picked) == 1
+
+
+def test_후보가_없으면_빈_목록이다() -> None:
+    assert evolution.resample_folds([], 2, np.random.default_rng(0), min_gap_days=21) == []

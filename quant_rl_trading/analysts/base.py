@@ -189,6 +189,11 @@ class Analyst(ABC):
             as_of=as_of,
             lookback=lookback,
             columns=list(self.price_columns),
+            # **피처는 보정가로 만든다.** 액면분할·무상증자·감자가 보정되지
+            # 않으면 모멘텀이 그 배율을 수익률로 읽고, 창이 250일이면 사건
+            # 하나가 그 뒤 250세션을 오염시킨다
+            # (collectors/corporate_actions.py).
+            adjusted=True,
             # 시장을 SQL 에서 거른다. pandas 로 거르면 미장 행을 통째로 퍼온
             # 뒤 버리게 되고, 창고에 두 시장이 같이 사는 순간 국장 질의가
             # 그것만으로 죽는다.

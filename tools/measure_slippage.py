@@ -45,7 +45,7 @@ if str(REPO_ROOT) not in sys.path:
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.replay.fills import FillParams, MarketState, impact_bps  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
-from quant_rl_trading.store.prices import read_prices  # noqa: E402
+from quant_rl_trading.store.prices import adjust, read_prices  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
 #: 완료 기준의 허용 오차. 실측이 예측의 (1±TOLERANCE) 안에 들어와야 한다.
@@ -102,7 +102,11 @@ def _market_state(
     # 그대로 pct_change 를 하면 inf 가 하나 섞여 std 가 통째로 NaN 이 된다.
     # NaN 은 예외를 내지 않고 조용히 퍼져서, 예측값이 사라진 줄도 모르고
     # "비교 불가" 를 "기준 밖" 으로 읽게 만든다.
-    closes = window["close"]
+    #
+    # **변동성만 보정가로 잰다.** 아래 ``close``·``reference`` 는 실제 체결가와
+    # 견주는 값이라 원주가여야 하지만, 변동성은 수익률이라 반대다 — 창 안에
+    # 분할이 끼면 -90% 하루가 섞여 예측 충격비용이 통째로 부푼다.
+    closes = adjust(past).tail(ADV_WINDOW)["close"]
     closes = closes[closes > 0]
     returns = closes.pct_change().replace([float("inf"), float("-inf")], pd.NA).dropna()
     volatility = float(returns.std()) if len(returns) > 1 else 0.0

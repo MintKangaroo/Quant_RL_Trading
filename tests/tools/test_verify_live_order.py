@@ -361,6 +361,20 @@ def us_deposit_response(order_able: float = 9.49) -> httpx.Response:
     )
 
 
+def us_holdings_response(*rows: dict) -> httpx.Response:
+    """``COSOQ00201`` 잔고평가 — **예수금 TR 은 종목을 안 준다.**
+
+    이 스텁이 없어서 미장 검증 테스트 넷이 "예상하지 못한 TR" 로 죽었다.
+    실주문 경로가 잔고를 두 번 부르는 것이 정상이다 — 예수금(현금)과
+    잔고평가(종목)는 서로 다른 TR 이고, 하나로 갈음하면 2026-08-17 처럼
+    체결된 SNAP 1주를 "보유 0종목" 으로 읽는다.
+    """
+    return httpx.Response(
+        200,
+        json={"rsp_cd": "00000", "COSOQ00201OutBlock4": list(rows)},
+    )
+
+
 def make_us_client(handler, *, live_trading: bool) -> LSClient:  # type: ignore[no-untyped-def]
     def routed(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/oauth2/token":
@@ -503,8 +517,12 @@ def test_호가단위_배수인_가격은_그대로_남는다():
 
 def test_USD_주문가능금액을_읽는다_원화5원이_아니다():
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("tr_cd") == "COSOQ02701"
         assert request.url.path == "/overseas-stock/accno"
+        # 잔고는 **두 번** 부른다 — 예수금(현금)과 잔고평가(종목)는 다른 TR 이다.
+        tr = request.headers.get("tr_cd")
+        if tr == "COSOQ00201":
+            return us_holdings_response()
+        assert tr == "COSOQ02701"
         return us_deposit_response()
 
     client = make_us_client(handler, live_trading=True)
@@ -534,6 +552,8 @@ def test_USD_예수금보다_큰_주문은_거부된다():
         tr = request.headers.get("tr_cd")
         if tr == "COSOQ02701":
             return us_deposit_response(order_able=9.49)
+        if tr == "COSOQ00201":
+            return us_holdings_response()
         if tr == "g3104":
             return us_quote_response(close=15.00)  # 1주 $15 > $9.49
         raise AssertionError(f"예수금 검사에서 멈춰야 하는데 {tr} 까지 갔다")
@@ -585,6 +605,8 @@ def test_미장_드라이런은_국장TR을_하나도_안_부른다():
         seen.append(tr)
         if tr == "COSOQ02701":
             return us_deposit_response()
+        if tr == "COSOQ00201":
+            return us_holdings_response()
         if tr == "g3104":
             return us_quote_response()
         raise AssertionError(f"예상하지 못한 TR: {tr}")
@@ -598,7 +620,8 @@ def test_미장_드라이런은_국장TR을_하나도_안_부른다():
     # 국장 TR 이 하나도 안 나갔다.
     for kr_tr in ("t0424", "t1102", "t0425", "CSPAT00601", "CSPAT00701", "CSPAT00801"):
         assert kr_tr not in seen, f"미장 검증인데 국장 TR {kr_tr} 이 나갔다"
-    assert seen == ["COSOQ02701", "g3104"]
+    # 예수금 → 잔고평가 → 시세. 잔고평가를 빼면 보유 종목을 못 본다.
+    assert seen == ["COSOQ02701", "COSOQ00201", "g3104"]
     # 주문 본문은 출력됐지만 전송은 없다.
     assert any("COSAT00301InBlock1" in line for line in lines)
 
@@ -608,6 +631,8 @@ def test_미장도_dry_run이면_주문TR이_안_나간다():
         tr = request.headers.get("tr_cd")
         if tr == "COSOQ02701":
             return us_deposit_response()
+        if tr == "COSOQ00201":
+            return us_holdings_response()
         if tr == "g3104":
             return us_quote_response()
         raise AssertionError(f"드라이런인데 {tr} 이 나갔다")

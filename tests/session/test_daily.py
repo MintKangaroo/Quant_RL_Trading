@@ -187,19 +187,22 @@ def test_후보에서_빠진_보유종목도_매도_주문이_나간다(fund_wit
 
 
 def test_시세_결측일에도_청산은_나간다(fund_with_orphan) -> None:
-    """**데이터 품질 실패는 매수만 막는다.** 매도까지 막으면 덫이다.
+    """**팔 수 없는 한 종목이 매수까지 잠그면 안 된다.**
 
-    이 테스트는 원래 반대를 못 박고 있었다 — ``data_quality.missing_warn`` 이
-    0.01 이라 시세 없는 종목 하나가 섞이면 결측 비율이 1% 를 넘어 게이트가
-    세션을 통째로 막았고(``blocked_by``), 그 동작을 그대로 고정했다. 뒤집은
-    이유는 ``executor/pipeline.py`` 가 스스로 답을 적어 뒀기 때문이다 —
+    이 테스트는 두 번 뒤집혔다. 처음에는 ``data_quality.missing_warn`` 이
+    0.01 이라 시세 없는 종목 하나로 결측률이 1% 를 넘어 세션이 통째로
+    막혔고(``blocked_by``), 그 동작을 고정했다. 한 번 뒤집어 매도를 열었다 —
     *"청산까지 막는 안전장치는 빠져나올 길을 막는 것이라 안전장치가 아니다."*
-    킬스위치와 서킷브레이커는 그 이유로 매도를 열어 두는데 데이터 품질
-    게이트만 같이 막고 있었다.
 
-    실전에서 결측은 대개 한 종목의 거래정지로 온다. 거래정지는 나쁜 소식과
-    함께 오고, 그때가 정확히 나머지를 정리해야 할 때다. 신용·미수를 안 쓰므로
-    **매도가 유일한 현금 조달 수단**이기도 하다.
+    두 번째가 여기다. 매도만 열어 두는 것으로는 부족했다. 상장폐지 보유는
+    **영원히 안 팔린다** — 시세가 없어 sizing 이 주문을 못 만든다. 그래서
+    결측률이 매 세션 1% 를 넘고 매수가 영구히 잠겼다. 실측(2026-08-17)에서
+    주식 비중이 81% → 3.7% 로 말라붙었고, 그 위에서 잰 MDD -0.92% 는
+    전략의 성적이 아니라 **거래를 안 한 계좌의 성적**이었다.
+
+    고친 자리는 ``executor/pipeline.py`` 다. 품질 게이트가 **살 대상만**
+    센다 — 못 파는 보유는 게이트에서 빼고 화면에 사유만 남긴다. 못 파는
+    것은 사실이지만, 그것이 나머지 전부를 멈출 이유는 아니다.
     """
     result = daily.run(
         fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR",
@@ -207,12 +210,15 @@ def test_시세_결측일에도_청산은_나간다(fund_with_orphan) -> None:
     )
 
     assert not result.blocked_by, f"통째로 막히면 안 된다: {result.blocked_by}"
-    assert any(
-        "청산만 허용" in note for note in result.notes
-    ), f"매수가 왜 없는지 화면이 말할 수 없다: {result.notes}"
 
-    sides = {planned.order.side for planned in result.orders}
-    assert Side.BUY not in sides, "결측일에 신규매수가 나갔다"
+    # 못 파는 보유는 게이트에서 빠진다 — 세면 매수가 영구히 잠긴다.
+    assert any(
+        "데이터 품질 게이트에는 세지 않는다" in note for note in result.notes
+    ), f"제외 사유가 화면에 없다: {result.notes}"
+    assert not any(
+        "청산만 허용" in note for note in result.notes
+    ), f"못 파는 보유 하나로 세션이 청산 전용이 됐다: {result.notes}"
+
     assert [
         planned for planned in result.orders
         if planned.order.entity_id == ORPHAN and planned.order.side is Side.SELL

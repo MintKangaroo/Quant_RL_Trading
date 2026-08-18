@@ -85,6 +85,10 @@ selector:
   population: 64
   generations: 40
   l1_penalty: 0.01
+  turnover_penalty: 0.05
+  checkpoint_dir: logs/evolution   # 세대 체크포인트 JSONL 이 쌓이는 곳
+  checkpoint_every: 1              # 몇 세대마다 한 줄 남길지
+  min_fold_gap_days: 21            # 한 세대 두 폴드의 최소 시작일 간격(달력일)
 
 allocator:
   action_reflection_floor: 0.30   # 미만이면 경고 — RL이 아니라 룰 시스템

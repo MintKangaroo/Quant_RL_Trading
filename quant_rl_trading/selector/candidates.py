@@ -171,6 +171,10 @@ def correlation_matrix(
         lookback=CORRELATION_WINDOW * 2,
         market=market,
         columns=["close"],
+        # 상관은 수익률로 잰다 — **보정가여야 한다.** 분할 하루가 그 종목에만
+        # -90% 를 찍으면 그 종목은 나머지 전부와 상관이 낮게 나와, 상관 상한을
+        # 무사통과해 후보에 남는다. 종가 0 세션과 방향만 반대인 같은 사고다.
+        adjusted=True,
     )
     if prices.empty:
         return pd.DataFrame()

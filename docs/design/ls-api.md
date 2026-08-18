@@ -47,6 +47,30 @@ ECOS 503 오판, `t1511` 경로, `t8419`↔`t8418`). 그래서 아래는 **근�
 `g3103|g3202|g3203|g3204`. 실시간은 `/websocket/overseas-stock` =
 `AS0`(주문접수) `AS1`(체결) `AS2`(정정) `AS3`(취소) `AS4`(거부) + `GSC` `GSH`.
 
+### 0-1-1. 국장 차트도 경로가 따로다 — `t8410` 은 `/stock/chart` 다
+
+미장이 `market-data`/`chart` 로 갈리는 것과 **똑같이 국장도 갈린다.**
+`market_collector.py` 가 일봉 `t8410` 을 `/stock/market-data` 로 부르고 있어서
+**그 메서드는 한 번도 성공한 적이 없었다** (실측 2026-08-15).
+
+```
+/stock/market-data + t8410  →  HTTP 500 {"rsp_cd":"IGW00215", ...}  유효하지 않은 TR CD
+/stock/chart       + t8410  →  200, 정상 200행
+```
+
+국장 일봉이 KRX Open API 로 들어오는 덕에 아무도 몰랐다. `PATH_FLOW`
+(`/stock/frgr-itt`)와 같은 함정이고 증상까지 같다 — **경로가 틀리면 "TR 이
+없다"** 고 나와서 "LS 에는 그 데이터가 없다" 는 잘못된 결론으로 간다.
+
+상수는 `ls_client.PATH_CHART` 다. 경로는 고쳤지만 `collect_ohlcv` 는 막아
+두었다 — 국장 일봉의 정본은 KRX 이고, `prices` 자연키가
+`(entity_id, valid_from)` 이라 두 소스가 같이 쓰면 어느 값이 남는지가 **수집
+순서에 달린다.** 쓰려면 정본을 먼저 정해라.
+
+`sujung` 을 `"Y"`/`"N"` 두 번 불러 나누면 **기업행위 조정계수**가 나온다.
+`collectors/corporate_actions.py` 가 이 경로를 쓴다. `qrycnt` 는 3000 을 줘도
+**501행에서 끊기므로**(실측) 5년치는 `edate` 를 밀며 3페이지를 넘겨야 한다.
+
 ### 0-2. `CIDBQ*` 는 해외주식이 아니다 — 해외**선물**이다
 
 선행 프로젝트(`ls_us_rl_trader/broker/ls_client.py:13-15`)가 `CIDBQ01500` 을

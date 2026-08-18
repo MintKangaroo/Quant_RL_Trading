@@ -160,7 +160,7 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         .venv/bin/python tools/scan_corporate_actions.py \
             --daily --market KR --out "${SCAN}"
         echo "  기업행위 스캔 rc=$?"
-        .venv/bin/python tools/backfill_adj_factor.py --scan "${SCAN}" --market KR
+        .venv/bin/python tools/backfill_adj_factor.py --scan "${SCAN}" --market KR --daily
         echo "  기업행위 적재 rc=$?"
     fi
 

@@ -81,6 +81,17 @@ function bindEmergencyStop() {
 
 const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up" : "down");
 
+/** 총자산 카드의 아랫줄. **장중 값이 있으면 그것이 몇 종목을 덮는지 적는다.**
+ *
+ * 절반만 실시간인 수치를 "지금 총자산" 이라고 말하면 안 된다 — 장외거나
+ * 일부 종목만 응답이 오는 경우가 실제로 있고, 그때 숫자는 종가와 장중이
+ * 섞인 값이다. 덮은 종목 수를 같이 보여주면 그 사실이 화면에 남는다. */
+function navFoot(k) {
+  const base = `원금 ${num(Math.round(k.principal || 0))}`;
+  if (k.live_nav === null || k.live_nav === undefined) return base;
+  return `${base} · 장중 ${k.live_covered}종목 반영`;
+}
+
 function renderKpis(body) {
   const k = body.data.kpis;
   const risk = body.data.risk;
@@ -94,8 +105,13 @@ function renderKpis(body) {
 
   const signed = (v) => (v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
   const cards = [
-    kpi("총자산", num(Math.round(k.nav)), `원금 ${num(Math.round(k.principal || 0))}`, false,
+    kpi("총자산", num(Math.round(k.nav)), navFoot(k), false,
         { unit: "KRW", spark: navLine }),
+    ...(k.live_nav === null || k.live_nav === undefined
+      ? []
+      : [kpi("장중 총자산", num(Math.round(k.live_nav)),
+             `종가 대비 ${pct(k.live_change)} · 참고값`, false,
+             { unit: "KRW", tone: tone(k.live_change) })]),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
     kpi("오늘 수익금", signed(k.today_pnl), `지수 ${dec(k.index_value, 2)}`, false,
         { unit: "KRW", tone: tone(k.today_pnl) }),
