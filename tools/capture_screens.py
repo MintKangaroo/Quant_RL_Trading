@@ -36,6 +36,7 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 PAGES = [
     ("/trading", "trading", "매매"),
     ("/market", "market", "시장"),
+    ("/thirteen-f", "thirteen-f", "13F"),
     ("/calendar", "calendar", "수익률 캘린더"),
     ("/learning", "learning", "학습"),
     ("/ai-review", "ai-review", "AI 리뷰"),

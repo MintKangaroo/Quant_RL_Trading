@@ -35,10 +35,15 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 | [![트레이딩](docs/images/trading.png)](docs/images/trading.png) | [![마켓](docs/images/market.png)](docs/images/market.png) |
 | 자산·손익·리스크·주문을 한 화면에. 정지 버튼은 숫자와 같은 눈높이에 있다 | KR·US 를 좌우로. 트리맵 색은 ±5%에서 꽉 찬다 |
 
-| 수익률 캘린더 | 학습 |
+| 13F — 기관 보유 | 수익률 캘린더 |
 |---|---|
-| [![캘린더](docs/images/calendar.png)](docs/images/calendar.png) | [![학습](docs/images/learning.png)](docs/images/learning.png) |
-| 빈칸은 0% 가 아니라 **장이 없던 날**이다 | 지금은 애널리스트 적중도가 학습을 대신한다 (RL 은 M4) |
+| [![13F](docs/images/thirteen-f.png)](docs/images/thirteen-f.png) | [![캘린더](docs/images/calendar.png)](docs/images/calendar.png) |
+| 미국 기관의 분기말 보유. **45일 낡았다는 사실을 KPI 로 올린다** | 빈칸은 0% 가 아니라 **장이 없던 날**이다 |
+
+| 학습 | 타임머신 |
+|---|---|
+| [![학습](docs/images/learning.png)](docs/images/learning.png) | [![타임머신](docs/images/data-quality-timemachine.png)](docs/images/data-quality-timemachine.png) |
+| 지금은 애널리스트 적중도가 학습을 대신한다 (RL 은 M4) | `?as_of=` 로 되감으면 **그 시점 이후가 안 보인다** |
 
 | AI 리뷰 | 에이전트 상태 |
 |---|---|
