@@ -30,6 +30,11 @@ cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 MARKET="${1:-US}"
 SYMBOL="${2:-}"
 QTY="${3:-1}"
+#: 네 번째 인자가 "market" 이면 시장가로 낸다. **체결을 보는 것이 목적일 때만.**
+#: 2026-08-17 미장 검증이 지정가로 나갔는데, 체결은 됐지만($5.41 지정가 →
+#: $5.16 체결) 우리 조회가 그걸 못 봐서 미체결로 오판했다. 시장가로 두면
+#: 체결 여부가 변수에서 빠진다.
+ORDER_KIND="${4:-limit}"
 
 if [ -z "${SYMBOL}" ]; then
     echo "종목코드가 없다: live_order.sh <KR|US> <symbol> [qty]" >&2
@@ -40,10 +45,11 @@ mkdir -p logs
 LOG="logs/live-order-${MARKET}-$(date +%Y%m%d).log"
 
 {
-    echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') — ${MARKET} ${SYMBOL} × ${QTY} (무인 실주문) ==="
+    echo "=== $(date '+%Y-%m-%d %H:%M:%S %Z') — ${MARKET} ${SYMBOL} × ${QTY} ${ORDER_KIND} (무인 실주문) ==="
     .venv/bin/python tools/verify_live_order.py \
         --market "${MARKET}" --symbol "${SYMBOL}" --quantity "${QTY}" \
-        --live --assume-yes
+        --live --assume-yes \
+        $( [ "${ORDER_KIND}" = "market" ] && echo "--market-order" )
     echo "  종료코드 $?"
     echo
 } >> "${LOG}" 2>&1

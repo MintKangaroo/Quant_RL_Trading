@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from quant_rl_trading.collectors.macro_source import FxCollector, FredSource  # noqa: E402
+from quant_rl_trading.collectors.macro_source import FredSource, FxCollector  # noqa: E402
 from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
@@ -58,7 +58,49 @@ def main(argv: list[str] | None = None) -> int:
         end=end,
     ).collect()
     print(f"fx {written}행 ({start} ~ {end})")
-    return 0
+
+    # **행 수로 성공을 판정하지 않는다.** ``0행`` 은 "FRED 에 새 값이 없다" 와
+    # "이미 받았다" 를 같은 문구로 말하고, 둘 다 정상일 수 있다. 물어야 할 것은
+    # **창고가 지금 쓸 만큼 최신인가** 다.
+    #
+    # 2026-08-18 실측: 환율이 8/7 에 멈춘 채 11일이 지났는데 이 도구는 매일
+    # ``fx 0행 … rc=0`` 을 찍고 있었다. 아무도 몰랐고, 처음 미장 주식을 산 날
+    # 회계가 "환율이 없다" 로 평가를 거부하고 나서야 드러났다. 그 사이 NAV 는
+    # 계산조차 되지 않았다.
+    return 0 if _fresh_enough(store, clock) else 1
+
+
+#: 창고가 이보다 오래되면 실패로 본다. 회계 조회 창(``ledger.fx_rate`` 의
+#: lookback=10일)보다 짧게 잡는다 — 회계가 죽고 나서 아는 것은 늦다.
+#: 환율은 주말·공휴일에 안 나오므로 연휴를 견딜 만큼은 둔다.
+STALE_AFTER_DAYS = 6
+
+
+def _fresh_enough(store, clock) -> bool:
+    """창고의 최신 환율이 쓸 만큼 새것인가. **아니면 크게 말한다.**"""
+    from quant_rl_trading.accounting.ledger import FX_USDKRW
+
+    now = clock.now()
+    frame = store.get("fx", as_of=now, entity=FX_USDKRW, lookback=60)
+    if frame.empty:
+        print(
+            "환율이 창고에 한 행도 없다 — 회계가 NAV 계산을 거부한다.",
+            file=sys.stderr,
+        )
+        return False
+
+    newest = frame["valid_from"].max()
+    age = (now - newest.to_pydatetime()).days
+    print(f"창고 최신 환율 {newest.date()} · {age}일 전")
+    if age > STALE_AFTER_DAYS:
+        print(
+            f"환율이 {age}일 낡았다(허용 {STALE_AFTER_DAYS}일). "
+            "FRED 발표 지연인지 수집 경로 고장인지 확인할 것 — "
+            "10일을 넘기면 회계가 해외분 평가를 거부하고 NAV 가 통째로 멈춘다.",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 if __name__ == "__main__":

@@ -146,6 +146,15 @@ TR_QUOTE = "t1102"
 #: 미장 예수금·현재가. 잔고 평가(``COSOQ00201``)가 아니라 **예수금**을 본다 —
 #: 미수를 막으려면 "지금 쓸 수 있는 현금" 이 필요하고 그게 ``FcurrOrdAbleAmt`` 다.
 TR_BALANCE_US = "COSOQ02701"
+#: 미장 **잔고평가**. 예수금 TR(``COSOQ02701``)은 보유 종목을 아예 안 준다 —
+#: 그래서 "보유 0종목" 이 "안 물어봤다" 의 다른 말이었다 (2026-08-17 실주문에서
+#: SNAP 1주가 체결됐는데 화면은 0종목이라고 했다).
+TR_HOLDINGS_US = "COSOQ00201"
+
+#: 이 본문이어야 응답이 온다. ``{"QryTp","BalCreTp"}`` 로 부르면
+#: ``02679 조회내역이 없습니다`` 가 돌아온다 — **인자가 틀리면 "없다" 고
+#: 답한다.** 그 응답을 그대로 믿으면 보유가 없는 것으로 읽힌다 (2026-08-18 실측).
+HOLDINGS_BODY_US = {"RecCnt": 1, "BaseDt": "", "CrcyCode": "USD", "AstkBalTpCode": "00"}
 TR_QUOTE_US = "g3104"
 
 #: 미장 시세 경로. 국장(``/stock/market-data``)과 다르다.
@@ -213,8 +222,24 @@ def default_prompt(prompt: str) -> str:
 
 def _shcode(symbol: str) -> str:
     """t1102/t0424 가 쓰는 순수 6자리 코드. 주문용 ``isu_code`` 와 다르게
-    "A" 접두어가 없다 (LS_KR ls_client.py get_current_price/get_account_balance)."""
-    return symbol.strip().lstrip("A")
+    "A" 접두어가 없다 (LS_KR ls_client.py get_current_price/get_account_balance).
+
+    시장 접두어(``KR:``)도 뗀다 — 창고 정본이 그 모양이다."""
+    stripped = symbol.strip()
+    _, _, bare = stripped.rpartition(":")
+    return (bare or stripped).lstrip("A")
+
+
+def canonical_entity(market: str, symbol: str) -> str:
+    """창고 정본 ``KR:067290`` · ``US:SNAP``.
+
+    **``trades`` 는 시장 접두어를 요구한다**(TableSpec.market_prefixed_entity).
+    안 붙이면 체결을 적는 순간 SchemaViolation 으로 튕긴다 — 주문은 이미
+    나간 뒤라 실계좌와 장부가 갈라진다(2026-08-18 실측).
+    """
+    bare = symbol.strip()
+    _, _, bare = bare.rpartition(":")
+    return f"{market}:{bare or symbol.strip()}"
 
 
 def _num(row: dict[str, Any], key: str) -> float:
@@ -418,7 +443,35 @@ def fetch_balance_us(client: LSClient) -> BalanceSummary:
     # 계좌에는 아무것도 없었다(``COSOQ00201`` 이 "조회내역이 없습니다").
     # 실주문 직전에 잔고를 오독하게 만드는 자리다. 보유 종목이 필요하면
     # 잔고평가(``COSOQ00201``)를 따로 불러야 한다.
-    return BalanceSummary(net_asset=_num(usd, "FcurrOrdAbleAmt"), positions=(), paper=False)
+    return BalanceSummary(
+        net_asset=_num(usd, "FcurrOrdAbleAmt"),
+        positions=fetch_holdings_us(client),
+        paper=False,
+    )
+
+
+def fetch_holdings_us(client: LSClient) -> tuple[dict[str, Any], ...]:
+    """COSOQ00201 OutBlock4 — **실제 보유 종목.**
+
+    예수금 TR 은 종목을 안 준다. 그걸 모르고 "보유 0종목" 을 찍고 있었고,
+    2026-08-17 실주문에서 SNAP 1주가 체결됐는데도 화면은 0 이라고 말했다.
+    숫자는 이미 답을 갖고 있었다 — 같은 예수금 응답의 ``FcurrPldgAmt`` 가
+    5.17 로 매수분을 가리키고 있었다.
+
+    **조회 실패를 "보유 없음" 으로 읽지 않는다.** 인자가 틀리면 LS 는
+    ``02679 조회내역이 없습니다`` 로 답한다 — 그 코드는 "정말 없다" 와
+    "잘못 물었다" 를 구분해 주지 않는다. 그래서 예외를 삼키되 그 사실이
+    호출부에 보이도록 빈 튜플이 아니라 **경고 행**을 섞지는 않고, 대신
+    여기서 로그를 남길 수 없으므로 예외를 그대로 올린다. 호출부가 잔고를
+    못 읽으면 주문을 내면 안 된다.
+    """
+    data = client.request_tr(
+        PATH_ACCNO_US, TR_HOLDINGS_US, {f"{TR_HOLDINGS_US}InBlock1": HOLDINGS_BODY_US}
+    )
+    rows = data.get(f"{TR_HOLDINGS_US}OutBlock4") or []
+    return tuple(
+        row for row in rows if _num(row, "AstkBalQty") > 0.0
+    )
 
 
 def fetch_quote_us(client: LSClient, symbol: str) -> Quote | None:
@@ -499,7 +552,8 @@ def preview_modify_body(
 
 
 def make_planned_order(
-    *, symbol: str, side: Side, quantity: int, price: float, clock: Clock
+    *, symbol: str, side: Side, quantity: int, price: float | None, clock: Clock,
+    market: str = "KR",
 ) -> PlannedOrder:
     """검증 전용 주문 하나. 세션에 실행 시각과 방향을 같이 넣어 매 실행·매
     방향마다 새 ``order_id`` 가 나오게 한다. 시각만 쓰면 매수·매도가 같은
@@ -508,13 +562,18 @@ def make_planned_order(
     멱등 캐시(§멱등성, ``broker/ls_order.py``)가 매도를 매수 결과로
     덮어써 버린다 — 재전송이 아니라 두 번째 전송 자체가 씹힌다."""
     session = f"verify-{clock.now():%Y%m%dT%H%M%S}-{side.value}"
+    # **창고 정본으로 만든다.** trades 는 시장 접두어를 요구하고, 주문 본문은
+    # isu_code()/us_symbol() 이 그 접두어를 뗀다. 순수 코드로 두면 주문은
+    # 나가는데 체결을 적을 때 SchemaViolation 으로 튕긴다 — 그러면 실계좌와
+    # 장부가 갈라지고, append-only 창고에서 그건 되돌릴 수 없다.
+    entity = canonical_entity(market, symbol)
     order = Order(
-        entity_id=symbol, side=side, quantity=quantity, limit_price=price,
+        entity_id=entity, side=side, quantity=quantity, limit_price=price,
         reason="verify_live_order",
     )
     return PlannedOrder(
         order=order,
-        order_id=client_order_id(session=session, entity_id=symbol, slice_seq=0),
+        order_id=client_order_id(session=session, entity_id=entity, slice_seq=0),
         session_id=session,
         slice_seq=0,
         target_weight=0.0,
@@ -596,6 +655,8 @@ class RunConfig:
     live: bool
     dry_run: bool
     market: str = "KR"
+    #: 지정가 대신 시장가로 낸다. **체결을 보는 것이 목적일 때만.**
+    market_order: bool = False
 
     @property
     def profile(self) -> MarketProfile:
@@ -823,9 +884,17 @@ def run(
         out("중단.")
         return 1
 
+    # **시장가는 limit_price=None 으로 표현한다** (broker/ls_order.py §_order_body).
+    # 예수금 검사·요약은 그대로 현재가 기준으로 한다 — 시장가라도 얼마쯤 나갈지
+    # 모르고 보내면 안 되고, 국장 상하한이 ±30% 라 그 안에서는 현재가 기준
+    # 여유로 판단할 수 있다.
     planned = make_planned_order(
-        symbol=symbol, side=Side.BUY, quantity=quantity, price=buy_summary.price, clock=clock
+        symbol=symbol, side=Side.BUY, quantity=quantity,
+        price=None if config.market_order else buy_summary.price, clock=clock,
+        market=config.market,
     )
+    if config.market_order:
+        out("  **시장가로 낸다** — 체결가는 현재가와 다를 수 있다(배선 검증 목적).")
     broker: LSBroker | LSUSBroker = (
         LSUSBroker(client=client, store=store, market_code=quote.market_code)
         if is_us
@@ -974,7 +1043,9 @@ def run(
         return 1
 
     sell_planned = make_planned_order(
-        symbol=symbol, side=Side.SELL, quantity=filled, price=sell_summary.price, clock=clock
+        symbol=symbol, side=Side.SELL, quantity=filled,
+        price=None if config.market_order else sell_summary.price, clock=clock,
+        market=config.market,
     )
     try:
         sell_ack = broker.submit(sell_planned, as_of=clock.now())
@@ -1015,7 +1086,8 @@ def _poll_fill(
     for attempt in range(1, attempts + 1):
         pending = [
             PendingFill(
-                order_id=order_id, entity_id=symbol, side=side, market=market,
+                order_id=order_id, entity_id=canonical_entity(market, symbol),
+                side=side, market=market,
                 broker_order_no=broker_order_no, requested_quantity=requested_quantity,
             )
         ]
@@ -1069,6 +1141,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--data-root", type=Path, help="창고 루트 (기본: 표준 위치)")
     parser.add_argument(
+        "--market-order", action="store_true",
+        help="지정가 대신 시장가로 낸다. **체결을 보는 것이 목적일 때만** — "
+        "2026-08-17 미장 검증이 지정가 $5.41 로 나가 미체결로 끝났다",
+    )
+    parser.add_argument(
         "--assume-yes", action="store_true",
         help="사람 확인을 자동 승인한다(무인 실행). **위험 확인은 자동 거부다** — "
         "킬스위치·장외시간·거래제한이면 그 자리에서 멈춘다",
@@ -1097,6 +1174,7 @@ def main(argv: list[str] | None = None) -> int:
         live=args.live,
         dry_run=args.dry_run,
         market=args.market,
+        market_order=args.market_order,
     )
     hooks = (
         {"confirm": auto_confirm, "prompt": auto_prompt} if args.assume_yes else {}

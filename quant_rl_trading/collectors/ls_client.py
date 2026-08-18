@@ -39,6 +39,12 @@ PATH_MARKET = "/stock/market-data"
 #: 외인/기관 수급. **market-data 가 아니다** — 경로를 틀리면 TR 이 없다고 나오고
 #: (IGW00215), 그러면 "LS 에는 수급이 없다" 는 잘못된 결론에 도달한다.
 PATH_FLOW = "/stock/frgr-itt"
+#: 국장 차트(일봉 ``t8410`` 등). **``PATH_MARKET`` 이 아니다** — 실측
+#: 2026-08-15: ``/stock/market-data`` 로 t8410 을 부르면 HTTP 500
+#: ``IGW00215``(유효하지 않은 TR CD), ``/stock/chart`` 로 부르면 정상 200행.
+#: ``PATH_FLOW`` 와 같은 함정이고, 미장도 차트만 별도 경로다
+#: (``ls_us_source.PATH_CHART`` = ``/overseas-stock/chart``).
+PATH_CHART = "/stock/chart"
 PATH_INVESTOR = "/stock/investor"
 PATH_ACCNO = "/stock/accno"
 PATH_ORDER = "/stock/order"
@@ -443,8 +449,20 @@ def _is_completion(data: dict[str, Any]) -> bool:
 
 
 def isu_code(code: str) -> str:
-    """주문용 IsuNo. port: LS_KR ls_client.py:323-331."""
+    """주문용 IsuNo. port: LS_KR ls_client.py:323-331.
+
+    **시장 접두어를 먼저 뗀다.** 창고의 정본은 ``KR:067290`` 이고 LS 는
+    ``A067290`` 을 받는다. 안 떼면 ``AKR:067290`` 이 나간다.
+
+    미장 ``us_symbol()`` 과 짝이다 — 그쪽은 떼기만 하고 이쪽은 떼고 붙인다.
+    2026-08-18 실주문에서 이 비대칭이 드러났다: 주문은 나갔는데(도구가 순수
+    코드를 넘겨서) 체결을 ``trades`` 에 적을 때 ``entity_id='067290'`` 이
+    스키마 위반으로 튕겼다. 정본을 접두어 있는 쪽으로 통일하고, 접두어를
+    떼는 책임을 여기로 모은다.
+    """
     stripped = (code or "").strip()
     if not stripped:
         return stripped
-    return stripped if stripped.startswith("A") else f"A{stripped}"
+    _, _, bare = stripped.rpartition(":")
+    bare = bare or stripped
+    return bare if bare.startswith("A") else f"A{bare}"
