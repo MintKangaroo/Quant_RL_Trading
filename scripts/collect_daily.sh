@@ -117,6 +117,18 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #      - market-cap : 매일. 시세가 매일 바뀌므로 시가총액도 매일 새로
     #        만든다. 이미 넣은 세션은 매니페스트가 건너뛴다.
     if [ "${MARKET}" = "US" ]; then
+        #      **의존 순서가 있다: 시세 → 명단 → 상장주식수 → 시가총액.**
+        #      미장 명단은 시세에서 유도하고(us-universe), 상장주식수는 "시세가
+        #      있는 종목만" 대상으로 삼으며(backfill.py), 시가총액은 주식수×종가다.
+        #      순서를 어기면 각 단계가 조용히 0행으로 끝난다.
+        #
+        #      명단이 빠져 있었다(2026-08-18 발견). 시세만 매일 새로 받고
+        #      명단은 백필 때만 갱신돼서, **새로 상장된 종목이 영영 안 들어왔다.**
+        #      실측: 시세 6,647종목인데 명단은 2026-08-12 에 멈춰 있었다.
+        .venv/bin/python tools/collect_us_prices.py --sessions "${SESSIONS}"
+        echo "  미장 일봉 rc=$?"
+        .venv/bin/python tools/backfill.py --market US --table universe
+        echo "  미장 명단 rc=$?"
         .venv/bin/python tools/backfill.py --market US --table shares-sec
         echo "  미장 상장주식수 rc=$?"
         #      **--sessions 를 반드시 준다.** 없으면 5년 전 구간을 다시 훑는데,
