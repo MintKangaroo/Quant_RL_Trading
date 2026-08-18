@@ -79,4 +79,8 @@ testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
     "invariant: CLAUDE.md 불변식 검증 — 커밋 전 필수 통과",
+    # 오라클 카나리의 200k 스텝 원본(rl-training.md §0). 8분쯤 걸린다.
+    # 실제로 건너뛰는 것은 tests/rl/conftest.py 다 — 표시만으로는 아무것도
+    # 안 걸러진다. 전역 addopts 로 빼지 않는 이유도 거기 적혀 있다.
+    "slow: 수 분 걸리는 시험. `-m slow` 로 따로 돌린다",
 ]
