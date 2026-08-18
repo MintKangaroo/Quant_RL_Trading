@@ -20,9 +20,9 @@ DST 는 라이브러리와 tz 데이터가 처리한다. 손으로 계산하지 
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, time
-import threading
 from enum import StrEnum
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -177,7 +177,10 @@ def previous_trading_day(market: Market, day: date) -> date:
 def trading_days(market: Market, start: date, end: date) -> list[date]:
     calendar = _calendar(SPECS[market].calendar)
     override = _OVERRIDES[market]
-    sessions = {session.date() for session in calendar.sessions_in_range(start.isoformat(), end.isoformat())}
+    sessions = {
+        session.date()
+        for session in calendar.sessions_in_range(start.isoformat(), end.isoformat())
+    }
     sessions -= override.extra_holidays
     sessions |= {d for d in override.extra_sessions if start <= d <= end}
     return sorted(sessions)

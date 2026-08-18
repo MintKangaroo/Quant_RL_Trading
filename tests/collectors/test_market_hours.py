@@ -124,7 +124,7 @@ def test_vetting_horizon_is_within_the_library_calendar() -> None:
     """
     calendar = xcals.get_calendar(SPECS[Market.KR].calendar)
 
-    assert VETTED_THROUGH <= calendar.last_session.date()
+    assert calendar.last_session.date() >= VETTED_THROUGH
 
 
 def test_override_days_are_weekdays() -> None:
