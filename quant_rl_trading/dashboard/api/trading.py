@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.dashboard.api.common import clock, envelope, scope, store
@@ -43,6 +43,7 @@ def overview() -> Any:
             market=_market(),
             lookback=current.lookback,
             entity_id=request.args.get("entity") or None,
+            live_quotes=current_app.config.get("QUANT_RL_LIVE_QUOTES"),
         ),
     )
 

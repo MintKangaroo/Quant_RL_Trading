@@ -36,6 +36,8 @@ import pandas as pd
 
 from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.accounting import snapshot as snapshot_module
+from quant_rl_trading.accounting.book import Book, Trade
+from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
@@ -69,7 +71,13 @@ BENCHMARK_CANDIDATES = (
 )
 
 #: 주문·체결 표에 싣는 최대 행수. 화면은 한 눈에 보는 것이지 원장이 아니다.
-ORDER_ROWS = 40
+#:
+#: **한 세션 주문 수보다 넉넉해야 한다.** 40 이면 마지막 세션(주문 40~46건)만
+#: 들어차는데, 그 세션은 **결정은 D 체결은 D+1** 이라 아직 체결이 없다. 그래서
+#: 패널 이름이 ORDERS & EXECUTIONS 인데 체결가·비용·실현손익 열이 **구조적으로
+#: 영원히 비어 있었다**(2026-08-18 발견). 두 세션 이상이 들어와야 "낸 주문이
+#: 체결됐는지" 를 눈으로 맞출 수 있다 — 이 표가 존재하는 이유가 그것이다.
+ORDER_ROWS = 120
 
 #: 워치리스트 상한. 후보 수 상한(selector.n_candidates)과 별개로, 표가 화면을
 #: 넘기지 않게 자른다.
@@ -88,9 +96,14 @@ class Context:
     book: Any
     snapshot: snapshot_module.Snapshot
     prices: dict[str, float]
+    #: 장중 시세 캐시. **없어도 화면은 돌아야 한다** — 회계는 종가로만 계산하고
+    #: 이건 참고 열 전용이라, 주입 안 하면 그 열이 비는 것으로 끝난다.
+    live_quotes: Any = None
 
 
-def build_context(store: Store, clock: Any, *, as_of: datetime, market: str) -> Context:
+def build_context(
+    store: Store, clock: Any, *, as_of: datetime, market: str, live_quotes: Any = None
+) -> Context:
     """장부와 스냅샷을 한 번만 접는다.
 
     회계는 기록에서 매번 재구성한다(ledger.py). 패널마다 다시 부르면 같은
@@ -103,7 +116,8 @@ def build_context(store: Store, clock: Any, *, as_of: datetime, market: str) -> 
         store, as_of=as_of, entities=sorted(book.positions)
     )
     return Context(
-        as_of=as_of, market=market, book=book, snapshot=snapshot, prices=prices
+        as_of=as_of, market=market, book=book, snapshot=snapshot, prices=prices,
+        live_quotes=live_quotes,
     )
 
 
@@ -307,10 +321,35 @@ def positions(store: Store, context: Context) -> list[dict[str, Any]]:
                 "pnl_pct": (value / cost - 1.0) if value is not None and cost > 0 else None,
                 "weight": value / nav if value is not None and nav > 0 else None,
                 "score": signals.get(entity_id),
+                # **참고 열이다. 회계에 안 들어간다.** 위의 price·value·pnl 은
+                # 전부 종가 기준이고(accounting.md §2 — NAV 는 15:40 하루 한 번),
+                # 여기에 장중 값을 섞으면 벤치마크와 기준 시각이 어긋나 그 차이가
+                # 통째로 가짜 초과수익이 된다. 그래서 따로 담고 화면도 따로 그린다.
+                "live_price": None,
+                "live_change": None,
             }
         )
     rows.sort(key=lambda row: row["value"] or 0.0, reverse=True)
+    _attach_live(rows, context)
     return rows
+
+
+def _attach_live(rows: list[dict[str, Any]], context: Context) -> None:
+    """장중 값을 **참고 열에만** 채운다. 없으면 그대로 둔다.
+
+    실패·장외를 종가로 때우지 않는다. 때우면 화면이 실시간인 척하게 되고,
+    그건 조용히 틀리는 종류의 거짓이다 — 없으면 화면이 "장외" 로 그린다.
+    """
+    cache = getattr(context, "live_quotes", None)
+    if cache is None or not rows:
+        return
+    quotes = cache.get([row["entity_id"] for row in rows])
+    for row in rows:
+        quote = quotes.get(row["entity_id"])
+        if quote is None or quote.price <= 0:
+            continue
+        row["live_price"] = quote.price
+        row["live_change"] = quote.change_rate
 
 
 def _signal_of(target: float | None, held: float) -> str:
@@ -465,6 +504,60 @@ def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[s
 # -- 주문·체결 ------------------------------------------------------------------
 
 
+def _realized_by_trade(store: Store, as_of: datetime) -> dict[str, dict[str, Any]]:
+    """체결별 실현손익. **매도에만 값이 있다.**
+
+    화면이 "얼마에 팔았나" 만 보여주면 그게 이익인지 손실인지 알 수 없다.
+    평균단가는 그 종목의 **모든 과거 매수**에 달려 있어서, 최근 10일만 봐서는
+    못 구한다 — 그래서 전 기간을 접는다.
+
+    **계산을 다시 구현하지 않는다.** ``Book.with_trade`` 가 이미
+    ``(체결가 빼기 평단) 곱하기 수량, 비용 차감`` 을 하고 있고(이동평균법, 수수료 포함),
+    회계와 화면이 다른 식을 쓰면 어느 쪽이 맞는지 판정할 방법이 없다
+    (accounting.md §8 과 같은 이유). 여기서는 그 장부를 재생하며 매도 직전·직후
+    누적 실현손익의 **차이**를 꺼낼 뿐이다.
+
+    수익률의 분모는 **취득원가**(평단 × 수량)다. 매도대금으로 나누면 손실이
+    난 거래에서 분모가 작아져 손실률이 실제보다 작아 보인다.
+    """
+    frame = store.get(TRADES, as_of=as_of)
+    if frame.empty:
+        return {}
+
+    book = Book()
+    out: dict[str, dict[str, Any]] = {}
+    for row in ledger_module._ordered(frame):
+        entity = str(row["entity_id"])
+        currency = str(row["currency"])
+        side = BookSide(str(row["side"]))
+        quantity = float(row["quantity"])
+        held = book.positions.get(entity)
+        basis = (held.avg_cost * quantity) if held else 0.0
+        before = book.realized_pnl.get(currency, 0.0)
+        try:
+            book = book.with_trade(
+                Trade(
+                    entity_id=entity, side=side, quantity=quantity,
+                    price=float(row["price"]), currency=currency,
+                    fee=float(row["fee"]), tax=float(row["tax"]),
+                )
+            )
+        except ValueError:
+            # 보유보다 많이 판 기록이다. 장부가 아니라 데이터의 문제이므로
+            # 화면을 죽이지 않고 그 건만 건너뛴다.
+            continue
+        if side is not BookSide.SELL:
+            continue
+        realized = book.realized_pnl.get(currency, 0.0) - before
+        key = f"{str(row['order_id']).split('|')[0]}|{entity}"
+        out[key] = {
+            "realized_pnl": realized,
+            "realized_rate": (realized / basis) if basis else None,
+            "currency": currency,
+        }
+    return out
+
+
 def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     """주문과 체결을 한 표로. 최근이 위다.
 
@@ -488,12 +581,14 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
 
     if frame.empty:
         return []
+    realized = _realized_by_trade(store, as_of)
     names = _names(store, as_of=as_of, entities=sorted(set(frame["entity_id"])))
     rows: list[dict[str, Any]] = []
     ordered = frame.sort_values(["valid_from", "observed_at"], ascending=False)
     for row in ordered.head(ORDER_ROWS).to_dict(orient="records"):
         session = str(row["session_id"])
-        match = filled.get(f"{session}|{row['entity_id']}")
+        key = f"{session}|{row['entity_id']}"
+        match = filled.get(key)
         rows.append(
             {
                 "time": pd.Timestamp(row["valid_from"]).isoformat(),
@@ -518,6 +613,10 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
                 "fill_price": match["price"] if match else None,
                 "fill_quantity": match["quantity"] if match else None,
                 "cost": (match["fee"] + match["tax"]) if match else None,
+                # **매도에만 붙는다.** 매수에 0 을 넣으면 "본전" 으로 읽힌다.
+                "realized_pnl": (realized.get(key) or {}).get("realized_pnl"),
+                "realized_rate": (realized.get(key) or {}).get("realized_rate"),
+                "currency": (realized.get(key) or {}).get("currency"),
                 "target_weight": float(row["target_weight"]),
                 "session_id": session,
                 # 체결 지연은 실거래에서만 잰다. 0 으로 채우면 "빠르다" 로 읽힌다.
@@ -1023,6 +1122,7 @@ def payload(
     market: str,
     lookback: int,
     entity_id: str | None = None,
+    live_quotes: Any = None,
 ) -> dict[str, Any]:
     """트레이딩 탭 한 판. 장부는 한 번만 접는다.
 
@@ -1032,7 +1132,9 @@ def payload(
     읽는다. 실제로는 **수집이 빠진 것**이고, 그 구분이 복구 시간을 가른다.
     """
     try:
-        context = build_context(store, clock, as_of=as_of, market=market)
+        context = build_context(
+        store, clock, as_of=as_of, market=market, live_quotes=live_quotes
+    )
     except LookupError as error:
         return {
             "market": market,

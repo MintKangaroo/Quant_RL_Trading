@@ -6,9 +6,8 @@ Store 와 Clock 을 **주입받는다**. 앱이 스스로 만들면 테스트가
 
 from __future__ import annotations
 
-from typing import Any
-
 import math
+from typing import Any
 
 from flask import Flask, render_template
 from flask.json.provider import DefaultJSONProvider
@@ -25,6 +24,7 @@ from quant_rl_trading.dashboard.api import (
     system,
     trading,
 )
+from quant_rl_trading.dashboard.services.live_quotes import LiveQuoteCache
 from quant_rl_trading.replay.clock import Clock, LiveClock
 from quant_rl_trading.settings import load_env
 from quant_rl_trading.store import ConfigNotFound, Store, StoreError
@@ -78,6 +78,10 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.json = SafeJSONProvider(app)
     app.config["QUANT_RL_STORE"] = store if store is not None else Store()
     app.config["QUANT_RL_CLOCK"] = clock if clock is not None else LiveClock()
+    # 장중 시세 캐시. **회계와 무관한 참고 값 전용**이다(services/live_quotes 참고).
+    # 자격증명이 없거나 장외면 빈 결과를 돌려주므로, 여기서 실패를 따지지 않는다 —
+    # 화면이 그 열을 비워 그린다.
+    app.config["QUANT_RL_LIVE_QUOTES"] = LiveQuoteCache(_ls_client_factory)
     #: 한글 응답을 이스케이프하지 않는다. 사람이 읽는 JSON 이다.
     app.json.ensure_ascii = False  # type: ignore[attr-defined]
 
@@ -147,3 +151,14 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
         return {"error": str(error), "status": 500}, 500
 
     return app
+
+
+def _ls_client_factory():
+    """장중 시세용 LS 클라이언트. **키가 없으면 None** — 대시보드는 자격증명
+    없이도 떠야 한다(데모·백테스트 창고를 볼 때가 그렇다)."""
+    from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
+
+    credentials = LSCredentials.from_env(prefix="LS_")
+    if not credentials.usable():
+        return None
+    return LSClient(credentials=credentials, live_trading=True)

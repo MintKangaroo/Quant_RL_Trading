@@ -341,6 +341,21 @@ function renderRisk(body) {
 
 /* -- 포지션·주문 ---------------------------------------------------------- */
 
+/** 장중 현재가 한 칸. **참고 값이다 — 평가금액·손익은 종가로 계산된다.**
+ *
+ * 회계는 한국시간 15:40 하루 한 번으로 못 박혀 있고(accounting.md §2), 거기에
+ * 장중 값을 섞으면 벤치마크와 기준 시각이 어긋나 그 차이가 통째로 가짜
+ * 초과수익이 된다. 그래서 이 칸은 옆 칸들과 **다른 시각의 숫자**이고, 장외면
+ * 종가로 때우지 않고 "—" 로 비운다. */
+function liveCell(row) {
+  if (row.live_price === null || row.live_price === undefined) {
+    return `<td class="r mono soft">—</td>`;
+  }
+  const cls = signClass(row.live_change);
+  return `<td class="r mono ${cls}">${num(Math.round(row.live_price))}` +
+    `<span class="hint">${pct(row.live_change)}</span></td>`;
+}
+
 function renderPositions(body) {
   const rows = body.data.positions;
   document.getElementById("positions-count").textContent = `${rows.length}종목`;
@@ -349,7 +364,8 @@ function renderPositions(body) {
     return;
   }
   const head = `<thead><tr><th>종목</th><th class="r">수량</th><th class="r">평균단가</th>
-    <th class="r">현재가</th><th class="r">평가금액</th><th class="r">평가손익</th>
+    <th class="r">종가</th><th class="r">장중<span class="hint">참고</span></th>
+    <th class="r">평가금액</th><th class="r">평가손익</th>
     <th class="r">수익률</th><th class="r">비중</th><th class="r">점수</th></tr></thead>`;
   document.getElementById("positions").innerHTML =
     `<table>${head}${rows
@@ -359,6 +375,7 @@ function renderPositions(body) {
       <td class="r mono">${num(row.quantity)}</td>
       <td class="r mono">${num(Math.round(row.avg_price))}</td>
       <td class="r mono">${row.price ? num(Math.round(row.price)) : "—"}</td>
+      ${liveCell(row)}
       <td class="r mono">${row.value ? num(Math.round(row.value)) : "—"}</td>
       <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}</td>
       <td class="r mono ${signClass(row.pnl_pct)}">${pct(row.pnl_pct)}</td>
@@ -370,6 +387,25 @@ function renderPositions(body) {
   bindRows("positions");
 }
 
+/** 실현손익 두 칸. **매도에만 값이 있다** — 매수에 0 을 넣으면 "본전" 으로
+ * 읽힌다. 통화가 시장마다 다르므로(원·달러) 기호를 값에 붙여 보여준다. */
+function pnlCells(row) {
+  if (row.realized_pnl === null || row.realized_pnl === undefined) {
+    return `<td class="r mono">—</td><td class="r mono">—</td>`;
+  }
+  const won = row.currency !== "USD";
+  const amount = won
+    ? `${num(Math.round(row.realized_pnl))}원`
+    : `$${row.realized_pnl.toFixed(2)}`;
+  const sign = row.realized_pnl >= 0 ? "up" : "down";
+  const rate =
+    row.realized_rate === null || row.realized_rate === undefined
+      ? "—"
+      : pct(row.realized_rate);
+  return `<td class="r mono ${sign}">${row.realized_pnl >= 0 ? "+" : ""}${amount}</td>
+      <td class="r mono ${sign}">${rate}</td>`;
+}
+
 function renderOrders(body) {
   const rows = body.data.orders;
   if (!rows.length) {
@@ -379,7 +415,8 @@ function renderOrders(body) {
   }
   const head = `<thead><tr><th>시각</th><th>종목</th><th class="mid">방향</th>
     <th class="r">지정가</th><th class="r">체결가</th><th class="r">수량</th>
-    <th class="r">체결수량</th><th class="r">비용</th><th class="r">목표비중</th>
+    <th class="r">체결수량</th><th class="r">비용</th><th class="r">실현손익</th>
+    <th class="r">수익률</th><th class="r">목표비중</th>
     <th class="r">지연</th><th class="mid">상태</th></tr></thead>`;
   document.getElementById("orders").innerHTML =
     `<table class="ledger">${head}${rows
@@ -393,6 +430,7 @@ function renderOrders(body) {
       <td class="r mono">${num(row.quantity)}</td>
       <td class="r mono">${row.fill_quantity ? num(row.fill_quantity) : "—"}</td>
       <td class="r mono">${row.cost === null ? "—" : num(Math.round(row.cost))}</td>
+      ${pnlCells(row)}
       <td class="r mono">${pct(row.target_weight)}</td>
       <td class="r mono">${row.latency_ms === null ? "—" : ms(row.latency_ms)}</td>
       <td class="mid"><span class="status ${row.status}">${row.status.toUpperCase()}</span></td>
