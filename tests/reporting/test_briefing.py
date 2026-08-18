@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.market_hours import Market, is_trading_day
 from quant_rl_trading.reporting import briefing as briefing_module
 from quant_rl_trading.reporting.sessions import expected_session
 from quant_rl_trading.store import Store
@@ -170,6 +170,21 @@ def test_expected_session_waits_for_publication(seeded: Store) -> None:
     assert expected_session(seeded, Market.US, as_of=just_closed) == date(2026, 8, 13)
     after = datetime(2026, 8, 14, 20, 30, tzinfo=UTC)  # 16:30 ET, 공표지연 20분 경과
     assert expected_session(seeded, Market.US, as_of=after) == date(2026, 8, 14)
+
+
+def test_substitute_holiday_is_a_closed_day_for_one_market_only(seeded: Store) -> None:
+    """2026-08-17 은 광복절 대체공휴일 — **국장 휴장 · 미장 개장.**
+
+    메일이 그날 국장 칸을 통째로 비우는 근거가 이 한 줄이다
+    (``render._is_closed``). 달력이 이 날을 거래일로 되돌리면 08-14 종가가
+    08-17 브리핑에 다시 실린다.
+    """
+    holiday = date(2026, 8, 17)
+    assert is_trading_day(Market.KR, holiday) is False
+    assert is_trading_day(Market.US, holiday) is True
+    # 그 앞뒤는 두 시장 모두 거래일이다 — 억제가 하루에만 걸린다.
+    for day in (date(2026, 8, 14), date(2026, 8, 18)):
+        assert is_trading_day(Market.KR, day) is True
 
 
 # -- 없는 것은 없다고 -------------------------------------------------------------
@@ -469,3 +484,4 @@ def test_briefing_carries_no_performance_section(seeded: Store) -> None:
     flat = str(payload)
     for banned in ("pnl", "nav", "positions", "holdings", "return_pct"):
         assert banned not in flat
+

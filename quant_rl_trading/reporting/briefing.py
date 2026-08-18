@@ -138,6 +138,17 @@ class Floor:
         }
 
 
+#: 메일에 시장이 나오는 순서. **여기 하나만 고치면 전부 바뀐다.**
+#:
+#: 순서를 바꿔야 할 때 같은 튜플이 대여섯 군데 흩어져 있으면 반드시 한 곳을
+#: 빠뜨린다 — 이 저장소가 반복해서 겪은 결함 계열이다. 섹션·헤드라인·결측
+#: 목록·텍스트 대체본이 전부 이 하나를 읽는다.
+#:
+#: 미장이 앞이다. 이 메일은 **미장 마감 뒤 새벽에 나가서**, 읽는 시점에
+#: 방금 끝난 장은 미장이고 국장은 아직 열리지 않았다.
+MARKET_ORDER = ("US", "KR")
+
+
 @dataclass(frozen=True)
 class MarketBrief:
     market: str
@@ -194,7 +205,12 @@ class Briefing:
         낼 수 있어 ``fx_gap_kind`` 를 따로 판정한다.
         """
         out: list[Gap] = []
-        for code, brief in self.markets.items():
+        # 결측 목록도 섹션과 같은 순서다 — 위에서 본 순서와 아래 목록의
+        # 순서가 다르면 둘을 짝지어 읽을 수 없다.
+        ordered = [code for code in MARKET_ORDER if code in self.markets]
+        ordered += [code for code in self.markets if code not in MARKET_ORDER]
+        for code in ordered:
+            brief = self.markets[code]
             for ref in (brief.index_session, brief.price_session):
                 if ref.note:
                     out.append(Gap(MISSING, ref.note))
@@ -408,9 +424,23 @@ class Ranking:
     rows: list[RankRow]
     #: 하한을 통과해 순위 경쟁에 들어간 종목 수.
     eligible: int
-    #: 그 세션에 값이 있던 전체 종목 수. eligible 과의 차이가 하한이 걸러낸 양이다.
+    #: 그 세션에 창고가 값을 아는 전체 종목 수. eligible 과의 차이가 걸러진 양이다.
+    #:
+    #: **언제나 ``eligible`` 이상이어야 한다.** 이 둘이 다른 모집단에서 오면
+    #: 비율이 1을 넘고, 그 위에 얹은 "커버리지 xx%" 가 통째로 거짓이 된다
+    #: (실측 사고: 43450%). ``rankings`` 의 시가총액 분기 주석 참고.
     universe: int
     note: str | None = None
+    #: ``rows[].change`` 를 잰 세션. **``session`` 과 다를 수 있다.**
+    #:
+    #: 시가총액 순위가 그렇다. 순위는 ``market_stats`` 의 시총으로 매기는데
+    #: 그 테이블이 ``prices`` 보다 늦게 들어와서, 실측 2026-08-18 기준으로
+    #: 순위는 08-11 시총이고 등락률은 08-14 시세다. **사흘이 한 줄 안에
+    #: 섞여 있고, 읽는 사람은 둘 다 08-11 로 읽는다.**
+    #:
+    #: 값을 맞추지 않고(더 오래된 등락으로 되돌리면 정보가 준다) **어느
+    #: 시점의 것인지 말한다.** 화면이 그 일을 한다 — ``render._ranking_rows``.
+    change_session: date | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -422,6 +452,9 @@ class Ranking:
             "rows": [row.as_dict() for row in self.rows],
             "eligible": self.eligible,
             "universe": self.universe,
+            "change_session": (
+                self.change_session.isoformat() if self.change_session else None
+            ),
             "note": self.note,
         }
 
@@ -608,8 +641,21 @@ def rankings(
                     prior=prior,
                     rows=rows,
                     eligible=len(frame),
-                    universe=len(panel),
+                    # **분모는 분자를 담는 모집단이어야 한다.** 여기 ``len(panel)``
+                    # 을 쓰던 때가 있었다 — 시세 판과 시총 판은 **다른 모집단**이라
+                    # 비율이 1을 넘을 수 있고, 실제로 넘었다. 2026-08-18 실측:
+                    # 미장 시세가 밀려 panel 이 15행인데 caps 는 4,345행이라
+                    # 메일에 **커버리지 43450%** 가 찍혀 나갔다.
+                    #
+                    # 합집합 = 그 세션에 창고가 **무엇이든 아는** 종목 수다.
+                    # caps 는 언제나 그 부분집합이라 비율이 구조적으로 1 이하다.
+                    # 정상 데이터에서는 시총을 모르는 종목만 분모에 더해지므로
+                    # 원래 뜻(시총을 아는 비율) 그대로다 — 실측 4,345/6,647 = 65%.
+                    universe=len(panel.index.union(caps.index)),
                     note=stale("시가총액", cap_session),
+                    # 등락률은 시총이 아니라 **시세 판**에서 왔다. 두 날짜가
+                    # 다를 수 있다는 사실을 여기서 잃어버리면 화면이 못 되찾는다.
+                    change_session=session,
                 )
             )
             continue
@@ -625,6 +671,7 @@ def rankings(
                 eligible=len(liquid),
                 universe=len(panel),
                 note=stale("시세", session),
+                change_session=session,
             )
         )
     return out, filled, panel

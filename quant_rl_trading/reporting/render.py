@@ -89,7 +89,9 @@ from datetime import date
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from quant_rl_trading.collectors.market_hours import Market, is_trading_day
 from quant_rl_trading.reporting.briefing import (
+    MARKET_ORDER,
     Briefing,
     IndexRow,
     MacroRow,
@@ -251,35 +253,104 @@ def _grid(rows: str) -> str:
 # -- 한 줄 요약 -------------------------------------------------------------------
 
 
+def _is_closed(market: str, report_day: date | None) -> bool:
+    """이 시장이 **브리핑 기준일에** 휴장이었나.
+
+    휴장이면 그 시장 칸도 헤드라인도 숫자를 싣지 않는다 (``_market_block``).
+    직전 거래일 값을 늘어놓으면 그날 장이 선 것처럼 읽히기 때문이다.
+
+    시장을 가리지 않는다 — 미장이 쉬는 날(독립기념일·추수감사절)에는 미장이
+    이 규칙에 걸린다. ``MARKET_ORDER`` 와 같은 이유로, 시장 이름이 박힌
+    분기를 만들지 않는다.
+
+    한때 머리글에 ``국장 2026-08-14 · 08-17 휴장`` 처럼 **날짜와 휴장 표시를
+    나란히** 두고 숫자는 그대로 실었다. 그 화면은 "쉬었다" 를 말하면서 동시에
+    쉰 날의 시세를 보여줘서, 읽는 사람이 숫자 쪽을 믿었다.
+    """
+    if report_day is None:
+        return False
+    return not is_trading_day(Market(market), report_day)
+
+
+def _headline_parts(briefing: Briefing) -> list[tuple[str, float | None]]:
+    """헤드라인 조각들. ``(문장, 색을 정하는 등락)``.
+
+    **텍스트본과 HTML 본이 같은 목록을 읽는다.** 두 벌로 두면 언젠가 갈리고,
+    그때 제목 줄과 본문 첫 줄이 서로 다른 말을 한다.
+
+    등락이 ``None`` 인 조각은 색을 안 입힌다:
+
+    - ``"코스피 미수집"`` — 방향이 없다. 없는 것을 칠하면 있는 것처럼 보인다
+    - ``"환율 1,410 ▼0.09%"`` — **환율은 손익 방향이 아니다.** 원/달러가
+      오른 것은 이익도 손실도 아니라 원화가 약해진 것이다. 변동성 지수에
+      손익 색을 안 쓰는 것과 같은 이유다 (모듈 독스트링)
+    """
+    parts: list[tuple[str, float | None]] = []
+    report_day = report_date(briefing)
+    for code in MARKET_ORDER:
+        brief = briefing.markets.get(code)
+        if brief is None or not brief.prices:
+            continue
+        if _is_closed(code, report_day):
+            # 직전 거래일 등락을 여기 실으면 그날 장이 선 것처럼 읽힌다.
+            # **빼지도 않는다** — 조용히 사라지면 수집 실패와 구별되지 않는다.
+            parts.append((f"{MARKET_LABEL.get(code, code)} 휴장", None))
+            continue
+        head = brief.prices[0]
+        if head.close is None:
+            parts.append((f"{head.label} 미수집", None))
+        else:
+            parts.append((f"{head.label} {_moved(head.change)}", head.change))
+    rate = briefing.fx
+    if rate.get("rate") is not None:
+        parts.append((f"환율 {rate['rate']:,.0f} {_moved(rate['change'])}", None))
+    return parts
+
+
 def headline(briefing: Briefing) -> str:
     """맨 위 한 줄. **이 줄만 읽고 닫아도 그날을 안 것이 되게.**
 
     문장을 지어내지 않는다 — 대표 지수 둘과 환율을 사실 그대로 잇는다.
     "반도체가 시장을 끌었다" 같은 해석은 근거가 창고에 없다.
+
+    **LLM 요약을 이 위에 얹어 본 적이 있다(2026-08-18, 되돌림).** 실제로
+    붙여 보니 문장이 자료를 넘어섰다 — 거래대금 상위 목록을 근거로
+    "반도체주가 강세를 이끌었다" 를 썼는데, 종목 등락과 지수 등락은 창고에
+    있어도 **그 둘을 잇는 인과는 창고에 없다.** 프롬프트를 조여 인과를
+    막고 나면 남는 것은 이 줄이 이미 하는 일(숫자를 나란히 적는 것)이라,
+    돈과 실패 경로를 더한 값이 아니었다. 다시 제안이 나오면 여기서부터
+    시작하면 된다.
+
+    여기는 **글자만**이다. 메일 제목에도 그대로 들어가서, 태그를 섞으면
+    받은편지함에 ``<span style=...>`` 이 찍힌다.
     """
-    parts: list[str] = []
-    for code in ("KR", "US"):
-        brief = briefing.markets.get(code)
-        if brief is None or not brief.prices:
-            continue
-        head = brief.prices[0]
-        if head.close is None:
-            parts.append(f"{head.label} 미수집")
-        else:
-            parts.append(f"{head.label} {_moved(head.change)}")
-    rate = briefing.fx
-    if rate.get("rate") is not None:
-        parts.append(f"환율 {rate['rate']:,.0f} {_moved(rate['change'])}")
-    return " · ".join(parts) if parts else "지수가 들어오지 않았다"
+    parts = _headline_parts(briefing)
+    return " · ".join(text for text, _ in parts) if parts else "지수가 들어오지 않았다"
 
 
 def _headline_block(briefing: Briefing) -> str:
-    """요약 한 줄 + 색. 대표 지수의 방향으로 칠한다."""
-    kr = briefing.markets.get("KR")
-    lead = kr.prices[0].change if kr and kr.prices else None
+    """요약 한 줄. **조각마다 자기 방향으로 칠한다.**
+
+    줄 전체를 대표 지수 하나의 색으로 칠하던 때가 있었다. 그때 나간 메일이
+    이랬다 — ``코스피 ▲2.42% · S&P 500 ▼0.17% · 환율 1,410`` 이 통째로
+    빨강. **내린 S&P 500 까지 상승색이었다.** 이 줄은 한 눈에 읽히라고 만든
+    자리라, 색이 사실과 반대면 만든 목적을 정면으로 깬다.
+
+    색은 본문 표와 **같은 ``_color``** 를 쓴다. 헤드라인만 다른 빨강·파랑이면
+    같은 사실이 두 색으로 보여서 더 헷갈린다.
+    """
+    parts = _headline_parts(briefing)
+    body = (
+        " · ".join(
+            f'<span style="color:{_color(change)}">{text}</span>' for text, change in parts
+        )
+        if parts
+        else "지수가 들어오지 않았다"
+    )
+    # 바탕 글자색은 남긴다 — 색 없는 조각과 조각 사이 가운뎃점이 여기서 색을 받는다.
     return (
-        f'<div style="background-color:{PAPER};color:{_color(lead)};font-size:19px;'
-        f'font-weight:800;line-height:1.35;padding:2px 0 0">{headline(briefing)}</div>'
+        f'<div style="background-color:{PAPER};color:{INK};font-size:19px;'
+        f'font-weight:800;line-height:1.35;padding:2px 0 0">{body}</div>'
     )
 
 
@@ -335,14 +406,46 @@ _METRIC: dict[str, tuple[str, Callable[[float, str], str]]] = {
 }
 
 
+def _when(day: date | None) -> str:
+    """열 제목에 붙는 세션 표시. 줄을 갈아 끼워 넓이를 안 먹는다."""
+    return f'<br><span style="white-space:nowrap">({day.strftime("%m-%d")})</span>'
+
+
 def _ranking_rows(rank: Ranking, currency: str) -> str:
-    """순위 세 줄. 종목명은 접히고 숫자는 안 접힌다."""
+    """순위 세 줄. 종목명은 접히고 숫자는 안 접힌다.
+
+    **두 열의 세션이 다르면 열마다 날짜를 밝힌다.** 순위는 ``market_stats``
+    의 시총으로 매기는데 그 테이블이 ``prices`` 보다 늦게 들어와서, 실측
+    2026-08-18 기준으로 순위는 08-11 시총이고 등락률은 08-14 시세였다.
+    사흘이 한 줄 안에 섞여 있고 아무 표시가 없으면 둘 다 08-11 로 읽힌다.
+
+    값을 맞추지 않는다 — 등락률을 08-11 기준으로 되돌리면 표는 일관되지만
+    "어제 시장이 어땠나" 를 못 보게 되어 **정보가 준다.** 모르는 것을
+    지어내지 않고, 아는 것이 정확히 어느 시점의 것인지 말한다.
+
+    **같으면 반복하지 않는다.** 수집이 정상화되면 두 날짜가 같아지는데,
+    그때도 ``(08-14)`` 를 두 번 적으면 시끄럽다. 이 메일의 규약대로 —
+    어긋난 것만 눈에 띈다.
+    """
     label, fmt = _METRIC[rank.key]
+    split = (
+        rank.change_session is not None
+        and rank.session is not None
+        and rank.change_session != rank.session
+    )
+    metric_when = _when(rank.session) if split else ""
+    change_when = _when(rank.change_session) if split else ""
     header = (
         "<tr>"
         + _cell("종목", color=FOOTNOTE, size=SMALL, pad="0 4px 4px")
-        + _cell(label, color=FOOTNOTE, size=SMALL, align="right", pad="0 4px 4px")
-        + _cell("전일대비", color=FOOTNOTE, size=SMALL, align="right", pad="0 4px 4px")
+        + _cell(
+            f"{label}{metric_when}",
+            color=FOOTNOTE, size=SMALL, align="right", pad="0 4px 4px",
+        )
+        + _cell(
+            f"전일대비{change_when}",
+            color=FOOTNOTE, size=SMALL, align="right", pad="0 4px 4px",
+        )
         + "</tr>"
     )
     body = ""
@@ -382,9 +485,14 @@ def _ranking_block(rank: Ranking, brief: MarketBrief) -> str:
     floor = brief.floor
     notes = [f"정렬 {rank.sort_by}"]
     if rank.key == "market_cap":
-        covered = rank.eligible / rank.universe if rank.universe else 0.0
+        # **0~1 의 비율이다** — 백분율이 아니다. ``:.0%`` 가 100 을 곱하므로
+        # 여기 백분율을 담으면 두 번 곱해진다. 이름을 ``covered`` 라고만 둬서
+        # 어느 쪽인지 알 수 없던 때 실제로 사고가 났다 (커버리지 43450%).
+        # 1 을 넘지 않는 것은 ``Ranking.universe`` 가 구조적으로 보장한다 —
+        # 여기서 clamp 하지 않는다. 잘라내면 다음 사고가 100% 로 위장한다.
+        coverage_ratio = rank.eligible / rank.universe if rank.universe else 0.0
         notes.append(
-            f"시총 아는 {rank.eligible:,}종목 중 (커버리지 {covered:.0%}"
+            f"시총 아는 {rank.eligible:,}종목 중 (커버리지 {coverage_ratio:.0%}"
             + (" · ADR·ETF 는 주식수가 없어 빠진다)" if brief.market == "US" else ")")
         )
     else:
@@ -394,7 +502,13 @@ def _ranking_block(rank: Ranking, brief: MarketBrief) -> str:
             f"({rank.universe:,}→{rank.eligible:,})"
         )
     if rank.prior:
-        notes.append(f"전일대비 = {rank.prior.isoformat()} 대비")
+        # 두 세션이 다르면 "무엇이 무엇 대비인지" 를 각주가 마저 말한다 —
+        # 열 제목의 (08-14) 만으로는 그 등락의 기준일이 안 보인다.
+        base = rank.change_session or rank.session
+        if base is not None and base != rank.session:
+            notes.append(f"전일대비 = {base.isoformat()} 의 {rank.prior.isoformat()} 대비")
+        else:
+            notes.append(f"전일대비 = {rank.prior.isoformat()} 대비")
     if rank.note:
         notes.append(f'<span style="color:{WARN_INK}">{rank.note}</span>')
     return _section(rank.label, sub=when) + _ranking_rows(rank, brief.currency) + _foot(
@@ -458,14 +572,17 @@ def _news_block(news: NewsSection) -> str:
 # -- 거시 ----------------------------------------------------------------------
 
 
-#: 거시 지표명 최대 길이. FRED 이름은 "Advance Monthly Sales for Retail and
-#: Food Services" 처럼 길어서 390px 에서 세 줄로 접힌다 — 이름 한 개가 표를
-#: 밀어내면 옆의 숫자를 못 읽는다. 자른 것은 말줄임표가 말한다.
-MACRO_LABEL_MAX = 26
+#: 거시 지표명 최대 길이. 우리가 붙인 한글 이름이라 원래도 짧지만, 상한이
+#: 없으면 언젠가 긴 이름 하나가 칸을 밀어낸다. 자른 것은 말줄임표가 말한다.
+#:
+#: 예전 값은 26 이었다. 그때는 지표명이 좁은 왼쪽 칸에 갇혀 있었는데
+#: (``_macro_block`` 주석), 지금은 한 줄을 통째로 쓴다.
+MACRO_LABEL_MAX = 34
 
 #: 원제(``source_name``) 최대 길이. 한글 이름 아래 부제로 싣는다 — 가공한
 #: 숫자를 검증할 수 있게 원제를 버리지 않는다는 것이 이 부제의 존재 이유다.
-MACRO_SOURCE_MAX = 34
+#: "Advance Monthly Sales for Retail and Food Services" 가 여기 걸린다.
+MACRO_SOURCE_MAX = 46
 
 #: 값 자체가 "백만 달러" 인 단위. 763,602 를 그대로 찍으면 크기가 안 잡힌다
 #: — ``_money`` 로 억/조·B/M 표기로 접는다. ``briefing.PERCENT_UNITS`` 처럼
@@ -507,6 +624,20 @@ def _macro_change(row: MacroRow) -> str:
 
 
 def _macro_block(macro: MacroSection) -> str:
+    """거시지표. **좌우 두 칸으로 나누지 않는다** — 390px 에서 무너진다.
+
+    무너지는 방식이 눈에 안 띄어서 오래 나갔다. 값 칸에 ``white-space:nowrap``
+    이 걸려 있는데 그 안의 문자열이 ``$763.6B (763,602 mn_usd)`` 처럼 길다.
+    표는 그 칸에 필요한 폭을 먼저 주고 남은 것을 왼쪽에 준다 — 아이폰 세로에서
+    왼쪽에 남는 것이 60px 남짓이라 원제가 한 단어씩 세로로 쪼개졌다:
+
+        Advance / Monthly / Sales / for / Retail... / 08-14 / 21:30 / KST
+
+    메일 클라이언트라 미디어쿼리·flex 로 고칠 수 없다. 그래서 **한 칸에
+    위아래로 쌓는다** — 칸이 하나면 나눠 가질 폭이 없어서 좁은 화면에서
+    무너질 자리 자체가 없다. 넓은 화면에서는 지표 하나가 네 줄을 쓰는데,
+    그 대가로 어느 폭에서도 같은 모양이 나온다.
+    """
     if not macro.released:
         note = " · ".join(macro.notes) if macro.notes else "이 구간에 발표된 지표가 없다"
         return _section("거시지표") + _foot(note)
@@ -519,19 +650,18 @@ def _macro_block(macro: MacroSection) -> str:
             + _cell(
                 f'<span style="color:{INK};font-weight:600">'
                 f"{_clip(row.label, MACRO_LABEL_MAX)}</span><br>"
-                f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">'
-                f"{_clip(row.source_name, MACRO_SOURCE_MAX)}</span><br>"
-                f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">{when} KST</span>',
-                extra=f"border-top:1px solid {RULE}",
-            )
-            + _cell(
-                f'<span style="color:{INK};font-weight:700">{_macro_value(row.actual, row.unit)}'
-                f'</span><br><span style="color:{change_color};font-weight:700">'
+                # 값과 등락은 한 줄에 붙여 둔다 — 그 둘이 갈리면 "직전 대비" 가
+                # 어느 숫자에 걸린 말인지 한 박자 늦게 보인다.
+                f'<span style="color:{INK};font-weight:700">'
+                f"{_macro_value(row.actual, row.unit)}</span> "
+                f'<span style="color:{change_color};font-weight:700;white-space:nowrap">'
                 f"{_macro_change(row)}</span><br>"
-                f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">직전 '
+                f'<span style="color:{FOOTNOTE};font-size:{SMALL}px">'
+                f"{_clip(row.source_name, MACRO_SOURCE_MAX)}<br>"
+                # 시각은 한 덩어리다. "08-14 / 21:30 / KST" 로 쪼개지면
+                # 셋 다 읽어서 다시 붙여야 시각이 된다.
+                f'<span style="white-space:nowrap">{when} KST</span> · 직전 '
                 f"{_macro_value(row.previous, row.unit)}</span>",
-                align="right",
-                wrap=False,
                 extra=f"border-top:1px solid {RULE}",
             )
             + "</tr>"
@@ -543,8 +673,32 @@ def _macro_block(macro: MacroSection) -> str:
 # -- 시장 한 칸 -------------------------------------------------------------------
 
 
-def _market_block(brief: MarketBrief) -> str:
+def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
+    """시장 한 칸. **휴장이면 표를 그리지 않는다.**
+
+    휴장일 브리핑에 직전 거래일 숫자를 늘어놓으면 **그날 장이 선 것처럼
+    읽힌다.** 2026-08-18 에 나간 메일이 그랬다 — 08-17(광복절 대체공휴일)
+    브리핑의 국장 칸에 08-14 종가와 08-11 시총 순위가 그대로 실려 있었다.
+    머리글에 "휴장" 이라 적어도, 아래에 숫자가 깔려 있으면 사람은 숫자를
+    믿는다.
+
+    빈칸으로 두지도 않는다 — 그러면 "휴장" 과 "수집 실패" 가 다시 같은
+    모양이 된다. **쉬었다고 적고, 직전 거래일이 언제였는지까지 적는다.**
+    """
     label = MARKET_LABEL.get(brief.market, brief.market)
+    if _is_closed(brief.market, report_day):
+        assert report_day is not None
+        shut = report_day.strftime("%m-%d")
+        head = (
+            f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
+            f'font-weight:800;padding:14px 0 6px">{label}'
+            f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> '
+            f'<span style="white-space:nowrap">{shut} 휴장</span></span></div>'
+        )
+        prior = brief.price_session.expected or brief.index_session.expected
+        since = f" 직전 거래일은 {prior.isoformat()} 다." if prior else ""
+        return _rule() + head + _foot(f"이 날은 장이 서지 않았다 — 실을 세션이 없다.{since}")
+
     session = brief.price_session.observed or brief.index_session.observed
     when = session.isoformat() if session else "세션 미확인"
     head = (
@@ -628,9 +782,10 @@ def subject(briefing: Briefing) -> str:
 
 
 def render_html(briefing: Briefing) -> str:
+    report_day = report_date(briefing)
     blocks = "".join(
-        _market_block(briefing.markets[code])
-        for code in ("KR", "US")
+        _market_block(briefing.markets[code], report_day)
+        for code in MARKET_ORDER
         if code in briefing.markets
     )
     # 거시는 두 시장 뒤에 한 번. 좌우로 가르지 않는 이유는 Briefing.macro 주석 참고.
@@ -673,11 +828,22 @@ def render_text(briefing: Briefing) -> str:
         lines.append(f"[결측 {len(briefing.gaps)}건 — 맨 아래 목록]")
         lines.append("")
 
-    for code in ("KR", "US"):
+    for code in MARKET_ORDER:
         brief = briefing.markets.get(code)
         if brief is None:
             continue
-        lines.append(f"== {MARKET_LABEL.get(code, code)} ==")
+        report_day = report_date(briefing)
+        label = MARKET_LABEL.get(code, code)
+        if _is_closed(code, report_day):
+            # HTML 과 같은 규칙이다 — 한쪽만 숫자를 실으면 두 벌이 다른 말을 한다.
+            assert report_day is not None
+            prior = brief.price_session.expected or brief.index_session.expected
+            since = f" 직전 거래일 {prior.isoformat()}." if prior else ""
+            lines.append(f"== {label} · {report_day.strftime('%m-%d')} 휴장 ==")
+            lines.append(f"  장이 서지 않았다 — 실을 세션이 없다.{since}")
+            lines.append("")
+            continue
+        lines.append(f"== {label} ==")
         for index_row in brief.prices:
             mark = f"  — {index_row.note}" if index_row.note else ""
             lines.append(
@@ -696,7 +862,12 @@ def render_text(briefing: Briefing) -> str:
         for rank in brief.rankings:
             when = rank.session.isoformat() if rank.session else "세션 미확인"
             _, fmt = _METRIC[rank.key]
-            lines.append(f"  -- {rank.label} ({when}, 정렬 {rank.sort_by})")
+            mixed = (
+                f", 등락 {rank.change_session.isoformat()}"
+                if rank.change_session and rank.change_session != rank.session
+                else ""
+            )
+            lines.append(f"  -- {rank.label} ({when}{mixed}, 정렬 {rank.sort_by})")
             if not rank.rows:
                 lines.append(f"     {rank.note or '해당 없음'}")
             for index, entry in enumerate(rank.rows, start=1):

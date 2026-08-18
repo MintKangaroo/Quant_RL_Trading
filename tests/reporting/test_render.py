@@ -16,8 +16,12 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, date, datetime
+from pathlib import Path
 
+from quant_rl_trading.collectors.market_hours import Market, is_trading_day
+from quant_rl_trading.reporting import render as render_module
 from quant_rl_trading.reporting.briefing import (
+    MARKET_ORDER,
     Briefing,
     Floor,
     IndexRow,
@@ -32,8 +36,10 @@ from quant_rl_trading.reporting.briefing import (
 from quant_rl_trading.reporting.render import (
     CANVAS,
     DOWN,
+    INK,
     PAPER,
     UP,
+    headline,
     render_html,
     render_text,
     subject,
@@ -328,7 +334,7 @@ def test_macro_shows_a_korean_label() -> None:
 def test_macro_keeps_the_source_name_for_verification() -> None:
     """**원제·원값은 버리지 않는다.** 가공한 숫자만 남기면 검증할 길이 없다."""
     html = render_html(_briefing())
-    # 26자 상한으로 잘리므로 앞부분만 확인한다 — 전체를 요구하지 않는다.
+    # 상한에 걸려 잘리므로 앞부분만 확인한다 — 전체를 요구하지 않는다.
     assert "Advance Monthly Sales" in html
 
 
@@ -477,3 +483,482 @@ def test_subject_uses_the_session_date_not_the_send_date() -> None:
     line = subject(_briefing())
     assert line.startswith("[시황] 2026-08-14")
     assert "코스피" in line and "S&P 500" in line
+
+
+# -- 휴장은 결측이 아니다 ----------------------------------------------------------
+
+#: 2026-08-17(월) 광복절 대체공휴일. **국장 휴장 · 미장 개장**이라 그날
+#: 리포트의 두 시장이 서로 다른 세션을 단다. 실측 케이스를 그대로 박는다 —
+#: ``market_hours.is_trading_day(Market.KR, 2026-08-17)`` 이 False 다.
+SUBSTITUTE_HOLIDAY = date(2026, 8, 17)
+
+
+def _holiday_briefing() -> Briefing:
+    """2026-08-18 06:30 KST 에 나가는 리포트. 국장 08-14, 미장 08-17.
+
+    실제로 그날 나간 메일과 같은 모양이다 — 머리글은 08-17 인데 국장 칸은
+    08-14 였고, 그 둘 사이에 아무 설명이 없었다.
+    """
+    kr = _brief("KR", prices=[
+        IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0356, FRIDAY),
+    ])
+    us = _brief("US", prices=[
+        IndexRow("US:IDX:SP500", "S&P 500", "price", 7798.99, 0.0065, SUBSTITUTE_HOLIDAY),
+    ])
+    us = MarketBrief(
+        market="US",
+        currency=us.currency,
+        index_session=SessionRef("US", "지수", SUBSTITUTE_HOLIDAY, SUBSTITUTE_HOLIDAY, None),
+        price_session=SessionRef("US", "시세", SUBSTITUTE_HOLIDAY, SUBSTITUTE_HOLIDAY, None),
+        prices=us.prices,
+        volatility=us.volatility,
+        rankings=us.rankings,
+        floor=us.floor,
+        news=us.news,
+    )
+    return _briefing(markets={"KR": kr, "US": us})
+
+
+def test_closed_market_says_it_was_closed() -> None:
+    """**"낡은 날짜" 와 "휴장" 은 다른 사실이다.**
+
+    빈칸으로 두면 "수집이 사흘 밀렸다" 와 구별되지 않는다. 쉬었다고 적고,
+    직전 거래일이 언제였는지까지 적는다.
+    """
+    html = render_html(_holiday_briefing())
+    head = re.search(r"국장<span[^>]*>.{0,400}?</div>\s*<div[^>]*>[^<]*</div>", html, re.S)
+    assert head is not None
+    assert "08-17 휴장" in head.group(0)
+    assert "직전 거래일은 2026-08-14 다" in head.group(0)
+
+
+def test_closed_market_shows_no_numbers_at_all() -> None:
+    """**휴장일에 직전 거래일 숫자를 늘어놓으면 그날 장이 선 것처럼 읽힌다.**
+
+    실제로 그렇게 나갔다 — 08-17 브리핑의 국장 칸에 08-14 종가와 08-11 시총
+    순위가 그대로 실려 있었다. 머리글에 "휴장" 이라 적어도 사람은 숫자를 믿는다.
+    """
+    html = render_html(_holiday_briefing())
+    kr = html[html.index(">국장<") :]
+    kr = kr[: kr.index(">미장<")] if ">미장<" in kr else kr
+    for banned in ("코스피", "6,813", "거래대금 상위", "시가총액 상위", "뉴스"):
+        assert banned not in kr, f"휴장인데 {banned} 가 남아 있다"
+
+
+def test_trading_day_still_shows_everything() -> None:
+    """**억제는 그 시장이 그 기준일에 휴장일 때만이다.**
+
+    평일 정상 브리핑에서 국장 데이터가 사라지면 이 고침이 더 큰 사고가 된다.
+    """
+    html = render_html(_briefing())  # 08-14(금) 기준 — 두 시장 모두 개장
+    for wanted in ("코스피", "거래대금 상위", "시가총액 상위"):
+        assert wanted in html
+
+
+def test_closed_rule_does_not_single_out_one_market() -> None:
+    """미장이 쉬는 날에는 미장이 같은 규칙에 걸린다 — 시장 이름을 안 박는다.
+
+    2026-07-03(금)은 미 독립기념일 대체휴장이고 국장은 열렸다.
+    """
+    us_holiday = date(2026, 7, 3)
+    assert not is_trading_day(Market.US, us_holiday)
+    assert is_trading_day(Market.KR, us_holiday)
+    kr = _brief("KR", prices=[
+        IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0356, us_holiday),
+    ])
+    kr = MarketBrief(
+        market="KR", currency=kr.currency,
+        index_session=SessionRef("KR", "지수", us_holiday, us_holiday, None),
+        price_session=SessionRef("KR", "시세", us_holiday, us_holiday, None),
+        prices=kr.prices, volatility=kr.volatility, rankings=kr.rankings,
+        floor=kr.floor, news=kr.news,
+    )
+    us = _brief("US", prices=[
+        IndexRow("US:IDX:SP500", "S&P 500", "price", 7798.99, 0.0065, date(2026, 7, 2)),
+    ])
+    us = MarketBrief(
+        market="US", currency=us.currency,
+        index_session=SessionRef("US", "지수", date(2026, 7, 2), date(2026, 7, 2), None),
+        price_session=SessionRef("US", "시세", date(2026, 7, 2), date(2026, 7, 2), None),
+        prices=us.prices, volatility=us.volatility, rankings=us.rankings,
+        floor=us.floor, news=us.news,
+    )
+    html = render_html(_briefing(markets={"KR": kr, "US": us}))
+    assert "07-03 휴장" in html
+    assert "S&P 500" not in html  # 미장 칸이 억제됐다
+    assert "코스피" in html       # 국장은 열렸다 — 그대로 나온다
+
+
+def test_closed_market_is_dropped_from_the_headline() -> None:
+    """헤드라인의 08-14 코스피 수치가 08-17 리포트에 있으면 안 된다.
+
+    **조용히 빼지도 않는다** — 사라지면 수집 실패와 구별되지 않는다.
+    """
+    line = headline(_holiday_briefing())
+    assert "국장 휴장" in line
+    assert "코스피" not in line
+    assert "S&P 500" in line  # 미장은 열렸다
+
+
+def test_closed_market_text_alternative_shows_no_numbers() -> None:
+    text = render_text(_holiday_briefing())
+    kr = text[text.index("== 국장") :]
+    assert "장이 서지 않았다" in kr
+    assert "직전 거래일 2026-08-14" in kr
+    assert "코스피" not in kr
+
+
+def test_open_market_is_not_labelled_closed() -> None:
+    """미장은 08-17 에 열었다. 같은 날인데 한쪽만 휴장이다."""
+    html = render_html(_holiday_briefing())
+    head = re.search(r"미장<span[^>]*>(.{0,200}?)</div>", html, re.S)
+    assert head is not None
+    assert "휴장" not in head.group(0)
+
+
+def test_closed_market_is_not_counted_as_a_gap() -> None:
+    """**받을 것이 없었던 것은 못 받은 것이 아니다.**
+
+    휴장 때문에 국장 세션이 리포트 기준일보다 이르다고 결측 상자에
+    올리면, 고칠 것이 없는 일로 매번 수집기를 뒤지게 된다.
+    """
+    briefing = _holiday_briefing()
+    assert briefing.gaps == []
+    html = render_html(briefing)
+    assert "들어오지 않은 것" not in html
+    assert "결측" not in html
+
+
+def test_real_missing_sessions_survive_the_holiday_label() -> None:
+    """휴장 표시가 **진짜 결측을 덮지 않는다.**
+
+    2026-08-18 실측: 미장 시세가 08-12 까지인데 기대는 08-17 이다. 그 사이는
+    휴장이 아니라 우리가 못 받은 3세션이고, 그대로 결측으로 남아야 한다.
+    """
+    briefing = _holiday_briefing()
+    us = briefing.markets["US"]
+    note = "US 시세: 창고가 2026-08-12 까지다. 2026-08-17 까지 3개 세션이 안 들어왔다"
+    broken = MarketBrief(
+        market="US",
+        currency=us.currency,
+        index_session=us.index_session,
+        price_session=SessionRef("US", "시세", SUBSTITUTE_HOLIDAY, date(2026, 8, 12), note),
+        prices=us.prices,
+        volatility=us.volatility,
+        rankings=us.rankings,
+        floor=us.floor,
+        news=us.news,
+    )
+    patched = _briefing(markets={"KR": briefing.markets["KR"], "US": broken})
+    html = render_html(patched)
+    assert note in html
+    assert "우리가 못 받은 것" in html
+    # 미장 칸에 휴장 딱지가 붙지 않는다 — 저 3세션은 열려 있던 날이다.
+    head = re.search(r"미장<span[^>]*>(.{0,200}?)</div>", html, re.S)
+    assert head is not None
+    assert "휴장" not in head.group(0)
+
+
+def test_macro_row_is_one_cell_so_nothing_squeezes_the_label() -> None:
+    """거시지표는 **한 칸에 위아래로 쌓는다.**
+
+    두 칸으로 나눠 두면 값 칸의 ``nowrap`` 이 폭을 먼저 가져가고, 아이폰
+    세로에서 왼쪽에 60px 남짓이 남아 원제가 한 단어씩 세로로 쪼개졌다
+    (Advance / Monthly / Sales / for / …). 메일 클라이언트라 미디어쿼리로
+    고칠 수 없으니 나눠 가질 폭 자체를 없앤다.
+    """
+    html = render_html(_briefing())
+    rows = [row for row in re.findall(r"<tr>.*?</tr>", html, re.S) if "소매판매" in row]
+    assert len(rows) == 1
+    # 칸이 하나면 나눠 가질 폭이 없다 — 좁은 화면에서 무너질 자리가 사라진다.
+    assert rows[0].count("<td") == 1
+    # 라벨·값·원제·시각이 전부 그 한 칸 안에 있다.
+    for piece in ("소매판매", "$763.6B", "Advance Monthly Sales", "08-14 21:30 KST"):
+        assert piece in rows[0]
+
+
+def test_macro_release_time_never_splits_across_lines() -> None:
+    """"08-14 / 21:30 / KST" 로 쪼개지면 셋을 다시 붙여야 시각이 된다."""
+    html = render_html(_briefing())
+    assert '<span style="white-space:nowrap">08-14 21:30 KST</span>' in html
+
+
+def test_macro_value_is_not_nowrapped_into_a_column_grab() -> None:
+    """긴 값에 ``nowrap`` 을 걸면 그 폭이 표를 밀어낸다. 등락률만 붙여 둔다."""
+    html = render_html(_briefing())
+    row = re.search(r"소매판매.{0,900}?</tr>", html, re.S)
+    assert row is not None
+    value = re.search(
+        r'<span style="color:[^"]*;font-weight:700">\$763\.6B[^<]*</span>', row.group(0)
+    )
+    assert value is not None
+    assert "nowrap" not in value.group(0)
+
+
+# -- 순서 ----------------------------------------------------------------------
+
+
+def test_us_section_comes_before_the_domestic_one() -> None:
+    """**미장이 위, 국장이 아래.**
+
+    이 메일은 미장 마감 뒤 새벽에 나간다 — 읽는 시점에 방금 끝난 장이 미장이고
+    국장은 아직 열리지 않았다. 위치로 못 박는다. 문자열 존재만 보면 순서가
+    뒤집혀도 초록불이 켜진다.
+    """
+    html = render_html(_briefing())
+    assert html.index(">미장<") < html.index(">국장<")
+
+
+def test_headline_leads_with_the_us_index() -> None:
+    """섹션 순서를 뒤집었으면 헤드라인도 같이 간다 — 제목 줄까지 같은 순서다."""
+    line = headline(_briefing())
+    assert line.index("S&P 500") < line.index("코스피")
+    assert subject(_briefing()).index("S&P 500") < subject(_briefing()).index("코스피")
+
+
+def test_text_alternative_follows_the_same_order() -> None:
+    """HTML 과 텍스트본이 다른 순서면 둘을 나란히 못 읽는다."""
+    text = render_text(_briefing())
+    assert text.index("== 미장") < text.index("== 국장")
+
+
+def test_market_order_lives_in_one_place() -> None:
+    """순서가 여러 군데 하드코딩돼 있으면 다음에 바꿀 때 한 곳을 빠뜨린다.
+
+    이 저장소가 반복해서 겪은 결함 계열이라, 상수 하나만 남았는지 본다.
+    """
+    source = Path(render_module.__file__).read_text(encoding="utf-8")
+    assert '("KR", "US")' not in source
+    assert '("US", "KR")' not in source  # 상수는 briefing 에 산다
+    assert MARKET_ORDER == ("US", "KR")
+
+
+def test_gap_list_follows_the_section_order() -> None:
+    """결측 목록의 순서가 섹션과 다르면 위아래를 짝지어 읽을 수 없다."""
+    kr = _brief("KR", prices=[IndexRow("KR:IDX:KOSPI", "코스피", "price", 1.0, 0.0, FRIDAY)],
+                index_note="KR 지수: 국장 결측 문장")
+    us = _brief("US", prices=[IndexRow("US:IDX:SP500", "S&P 500", "price", 1.0, 0.0, FRIDAY)],
+                index_note="US 지수: 미장 결측 문장")
+    # 창고가 주는 dict 순서가 국장 먼저여도 화면은 미장 먼저다.
+    html = render_html(_briefing(markets={"KR": kr, "US": us}))
+    assert html.index("미장 결측 문장") < html.index("국장 결측 문장")
+
+
+# -- 헤드라인은 항목별로 칠한다 -------------------------------------------------------
+
+
+def _mixed_briefing() -> Briefing:
+    """코스피는 오르고 S&P 500 은 내린 날. **한 줄에 두 방향이 같이 산다.**"""
+    kr = _brief("KR", prices=[
+        IndexRow("KR:IDX:KOSPI", "코스피", "price", 6977.94, 0.0242, FRIDAY),
+    ])
+    us = _brief("US", prices=[
+        IndexRow("US:IDX:SP500", "S&P 500", "price", 7798.99, -0.0017, FRIDAY),
+    ])
+    return _briefing(markets={"KR": kr, "US": us})
+
+
+def _headline_html(briefing: Briefing) -> str:
+    block = re.search(r"font-size:19px.{0,600}?</div>", render_html(briefing), re.S)
+    assert block is not None
+    return block.group(0)
+
+
+def test_headline_colours_each_item_by_its_own_direction() -> None:
+    """줄 전체를 한 색으로 칠하던 때, **내린 S&P 500 이 빨강으로 나갔다.**
+
+    한 눈에 읽히라고 만든 줄이라 색이 사실과 반대면 목적을 정면으로 깬다.
+    """
+    block = _headline_html(_mixed_briefing())
+    assert f'<span style="color:{DOWN}">S&P 500 ▼0.17%</span>' in block
+    assert f'<span style="color:{UP}">코스피 ▲2.42%</span>' in block
+
+
+def test_headline_up_and_down_are_not_the_same_colour() -> None:
+    """이 테스트가 죽으면 오른 것과 내린 것이 화면에서 같아진 것이다."""
+    block = _headline_html(_mixed_briefing())
+    rising = re.search(r'color:(#[0-9a-f]{6})">코스피', block)
+    falling = re.search(r'color:(#[0-9a-f]{6})">S&P 500', block)
+    assert rising is not None and falling is not None
+    assert rising.group(1) != falling.group(1)
+
+
+def test_headline_uses_the_same_palette_as_the_table_body() -> None:
+    """헤드라인만 다른 빨강·파랑이면 같은 사실이 두 색으로 보인다."""
+    html = render_html(_mixed_briefing())
+    block = _headline_html(_mixed_briefing())
+    falling = re.search(r'color:(#[0-9a-f]{6})">S&P 500 ▼', block)
+    assert falling is not None
+    assert falling.group(1) == DOWN
+    # 본문 표의 S&P 500 줄도 같은 색이다.
+    row = re.search(r"S&P 500.{0,600}?</tr>", html.replace(block, ""), re.S)
+    assert row is not None
+    assert DOWN in row.group(0)
+
+
+def test_headline_does_not_colour_the_exchange_rate() -> None:
+    """**환율은 손익 방향이 아니다** — 원/달러가 오른 것은 원화가 약해진 것이다.
+
+    변동성 지수에 손익 색을 안 쓰는 것과 같은 이유다.
+    """
+    block = _headline_html(_mixed_briefing())
+    rate = re.search(r'<span style="color:(#[0-9a-f]{6})">환율[^<]*</span>', block)
+    assert rate is not None
+    assert rate.group(1) == INK
+
+
+def test_headline_carries_no_markup_into_the_subject_line() -> None:
+    """제목에 태그가 섞이면 받은편지함에 ``<span style=...>`` 이 찍힌다."""
+    for line in (headline(_mixed_briefing()), subject(_mixed_briefing())):
+        assert "<" not in line and "style=" not in line
+
+
+# -- 커버리지 ------------------------------------------------------------------
+
+
+def _coverage_briefing(*, eligible: int, universe: int) -> Briefing:
+    """시총 순위의 모집단 두 수를 직접 박은 브리핑."""
+    rank = _ranking(
+        "market_cap",
+        "시가총액 상위",
+        "market_stats.market_cap",
+        eligible=eligible,
+        universe=universe,
+    )
+    kr = _brief(
+        "KR",
+        prices=[IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0356, FRIDAY)],
+        rankings=[rank],
+    )
+    return _briefing(markets={"KR": kr})
+
+
+def test_coverage_is_a_ratio_not_a_percentage() -> None:
+    """``:.0%`` 가 100 을 곱한다. 여기 백분율을 담으면 두 번 곱해진다.
+
+    4,345 / 6,647 = 65% 다. 이 자리에 **43450%** 가 찍혀 메일이 나갔다.
+    """
+    html = render_html(_coverage_briefing(eligible=4345, universe=6647))
+    assert "커버리지 65%" in html
+
+
+def test_coverage_never_exceeds_one_hundred_percent() -> None:
+    """**분모는 분자를 담는 모집단이어야 한다.**
+
+    다른 모집단에서 온 두 수를 나누면 비율이 1을 넘는다. 그런 값이 메일에
+    실리면 되돌릴 수 없으므로, 렌더가 만들어내는 백분율을 전수로 훑는다.
+    """
+    for eligible, universe in ((4345, 6647), (2870, 2872), (0, 0), (15, 15)):
+        html = render_html(_coverage_briefing(eligible=eligible, universe=universe))
+        for shown in re.findall(r"커버리지 (\d+)%", html):
+            assert 0 <= int(shown) <= 100, f"커버리지 {shown}% — 모집단이 어긋났다"
+
+
+def test_market_cap_universe_contains_the_entities_it_counts() -> None:
+    """``universe`` 가 ``eligible`` 보다 작으면 그 위의 비율은 전부 거짓이다.
+
+    실측 사고: 미장 시세가 밀려 시세 판이 15행인데 시총 판은 4,345행이라
+    4345/15 로 나눠졌다. ``rankings`` 가 합집합을 쓰게 고쳤다.
+    """
+    from quant_rl_trading.reporting.briefing import Ranking
+
+    rank = Ranking(
+        key="market_cap",
+        label="시가총액 상위",
+        sort_by="market_stats.market_cap",
+        session=FRIDAY,
+        prior=THURSDAY,
+        rows=[RankRow("KR:005930", "삼성전자", 5e11, 73_500.0, 0.05)],
+        eligible=4345,
+        universe=15,
+    )
+    assert rank.eligible > rank.universe  # 이런 조합은 만들어지면 안 된다
+
+
+# -- 한 표 안의 날짜 --------------------------------------------------------------
+
+
+def _mixed_session_ranking(*, session: date, change_session: date) -> Ranking:
+    return Ranking(
+        key="market_cap",
+        label="시가총액 상위",
+        sort_by="market_stats.market_cap",
+        session=session,
+        prior=THURSDAY,
+        rows=[RankRow("KR:005930", "삼성전자", 1.4002e15, 73_500.0, 0.0243)],
+        eligible=2870,
+        universe=2872,
+        change_session=change_session,
+    )
+
+
+def _ranking_briefing(rank: Ranking) -> Briefing:
+    kr = _brief(
+        "KR",
+        prices=[IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0356, FRIDAY)],
+        rankings=[rank],
+    )
+    return _briefing(markets={"KR": kr})
+
+
+def _ranking_header(briefing: Briefing) -> str:
+    head = re.search(r"<tr>(<td[^>]*>종목</td>.*?)</tr>", render_html(briefing), re.S)
+    assert head is not None
+    return head.group(1)
+
+
+def test_mixed_sessions_are_named_column_by_column() -> None:
+    """**순위는 08-11 시총, 등락률은 08-14 시세.** 사흘이 한 줄 안에 섞였다.
+
+    아무 표시가 없으면 둘 다 08-11 로 읽힌다. 값을 맞추지 않고(오래된 등락으로
+    되돌리면 정보가 준다) 어느 시점의 것인지 밝힌다.
+    """
+    header = _ranking_header(
+        _ranking_briefing(
+            _mixed_session_ranking(session=date(2026, 8, 11), change_session=FRIDAY)
+        )
+    )
+    assert "(08-11)" in header  # 시가총액 열
+    assert "(08-14)" in header  # 전일대비 열
+
+
+def test_matching_sessions_are_not_repeated() -> None:
+    """수집이 정상화되면 두 날짜가 같아진다. 그때 날짜를 두 번 적으면 시끄럽다.
+
+    이 메일의 규약대로 — **어긋난 것만 눈에 띈다.**
+    """
+    header = _ranking_header(
+        _ranking_briefing(
+            _mixed_session_ranking(session=FRIDAY, change_session=FRIDAY)
+        )
+    )
+    assert "(08-14)" not in header
+    assert "종목" in header and "시가총액" in header and "전일대비" in header
+
+
+def test_mixed_session_footnote_names_the_change_basis() -> None:
+    """열 제목의 ``(08-14)`` 만으로는 그 등락의 **기준일**이 안 보인다."""
+    html = render_html(
+        _ranking_briefing(
+            _mixed_session_ranking(session=date(2026, 8, 11), change_session=FRIDAY)
+        )
+    )
+    assert "전일대비 = 2026-08-14 의 2026-08-13 대비" in html
+
+
+def test_matching_session_footnote_stays_short() -> None:
+    html = render_html(
+        _ranking_briefing(_mixed_session_ranking(session=FRIDAY, change_session=FRIDAY))
+    )
+    assert "전일대비 = 2026-08-13 대비" in html
+    assert "의 2026-08-13 대비" not in html
+
+
+def test_text_alternative_names_the_mixed_session() -> None:
+    text = render_text(
+        _ranking_briefing(
+            _mixed_session_ranking(session=date(2026, 8, 11), change_session=FRIDAY)
+        )
+    )
+    assert "(2026-08-11, 등락 2026-08-14, 정렬 market_stats.market_cap)" in text
+
