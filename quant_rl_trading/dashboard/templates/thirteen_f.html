@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}13F · Quant_RL_Trading{% endblock %}
+
+{% block body %}
+{% with active = 'thirteen-f' %}{% include "_scope.html" %}{% endwith %}
+
+<main>
+  <section class="alerts" id="alerts"></section>
+
+  {# 화면이 제일 먼저 말해야 하는 것은 숫자가 아니라 **시제**다. 13F 는
+     분기말 기준이고 마감이 45일이라, 큰 숫자만 띄우면 사람은 그것을 현재로
+     읽는다. 그래서 낡음 경고를 KPI 위에 둔다. #}
+  <section class="panel">
+    <h2>이 화면은 과거를 본다 <span class="sub">13F · 분기말 기준 · 마감 45일</span></h2>
+    <p class="note">
+      운용자산 1억 달러 이상 미국 기관은 <strong>분기말 보유</strong>를 45일 안에
+      신고한다(Form 13F-HR). 즉 여기 숫자는 <strong>지금 보유가 아니라
+      분기말 보유</strong>다 — 그사이 다 팔았을 수도 있다.
+      분기 중 매매도, 공매도·옵션·채권도 안 보인다.
+      <strong>매매 신호로 쓰지 않는다.</strong> 참고 자료다.
+    </p>
+  </section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <section class="panel">
+    <h2>기관 <span class="sub">최신 신고 기준 · 규모 순</span></h2>
+    <div id="filers"></div>
+  </section>
+
+  <section class="panel">
+    <h2 id="holdings-title">보유 종목</h2>
+    <div id="holdings"></div>
+    <p class="note">
+      13F 는 <strong>자회사 운용역별로 줄을 나눠</strong> 낸다 — 버크셔
+      2026&nbsp;Q2 는 89줄인데 실제 보유는 29종목이고 애플만 12줄이었다.
+      CUSIP 으로 합쳤고, 몇 줄을 접었는지를 <code>접힘</code> 열에 남긴다 —
+      합산은 가공이고, 가공한 숫자는 가공했다고 말해야 한다.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>여러 기관이 겹쳐 든 종목 <span class="sub">각 기관의 최신 분기끼리</span></h2>
+    <div id="consensus"></div>
+    <p class="note">
+      분기가 다른 신고를 섞으면 "세 기관이 들고 있다" 가 서로 다른 시점의
+      사실이 된다. 기관마다 최신 분기를 쓰되 <strong>그 분기가 언제인지</strong>를
+      같이 띄운다.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='thirteen_f.js') }}"></script>
+{% endblock %}

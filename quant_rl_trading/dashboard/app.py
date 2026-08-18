@@ -19,6 +19,7 @@ from quant_rl_trading.dashboard.api import (
     briefing,
     data_quality,
     headlines,
+    thirteen_f,
     learning,
     market,
     system,
@@ -91,6 +92,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(trading.bp)
     app.register_blueprint(market.bp)
     app.register_blueprint(headlines.bp)
+    app.register_blueprint(thirteen_f.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(learning.bp)
     app.register_blueprint(ai_review.bp)
@@ -124,6 +126,10 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     @app.get("/headlines")
     def headlines_page() -> str:
         return render_template("headlines.html")
+
+    @app.get("/thirteen-f")
+    def thirteen_f_page() -> str:
+        return render_template("thirteen_f.html")
 
     @app.get("/system")
     def system_page() -> str:

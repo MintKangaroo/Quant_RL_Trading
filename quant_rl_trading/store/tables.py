@@ -34,6 +34,33 @@ _SPECS: dict[str, TableSpec] = {
         observation_lag_days=3,
         doc="일봉. 원주가 기준.",
     ),
+    "filings_13f": TableSpec(
+        name="filings_13f",
+        columns={
+            "filer_cik": pa.string(),
+            "filer_name": pa.string(),
+            "issuer": pa.string(),
+            "cusip": pa.string(),
+            "value_usd": pa.float64(),
+            "shares": pa.float64(),
+            # 그 기관 포트폴리오 안에서의 비중. 수집기가 한 번만 계산한다 —
+            # 화면에서 다시 나누면 분모를 무엇으로 잡았는지가 갈린다.
+            "weight": pa.float64(),
+            # 같은 CUSIP 이 몇 줄로 쪼개져 있었나. 13F 는 자회사 운용역별로
+            # 줄을 나눠서 내므로(버크셔 2026Q2: 89줄 → 실제 29종목),
+            # **합산했다는 사실 자체가 검증거리**라 남긴다.
+            "folded_rows": pa.float64(),
+            # 분기말 → 공개까지 걸린 날. 최대 45일이다. 이 값을 화면이
+            # 안 보여주면 낡은 보유를 지금 보유로 읽는다.
+            "lag_days": pa.float64(),
+        },
+        # 한 분기·한 기관·한 종목이 한 행이다. 기관이 빠지면 여러 기관이
+        # 같은 종목을 들 때 서로를 덮는다.
+        natural_key=("entity_id", "valid_from", "filer_cik"),
+        # valid_from(분기말)과 observed_at(접수일)이 최대 45일 벌어진다 —
+        # 이 표의 성격 자체가 그 간격이라 좁게 잡으면 정상 데이터가 막힌다.
+        observation_lag_days=60,
+    ),
     "prices_intraday": TableSpec(
         name="prices_intraday",
         columns={
