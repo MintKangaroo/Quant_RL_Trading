@@ -154,19 +154,13 @@ class Store:
         # 값 자체는 어느 쪽이든 싸지만, 조회 한 번의 고정비(파티션 나열 +
         # DuckDB 왕복)가 붙는다. 이름마다 좁혀 읽으면 그 고정비가 이름 수만큼
         # 곱해진다 — 실측으로 대시보드 요청 하나가 config 를 6~30번 읽고
-        # 0.38~0.41초를 썼다. 인자가 같은 조회는 세션·요청 캐시(memo.py)가
+        # 0.38~0.54초를 썼다. 인자가 같은 조회는 세션·요청 캐시(memo.py)가
         # 한 번으로 접어 주므로, 전체 조회 하나로 통일하면 그 캐시가 걸린다.
         #
         # 결과는 좁혀 읽을 때와 같다. entity 술어는 정정본 선택(ranked CTE)
         # **앞**에 걸리고 순위는 (entity_id, valid_from) 단위라, 먼저 거르든
         # 나중에 거르든 그 이름에 남는 행이 같다.
-        frame = self.get(_config.CONFIG_TABLE, as_of=as_of)
-        exact = frame[frame["entity_id"] == name] if not frame.empty else frame
-        if "." in name or not exact.empty:
-            # 점이 있거나, 그 이름의 값이 실제로 있으면 값 하나다.
-            # ``config_version`` 처럼 섹션에 속하지 않는 최상위 값이 여기 걸린다.
-            return _config.read_value(exact, name, as_of)
-        return _config.read_section(frame, name, as_of)
+        return _config.resolve(self.get(_config.CONFIG_TABLE, as_of=as_of), name, as_of)
 
     # -- 적재 -----------------------------------------------------------------
 

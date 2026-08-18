@@ -33,6 +33,10 @@ import pandas as pd
 
 from quant_rl_trading.store import Store
 
+# 이름을 직접 가져온다. 패키지 이름공간의 ``config`` 는 모듈이 아니라 같은
+# 이름의 편의 함수라(store/__init__ 끝), ``import ... as`` 로는 그쪽이 잡힌다.
+from quant_rl_trading.store.config import CONFIG_TABLE, resolve
+
 
 def _key(
     table: str,
@@ -113,7 +117,10 @@ class MemoStore:
         key = (name, as_of)
         if key in self._config:
             return self._config[key]
-        value = self._inner.config(name, as_of=as_of)
+        # **``self.get``** 을 쓴다. ``self._inner.config`` 로 넘기면 그 안의
+        # 표 조회가 이 캐시를 못 타고, 이름마다 config 표를 새로 읽는다 —
+        # 요청 하나가 여섯 이름을 읽으면 조회도 여섯 번이었다(실측 0.54초).
+        value = resolve(self.get(CONFIG_TABLE, as_of=as_of), name, as_of)
         self._config[key] = value
         return value
 
