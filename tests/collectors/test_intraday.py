@@ -102,14 +102,33 @@ def test_normalize_us_handles_dst_without_manual_offset(ts) -> None:  # type: ig
 def test_ingest_run_id_carries_the_date_axis(ts) -> None:  # type: ignore[no-untyped-def]
     """날짜 없는 고정 run_id 때문에 재수집이 영원히 막힌 사고가 있었다(adjfactor).
 
-    같은 날 두 번째 실행이 막히는 것은 의도지만(멱등성), **다음날은 다른
-    run_id 라 막히면 안 된다** — 그것까지 막히면 adjfactor 사고가 재발한다.
+    그 사고의 교훈은 "날짜를 넣어라" 가 아니라 **"다시 받아야 하는 주기보다
+    잘게 쪼개라"** 다. 일봉은 하루 한 번 확정되니 날짜면 충분하지만 **분봉은
+    장중 내내 새 봉이 생긴다** — 날짜까지만 넣으면 그날 두 번째 수집이
+    ``DuplicateIngestRun`` 으로 막히고, 분봉이 장 시작 시점에 얼어붙는다.
+    화면은 멀쩡한데 값만 하루 종일 안 변하는, 제일 늦게 발견되는 종류다.
     """
-    today = ingest_run_id("KR", "5m", observed_at=ts(2026, 8, 18, 7))
-    tomorrow = ingest_run_id("KR", "5m", observed_at=ts(2026, 8, 19, 7))
+    morning = ingest_run_id("KR", "5m", observed_at=ts(2026, 8, 18, 1))
+    midday = ingest_run_id("KR", "5m", observed_at=ts(2026, 8, 18, 4))
+    tomorrow = ingest_run_id("KR", "5m", observed_at=ts(2026, 8, 19, 1))
 
-    assert today == "intraday-KR-5m-20260818"
-    assert today != tomorrow
+    assert morning == "intraday-KR-5m-20260818T0100"
+    assert morning != midday, "장중 재수집이 막힌다 — 분봉이 하루 종일 멈춘다"
+    assert morning != tomorrow, "다음날이 막힌다 — adjfactor 사고의 재발이다"
+
+
+def test_같은_봉을_다시_받는_것은_중복이_아니라_재관측이다(ts) -> None:  # type: ignore[no-untyped-def]
+    """구간(interval)과 시장이 같아도 **실행 시각이 다르면 다른 run_id** 다.
+
+    창고가 bitemporal 이라 같은 봉을 두 번 받아도 나중 ``observed_at`` 이
+    이긴다. 늦게 정정된 봉이 자연스럽게 반영되는 것이 옳고, 그걸 멱등성으로
+    막으면 정정을 영영 못 받는다.
+    """
+    seen = {
+        ingest_run_id("KR", "5m", observed_at=ts(2026, 8, 18, hour))
+        for hour in (0, 1, 2, 3, 4, 5, 6)
+    }
+    assert len(seen) == 7, "장중 시각이 달라도 run_id 가 겹친다"
 
 
 # -- 상수 ---------------------------------------------------------------------

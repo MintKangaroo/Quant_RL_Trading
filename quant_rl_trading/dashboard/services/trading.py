@@ -1055,6 +1055,117 @@ def candles(
     }
 
 
+# -- 분봉 ------------------------------------------------------------------
+
+#: prices(일봉)와 절대 섞지 않는 별도 표. store/tables.py 참고.
+INTRADAY_TABLE = "prices_intraday"
+
+#: 화면 버튼과 같은 이름·순서. collectors/intraday_collector.py 의
+#: INTERVAL_NCNT 와 짝이다 — 여기서 새 이름을 짓지 않는다.
+INTRADAY_INTERVALS = ("1m", "5m", "15m", "1H", "4H")
+
+#: 분봉은 하루에도 수백 개다. 전부 보내면 응답이 무거워지고 화면은 어차피
+#: 최근 구간만 그린다(일봉 캔들도 dataZoom 으로 최근 120세션만 먼저 보여주는
+#: 것과 같은 이유) — 대시보드 속도 최적화는 별도 진행 중이라 여기서 새로운
+#: 무거운 응답을 만들지 않는다. 서버에서 자르고 나머지는 안 보낸다.
+INTRADAY_ROW_LIMIT = 500
+
+#: available_intraday_intervals 가 열어 보는 창. 수집기 자체가 보유·
+#: 워치리스트 종목의 최근 며칠만 받으므로(intraday_collector.py 모듈독스트링),
+#: 이보다 긴 창을 열어도 어차피 빈 파티션만 늘어난다.
+INTRADAY_LOOKBACK_DAYS = 30
+
+
+def available_intraday_intervals(
+    store: Store, *, as_of: datetime, entity_id: str, market: str
+) -> list[str]:
+    """이 종목에 **실제로 분봉이 있는** interval 만 돌려준다.
+
+    "없는 봉을 그리지 마라" 원칙의 반대쪽이다. 화면의 1m/5m/15m/1H/4H
+    버튼은 창고에 그 구간이 있을 때만 켜진다(``templates/trading.html``) —
+    없는데 켜 두면 눌렀을 때 빈 화면이 뜨고, 그게 "고장" 인지 "원래
+    수집 범위 밖" 인지 사용자가 구분 못 한다.
+    """
+    frame = store.get(
+        INTRADAY_TABLE,
+        as_of=as_of,
+        entity=entity_id,
+        market=market,
+        lookback=INTRADAY_LOOKBACK_DAYS,
+        columns=["interval"],
+    )
+    if frame.empty:
+        return []
+    have = set(frame["interval"])
+    return [interval for interval in INTRADAY_INTERVALS if interval in have]
+
+
+def intraday_candles(
+    store: Store, *, as_of: datetime, entity_id: str, market: str, interval: str
+) -> dict[str, Any]:
+    """한 종목의 분봉. ``candles()`` 와 같은 모양(``sessions``·``ohlc``·
+    ``volume``·``ma``)으로 돌려준다 — 화면의 캔들 그리기 코드가 일봉·분봉을
+    분기 없이 같이 쓸 수 있게 하기 위해서다.
+
+    ``sessions`` 는 날짜가 아니라 **타임스탬프**(ISO, 초 단위)다. 일봉의
+    "그 날" 과 달리 분봉은 하루 안에도 여러 봉이 있어 날짜만으로는 못 가른다
+    — 이 차이를 화면(trading.js)이 x축 라벨 포맷에서 알아야 한다.
+
+    체결 흔적(``trades``)은 아직 안 얹는다 — 일봉 ``candles()`` 의 마킹은
+    체결일(날짜) 기준이고, 분봉은 체결 **시각**까지 맞춰야 정확한 자리에
+    찍힌다. 지금은 화면이 일봉에서만 흔적을 보여주는 것으로 범위를
+    좁혔다(분봉 버튼을 켜는 것 자체가 이번 작업의 목표다).
+    """
+    if interval not in INTRADAY_INTERVALS:
+        raise ValueError(f"모르는 interval: {interval!r} ({INTRADAY_INTERVALS} 중 하나여야 한다)")
+
+    empty = {
+        "entity_id": entity_id, "interval": interval,
+        "sessions": [], "ohlc": [], "volume": [], "ma": {},
+    }
+
+    frame = store.get(
+        INTRADAY_TABLE,
+        as_of=as_of,
+        entity=entity_id,
+        market=market,
+        lookback=INTRADAY_LOOKBACK_DAYS,
+        columns=["open", "high", "low", "close", "volume", "valid_from", "interval"],
+    )
+    if frame.empty:
+        return empty
+
+    # interval 은 store.get 의 필터 축이 아니다(market·entity 만 SQL 단계에서
+    # 거른다) — 여기서 좁힌다. 한 종목·한 창의 행 수가 작아 비용이 안 된다.
+    scoped = frame[frame["interval"] == interval].sort_values("valid_from")
+    if scoped.empty:
+        return empty
+
+    # 자르는 자리는 정렬 뒤, 최근 N개만 — INTRADAY_ROW_LIMIT 문서 참고.
+    scoped = scoped.tail(INTRADAY_ROW_LIMIT)
+
+    closes = scoped["close"].astype(float)
+    sessions = [pd.Timestamp(value).isoformat() for value in scoped["valid_from"]]
+
+    return {
+        "entity_id": entity_id,
+        "interval": interval,
+        "sessions": sessions,
+        "ohlc": [
+            [float(row["open"]), float(row["close"]), float(row["low"]), float(row["high"])]
+            for row in scoped.to_dict(orient="records")
+        ],
+        "volume": [float(value) for value in scoped["volume"].fillna(0.0)],
+        "ma": {
+            f"ma{window}": [
+                None if pd.isna(value) else float(value)
+                for value in closes.rolling(window).mean()
+            ]
+            for window in (5, 20, 60)
+        },
+    }
+
+
 # -- 내부 ----------------------------------------------------------------------
 
 

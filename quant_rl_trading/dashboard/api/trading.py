@@ -107,20 +107,51 @@ def killswitch() -> Any:
     )
 
 
+#: 화면 세그먼트 버튼과 같은 값. "1D" 는 지금까지의 유일한 값이었다 —
+#: 기존 호출부(쿼리에 interval 을 안 주는 호출)가 그대로 일봉을 받도록
+#: 기본값으로 둔다(하위호환).
+DAILY_INTERVAL = "1D"
+
+
 @bp.get("/chart")
 def chart() -> Any:
-    """한 종목의 봉과 우리 체결 흔적."""
+    """한 종목의 봉과 우리 체결 흔적.
+
+    ``interval`` 을 안 주거나 ``1D`` 면 지금까지의 일봉 응답 그대로다.
+    분봉 다섯 개(1m/5m/15m/1H/4H) 는 창고에 ``prices_intraday`` 가 있을
+    때만 뜻이 있다 — 그래서 응답에 ``available_intervals`` 를 **항상**
+    같이 실어서, 화면이 별도 호출 없이 그 값으로 버튼을 켜고 끈다
+    (``templates/trading.html`` 의 disabled 버튼들, "없는 봉을 그리지
+    마라" 원칙의 반대쪽).
+    """
     current = scope()
     entity = request.args.get("entity")
     if not entity:
         raise BadRequest("entity 가 필요하다")
-    return envelope(
-        current,
-        service.candles(
+    market = _market()
+    interval = request.args.get("interval") or DAILY_INTERVAL
+
+    available = service.available_intraday_intervals(
+        store(), as_of=current.as_of, entity_id=entity, market=market
+    )
+
+    if interval == DAILY_INTERVAL:
+        data = service.candles(
             store(),
             as_of=current.as_of,
             entity_id=entity,
-            market=_market(),
+            market=market,
             lookback=current.lookback,
-        ),
-    )
+        )
+    elif interval in service.INTRADAY_INTERVALS:
+        data = service.intraday_candles(
+            store(), as_of=current.as_of, entity_id=entity, market=market, interval=interval
+        )
+    else:
+        raise BadRequest(
+            f"interval 은 {DAILY_INTERVAL!r} 또는 {service.INTRADAY_INTERVALS} 중 하나여야 한다: "
+            f"{interval!r}"
+        )
+
+    data["available_intervals"] = available
+    return envelope(current, data)

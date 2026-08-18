@@ -44,6 +44,13 @@ PAGES = [
     ("/headlines", "headlines", "뉴스"),
     ("/data-quality", "data-quality", "데이터 품질"),
     ("/system", "system", "시스템"),
+    # 되감은 화면. README 가 "타임머신이 실제로 동작한다" 를 증명하는 자리다.
+    #
+    # **as_of 를 붙여 찍어야 한다.** 2026-08-18 에 헤더의 as_of 입력 폼을
+    # 걷어내면서 이 그림이 없는 UI 를 보여주게 됐다 — 화면을 바꾸면 그 화면을
+    # 찍은 문서도 같이 낡는다. 지금은 되감았을 때만 뜨는 노란 표지가 증거다.
+    ("/data-quality?as_of=2023-06-15T07:01:00Z&lookback=90",
+     "data-quality-timemachine", "타임머신"),
 ]
 
 DESKTOP = {"width": 1680, "height": 1050}

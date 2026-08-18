@@ -30,21 +30,24 @@
         <span id="chart-title">—</span>
         <span class="sub" id="chart-sub"></span>
         <span class="right">
-          {# 창고에 있는 것은 일봉뿐이다. 나머지 시간대는 꺼진 채로 둔다 —
-             자리를 지우면 "이 화면은 일봉 전용" 이 되고, 채우면 없는 봉을
-             그리게 된다. #}
+          {# 버튼은 창고에 그 구간이 있을 때만 켜진다 — trading.js 가
+             /api/trading/chart 응답의 available_intervals 로 매 종목마다
+             다시 켜고 끈다. 자리를 지우면 "이 화면은 일봉 전용" 이 되고,
+             무조건 켜 두면 없는 봉을 그리게 된다. 그래서 마크업에서는
+             전부 disabled 로 시작하고(분봉 수집이 아직 그 종목을 못 받았을
+             수 있다는 뜻), JS 가 실제로 있는 구간만 연다. #}
           <span class="seg" id="chart-timeframe">
-            <button type="button" disabled title="분봉은 창고에 없다">1m</button>
-            <button type="button" disabled title="분봉은 창고에 없다">5m</button>
-            <button type="button" disabled title="분봉은 창고에 없다">15m</button>
-            <button type="button" disabled title="시간봉은 창고에 없다">1H</button>
-            <button type="button" disabled title="시간봉은 창고에 없다">4H</button>
-            <button type="button" class="on" title="창고에 있는 것은 일봉이다">1D</button>
+            <button type="button" data-interval="1m" disabled title="이 종목의 1분봉이 창고에 없다">1m</button>
+            <button type="button" data-interval="5m" disabled title="이 종목의 5분봉이 창고에 없다">5m</button>
+            <button type="button" data-interval="15m" disabled title="이 종목의 15분봉이 창고에 없다">15m</button>
+            <button type="button" data-interval="1H" disabled title="이 종목의 1시간봉이 창고에 없다">1H</button>
+            <button type="button" data-interval="4H" disabled title="이 종목의 4시간봉이 창고에 없다">4H</button>
+            <button type="button" data-interval="1D" class="on" title="창고에 항상 있는 것은 일봉이다">1D</button>
           </span>
         </span>
       </h2>
       <div class="chart tall" id="chart-candle"></div>
-      <p class="note">
+      <p class="note" id="chart-note">
         <strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
         화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.
       </p>

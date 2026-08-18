@@ -570,12 +570,85 @@ function renderUnderwater(body) {
   });
 }
 
+/* -- 시간대 세그먼트 (1m/5m/15m/1H/4H/1D) ------------------------------------
+ *
+ * 창고에 그 구간이 있는 종목만 버튼이 켜진다. 종목마다 다르다 — 분봉 수집이
+ * 보유·워치리스트만 받으므로(intraday_collector.py), A 종목엔 5분봉이 있어도
+ * B 종목엔 없을 수 있다. 그래서 "한 번 켜면 계속 켜짐" 이 아니라, 매 응답의
+ * available_intervals 로 **매번 다시** 켜고 끈다.
+ */
+let chartInterval = "1D";
+let chartEntityId = null;
+let chartPositions = [];
+
+function timeframeLabel(interval) {
+  if (interval === "1D") return "일봉";
+  if (interval === "1H") return "1시간봉";
+  if (interval === "4H") return "4시간봉";
+  return `${interval}봉`; // "1m"·"5m"·"15m"
+}
+
+/* 버튼 disabled 상태를 서버가 방금 알려준 사실로 맞춘다. **여기서 추측하지
+ * 않는다** — 있다고 짐작하고 켰다가 눌렀을 때 빈 화면이 뜨면, 그게 고장인지
+ * 원래 수집 범위 밖인지 사용자가 구분 못 한다. */
+function applyAvailableIntervals(available) {
+  const seg = document.getElementById("chart-timeframe");
+  if (!seg) return;
+  const have = new Set(available || []);
+  seg.querySelectorAll("button[data-interval]").forEach((button) => {
+    const interval = button.dataset.interval;
+    if (interval === "1D") return; // 일봉은 항상 있다 — 건드리지 않는다.
+    button.disabled = !have.has(interval);
+    if (have.has(interval)) button.title = `${timeframeLabel(interval)}으로 보기`;
+  });
+}
+
+function bindChartTimeframe() {
+  const seg = document.getElementById("chart-timeframe");
+  // 한 번만 매단다 — 매 renderCandles 호출마다 다시 매달면 클릭 하나에
+  // 리스너가 여러 개 붙어 fetch 가 중복으로 나간다.
+  if (!seg || seg.dataset.bound) return;
+  seg.dataset.bound = "1";
+  seg.querySelectorAll("button[data-interval]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) return; // 꺼진 버튼은 창고에 그 구간이 없다는 뜻.
+      chartInterval = button.dataset.interval;
+      seg.querySelectorAll("button[data-interval]").forEach((b) =>
+        b.classList.toggle("on", b === button)
+      );
+      renderCandles(chartEntityId, chartPositions);
+    });
+  });
+}
+
 async function renderCandles(entityId, positions) {
   if (!entityId) return;
-  const body = await fetchJson(`trading/chart?entity=${encodeURIComponent(entityId)}`);
+  chartEntityId = entityId;
+  chartPositions = positions;
+  bindChartTimeframe();
+
+  const body = await fetchJson(
+    `trading/chart?entity=${encodeURIComponent(entityId)}&interval=${encodeURIComponent(chartInterval)}`
+  );
   const c = body.data;
+  applyAvailableIntervals(c.available_intervals);
+
+  const label = timeframeLabel(chartInterval);
+  const intraday = chartInterval !== "1D";
   document.getElementById("chart-title").textContent = c.entity_id;
-  document.getElementById("chart-sub").textContent = `${c.sessions.length}세션 · 일봉`;
+  document.getElementById("chart-sub").textContent = `${c.sessions.length}봉 · ${label}`;
+
+  const note = document.getElementById("chart-note");
+  if (note) {
+    // 분봉은 수집 범위가 좁다(보유·워치리스트의 최근 며칠) — 그 사실을
+    // 캡션에서도 말해야 "왜 이렇게 짧지" 가 고장으로 안 읽힌다.
+    note.innerHTML = intraday
+      ? `<strong>${label}이다.</strong> 보유·워치리스트 종목의 최근 며칠만
+         받는다 — 전 종목·전 구간이 아니다. ▲▼ 체결 흔적은 일봉에서만 그린다.`
+      : `<strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
+         화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.`;
+  }
+
   if (!c.sessions.length) {
     document.getElementById("chart-candle").innerHTML =
       `<p class="empty">이 종목의 시세가 창 안에 없다.</p>`;
@@ -640,7 +713,18 @@ async function renderCandles(entityId, positions) {
       },
     ],
     xAxis: [
-      { type: "category", data: c.sessions, ...AXIS, gridIndex: 0 },
+      // 분봉의 session 문자열은 날짜만이 아니라 시각까지 든 ISO 다
+      // (candles() 는 "YYYY-MM-DD", intraday_candles() 는 전체 타임스탬프 —
+      // dashboard/services/trading.py 참고). 그대로 축에 찍으면 라벨이
+      // 너무 길어 서로 겹친다. "HH:MM" 만 자른다 — 어느 날짜인지는 툴팁
+      // (원문 그대로)이 말한다.
+      {
+        type: "category", data: c.sessions, gridIndex: 0,
+        ...AXIS,
+        axisLabel: intraday
+          ? { ...AXIS.axisLabel, formatter: (value) => value.slice(11, 16) }
+          : AXIS.axisLabel,
+      },
       { type: "category", data: c.sessions, gridIndex: 1, axisLabel: { show: false },
         axisLine: AXIS.axisLine, splitLine: { show: false } },
     ],

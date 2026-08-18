@@ -69,12 +69,19 @@ blowup`` 전례). ``recent_bars``(``ls_us_source.py``)와 같은 설계다 — �
 (``adjfactor-KR-0000`` — 다음날 재실행이 ``DuplicateIngestRun`` 으로 영원히
 막혔다). 형식:
 
-    intraday-{market}-{interval}-{yyyymmdd}
+    intraday-{market}-{interval}-{yyyymmddThhmm}
 
-``{yyyymmdd}`` 는 **수집을 실행한 날**(``observed_at`` 의 날짜)이다. 하루
-한 번 실행을 전제로 한다 — 그날 두 번째 실행은 의도적으로 거부된다
-(``DuplicateIngestRun``, append-only 멱등성). 장중에 여러 번 갱신하려면
-이 형식에 시·분을 더 넣어야 한다 — 지금 범위 밖이다.
+**분 단위까지 넣는다.** 날짜까지만 넣으면 그날 두 번째 실행이
+``DuplicateIngestRun`` 으로 막히는데, 그러면 **분봉이 하루 종일 멈춰 있다** —
+장 시작에 한 번 받은 봉을 장 마감까지 보게 된다. 분봉을 보는 목적과 정면으로
+어긋난다.
+
+날짜 고정 run_id 가 낸 사고(``adjfactor-KR-0000``)의 교훈은 "날짜를 넣어라"
+가 아니라 **"다시 받아야 하는 주기보다 잘게 쪼개라"** 다. 일봉은 하루 한 번
+확정되니 날짜면 충분하지만, 분봉은 장중 내내 새 봉이 생긴다.
+
+같은 봉을 두 번 받는 것은 중복이 아니라 **재관측**이다. 창고가 bitemporal
+이라 나중 ``observed_at`` 이 이긴다 — 늦게 정정된 봉도 자연스럽게 반영된다.
 """
 
 from __future__ import annotations
@@ -409,4 +416,4 @@ def ingest_run_id(market: str, interval: str, *, observed_at: datetime) -> str:
     호출부가 문자열을 손으로 이어붙이면 언젠가 날짜 자리를 빠뜨린 run_id가
     나오고, 그러면 adjfactor 사고가 재발한다.
     """
-    return f"intraday-{market}-{interval}-{observed_at.strftime('%Y%m%d')}"
+    return f"intraday-{market}-{interval}-{observed_at.strftime('%Y%m%dT%H%M')}"

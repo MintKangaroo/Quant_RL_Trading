@@ -20,6 +20,55 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 ---
 
+## 화면
+
+아래는 전부 **데모 창고(`data/_demo`)** 로 찍은 것이다. 이 저장소는 공개라
+실계좌 화면을 올리면 보유종목·주문번호가 영구히 남는다 — 가리는 것이 아니라
+애초에 다른 창고를 찍는다. 마스킹은 한 군데만 빠뜨려도 그게 그대로 공개된다.
+
+데모 창고는 **"우리가 무엇을 샀나"(trades·orders·nav)만 지어내고** 시세·유니버스는
+실전과 같은 공개 시장 데이터를 읽는다. 그래서 화면 구성·색·배치는 실물과 같고
+계좌만 가짜다. 헤더의 `DEMO` 배지가 그 사실을 말한다.
+
+| 트레이딩 | 마켓 |
+|---|---|
+| [![트레이딩](docs/images/trading.png)](docs/images/trading.png) | [![마켓](docs/images/market.png)](docs/images/market.png) |
+| 자산·손익·리스크·주문을 한 화면에. 정지 버튼은 숫자와 같은 눈높이에 있다 | KR·US 를 좌우로. 트리맵 색은 ±5%에서 꽉 찬다 |
+
+| 수익률 캘린더 | 학습 |
+|---|---|
+| [![캘린더](docs/images/calendar.png)](docs/images/calendar.png) | [![학습](docs/images/learning.png)](docs/images/learning.png) |
+| 빈칸은 0% 가 아니라 **장이 없던 날**이다 | 지금은 애널리스트 적중도가 학습을 대신한다 (RL 은 M4) |
+
+| AI 리뷰 | 에이전트 상태 |
+|---|---|
+| [![AI 리뷰](docs/images/ai-review.png)](docs/images/ai-review.png) | [![에이전트 상태](docs/images/agent-health.png)](docs/images/agent-health.png) |
+| 왜 그 종목을 골랐는지 | 누가 가중치를 받고 있는가 |
+
+| 뉴스 · 일정 | 중요 시황 |
+|---|---|
+| [![브리핑](docs/images/briefing.png)](docs/images/briefing.png) | [![뉴스](docs/images/headlines.png)](docs/images/headlines.png) |
+| 휴장이면 데이터를 지어내지 않고 **휴장이라고 적는다** | |
+
+| 데이터 품질 | 시스템 |
+|---|---|
+| [![데이터 품질](docs/images/data-quality.png)](docs/images/data-quality.png) | [![시스템](docs/images/system.png)](docs/images/system.png) |
+| "안 물어봤다" 와 "없다" 를 구분해서 적는다 | 배관이 도는가 |
+
+### 모바일
+
+<p>
+<img src="docs/images/trading-mobile.png" width="30%" alt="트레이딩 (모바일)">
+<img src="docs/images/market-mobile.png" width="30%" alt="마켓 (모바일)">
+<img src="docs/images/learning-mobile.png" width="30%" alt="학습 (모바일)">
+</p>
+
+탭이 열 개라 하단 바 다섯 칸에 못 넣는다. 자주 쓰는 넷만 두고 나머지는 더보기
+시트로 내렸다 — **현재 탭이 시트 안에 있으면 더보기 아이콘이 켜진다.** 하단 바가
+전부 회색이면 지금 어디 있는지 모른다.
+
+---
+
 ## 왜 처음부터 다시 만드는가
 
 이 프로젝트에는 선행 프로젝트가 둘 있다. `LS_KR`(국장)과 `LS_USA`(미장)다. 강화학습 기반으로 만들었지만 **학습이 되지 않아 사실상 룰 기반으로 동작한 실패 사례**다.
