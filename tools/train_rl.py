@@ -148,7 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         flush=True,
     )
 
-    started = time.time()
+    # 남은 시간 표시용이다. 창고에 들어가는 값이 아니고, 학습 결과에도
+    # 관여하지 않는다 (불변식 2).
+    started = time.time()  # invariant-allow: wallclock
     for index in range(1, total_updates + 1):
         # 진행도는 선형 감쇠에 쓴다(§4 — 학습률·엔트로피 계수).
         progress = 1.0 - (index - 1) / total_updates
@@ -163,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         log.update = index
         log.step = index * per_update
 
-        elapsed = time.time() - started
+        elapsed = time.time() - started  # invariant-allow: wallclock
         remain = elapsed / index * (total_updates - index)
         print(
             f"[{index}/{total_updates}] EV {log.explained_variance:+.4f} · "
@@ -205,7 +207,8 @@ def main(argv: list[str] | None = None) -> int:
                 source="ppo",
             )
 
-    print(f"완료 — {total_updates}업데이트 · {(time.time() - started) / 60:.1f}분", flush=True)
+    spent = (time.time() - started) / 60  # invariant-allow: wallclock
+    print(f"완료 — {total_updates}업데이트 · {spent:.1f}분", flush=True)
     return 0
 
 
