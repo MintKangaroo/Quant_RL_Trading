@@ -99,6 +99,10 @@ USER_AGENT_ENV = "SEC_USER_AGENT"
 #: 네트워크 지터에 걸려 429 를 받는다.
 MAX_REQUESTS_PER_SECOND = 8.0
 
+#: 재시도 횟수와 첫 대기(초). 지수 백오프라 1 → 2 → 4 → 8 초가 된다.
+RETRIES = 4
+BACKOFF_BASE = 1.0
+
 SEARCH_URL = "https://efts.sec.gov/LATEST/search-index"
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FILING_URL = "https://www.sec.gov/Archives/edgar/data"
@@ -255,20 +259,43 @@ class EdgarSource:
         self._last = _time.monotonic()
 
     def _get(self, url: str, params: dict[str, str] | None = None) -> dict[str, object]:
+        """**5xx·429 는 재시도한다.**
+
+        EDGAR 는 멀쩡한 질의에도 간헐적으로 500 을 낸다(2026-08-19 실측:
+        같은 파라미터 모양이 어떤 날은 되고 어떤 날은 안 됐다). 1,800일짜리
+        백필에서 한 번의 500 이 작업 전체를 죽이면 안 된다.
+
+        지수 백오프를 쓴다 — 고정 간격으로 두드리면 서버가 힘들 때 더 힘들게
+        한다. 다 실패하면 예외를 올린다: 조용히 빈 결과를 돌려주면 그날이
+        "공시 없는 날" 로 기록되어 영원히 안 채워진다.
+        """
         import httpx
 
-        self._throttle()
-        owned = self.client is None
-        http = self.client or httpx.Client(
-            timeout=self.timeout, headers=self._headers(), follow_redirects=True
-        )
-        try:
-            response = http.get(url, params=params)  # type: ignore[union-attr]
-            response.raise_for_status()
-            return dict(response.json())
-        finally:
-            if owned:
-                http.close()  # type: ignore[union-attr]
+        last: Exception | None = None
+        for attempt in range(RETRIES):
+            self._throttle()
+            owned = self.client is None
+            http = self.client or httpx.Client(
+                timeout=self.timeout, headers=self._headers(), follow_redirects=True
+            )
+            try:
+                response = http.get(url, params=params)  # type: ignore[union-attr]
+                if response.status_code >= 500 or response.status_code == 429:
+                    last = httpx.HTTPStatusError(
+                        f"{response.status_code}", request=response.request,
+                        response=response,
+                    )
+                    self._sleep(BACKOFF_BASE * (2**attempt))  # type: ignore[operator]
+                    continue
+                response.raise_for_status()
+                return dict(response.json())
+            except httpx.TransportError as error:
+                last = error
+                self._sleep(BACKOFF_BASE * (2**attempt))  # type: ignore[operator]
+            finally:
+                if owned:
+                    http.close()  # type: ignore[union-attr]
+        raise CollectorUnavailable(f"{RETRIES}회 재시도 실패: {url} — {last}")
 
     def tickers(self) -> dict[str, str]:
         return ticker_map(self._get(TICKERS_URL))  # type: ignore[arg-type]
@@ -313,6 +340,11 @@ class EdgarSource:
 
 class CollectorLimit(RuntimeError):
     """조회 상한에 닿았다. 조용히 자르는 것보다 멈추는 편이 낫다."""
+
+
+class CollectorUnavailable(RuntimeError):
+    """재시도해도 안 됐다. **빈 결과로 위장하지 않는다** — 그러면 그날이
+    "공시 없는 날" 로 기록되어 영원히 안 채워진다."""
 
 
 # -- 적재 -----------------------------------------------------------------------
@@ -459,7 +491,7 @@ class EdgarBackfiller:
 
         try:
             hits = self.source.search_day(day.isoformat(), forms=self.forms)
-        except CollectorLimit as error:
+        except (CollectorLimit, CollectorUnavailable) as error:
             # 상한 초과는 조용히 자르면 안 된다 — 그날만 폼을 쪼개 다시 받아야
             # 한다. 이력에 안 남기므로 다음 실행이 다시 시도한다.
             return EdgarResult(day, 0, 0, error=str(error))
