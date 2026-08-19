@@ -244,7 +244,7 @@ async function renderProcesses() {
   const target = document.getElementById("proc-rows");
   target.innerHTML = data.processes.length
     ? data.processes.map((p) => `<tr>
-        <td>${num(p.pid)} · ${esc(p.command)}</td>
+        <td class="cmd" title="${esc(p.command)}">${num(p.pid)} · ${esc(p.command)}</td>
         <td class="num">${dec(p.cpu_pct, 1)}</td>
         <td class="num">${num(p.rss_mb)}</td>
         <td class="num">${dec(p.uptime_h, 1)}</td>

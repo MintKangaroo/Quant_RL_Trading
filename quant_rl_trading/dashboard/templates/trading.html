@@ -126,6 +126,10 @@
         <span class="right"><span class="sub">일별 TWR · 거래일만</span></span>
       </h2>
       <div id="calendar" class="cal"></div>
+      {# 하루를 누르면 그날 지수와 내 수익률이 여기 한 줄로 뜬다.
+         비어 있는 것이 기본이다 — 안 눌렀는데 숫자가 있으면 어느 날 것인지
+         모른다. #}
+      <div id="day-detail" class="day-detail" hidden></div>
       <p class="note">
         수익률은 <strong>TWR</strong> 이다. NAV 증감으로 재면 입금일이 수익으로
         잡힌다. <strong>빈칸은 0% 가 아니라 장이 없던 날이다</strong> — 그래서

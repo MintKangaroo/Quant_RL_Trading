@@ -844,6 +844,9 @@ function renderCalendarPanel(body) {
     prev: document.getElementById("cal-prev"),
     next: document.getElementById("cal-next"),
   });
+  bindDayDetail(
+    document.getElementById("calendar"), cal, document.getElementById("day-detail")
+  );
 }
 
 /* -- Positions 파이 --------------------------------------------------------- */

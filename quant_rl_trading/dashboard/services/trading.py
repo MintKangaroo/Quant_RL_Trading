@@ -846,6 +846,59 @@ def _benchmark_drawdown(
     return out
 
 
+#: 캘린더에서 하루를 눌렀을 때 같이 보여줄 지수. **창고에 실제로 있는 이름**
+#: 이다 — 없는 지수를 넣으면 그 줄만 조용히 빈다.
+#:
+#: 이름을 여기 적는 이유: `benchmark.kr_index` 는 보상 함수가 쓰는 **공식**
+#: 벤치마크 하나뿐이고, 이 화면은 "그날 시장이 어땠나" 를 보는 참고용이라
+#: 목록이 다르다. 둘을 한 키로 묶으면 벤치마크를 바꿀 때 화면이 같이 바뀐다.
+CALENDAR_INDICES: tuple[tuple[str, str], ...] = (
+    ("KR:IDX:KOSPI", "코스피"),
+    ("KR:IDX:KOSDAQ", "코스닥"),
+    ("US:IDX:SP500", "S&P 500"),
+    ("US:IDX:NASDAQ", "나스닥"),
+    ("US:IDX:DJIA", "다우"),
+)
+
+
+def _index_daily_returns(
+    store: Store, *, as_of: datetime, lookback: int
+) -> dict[str, dict[str, float]]:
+    """세션 → {지수 이름: 그날 등락률}.
+
+    **미장은 하루 밀린다.** 뉴욕 8/18 종가는 한국 8/19 새벽에 나온다. 그래도
+    같은 날짜 칸에 넣는 이유는, 사람이 "8/18 에 시장이 어땠나" 를 물을 때
+    떠올리는 것이 그 세션이기 때문이다. 날짜를 맞춰 밀면 오히려 "내 8/18
+    수익률" 과 "미장 8/17" 이 한 줄에 서서 더 헷갈린다.
+
+    없는 날은 **키를 안 만든다.** 0 으로 채우면 휴장이 보합으로 보인다.
+    """
+    frame = store.get(
+        INDICES, as_of=as_of, lookback=lookback, columns=["close", "valid_from"],
+        entity=[entity for entity, _ in CALENDAR_INDICES],
+    )
+    if frame.empty:
+        return {}
+
+    out: dict[str, dict[str, float]] = {}
+    for entity, label in CALENDAR_INDICES:
+        rows = frame[frame["entity_id"] == entity].sort_values("valid_from")
+        if rows.empty:
+            continue
+        closes = rows["close"].astype(float)
+        # 종가 0 은 휴장일 행이다. 그대로 두면 등락률이 -100% 로 튄다.
+        keep = closes > 0.0
+        closes = closes[keep]
+        sessions = rows.loc[keep.index[keep], "valid_from"]
+        changes = closes.pct_change()
+        for stamp, change in zip(sessions, changes, strict=False):
+            if pd.isna(change):
+                continue
+            day = pd.Timestamp(stamp).date().isoformat()
+            out.setdefault(day, {})[label] = float(change)
+    return out
+
+
 def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     """일별 수익률. 화면이 달력으로 깐다.
 
@@ -862,7 +915,7 @@ def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[st
         NAV_DAILY, as_of=as_of, entity=ledger_module.ACCOUNT, lookback=lookback
     )
     if frame.empty:
-        return {"days": [], "months": []}
+        return {"days": [], "months": [], "indices": {}}
     ordered = frame.sort_values(["valid_from", "observed_at"])
     days = [
         {
@@ -881,6 +934,9 @@ def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     return {
         "days": days,
         "months": [{"month": k, "return": v} for k, v in sorted(months.items())],
+        # 하루를 눌렀을 때 "그날 시장은 어땠나" 를 같이 보여주기 위한 참고값.
+        # **우리 수익률과 같은 칸에 섞지 않는다** — 지수는 지수고 우리는 우리다.
+        "indices": _index_daily_returns(store, as_of=as_of, lookback=lookback),
     }
 
 

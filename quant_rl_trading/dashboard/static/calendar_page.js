@@ -29,6 +29,11 @@ async function loadCalendar() {
   const body = await fetchJson("trading/calendar");
   showScope(body);
   renderKpis(body.data);
+  bindDayDetail(
+    document.getElementById("calendar-full"),
+    body.data.calendar,
+    document.getElementById("day-detail"),
+  );
   mountCalendarBrowser(body.data.calendar, {
     label: document.getElementById("cal-label"),
     grid: document.getElementById("calendar-full"),

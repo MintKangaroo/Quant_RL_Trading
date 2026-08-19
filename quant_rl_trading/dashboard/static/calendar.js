@@ -57,7 +57,9 @@ function monthGrid(month, days, scale, { compact = false } = {}) {
       ? ""
       : `<b class="r">${(hit.return * 100).toFixed(2)}%</b>`;
     cells.push(
-      `<span class="cal-cell" style="background:${cellColor(hit.return, scale)}"
+      `<span class="cal-cell pick" data-session="${hit.session}"
+             data-return="${hit.return}"
+             style="background:${cellColor(hit.return, scale)}"
              title="${hit.session} · ${(hit.return * 100).toFixed(2)}% · NAV ${Math.round(hit.nav).toLocaleString()}">
          <i class="d">${day}</i>${body}
        </span>`,
@@ -194,4 +196,50 @@ function mountCalendarBrowser(cal, refs = {}) {
 
   paintMonths();
   paint();
+}
+
+
+/* -- 하루를 누르면 그날 시장 -------------------------------------------------
+ *
+ * "내가 그날 몇 % 였나" 만으로는 잘한 건지 알 수 없다. 시장이 -3% 인 날의
+ * -1% 와 +2% 인 날의 -1% 는 완전히 다른 사실이다. 그래서 같은 날의 지수를
+ * 나란히 놓는다.
+ *
+ * **작게 둔다.** 이건 달력을 읽다가 곁눈으로 보는 값이지 주인공이 아니다.
+ *
+ * 지수와 우리 수익률을 **한 칸에 섞지 않는다** — 지수는 가격지수(배당 미반영)
+ * 이고 우리는 TWR 이다. 빼서 "초과수익" 을 만들면 그 숫자는 근거가 없다.
+ */
+function bindDayDetail(root, cal, target) {
+  if (!root || !target) return;
+  const indices = (cal && cal.indices) || {};
+
+  root.addEventListener("click", (event) => {
+    const cell = event.target.closest(".cal-cell.pick");
+    if (!cell) return;
+
+    root.querySelectorAll(".cal-cell.on").forEach((el) => el.classList.remove("on"));
+    cell.classList.add("on");
+
+    const session = cell.dataset.session;
+    const mine = Number(cell.dataset.return);
+    const market = indices[session] || {};
+    const names = Object.keys(market);
+
+    const cls = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
+    const fmt = (v) => `${v > 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
+
+    // 지수가 없는 날은 **없다고 적는다.** 빈칸으로 두면 "그날 시장이 안
+    // 움직였다" 로 읽힌다 — 실제로는 아직 안 받았거나 휴장이다.
+    const cells = names.length
+      ? names.map((name) =>
+          `<span class="day-idx"><i>${name}</i><b class="${cls(market[name])}">${fmt(market[name])}</b></span>`
+        ).join("")
+      : `<span class="day-idx none">그날 지수가 창고에 없다</span>`;
+
+    target.innerHTML =
+      `<span class="day-idx mine"><i>내 포트폴리오</i><b class="${cls(mine)}">${fmt(mine)}</b></span>` +
+      cells;
+    target.hidden = false;
+  });
 }
