@@ -59,8 +59,44 @@ from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 
 
+#: 분봉 대상을 고를 때 **같이 보는 창고**. 실전 창고에만 물으면 지금은
+#: 대상이 거의 안 나온다 — `execution.live_trading` 이 꺼져 있어 실계좌 보유가
+#: 비어 있고, 실제로 굴러가는 포트폴리오는 shadow 쪽이기 때문이다.
+#:
+#: 실측 2026-08-19: 실전 기준 13종목만 받혀서, shadow 가 들고 있는 22종목 중
+#: 대부분이 차트에서 분봉 버튼이 꺼진 채로 있었다. 화면은 "안 받는 종목" 과
+#: "수집 실패" 를 구분해 주지 않으므로 고장으로 읽힌다.
+#:
+#: **없으면 조용히 건너뛴다.** shadow 창고가 없는 배포도 있다.
+COMPANION_ROOTS = ("data/_shadow",)
+
+
+def _companion_positions(market: str) -> list[str]:
+    """딸린 창고들의 보유 종목. 못 열면 빈 목록 — 여기서 죽지 않는다."""
+    from quant_rl_trading.accounting.book import Book  # 지역 import: 선택 경로다
+
+    out: list[str] = []
+    prefix = f"{market}:"
+    for rel in COMPANION_ROOTS:
+        root = REPO_ROOT / rel
+        if not root.exists():
+            continue
+        try:
+            side = Store(root)
+            clock = LiveClock()
+            ctx = build_context(side, clock, as_of=clock.now(), market=market)
+            out.extend(
+                entity
+                for entity, position in ctx.book.positions.items()
+                if position.quantity > 0 and entity.startswith(prefix)
+            )
+        except Exception as error:  # 창고가 비었거나 스키마가 다를 수 있다
+            print(f"  ({rel} 보유를 못 읽었다: {type(error).__name__}) — 건너뛴다", flush=True)
+    return out
+
+
 def _auto_symbols(store: Store, clock: LiveClock, *, market: str) -> list[str]:
-    """보유 + 오늘의 워치리스트. entity_id 그대로("KR:005930") 돌려준다.
+    """보유 + 오늘의 워치리스트 + **shadow 보유**. entity_id 그대로 돌려준다.
 
     ``IntradayCollector.collect_kr``/``collect_us`` 가 접두어를 알아서
     떼므로 여기서 떼지 않는다 — 두 군데서 같은 파싱을 하면 한쪽만
@@ -80,8 +116,10 @@ def _auto_symbols(store: Store, clock: LiveClock, *, market: str) -> list[str]:
     watched = [
         row["entity_id"] for row in watchlist(store, context) if row["entity_id"].startswith(prefix)
     ]
-    # 보유가 먼저, 그다음 워치리스트. dict.fromkeys 로 순서를 지키며 중복 제거.
-    return list(dict.fromkeys([*held, *watched]))
+    # 보유가 먼저, 그다음 shadow 보유, 마지막이 워치리스트. dict.fromkeys 로
+    # 순서를 지키며 중복 제거한다 — 실제로 들고 있는 것이 먼저 받혀야
+    # 레이트리밋에 걸려 잘리더라도 중요한 것이 남는다.
+    return list(dict.fromkeys([*held, *_companion_positions(market), *watched]))
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -36,6 +36,18 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     if [ "${MARKET}" = "KR" ]; then
         .venv/bin/python tools/backfill.py --market "${MARKET}" --sessions "${SESSIONS}"
         echo "  시세·유니버스 rc=$?"
+
+        # 상장주식수·시가총액. **위 한 줄에 안 딸려 온다** — `--table` 을 안 주면
+        # 시세와 유니버스 둘뿐이고 `shares` 패널(OPENAPI_PANELS)은 따로 불러야
+        # 한다. 그래서 시세는 매일 들어오는데 시총만 조용히 멈춰 있었다:
+        # 실측 2026-08-18 시세 08-14 · 시총 08-11 (3세션 결손).
+        #
+        # 마켓 탭의 시총 순위표·트리맵이 이걸 읽는다. 없으면 표가 통째로 비고,
+        # 화면은 "상장주식수가 없다"(= 수집기가 없다)고 말한다 — 있는 것을
+        # 없다고 말하는 문구라 원인을 엉뚱한 데서 찾게 된다.
+        .venv/bin/python tools/backfill.py \
+            --market "${MARKET}" --table shares --sessions "${SESSIONS}"
+        echo "  시가총액 rc=$?"
     fi
 
     # 1-1. 미장 시세. **여기 없어서 매번 며칠씩 밀려 있었다** — 실측 2026-08-18
