@@ -30,6 +30,9 @@ from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
+from quant_rl_trading.analysts.regime import RegimeAnalyst
+from quant_rl_trading.replay.clock import ReplayClock
+from quant_rl_trading.selector import exposure
 from quant_rl_trading.broker import Broker
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
@@ -243,12 +246,46 @@ def run(
         params=params,
         volatility=volatility if params.baseline is Baseline.SCORE_INVERSE_VOL else None,
     )
-    result.weights = weights
+
+    # 2-b. 노출 제어 (③) — **얼마나 살지.** 무엇을 살지는 위에서 끝났다.
+    #
+    # `chart` 가 여기로 온 이유는 `selector/exposure.py` 에 있다: 횡단면 랭크
+    # IC 는 새 상태 피처 여덟도 전부 미달이었지만, **변동성 압축이 이후
+    # 변동성을 맞히는 것은 82만 행에서 단조로 살아남았다**(5분위 0.857→1.179).
+    # 종목을 줄세우는 데는 못 쓰고 얼마나 들지 정하는 데는 쓴다.
+    #
+    # 곱한 뒤 **정규화하지 않는다** — 하면 합이 도로 1 이 되어 줄인 것이
+    # 사라진다. `exposure.apply` 가 그 실수를 막는 자리다.
+    exposure_params = exposure.ExposureParams.from_store(store, as_of=as_of)
+    index_id = str(store.config(f"benchmark.{market.lower()}_index", as_of=as_of))
+    regime = RegimeAnalyst(store, ReplayClock(as_of))
+    decision = exposure.decide(
+        store,
+        as_of=as_of,
+        index_id=index_id,
+        regime_state=regime.state(as_of),
+        params=exposure_params,
+    )
+    scaled = exposure.apply(weights, decision)
+    result.weights = scaled
+    # **allocate 를 먼저 적고 exposure 를 뒤에 적는다.** 로그는 일어난 순서를
+    # 말해야 하고, 노출 제어는 배분 결과에 **덧씌우는** 단계다. 순서를 뒤집으면
+    # 나중에 흔적을 읽는 사람이 "노출을 정하고 나서 비중을 나눴다" 로 읽는다.
+    #
+    # allocate 에는 **줄이기 전 비중**을 남긴다 — 배분이 무엇을 골랐는지와
+    # 노출이 얼마나 깎았는지가 갈려 있어야 어느 쪽이 문제인지 가른다.
     log.record(
         "allocate",
         str(params.baseline),
         {"weights": {name: round(value, 6) for name, value in weights.items()}},
     )
+    log.record("exposure", decision.driver, decision.as_dict())
+
+    # **여기서부터는 줄인 비중이다.** 이 한 줄이 없으면 노출 제어가 로그에만
+    # 남고 주문은 원래대로 나간다 — 이 저장소에서 제일 자주 나는 결함이
+    # 정확히 그 모양이다(코드는 있는데 아무도 안 부른다). 실제로 이 자리에서
+    # 한 번 그랬다.
+    weights = scaled
 
     # 3. 집행. 보유 중인데 목표에서 빠진 종목도 넣는다 — 안 넣으면 팔 기회가
     #    영영 오지 않는다.

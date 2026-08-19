@@ -260,4 +260,8 @@ def test_전_단계가_이벤트_로그에_남는다(fund) -> None:
     events = fund.get("events", as_of=NOW + timedelta(minutes=1), entity="traced")
     stages = list(events.sort_values("seq")["stage"])
 
-    assert stages == ["observe", "select", "allocate", "execute"]
+    # **노출 제어(exposure)가 allocate 와 execute 사이에 있다.** 순서가 곧
+    # 설계다 — 비중을 다 정한 뒤에 얼마나 걸지를 정하고, 그 다음에 주문을
+    # 만든다. 앞으로 옮기면 노출을 줄인 만큼을 다시 종목에 나눠 담게 되어
+    # 줄인 것이 사라진다 (selector/exposure.py `apply` 참고).
+    assert stages == ["observe", "select", "allocate", "exposure", "execute"]
