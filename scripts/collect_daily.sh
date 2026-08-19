@@ -139,7 +139,12 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         #      실측: 시세 6,647종목인데 명단은 2026-08-12 에 멈춰 있었다.
         .venv/bin/python tools/collect_us_prices.py --sessions "${SESSIONS}"
         echo "  미장 일봉 rc=$?"
-        .venv/bin/python tools/backfill.py --market US --table universe
+        #      **`--sessions` 를 준다.** 안 주면 5년(약 1,250세션)을 통째로
+        #      훑는다 — 매일 도는 자리에 둘 물건이 아니다. 짧은 창에서는
+        #      **상폐 판정을 건너뛴다**(근거가 창 밖이라 오인한다). 상폐는
+        #      아래 주 1회 전체 창이 맡는다.
+        .venv/bin/python tools/backfill.py \
+            --market US --table universe --sessions "${SESSIONS}"
         echo "  미장 명단 rc=$?"
         .venv/bin/python tools/backfill.py --market US --table shares-sec
         echo "  미장 상장주식수 rc=$?"
