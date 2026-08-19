@@ -112,3 +112,86 @@ function renderCalendar(target, cal, options = {}) {
 function calendarMonths(cal) {
   return [...new Set(((cal && cal.days) || []).map((d) => d.session.slice(0, 7)))].sort();
 }
+
+
+/* -- 월 브라우저 -------------------------------------------------------------
+ *
+ * ‹ › 로 한 달씩 옮겨 보는 달력 + 월별 표. **트레이딩 탭과 별도 창이 같은
+ * 것을 그린다** — 탭에서 최근 한 달만 색으로 보여주던 축소판은 없앴다.
+ * 사람이 [표시하기] 를 눌러서 보던 화면이 원래 보고 싶던 화면이었다면,
+ * 한 번 더 누르게 할 이유가 없다.
+ *
+ * ``mount`` 는 DOM 요소 세 개를 받는다. 어느 화면이든 그 세 자리만 있으면
+ * 된다 — 트레이딩 탭은 KPI 자리를 안 주고, 별도 창은 준다.
+ */
+function mountCalendarBrowser(cal, refs = {}) {
+  const months = calendarMonths(cal);
+  // 최근 달부터 본다. 사람이 궁금한 것은 거의 언제나 이번 달이다.
+  let cursor = months.length - 1;
+
+  const monthTotal = (month) => {
+    const hit = (cal.months || []).find((m) => m.month === month);
+    return hit ? hit.return : null;
+  };
+
+  function paint() {
+    if (!months.length) {
+      if (refs.label) refs.label.textContent = "—";
+      renderCalendar(refs.grid, { days: [], months: [] });
+      return;
+    }
+    cursor = Math.max(0, Math.min(cursor, months.length - 1));
+    const month = months[cursor];
+    if (refs.label) {
+      const total = monthTotal(month);
+      refs.label.textContent =
+        total === null ? month : `${month} · ${(total * 100).toFixed(2)}%`;
+    }
+    renderCalendar(refs.grid, cal, { months: [month] });
+
+    // 끝에 닿으면 버튼을 끈다. 눌리는데 아무 일도 안 나는 버튼은 고장으로 읽힌다.
+    if (refs.prev) refs.prev.disabled = cursor === 0;
+    if (refs.next) refs.next.disabled = cursor === months.length - 1;
+  }
+
+  function paintMonths() {
+    if (!refs.months) return;
+    const rows = (cal.months || []).slice().reverse();
+    if (!rows.length) {
+      refs.months.innerHTML = `<p class="empty">nav_daily 가 비어 있다.</p>`;
+      return;
+    }
+    refs.months.innerHTML = `<table class="tbl"><tr><th>월</th><th class="r">수익률</th><th>　</th></tr>${rows
+      .map((row, index) => {
+        const sign = row.return > 0 ? "up" : row.return < 0 ? "down" : "";
+        return `<tr data-month="${row.month}">
+          <td class="num">${row.month}</td>
+          <td class="num r ${sign}">${pct(row.return)}</td>
+          <td><button type="button" class="linky" data-goto="${rows.length - 1 - index}">보기</button></td>
+        </tr>`;
+      })
+      .join("")}</table>`;
+    refs.months.querySelectorAll("button[data-goto]").forEach((button) => {
+      button.addEventListener("click", () => {
+        cursor = Number(button.dataset.goto);
+        paint();
+      });
+    });
+  }
+
+  // **누를 때마다 다시 매달지 않는다.** loadTrading 이 여러 번 돌면 한 번의
+  // 클릭이 여러 달을 건너뛰게 된다.
+  const bind = (element, delta) => {
+    if (!element || element.dataset.calBound) return;
+    element.dataset.calBound = "1";
+    element.addEventListener("click", () => {
+      cursor += delta;
+      paint();
+    });
+  };
+  bind(refs.prev, -1);
+  bind(refs.next, +1);
+
+  paintMonths();
+  paint();
+}

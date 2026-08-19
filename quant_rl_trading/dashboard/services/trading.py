@@ -43,6 +43,7 @@ from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.selector.combine import contributions
+from quant_rl_trading.collectors.market_hours import Market, is_regular_session
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
 from quant_rl_trading.store.prices import read_prices
@@ -142,12 +143,22 @@ def _live_valuation(context: Context, valuation: Any) -> dict[str, Any]:
         for entity, position in context.book.positions.items()
         if position.quantity > 0
     }
+    # **장중인지 아닌지를 같이 내려준다.** 장외에는 t8407 이 마지막 체결가를
+    # 주는데 그게 곧 전일 종가라 변화율이 0.00% 로 나온다. 그 0.00% 는
+    # "장이 열렸는데 안 움직였다" 와 뜻이 완전히 다른데, 화면이 못 가르면
+    # 정상 동작이 고장으로 읽힌다 — 2026-08-19 08:51(개장 9분 전)에 실제로
+    # "실시간이 왜 안 움직이냐" 는 물음이 나왔다.
+    session_open = is_regular_session(Market.KR, context.as_of)
+    blank = {
+        "nav": None, "change": None, "equity": None,
+        "covered": 0, "session_open": session_open,
+    }
     if cache is None or not positions:
-        return {"nav": None, "change": None, "equity": None, "covered": 0}
+        return blank
 
     quotes = cache.get(list(positions))
     if not quotes:
-        return {"nav": None, "change": None, "equity": None, "covered": 0}
+        return blank
 
     equity = 0.0
     covered = 0
@@ -172,6 +183,7 @@ def _live_valuation(context: Context, valuation: Any) -> dict[str, Any]:
         "change": (live_nav / closing - 1.0) if closing > 0 else None,
         "equity": equity,
         "covered": covered,
+        "session_open": session_open,
     }
 
 
@@ -236,6 +248,7 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 그래서 **따로 담고 화면도 따로 그린다.** nav_daily 에 쓰지 않는다.
         "live_nav": live["nav"],
         "live_change": live["change"],
+        "live_session_open": live.get("session_open"),
         "live_equity": live["equity"],
         "live_covered": live["covered"],
         "principal": principal or None,
@@ -868,137 +881,6 @@ def calendar_payload(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     }
 
 
-def benchmark_compare(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
-    """캘린더 옆 "지수 대비" 패널. 이번 달 누적과 **누적 초과 곡선**.
-
-    ## 왜 일별 막대가 아니라 누적 곡선인가
-
-    이 전략은 저베타다(실측 베타 0.131 · 상승일 포착률 14%). 상승장에서 일별
-    초과가 음수인 날이 줄줄이 나오는 것이 **설계대로 굴러가는 모습**인데,
-    막대로 그리면 화면이 매일 "졌다" 고 스무 번 외친다 — 실측으로 2026-07 에
-    일별 초과의 부호가 22일 중 9~13번 뒤집혔다. 신호 대 잡음이 나쁘다.
-
-    게다가 빨강이 손실로 읽힌다. 우리가 +1% 벌어도 지수가 +3% 면 빨강인데,
-    같은 패널의 캘린더 쪽 빨강은 **진짜 손실**이라 한 패널에서 같은 색이 두
-    가지를 뜻하게 된다.
-
-    누적은 그 달의 결론이고, 곡선이면 **언제부터 벌어졌나**도 보인다.
-
-    **가격지수다, 총수익지수가 아니다.** KRX Open API·LS·FRED 세 곳 다 배당을
-    반영한 총수익지수를 안 준다(실측). 배당수익률만큼(국내 대형주 연 2~3%p)
-    우리가 유리하게 나온다 — 화면이 이 사실을 ``price_return_only`` 로 실어
-    보내고, 그 문구를 화면이 지운 채 보여주지 않는다.
-
-    달은 **캘린더 패널과 같은 달**을 고른다(데이터에 있는 마지막 달). 실제
-    달력의 이번 달을 쓰면 데모 창고처럼 최근 데이터가 며칠 전에서 끝나는
-    창고에서 패널이 통째로 빈다.
-    """
-    nav = store.get(NAV_DAILY, as_of=as_of, entity=ledger_module.ACCOUNT, lookback=lookback)
-    if nav.empty:
-        return {
-            "month": None,
-            "price_return_only": True,
-            "benchmarks": [
-                {"key": c["key"], "label": c["label"], "available": False,
-                 "reason": "nav_daily 가 비어 있다"}
-                for c in BENCHMARK_CANDIDATES
-            ],
-        }
-    ordered = nav.sort_values(["valid_from", "observed_at"])
-    our_by_day = {
-        pd.Timestamp(row["valid_from"]).date().isoformat(): float(row["twr_return"])
-        for row in ordered.to_dict(orient="records")
-    }
-    month = sorted({day[:7] for day in our_by_day})[-1]
-    month_days = sorted(day for day in our_by_day if day.startswith(month))
-    cumulative_ours = 1.0
-    for day in month_days:
-        cumulative_ours *= 1.0 + our_by_day[day]
-    cumulative_ours -= 1.0
-
-    benchmarks: list[dict[str, Any]] = []
-    for candidate in BENCHMARK_CANDIDATES:
-        frame = store.get(INDICES, as_of=as_of, entity=candidate["entity_id"], lookback=lookback)
-        if frame.empty:
-            benchmarks.append(
-                {
-                    "key": candidate["key"],
-                    "label": candidate["label"],
-                    "available": False,
-                    "reason": f"{candidate['entity_id']} 이름의 지수가 창고에 없다",
-                }
-            )
-            continue
-        idx_ordered = frame.sort_values("valid_from")
-        idx_dates = [pd.Timestamp(v).date().isoformat() for v in idx_ordered["valid_from"]]
-        closes = idx_ordered["close"].astype(float).tolist()
-        idx_returns: dict[str, float] = {}
-        previous_close = None
-        for date, close in zip(idx_dates, closes, strict=True):
-            if previous_close is not None and previous_close > 0:
-                idx_returns[date] = close / previous_close - 1.0
-            previous_close = close
-
-        # 지수 쪽 누적은 **지수 자기 거래일**로 잰다. 우리 거래일에 맞춰 자르면
-        # 미국장은 코리아 휴장일만큼 손실을 보고 시작한다 — 두 시장의 달력이
-        # 다르다는 사실 자체를 지워버리는 것이다.
-        index_month_days = sorted(d for d in idx_returns if d.startswith(month))
-        cumulative_index = None
-        if index_month_days:
-            cumulative_index = 1.0
-            for day in index_month_days:
-                cumulative_index *= 1.0 + idx_returns[day]
-            cumulative_index -= 1.0
-
-        # 축은 **두 달력의 합집합**이다. 우리 거래일로만 자르면 지수가 그 달에
-        # 실제로 움직인 날 일부가 축에서 빠지고, 그러면 곡선의 끝점이
-        # ``cumulative_excess`` 와 안 맞는다 — 실측으로 국장에서 3.6~4.4%p
-        # 어긋났다. 화면의 숫자와 곡선이 다른 값을 말하는 것은 그 자체로 결함이다.
-        axis = sorted(set(month_days) | set(index_month_days))
-        daily = []
-        running_ours = 1.0
-        running_index = 1.0
-        for day in axis:
-            ours = our_by_day.get(day)
-            index = idx_returns.get(day)
-            if ours is not None:
-                running_ours *= 1.0 + ours
-            if index is not None:
-                running_index *= 1.0 + index
-            daily.append(
-                {
-                    "session": day,
-                    "ours": ours,
-                    "index": index,
-                    # **누적 초과**다. 일별 초과가 아니다 — 저베타 전략에서
-                    # 하루하루의 승패는 베타 차이가 만드는 잡음이고, 그 달의
-                    # 결론은 누적이다(실측: 2026-07 에 일별 부호가 22일 중
-                    # 9~13번 뒤집혔다. 막대로 그리면 화면이 매일 "졌다" 고
-                    # 외치는데 그게 설계대로 굴러가는 중이라는 뜻이었다).
-                    "cumulative_excess": running_ours - running_index,
-                    # 그날 양쪽이 다 관측됐나. 한쪽이 없는 날은 그쪽 누적이
-                    # 안 움직인다 — 즉 **"그날 그쪽 수익률이 0"** 이라고 가정한
-                    # 셈이다. 휴장이면 맞고 미수집이면 틀리는데 여기서는 둘을
-                    # 못 가른다. 그래서 지우지 않고 화면이 세어서 적는다.
-                    "paired": ours is not None and index is not None,
-                }
-            )
-        benchmarks.append(
-            {
-                "key": candidate["key"],
-                "label": candidate["label"],
-                "available": True,
-                "cumulative_ours": cumulative_ours,
-                "cumulative_index": cumulative_index,
-                "cumulative_excess": (
-                    cumulative_ours - cumulative_index if cumulative_index is not None else None
-                ),
-                "daily": daily,
-            }
-        )
-    return {"month": month, "price_return_only": True, "benchmarks": benchmarks}
-
-
 def candles(
     store: Store, *, as_of: datetime, entity_id: str, market: str, lookback: int
 ) -> dict[str, Any]:
@@ -1069,6 +951,13 @@ INTRADAY_INTERVALS = ("1m", "5m", "15m", "1H", "4H")
 #: 것과 같은 이유) — 대시보드 속도 최적화는 별도 진행 중이라 여기서 새로운
 #: 무거운 응답을 만들지 않는다. 서버에서 자르고 나머지는 안 보낸다.
 INTRADAY_ROW_LIMIT = 500
+
+#: **당일만 보여주는 구간.** 장중에 계속 새 봉이 생기는 것들이다.
+#:
+#: 4H 를 뺀 이유: 하루에 두 봉뿐이라 "당일" 이 캔들 두 개다. 그건 차트가
+#: 아니라 점이고, 애초에 4H 를 여는 사람은 며칠치 흐름을 보려는 것이다.
+#: 1H(하루 7봉)도 장 초반에는 한두 개지만 마감 무렵이면 하루가 찬다.
+INTRADAY_TODAY_ONLY = ("1m", "5m", "15m", "1H")
 
 #: available_intraday_intervals 가 열어 보는 창. 수집기 자체가 보유·
 #: 워치리스트 종목의 최근 며칠만 받으므로(intraday_collector.py 모듈독스트링),
@@ -1141,6 +1030,22 @@ def intraday_candles(
     if scoped.empty:
         return empty
 
+    # **당일 것만 보여준다** (사용자 요청 2026-08-19).
+    #
+    # 분봉을 여러 날 이어 붙이면 장 마감(15:30)과 다음 날 개장(09:00) 사이의
+    # 17시간 반이 **봉 하나 폭**으로 붙는다. 그 자리에 밤사이 갭이 통째로
+    # 들어가 캔들 하나가 유난히 길어지고, 이동평균도 그 점프를 그대로 넘는다 —
+    # 화면은 "장중에 급변했다" 로 보이는데 실제로는 장이 닫혀 있던 시간이다.
+    #
+    # 창고에는 여러 날이 남아 있다(1m 은 1.3거래일, 4H 는 300거래일+). 지우지
+    # 않고 **읽을 때만** 좁힌다 — 백테스트·피처는 그 과거를 쓴다.
+    # **개수로 되돌리지 않는다.** 장 초반에는 당일 봉이 한두 개인 것이 정상이고,
+    # 그때 며칠치로 도로 넓히면 화면이 아침마다 다른 규칙으로 그려진다.
+    if interval in INTRADAY_TODAY_ONLY:
+        last_day = pd.Timestamp(scoped["valid_from"].max()).date()
+        scoped = scoped[scoped["valid_from"].dt.date == last_day]
+        if scoped.empty:
+            return empty
     # 자르는 자리는 정렬 뒤, 최근 N개만 — INTRADAY_ROW_LIMIT 문서 참고.
     scoped = scoped.tail(INTRADAY_ROW_LIMIT)
 
@@ -1330,7 +1235,6 @@ def payload(
             "orders": [],
             "equity": {"sessions": [], "nav": [], "index": [], "drawdown": [], "benchmark": []},
             "calendar": {"days": [], "months": []},
-            "benchmark_compare": {"month": None, "price_return_only": True, "benchmarks": []},
         }
     kpi = kpis(store, context)
     risk_state = risk(store, context)
@@ -1346,5 +1250,4 @@ def payload(
         "orders": orders(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
         "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback),
-        "benchmark_compare": benchmark_compare(store, as_of=context.as_of, lookback=lookback),
     }

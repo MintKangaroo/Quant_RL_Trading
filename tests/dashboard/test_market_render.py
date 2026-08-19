@@ -137,8 +137,8 @@ def _payload() -> dict:
     return json.loads((PAYLOADS / "market.json").read_text(encoding="utf-8"))["market"]
 
 
-def _render() -> dict[str, str]:
-    payload = _payload()
+def _render(payload: dict | None = None) -> dict[str, str]:
+    payload = payload if payload is not None else _payload()
     ids = sorted(
         set(re.findall(r'id="([^"]+)"', (TEMPLATES / "market.html").read_text(encoding="utf-8")))
         | set(re.findall(r'id="([^"]+)"', (TEMPLATES / "_scope.html").read_text(encoding="utf-8")))
@@ -431,6 +431,45 @@ def test_환율_차트는_사라졌고_패널은_칸_안에_있다(rendered: dic
     assert "chart-indices" not in markup
     assert "chart:chart-fx" not in rendered
     assert "chart:chart-indices" not in rendered
+
+
+# -- 빈 자리에서 죽지 않는다 ---------------------------------------------------
+
+
+def test_국장_시총이_비어도_미장_칸이_끝까지_그려진다() -> None:
+    """**한 줄에서 죽으면 그 아래가 통째로 안 돈다.**
+
+    2026-08-18 실측: 국장 시총이 창 밖으로 밀려 트리맵이 빈 경로로 들어갔고,
+    그 경로가 없는 이름(`noCapReason`)을 불러 ReferenceError 로 죽었다. 죽은
+    자리는 국장 트리맵인데 **사라진 것은 미장 칸 전부**였다 — 지수 목록도,
+    시장 폭도, 순위표도, 거시지표도. 사용자에게는 "미장이 안 뜬다" 로 보인다.
+
+    그래서 고정한다: **어느 칸이 비어도 나머지 칸은 끝까지 찬다.** 기본 판은
+    양쪽 트리맵이 다 차 있어 이 경로를 한 번도 안 밟았고, 그래서 이 고장이
+    테스트를 통과했다.
+    """
+    if shutil.which("node") is None:
+        pytest.skip("node 가 없다")
+    payload = _payload()
+    payload["data"]["markets"]["KR"]["treemap"]["rows"] = []
+    rendered = _render(payload)
+
+    assert "상장주식수" in rendered["chart-treemap-kr"]
+    # 죽었으면 이 뒤가 통째로 없다 — 미장 칸이 실제로 찼는지 본다.
+    for panel in PAIRED:
+        assert rendered[f"{panel}-us"].strip("\x00").strip(), f"{panel}-us 가 비었다"
+    assert rendered.get("chart:chart-treemap-us"), "미장 트리맵이 안 그려졌다"
+
+
+def test_시총_세션을_트리맵_옆에_적는다() -> None:
+    """시총 세션은 시세 세션과 다를 수 있다(수집기가 다르다). 날짜를 안 적으면
+    며칠 지난 시총이 오늘 것으로 읽힌다."""
+    if shutil.which("node") is None:
+        pytest.skip("node 가 없다")
+    payload = _payload()
+    payload["data"]["markets"]["KR"]["treemap"]["session"] = "2026-08-11"
+    rendered = _render(payload)
+    assert "2026-08-11" in rendered["treemap-note-kr"]
 
 
 # -- 순위표 3종 -----------------------------------------------------------------

@@ -18,10 +18,13 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+SEOUL = ZoneInfo("Asia/Seoul")
 
 from quant_rl_trading.dashboard import create_app
 from quant_rl_trading.dashboard.services import system as system_service
@@ -305,3 +308,39 @@ def test_프로세스_목록은_창고_위치에_좌우되지_않는다(seeded) 
 
     assert data["processes"], "창고가 레포 밖이라고 프로세스 목록이 비면 안 된다"
     assert data["total_rss_mb"] and data["total_rss_mb"] > 0
+
+
+# -- 지연 경보는 거래일로 센다 (태스크 #43) -------------------------------------
+
+
+def test_지연은_달력일이_아니라_거래일로_센다() -> None:
+    """2026-08-15(토)·16(일)·17(광복절 대체공휴일)이 붙어 사흘을 쉬었다.
+
+    달력일로 세면 8/18 아침에 flows·universe·fx 가 전부 "4일 지연" 으로 뜬다 —
+    **넷 다 마지막 거래일(8/14) 것이 정상으로 들어와 있었다.** 매일 뜨는
+    빨간불은 곧 아무도 안 보는 빨간불이 되고, 그때 진짜 결손도 같이 묻힌다.
+    """
+    from quant_rl_trading.dashboard.services.system import _trading_days_since
+
+    latest = datetime(2026, 8, 14, 9, 0, tzinfo=SEOUL)
+
+    # 연휴 한복판 — 아직 한 거래일도 안 지났다.
+    assert _trading_days_since(latest, datetime(2026, 8, 17, 16, 0, tzinfo=SEOUL)) == 0
+    # 연휴 다음 첫 거래일. 달력으로는 나흘이지만 거래일로는 하루다.
+    assert _trading_days_since(latest, datetime(2026, 8, 18, 16, 0, tzinfo=SEOUL)) == 1
+    assert _trading_days_since(latest, datetime(2026, 8, 19, 16, 0, tzinfo=SEOUL)) == 2
+
+
+def test_입출금은_지연_경보_대상이_아니다() -> None:
+    """``capital_flows`` 는 사건이 있을 때만 생긴다 — 한 달에 한 번일 수도,
+    반년을 안 넣을 수도 있다. "며칠째 안 들어왔다" 가 **고장이 아니라 정상**이라
+    경보를 걸면 아무 일도 없었다는 사실이 매일 빨간불로 뜬다.
+
+    표에서 지우는 것이 아니라 경보만 안 건다 — 마지막이 언제인지는 계속 본다.
+    """
+    from quant_rl_trading.dashboard.services.system import NO_STALENESS_ALARM
+
+    assert "capital_flows" in NO_STALENESS_ALARM
+    # 매일 들어와야 하는 것은 빠지면 안 된다 — 그게 빠지면 감시가 무의미해진다.
+    assert "prices" not in NO_STALENESS_ALARM
+    assert "universe" not in NO_STALENESS_ALARM

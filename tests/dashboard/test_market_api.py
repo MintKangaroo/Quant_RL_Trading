@@ -387,6 +387,42 @@ def test_시가총액_순위는_시세와_다른_세션일_수_있다(client) ->
     assert "session" in _table(markets["KR"], "value")
 
 
+def test_시총이_며칠_밀려도_표가_남는다(store) -> None:
+    """**"없다" 와 "창 밖이다" 는 다른 사실이다.**
+
+    시총 수집은 시세와 다른 수집기라 며칠씩 밀린다 — 실측(2026-08-18): 국장
+    시세 08-14 · 시총 08-11. 창을 등락 창(5일)으로 잡았을 때 그 며칠에 국장
+    시총이 통째로 0행이 되어 화면이 "상장주식수가 없다" 고 말했다. 있는데 못
+    본 것이었고, 그 문구를 믿은 사람은 수집기를 팠다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    # 시세보다 8일 늦은 시총 하나뿐이다 — 등락 창(5일) 밖, 시총 창 안이다.
+    stale = NOW - timedelta(days=8)
+    store.append(
+        "market_stats",
+        [_row(KR_A, stale, market="KR", metric="market_cap", value=7e12)],
+        ingest_run_id="stats-stale",
+    )
+    caps, session = service._rank_caps(store, as_of=NOW, market="KR")
+    assert list(caps.index) == [KR_A], "창을 좁게 잡으면 있는 시총이 사라진다"
+    assert session == stale.date().isoformat()
+    # 창 밖으로 더 밀면 그때는 진짜로 못 본다 — 화면이 창을 적어야 하는 이유다.
+    beyond = service.CAP_RECENT_DAYS + 5
+    older, _ = service._rank_caps(store, as_of=NOW + timedelta(days=beyond), market="KR")
+    assert older.empty
+
+
+def test_트리맵이_자기_시총_세션을_들고_나간다(client) -> None:
+    """시세 세션과 다를 수 있다 — 화면이 날짜를 적어야 낡은 시총을 오늘
+    것으로 안 읽는다. 비었을 때는 창을 적어야 어디를 팔지 안다."""
+    from quant_rl_trading.dashboard.services import market as service
+
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert markets["KR"]["treemap"]["session"] is not None
+    assert markets["KR"]["treemap"]["lookback"] == service.CAP_RECENT_DAYS
+
+
 def test_시가총액은_국장만_찬다(client) -> None:
     """미장 시총이 빈 것은 조인 버그가 아니라 상장주식수 수집기가 없어서다."""
     markets = client.get("/api/market").get_json()["data"]["markets"]

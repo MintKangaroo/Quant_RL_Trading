@@ -19,93 +19,6 @@
   --chart-ma20-fill: color-mix(in srgb, var(--chart-ma20) 12%, transparent);
 }
 
-/* -- 캘린더 옆 지수 대비 --------------------------------------------------- */
-
-/* 달력이 패널 폭의 일부만 쓴다(cal-month 는 flex 1 1 260px). 그 오른쪽
-   공백을 지수 대비 패널이 가져간다. 폭이 좁아지면 세로로 쌓는다 — 나란히
-   욱여넣으면 달력 칸이 다시 찌그러진다. */
-.cal-compare {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-
-.cal-compare > .cal { flex: 1 1 280px; }
-
-.bench-compare {
-  flex: 1 1 320px;
-  min-width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.bench-row {
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
-}
-
-.bench-row .head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.bench-row .label { color: var(--muted); font-size: 12px; }
-
-.bench-row .num {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 13px;
-}
-
-.bench-row .num.up { color: var(--up); }
-.bench-row .num.down { color: var(--down); }
-
-/* 없는 지수는 칸을 지우지 않고 자리를 지킨다 — 넷 중 하나만 있다는 사실이
-   화면에서 사라지면 안 된다(다른 셋은 창고에 없다). */
-.bench-row.unavailable {
-  color: var(--dim);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.bench-row.unavailable .label { color: var(--dim); }
-
-/* 누적 초과수익 곡선. **일별 막대가 아니다** — 저베타 전략에서 하루하루의
-   승패는 잡음이고, 막대는 상승장에서 빨강만 줄줄이 뜬다(그게 정상 동작인데
-   화면은 매일 졌다고 말한다). 색은 **마지막 값 하나**로만 정한다. */
-.bench-curve {
-  display: block;
-  width: 100%;
-  height: 34px;
-  margin-top: 6px;
-  overflow: visible;
-}
-
-.bench-curve polyline { stroke-width: 1.6px; }
-.bench-curve.up polyline { stroke: var(--up); }
-.bench-curve.down polyline { stroke: var(--down); }
-.bench-curve.flat polyline { stroke: var(--muted); }
-
-/* 0선 — 이게 없으면 곡선 모양만으로 "앞섰나 뒤졌나" 를 못 읽는다. */
-.bench-curve .zero {
-  stroke: var(--border);
-  stroke-width: 1px;
-  stroke-dasharray: 3 3;
-  vector-effect: non-scaling-stroke;
-}
-
-/* 양쪽이 다 관측되지 않은 날. 지우면 "그날도 잰 값" 처럼 보인다. */
-.bench-curve .gap { fill: var(--warn); }
-
-.bench-gap-note { margin: 4px 0 0; line-height: 1.45; }
-
 .positions-body > #positions { flex: 1 1 60%; min-width: 0; }
 
 .positions-pie {
@@ -119,71 +32,13 @@
   .positions-pie { width: 100%; }
 }
 
-/* -- 캘린더 전체화면 오버레이 ------------------------------------------------ */
-
-/* 모바일에서 [표시하기] 가 새 창 대신 여는 자리 (trading.js openCalendarOverlay).
-   /calendar 를 그대로 iframe 에 담으므로 렌더러가 갈라질 일이 없다. */
-.calendar-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-}
-
-.calendar-overlay-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
-  background: var(--head);
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  font-size: 13px;
-}
-
-/* 44px 최소 터치 타겟은 app.css 의 전역 `button` 규칙(768px 이하)이 준다 —
-   여기서 다시 선언하지 않는다. */
-.calendar-overlay-bar button {
-  padding: 0 14px;
-  color: var(--muted);
-  background: var(--panel2);
-  border: 1px solid var(--border);
-}
-
-.calendar-overlay-bar button:hover { color: var(--text); }
-
-#calendar-overlay-frame {
-  flex: 1 1 auto;
-  width: 100%;
-  border: none;
-  background: var(--bg);
-}
-
 /* -- 모바일 (≤768px) -------------------------------------------------------- */
 
 /* app.css 의 640px 규칙에 **더한다** — 지우거나 뒤집지 않는다. 여기 있는
-   것은 이 탭에만 있는 패널(지수 대비 · Positions 파이 · 캘린더)의 크기와
-   배치뿐이다. 데스크톱 규칙은 그대로 둔다. */
+   것은 이 탭에만 있는 패널(Positions 파이 · 캘린더)의 크기와 배치뿐이다.
+   데스크톱 규칙은 그대로 둔다. */
 @media (max-width: 768px) {
-  /* 캘린더 패널의 폭 전체를 달력이 먼저 쓰게 하고, 지수 대비는 그 아래로
-     내린다 — 나란히 두면 달력 칸이 손끝보다 작아진다. */
-  .cal-compare { gap: 12px; }
-  .cal-compare > .cal { flex-basis: 100%; }
-  .bench-compare { flex-basis: 100%; min-width: 0; }
-
-  /* 캘린더 칸 자체는 app.css 쪽 .cal-cell 이 맡고, 여기서는 옆에 붙는
-     지수 대비 카드만 줄인다 — 숫자 넷이 세로로 쌓이면 스크롤이 길어진다. */
-  .bench-row { padding: 6px 8px; }
-  .bench-curve { height: 28px; }
-
   /* Positions 파이는 이미 1400px 에서 세로로 내려와 있다. 폭이 손바닥만
      해지면 260px 높이가 화면의 반을 먹으므로 더 줄인다 — 지우지는 않는다. */
   .positions-pie { height: 180px; min-width: 0; }
-
-  /* 44px 최소 높이는 app.css 전역 `button` 규칙이 이미 준다 — 여백만 맞춘다. */
-  #calendar-popout { padding: 0 12px; }
-
-  .calendar-overlay-bar { padding: 8px 10px; font-size: 12.5px; }
 }

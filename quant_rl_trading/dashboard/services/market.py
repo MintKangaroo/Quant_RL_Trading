@@ -63,18 +63,22 @@ NAV·낙폭·손익은 여기 없다. 그건 트레이딩 탭의 것이고 회�
 몇 종목이 내렸나, 거래대금은 어디에 몰렸나. 그게 breadth 와 movers 다.
 지수 하나로는 "지수는 올랐는데 종목의 70%는 내렸다" 를 볼 수 없다.
 
-## 미장 시가총액 — 아직 못 그린다
+## 시가총액은 시세보다 늦게 온다 — 없는 것과 늦은 것은 다르다
 
-`leaders(market="US")` 와 트리맵이 참조하는 `market_stats` 는 **시가총액 =
-주가 × 상장주식수** 로 계산된 값인데, 이 창고에서 상장주식수(shares
-outstanding)를 수집하는 곳은 `collectors/krx_openapi.py` (KRX Open API, KR
-전용) 하나뿐이다. `market_stats` 를 시장별로 세어 보면 KR 만 있고 US 는
-0행이다 — US 종목은 시세와 유니버스는 있어도 상장주식수가 없어 market_cap
-자체가 만들어지지 않는다. 지어내지 않고 US 리더·트리맵을 빈 목록으로 둔다 —
-화면이 그 이유를 문구로 말한다.
-**필요한 수집 작업**: US 상장주식수 소스를 찾아 `market_stats`(market="US",
-metric="shares"/"market_cap") 를 채우는 새 수집기. `collectors/*` 는 이 탭의
-소유가 아니라 여기서 만들지 않는다.
+`leaders` 와 트리맵이 참조하는 `market_stats` 는 **시가총액 = 주가 ×
+상장주식수** 다. 상장주식수는 시세와 **다른 수집기**가 넣는다(KR: KRX Open
+API, US: SEC). 그래서 두 세션이 어긋난다 — 실측(2026-08-18): 국장 시세
+08-14 · 시총 08-11, 미장은 둘 다 08-17.
+
+그 어긋남을 창으로 덮으면 안 된다. 창을 5일로 잡았을 때 국장 시총이 통째로
+0행이 되어 화면이 "상장주식수가 없다" 고 말했는데, 있는데 못 본 것이었다.
+그래서 시총은 **넓은 창**(`CAP_RECENT_DAYS`)으로 찾고, **찾은 세션을 응답에
+같이 싣는다**. 낡은 값을 오늘 것처럼 쓰지 않으려면 화면이 그 날짜를 적어야
+한다.
+
+US 는 오래 0행이었다(상장주식수 소스가 없었다). 지금은 SEC 로 들어온다 —
+다만 ADR·ETF 는 여전히 주식수가 없어 그 종목들은 빠진다. 지어내지 않고
+빼고, 화면이 그 이유를 문구로 말한다.
 
 ## 트리맵을 왜 시장별로 완전히 쪼개는가
 
@@ -119,6 +123,18 @@ BENCHMARK_KEY = {"KR": "kr_index", "US": "us_index"}
 #: 하나만 있으면 되고, 창을 키워도 최신 두 세션만 쓴다.
 RECENT_DAYS = 5
 
+#: 시가총액을 찾아 거슬러 올라가는 창. **등락 창(RECENT_DAYS)보다 넓다.**
+#:
+#: 시세와 시총은 다른 수집기가 넣고, 시총 쪽이 며칠씩 밀린다 — 실측
+#: (2026-08-18): 국장 시세는 08-14 인데 `market_stats` 의 마지막 시총은
+#: **08-11** 이었다. 5일 창으로 읽으면 그 표가 통째로 0행이 되고, 화면은
+#: "시총을 만들 수 없다"(= 상장주식수가 없다)고 말한다 — 실제로는 있는데
+#: 창 밖이라 못 본 것이라, 엉뚱한 데를 파게 된다.
+#:
+#: 그래서 창을 넓히고 **찾은 세션을 응답에 같이 싣는다**. 낡은 시총을 몰래
+#: 오늘 것처럼 쓰지 않기 위해서다 — 화면이 그 날짜를 적는다.
+CAP_RECENT_DAYS = 15
+
 #: 시가총액 상위 표의 행수. 화면은 한눈에 보는 것이지 전종목 스크리너가 아니다.
 #: 좌우 두 칸으로 나누면서 폭이 절반이 됐다 — 15줄에서 줄였다.
 LEADER_ROWS = 10
@@ -152,9 +168,11 @@ COMPANION_INDICES = {"KR": ("KR:IDX:KOSDAQ",)}
 #: 방식이 다르다), 보수를 떼며(SPY 연 0.0945%) 추적오차가 쌓이고, 시장가격이
 #: NAV 와 벌어진다(프리미엄/디스카운트). 화면이 그 셋을 적는다.
 #:
-#: `US:SOXX` 는 아직 창고에 0행이다. 자리를 만들어 두고 "미수집" 을 띄운다 —
-#: 수집이 들어오면 저절로 찬다. (SOXX 는 2021-06 부터 필라델피아 SOX 가 아니라
-#: ICE 반도체 지수를 좇는다.)
+#: `US:SOXX` 도 2026-08-19 부터 찬다 — LS 해외로 받는다(1,257세션, 2021-08~).
+#: 오래 "미수집" 이었던 것은 SEC 명단에서 유도하는 미장 유니버스에 ETF 가 안
+#: 들어와서였다. 명단이 아니라 **티커를 직접 지정해** 받으면 온다
+#: (``collectors/ls_us_source`` 의 ``INDEX_PROXY_ETFS``).
+#: (SOXX 는 2021-06 부터 필라델피아 SOX 가 아니라 ICE 반도체 지수를 좇는다.)
 US_ETF_PANELS = (
     ("US:SPY", "S&P 500"),
     ("US:QQQ", "나스닥 100"),
@@ -430,8 +448,10 @@ def instrument_panels(
 
     ## 없으면 자리를 지키고 이유를 적는다
 
-    창고에 없는 것(지금은 `US:SOXX`)도 ``missing`` 으로 나가 패널 자리를
-    유지한다. 수집이 들어오면 **저절로 찬다** — 여기 고칠 것이 없다.
+    창고에 없는 것은 ``missing`` 으로 나가 패널 자리를 유지한다. 수집이
+    들어오면 **저절로 찬다** — 여기 고칠 것이 없다. 실제로 그렇게 됐다:
+    `US:SOXX` 가 오래 비어 있다가 2026-08-19 수집이 붙자 이 파일을 한 줄도
+    안 고치고 채워졌다.
     """
     kind = PANEL_KIND[market]
     if kind == "etf":
@@ -576,45 +596,34 @@ def breadth(changes: pd.DataFrame, *, market: str) -> dict[str, Any]:
 
 
 def leaders(
-    store: Store, changes: pd.DataFrame, *, as_of: datetime, market: str, limit: int
+    store: Store, changes: pd.DataFrame, caps: pd.Series, *, as_of: datetime, limit: int
 ) -> list[dict[str, Any]]:
     """시가총액 상위 ``limit`` 종목. 순위는 오늘 알 수 있는 마지막 시총 기준이다.
 
-    등락률은 ``changes``(시세로 이미 만든 표)에서 꺼내 쓴다 — 리더 표와
-    트리맵이 각자 시세를 다시 읽으면 같은 창고를 두 번 훑는다.
+    시총은 **읽지 않고 받는다**(`_rank_caps` 가 읽은 것). 순위표와 트리맵이
+    각자 `market_stats` 를 열면 같은 파티션을 두 번 훑고, 더 나쁘게는 둘이
+    서로 다른 세션의 시총으로 줄을 세울 수 있다 — 화면 안에서 같은 "시총
+    1위" 가 갈린다.
 
-    `market_stats` 는 종목마다 하루 두 행(market_cap·shares)이라 KR 만 해도
-    수천 종목이다. 창을 짧게 열고(RECENT_DAYS) market 으로 SQL 단계에서
-    거른다 — 안 그러면 국장·미장을 함께 스캔한다.
+    등락률도 ``changes``(시세로 이미 만든 표)에서 꺼내 쓴다 — 같은 이유다.
     """
-    stats = store.get(
-        MARKET_STATS,
-        as_of=as_of,
-        lookback=RECENT_DAYS,
-        market=market,
-        columns=["entity_id", "metric", "value", "valid_from"],
-    )
-    if stats.empty:
-        return []
-    caps = stats[stats["metric"] == "market_cap"]
     if caps.empty:
         return []
-    latest = caps.sort_values("valid_from").groupby("entity_id").tail(1)
-    top = latest.sort_values("value", ascending=False).head(limit)
-    entities = [str(e) for e in top["entity_id"]]
+    top = caps.sort_values(ascending=False).head(limit)
+    entities = [str(e) for e in top.index]
 
     names = entity_names(store, as_of=as_of, entities=entities)
     changed = changes["change"] if not changes.empty else pd.Series(dtype=float)
 
     rows: list[dict[str, Any]] = []
-    for row in top.to_dict(orient="records"):
-        entity = str(row["entity_id"])
+    for entity, cap in top.items():
+        entity = str(entity)
         change = changed.get(entity)
         rows.append(
             {
                 "entity_id": entity,
                 "name": names.get(entity, entity),
-                "market_cap": float(row["value"]),
+                "market_cap": float(cap),
                 # 종가가 아예 없는 종목(오늘 거래정지 등)은 표에 키가 없다.
                 # 거래는 있었는데 직전이 없는 경우와 같은 값(None)이지만, 둘 다
                 # "등락을 못 잰다" 라는 같은 사실이라 화면에서 구분하지 않는다.
@@ -673,11 +682,18 @@ def _rank_caps(store: Store, *, as_of: datetime, market: str) -> tuple[pd.Series
     창고의 미장 ``shares`` 에 2028-08-01 짜리 행이 실제로 있다. 창 없이 읽으면
     2년 뒤 값으로 순위를 매기게 된다(`reporting/briefing.py` `market_caps` 와
     같은 이유, 같은 처방).
+
+    창은 ``CAP_RECENT_DAYS`` 다 — 시총 수집이 시세보다 며칠 밀리기 때문이고,
+    등락 창(RECENT_DAYS)을 그대로 쓰면 그 며칠에 표가 통째로 사라진다.
+
+    **한 세션으로 맞춘다.** 종목마다 각자의 마지막 시총을 쓰면 어제 값과
+    지난주 값이 한 줄에 섞여 순위가 뒤집힌다 — 가장 최근 세션 하나만 남기고,
+    그 세션을 같이 돌려준다. 화면은 그 날짜를 적어야 한다.
     """
     frame = store.get(
         MARKET_STATS,
         as_of=as_of,
-        lookback=RECENT_DAYS,
+        lookback=CAP_RECENT_DAYS,
         until=as_of,
         market=market,
         columns=["entity_id", "metric", "value", "valid_from"],
@@ -696,7 +712,13 @@ def _rank_caps(store: Store, *, as_of: datetime, market: str) -> tuple[pd.Series
 
 
 def rankings(
-    store: Store, changes: pd.DataFrame, *, as_of: datetime, market: str
+    store: Store,
+    changes: pd.DataFrame,
+    caps: pd.Series | None = None,
+    cap_session: str | None = None,
+    *,
+    as_of: datetime,
+    market: str,
 ) -> dict[str, Any]:
     """한 시장의 순위표 3종. 시세는 ``changes``(이미 읽은 판)를 나눠 쓴다.
 
@@ -728,7 +750,10 @@ def rankings(
         )
         return base
 
-    caps, cap_session = _rank_caps(store, as_of=as_of, market=market)
+    # 시총은 한 판에서 한 번만 읽는다(`market_panel`). 안 주고 부르면 여기서
+    # 읽는다 — 이 함수 하나만 떼어 부르는 자리(테스트)를 위해서다.
+    if caps is None:
+        caps, cap_session = _rank_caps(store, as_of=as_of, market=market)
     session = None if changes.empty else next((s for s in changes["session"] if s), None)
 
     if changes.empty:
@@ -856,7 +881,13 @@ def macro_recent(store: Store, *, as_of: datetime, market: str) -> list[dict[str
 
 
 def market_panel(
-    store: Store, *, as_of: datetime, lookback: int, market: str, headline: str
+    store: Store,
+    *,
+    as_of: datetime,
+    lookback: int,
+    market: str,
+    headline: str,
+    live_quotes: Any = None,
 ) -> dict[str, Any]:
     """한 시장의 판 전부. KR·US 가 **같은 함수, 같은 모양**이다.
 
@@ -868,7 +899,11 @@ def market_panel(
     같은 숫자다.
     """
     changes = session_changes(store, as_of=as_of, market=market)
-    top = leaders(store, changes, as_of=as_of, market=market, limit=TREEMAP_TOP_N)
+    # 시총도 한 번만 읽는다 — 순위표·리더·트리맵이 **같은 세션의 같은 표**를
+    # 나눠 쓴다. 각자 읽으면 창고를 세 번 열고, 셋이 서로 다른 세션의 시총으로
+    # 줄을 설 수 있다.
+    caps, cap_session = _rank_caps(store, as_of=as_of, market=market)
+    top = leaders(store, changes, caps, as_of=as_of, limit=TREEMAP_TOP_N)
     panels = instrument_panels(
         store, as_of=as_of, lookback=lookback, market=market, benchmark_id=headline
     )
@@ -880,23 +915,89 @@ def market_panel(
         for row in panels["panels"] + panels["missing"]
         if row["kind"] == "index"
     }
+    ranked = rankings(store, changes, caps, cap_session, as_of=as_of, market=market)
+
+    # 장중 값은 **표를 다 세운 뒤에** 얹는다. 순위는 종가로 서고, 실시간은
+    # 그 옆 칸에만 앉는다 — 순서를 바꾸면 새로고침할 때마다 순위가 흔들린다.
+    # 순위표는 ``tables`` 안에 표 넷이 있고 종목 행은 그 안의 ``rows`` 다.
+    # 바깥 dict 를 그대로 훑으면 하한·집계 같은 종목 아닌 값이 섞인다.
+    live_rows = list(top)
+    for table in ranked.get("tables") or []:
+        live_rows.extend(table.get("rows") or [])
+    filled = attach_live(live_rows, live_quotes)
+
     return {
         "market": market,
         "currency": CURRENCY.get(market, ""),
+        # **국장만 장중 값을 받는다.** 조용히 비면 "장외라 없다" 와 "이 시장은
+        # 애초에 안 물어본다" 가 같아 보인다.
+        "live": {
+            "supported": market == "KR",
+            "filled": filled,
+            "reason": None if market == "KR" else "미장은 실시간 조회 경로가 아직 없다",
+        },
         "instrument_panels": panels,
         "indices": indices(store, as_of=as_of, market=market, exclude=paneled),
         "breadth": breadth(changes, market=market),
-        "rankings": rankings(store, changes, as_of=as_of, market=market),
+        "rankings": ranked,
         "leaders": top[:LEADER_ROWS],
-        "treemap": {"rows": top, "top_n": TREEMAP_TOP_N},
+        # 시총 세션을 같이 싣는다. **시세 세션과 다를 수 있다** — 화면이 그걸
+        # 적지 않으면 낡은 시총이 오늘 것으로 읽힌다. 창(CAP_RECENT_DAYS) 도
+        # 같이 준다: 비었을 때 "없는 것" 과 "창 밖인 것" 을 화면이 갈라 말한다.
+        "treemap": {
+            "rows": top,
+            "top_n": TREEMAP_TOP_N,
+            "session": cap_session,
+            "lookback": CAP_RECENT_DAYS,
+        },
         "macro": macro_recent(store, as_of=as_of, market=market),
     }
+
+
+# -- 장중 값 --------------------------------------------------------------------
+
+
+def attach_live(rows: list[dict[str, Any]], cache: Any) -> int:
+    """장중 시세를 **참고 열에만** 채운다. 몇 종목이 찼는지 돌려준다.
+
+    ``live_price``·``live_change`` 는 종가 기반 값(``change``·``market_cap``)을
+    **덮지 않는다.** 트레이딩 탭이 ``live_nav`` 를 종가 NAV 와 갈라 둔 것과 같은
+    규약이다 — 회계와 순위는 확정된 종가로만 서고, 장중 값은 그 옆에 앉는다.
+    섞으면 화면이 "지금 시총 1위" 를 말하는데 그 숫자는 회계에 없는 값이 된다.
+
+    **실패·장외를 종가로 때우지 않는다.** 값이 없으면 열을 비운 채로 둔다.
+    때우면 화면이 실시간인 척하게 되고, 그건 조용히 틀리는 종류의 거짓이다.
+
+    ``LiveQuoteCache`` 는 국장(t8407)만 안다 — 미장은 appkey 가 따로고 호가가
+    응답에 없다(g3104, 2026-08-17 실측). 그래서 미장 종목은 조회 자체가 안
+    나가고, 화면은 아래 ``live`` 블록의 ``supported`` 로 그 사실을 말한다.
+    """
+    if cache is None:
+        return 0
+    # 순위표 안에는 종목 행이 아닌 것도 섞여 있다(하한 설명·집계 줄). 종목이
+    # 아닌 행에 장중 값을 붙일 수는 없으므로 조용히 건너뛴다 — 여기서 죽으면
+    # 마켓 탭이 통째로 500 이 된다.
+    targets = [row for row in rows if isinstance(row, dict) and row.get("entity_id")]
+    if not targets:
+        return 0
+    quotes = cache.get([str(row["entity_id"]) for row in targets])
+    filled = 0
+    for row in targets:
+        quote = quotes.get(str(row["entity_id"]))
+        if quote is None or quote.price <= 0:
+            continue
+        row["live_price"] = quote.price
+        row["live_change"] = quote.change_rate
+        filled += 1
+    return filled
 
 
 # -- 한 판 ---------------------------------------------------------------------
 
 
-def payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+def payload(
+    store: Store, *, as_of: datetime, lookback: int, live_quotes: Any = None
+) -> dict[str, Any]:
     """마켓 탭 한 판. **국장 왼쪽 · 미장 오른쪽**, 두 판이 같은 모양이다.
 
     ``benchmark.total_return`` 을 같이 싣는다 — 대표 지수가 가격지수라
@@ -915,6 +1016,7 @@ def payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
                 lookback=lookback,
                 market=code,
                 headline=headlines[code],
+                live_quotes=live_quotes,
             )
             for code in MARKETS
         },

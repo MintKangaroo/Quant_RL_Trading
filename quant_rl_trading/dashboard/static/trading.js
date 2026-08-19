@@ -81,6 +81,20 @@ function bindEmergencyStop() {
 
 const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up" : "down");
 
+/* 장중 총자산 카드의 아랫줄. **0.00% 는 두 가지 뜻이라 반드시 갈라 적는다.**
+ *
+ * 장외에는 t8407 이 마지막 체결가를 주는데 그것이 곧 전일 종가다. 그래서
+ * 변화율이 0.00% 로 나오는데, 그건 "장이 열렸는데 안 움직였다" 가 아니라
+ * "아직 안 열렸다" 다. 안 가르면 정상 동작이 고장으로 읽힌다 — 실제로
+ * 2026-08-19 08:51(개장 9분 전)에 "실시간이 왜 안 움직이냐" 는 물음이 나왔다.
+ */
+function liveNavNote(k) {
+  if (k.live_session_open === false) {
+    return "장외 — 마지막 체결가 기준 · 참고값";
+  }
+  return `종가 대비 ${pct(k.live_change)} · 참고값`;
+}
+
 /** 총자산 카드의 아랫줄. **장중 값이 있으면 그것이 몇 종목을 덮는지 적는다.**
  *
  * 절반만 실시간인 수치를 "지금 총자산" 이라고 말하면 안 된다 — 장외거나
@@ -110,8 +124,8 @@ function renderKpis(body) {
     ...(k.live_nav === null || k.live_nav === undefined
       ? []
       : [kpi("장중 총자산", num(Math.round(k.live_nav)),
-             `종가 대비 ${pct(k.live_change)} · 참고값`, false,
-             { unit: "KRW", tone: tone(k.live_change) })]),
+             liveNavNote(k), false,
+             { unit: "KRW", tone: k.live_session_open === false ? "" : tone(k.live_change) })]),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
     kpi("오늘 수익금", signed(k.today_pnl), `지수 ${dec(k.index_value, 2)}`, false,
         { unit: "KRW", tone: tone(k.today_pnl) }),
@@ -763,171 +777,20 @@ async function renderCandles(entityId, positions) {
 /* 그리는 일은 calendar.js 가 한다 — 별도 창(/calendar)과 **같은 렌더러**다.
  * 두 벌로 만들면 한쪽만 고쳐진 채로 남고, 두 화면이 같은 수익률을 다르게 그린다.
  *
- * 탭에서는 최근 달만, 숫자 없이 색으로만 보여준다. 패널 하나에 여러 달을
- * 숫자까지 넣으면 칸이 읽을 수 없게 작아진다. 전체는 새 창에서 본다.
+ * 예전에는 여기서 최근 한 달만 숫자 없이 색으로 보여주고, [표시하기] 버튼이
+ * 새 창을 띄웠다. **버튼을 눌러서 보던 화면이 원래 보고 싶던 화면이었으므로**
+ * 한 번 더 누르게 하지 않고 여기서 바로 그린다 — ‹ › 로 달을 옮기고 아래
+ * 월별 표에서 [보기] 로 건너뛴다.
  */
 function renderCalendarPanel(body) {
   const cal = body.data.calendar || { days: [], months: [] };
-  const months = calendarMonths(cal);
-  renderCalendar(document.getElementById("calendar"), cal, {
-    months: months.slice(-1),
-    compact: true,
+  mountCalendarBrowser(cal, {
+    label: document.getElementById("cal-label"),
+    grid: document.getElementById("calendar"),
+    months: document.getElementById("cal-months"),
+    prev: document.getElementById("cal-prev"),
+    next: document.getElementById("cal-next"),
   });
-}
-
-/* 새 창은 지금 보고 있는 as_of·창을 그대로 물려받는다. 안 넘기면 달력만
- * 조용히 지금을 보게 되고, 두 화면이 다른 시점을 말한다. */
-/* 모바일에서는 새 창(window.open) 이 대부분 새 탭으로 강제 전환된다 — 크기
- * 지정이 안 먹고, 탭을 나가면 이 화면의 스크롤 위치가 날아간다. 그래서
- * 좁은 화면에서는 같은 /calendar 페이지를 iframe 으로 띄운 전체화면
- * 오버레이로 대신한다. **기능은 그대로다** — 같은 렌더러(calendar.js)를
- * 그대로 쓰는 같은 페이지고, as_of/창도 그대로 물려준다.
- */
-function openCalendarOverlay(url) {
-  let overlay = document.getElementById("calendar-overlay");
-  if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "calendar-overlay";
-    overlay.className = "calendar-overlay";
-    overlay.hidden = true;
-    overlay.innerHTML = `
-      <div class="calendar-overlay-bar">
-        <span>수익률 캘린더</span>
-        <button type="button" id="calendar-overlay-close">닫기 ✕</button>
-      </div>
-      <iframe id="calendar-overlay-frame" title="수익률 캘린더"></iframe>`;
-    document.body.appendChild(overlay);
-    overlay.querySelector("#calendar-overlay-close").addEventListener("click", () => {
-      overlay.hidden = true;
-      // src 를 비워 iframe 을 죽인다 — 안 그러면 닫아도 백그라운드에서 계속 로드된 채로 남는다.
-      overlay.querySelector("#calendar-overlay-frame").src = "about:blank";
-    });
-  }
-  overlay.querySelector("#calendar-overlay-frame").src = url;
-  overlay.hidden = false;
-}
-
-function bindCalendarPopout() {
-  const button = document.getElementById("calendar-popout");
-  // 지금은 loadTrading 이 한 번만 돌지만, 나중에 자동 갱신이 붙으면 누를 때마다
-  // 창이 여러 개 뜬다. 한 번만 매다는 비용이 그 고장을 찾는 비용보다 싸다.
-  if (!button || button.dataset.bound) return;
-  button.dataset.bound = "1";
-  button.addEventListener("click", () => {
-    const query = params().toString();
-    const url = `/calendar${query ? "?" + query : ""}`;
-    if (window.matchMedia("(max-width: 768px)").matches) {
-      openCalendarOverlay(url);
-      return;
-    }
-    window.open(url, "quant-rl-calendar", "width=980,height=860,scrollbars=yes");
-  });
-}
-
-/* -- 지수 대비 -------------------------------------------------------------- */
-
-/* 캘린더 오른쪽 공백에 앉는다. **여기서 대용치를 쓰지 않는다** — 코스피가
- * 창고에 없으면 "없다" 고 말한다. KRX 300 을 대신 보여주고 이름만 코스피라고
- * 붙이면 그게 더 큰 거짓말이다 (regime Analyst 는 이유가 있어 대용치를
- * 쓰지만 이 화면은 그 이유를 공유하지 않는다).
- */
-/* 그 달의 **누적 초과수익 곡선**. 일별 막대가 아니다.
- *
- * 이 전략은 저베타라(실측 베타 0.131 · 상승일 포착률 14%) 상승장에서 일별
- * 초과가 음수인 날이 줄줄이 나오는 것이 **설계대로 굴러가는 모습**이다.
- * 막대로 그리면 화면이 매일 "졌다" 고 스무 번 외친다 — 2026-07 실측으로
- * 일별 부호가 22일 중 9~13번 뒤집혔다. 그리고 그 빨강은 손실이 아닌데
- * 같은 패널의 캘린더 빨강은 **진짜 손실**이라, 한 패널에서 같은 색이 두
- * 가지를 뜻하게 된다.
- *
- * 누적은 그 달의 결론이고, 곡선이면 **언제부터 벌어졌나**도 보인다.
- *
- * ECharts 를 안 쓰는 이유는 밀도다 — 이 패널은 달력 오른쪽의 좁은 칸이고
- * 네 지수가 세로로 쌓인다. 축과 눈금이 들어갈 자리가 없고, 정확한 값은
- * 오른쪽 숫자와 호버가 든다. */
-const BENCH_CURVE_H = 34;
-
-function benchCurve(row) {
-  const days = row.daily || [];
-  const values = days.map((d) => d.cumulative_excess);
-  if (values.length < 2) {
-    return `<p class="sub tiny">곡선을 그리려면 이틀은 있어야 한다 (지금 ${num(values.length)}일).</p>`;
-  }
-  // 0 을 반드시 범위에 넣는다 — 0선이 화면 밖으로 나가면 "앞섰나 뒤졌나" 를
-  // 곡선 모양만으로는 못 읽는다.
-  const lo = Math.min(0, ...values);
-  const hi = Math.max(0, ...values);
-  const span = hi - lo || 1e-9;
-  const px = (i) => (i / (values.length - 1)) * 100;
-  const py = (v) => BENCH_CURVE_H - 2 - ((v - lo) / span) * (BENCH_CURVE_H - 4);
-
-  const last = values[values.length - 1];
-  // **색은 마지막 값 하나로만.** 구간마다 바꾸면 막대와 같은 문제가 돌아온다.
-  const tone = last > 0 ? "up" : last < 0 ? "down" : "flat";
-  const line = values.map((v, i) => `${px(i)},${py(v)}`).join(" ");
-  const zero = py(0);
-
-  // 양쪽이 다 관측되지 않은 날. 그날은 한쪽 누적이 안 움직였다 — 즉 "그날
-  // 그쪽 수익률이 0" 이라고 가정한 셈이라, 지우지 않고 점으로 드러낸다.
-  const gaps = days
-    .map((d, i) => (d.paired ? "" : `<circle cx="${px(i)}" cy="${py(values[i])}" r="1.6" class="gap"/>`))
-    .join("");
-
-  // 호버 자리. polyline 에는 점마다 title 을 못 달아서 투명한 칸을 겹친다.
-  const width = 100 / values.length;
-  const hits = days
-    .map(
-      (d, i) => `<rect x="${Math.max(0, px(i) - width / 2)}" y="0" width="${width}" height="${BENCH_CURVE_H}"
-        fill="transparent"><title>${d.session}
-우리 ${d.ours === null || d.ours === undefined ? "—" : pct(d.ours)}
-지수 ${d.index === null || d.index === undefined ? "—" : pct(d.index)}
-누적 초과 ${pct(d.cumulative_excess)}${d.paired ? "" : "\n(한쪽 데이터 없음)"}</title></rect>`
-    )
-    .join("");
-
-  return `<svg class="bench-curve ${tone}" viewBox="0 0 100 ${BENCH_CURVE_H}" preserveAspectRatio="none">
-    <line class="zero" x1="0" y1="${zero}" x2="100" y2="${zero}"/>
-    <polyline points="${line}" fill="none" vector-effect="non-scaling-stroke"/>
-    ${gaps}${hits}
-  </svg>`;
-}
-
-function renderBenchmarkCompare(body) {
-  const target = document.getElementById("bench-compare");
-  if (!target) return;
-  const bc = body.data.benchmark_compare;
-  if (!bc || !bc.benchmarks || !bc.benchmarks.length) {
-    target.innerHTML = `<p class="empty">비교할 지수가 없다.</p>`;
-    return;
-  }
-
-  const rows = bc.benchmarks
-    .map((b) => {
-      if (!b.available) {
-        return `<div class="bench-row unavailable">
-          <span class="label">${b.label}</span>
-          <span>없음 — ${b.reason}</span>
-        </div>`;
-      }
-      const excess = b.cumulative_excess;
-      const missing = (b.daily || []).filter((d) => !d.paired).length;
-      return `<div class="bench-row">
-        <div class="head">
-          <span class="label">${b.label} <span class="sub">${bc.month}</span></span>
-          <span class="num ${signClass(excess)}">${arrow(excess)}${pct(excess)}</span>
-        </div>
-        <div class="head">
-          <span class="label">우리 ${pct(b.cumulative_ours)} · 지수 ${pct(b.cumulative_index)}</span>
-        </div>
-        ${benchCurve(b)}
-        ${missing
-          ? `<p class="sub tiny bench-gap-note">양쪽이 다 관측된 날이 아닌 ${num(missing)}일이 있다 —
-             그날은 한쪽이 안 움직인 것으로 잰다(점으로 표시).</p>`
-          : ""}
-      </div>`;
-    })
-    .join("");
-  target.innerHTML = rows;
 }
 
 /* -- Positions 파이 --------------------------------------------------------- */
@@ -1035,7 +898,7 @@ async function loadTrading() {
     renderAlerts(body);
     document.getElementById("kpis").innerHTML =
       kpi("평가 불가", "—", body.data.unavailable, true);
-    ["watchlist", "decision", "risk", "positions", "orders", "bench-compare"].forEach((id) => {
+    ["watchlist", "decision", "risk", "positions", "orders"].forEach((id) => {
       document.getElementById(id).innerHTML =
         `<p class="empty">회계가 평가를 거부했다. 위 사유를 먼저 해결한다.</p>`;
     });
@@ -1063,11 +926,55 @@ async function loadTrading() {
   renderEquity(body);
   renderUnderwater(body);
   renderCalendarPanel(body);
-  renderBenchmarkCompare(body);
-  bindCalendarPopout();
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
   await renderCandles(body.data.decision.entity_id, body.data.positions);
+
+  // 장중이면 다음 갱신을 예약한다. **그리기가 끝난 뒤**여야 한다 — 앞에 두면
+  // 느린 세션에서 갱신이 겹쳐 쌓인다.
+  scheduleLiveRefresh(body);
+}
+
+/* -- 장중 자동 갱신 ---------------------------------------------------------- */
+
+/* **장이 열려 있을 때만** 주기적으로 다시 읽는다.
+ *
+ * 안 하면 실시간 시세를 붙여 놓고도 화면이 처음 연 순간에 얼어붙는다 —
+ * 값은 맞는데 안 움직이니 고장으로 읽힌다(2026-08-19 09:09 실측).
+ *
+ * 세 가지를 지킨다:
+ *   - **타임머신을 켰으면 갱신하지 않는다.** 되감은 화면이 조용히 흘러가면
+ *     사람이 보고 있는 시점이 바뀌어 버린다 (dashboard.md §8-2)
+ *   - **장외에는 돌지 않는다.** 마지막 체결가는 안 변하는데 매번 창고를 연다
+ *   - **탭이 숨겨져 있으면 쉰다.** 배경 탭 수십 개가 30초마다 깨우면
+ *     이 기계에서 그 비용이 실제로 아프다
+ */
+const LIVE_REFRESH_MS = 30000;
+let liveTimer = null;
+
+function scheduleLiveRefresh(body) {
+  if (liveTimer) {
+    clearTimeout(liveTimer);
+    liveTimer = null;
+  }
+  // as_of 를 준 화면(타임머신)은 흐르지 않는다.
+  if (!body || !body.live) return;
+  const k = (body.data && body.data.kpis) || {};
+  if (k.live_session_open === false) return;
+
+  liveTimer = setTimeout(async () => {
+    if (document.hidden) {
+      scheduleLiveRefresh(body); // 숨어 있으면 값만 미루고 예약은 이어 간다
+      return;
+    }
+    try {
+      await loadTrading();
+    } catch (error) {
+      // 한 번 실패했다고 갱신을 멈추지 않는다 — 다음 주기에 다시 해 본다.
+      console.warn("자동 갱신 실패:", error);
+      scheduleLiveRefresh(body);
+    }
+  }, LIVE_REFRESH_MS);
 }
 
 runAll([loadTrading]);

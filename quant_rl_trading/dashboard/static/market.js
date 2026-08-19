@@ -420,13 +420,58 @@ function floorNote(data) {
  * 된다 — 이 저장소가 반복해서 겪은 결함 계열이다.
  *
  * 이 함수가 없어서 마켓 탭이 통째로 안 떴다(2026-08-18, ReferenceError).
- * 호출은 있는데 정의가 없었다.
+ * 이름이 어긋나 있었다 — 정의는 `noCapReasonText`, 트리맵의 호출은
+ * `noCapReason`. **그 줄에서 죽으면 아래가 통째로 안 돈다**: 국장 트리맵이
+ * 비는 날에 미장 칸 전부(지수 목록·시장폭·순위·트리맵·거시)가 같이 사라졌다.
  */
 function noCapReasonText(code) {
   return code === "KR"
     ? "시가총액을 만들 수 없다 — KRX 상장주식수가 그 세션에 없다."
     : "시가총액을 만들 수 없다 — SEC 상장주식수가 그 세션에 없다 " +
       "(ADR·ETF 는 주식수가 없어 원래 빠진다).";
+}
+
+/* 트리맵이 빈 이유. **"창고에 없다" 와 "창 밖이다" 는 다른 사실이다** —
+ * 시총 수집은 시세보다 며칠 밀리므로, 창(CAP_RECENT_DAYS) 안에 한 세션도
+ * 없으면 수집이 멈춘 것이다. 그 창을 화면이 적어야 어디를 파야 할지 안다. */
+function treemapEmptyText(code, t) {
+  const window = t.lookback ? ` 최근 ${num(t.lookback)}일 안에 시총 세션이 하나도 없다 —
+    수집이 멈춘 것인지 먼저 볼 것.` : "";
+  return `${noCapReasonText(code)}${window}`;
+}
+
+/* -- 장중 값 ------------------------------------------------------------------ */
+
+/* 종가 아래에 붙는 참고 한 줄. **종가를 덮지 않는다** — 순위와 시총은 확정된
+ * 종가로 섰으므로 그 숫자가 먼저 보여야 하고, 실시간은 그 옆에 앉는다
+ * (services/market.py `attach_live` 와 같은 규약).
+ *
+ * 값이 없으면 **아무것도 그리지 않는다.** 빈 자리가 "지금은 장외" 를 뜻한다 —
+ * 종가로 때우면 화면이 실시간인 척하게 되고, 그건 조용히 틀리는 거짓이다.
+ */
+function liveCell(row) {
+  if (row.live_price === null || row.live_price === undefined) return "";
+  return `<div class="live-line" title="장중 체결가 (t8407)">
+    <span class="live-dot"></span>${num(row.live_price)}
+    <span class="${signClass(row.live_change)}">${signed(row.live_change)}</span>
+  </div>`;
+}
+
+/* 그 시장이 장중 값을 몇 개나 받았는지. **0 건과 "안 물어본다" 는 다른
+ * 사실이다** — 미장은 appkey 가 따로고 호가가 응답에 없어 조회 자체가 안
+ * 나간다. 조용히 비면 둘이 같아 보인다.
+ */
+function liveBadge(panel) {
+  const live = panel.live || {};
+  if (!live.supported) {
+    return `<span class="badge dim" title="${esc(live.reason || "")}">실시간 없음</span>`;
+  }
+  if (!live.filled) {
+    return `<span class="badge dim" title="장외이거나 조회가 비었다">장외</span>`;
+  }
+  return `<span class="badge live" title="t8407 장중 체결가 · ${num(live.filled)}종목">
+    <span class="live-dot"></span>실시간 ${num(live.filled)}
+  </span>`;
 }
 
 function renderRankings(body, code, suffix) {
@@ -442,7 +487,9 @@ function renderRankings(body, code, suffix) {
       ${esc(data.reason || "하한을 읽을 수 없다")}</p>`;
     return;
   }
-  if (note) note.textContent = `${num(data.eligible)}종목 · 상위 ${num(data.rows)}`;
+  if (note) {
+    note.innerHTML = `${num(data.eligible)}종목 · 상위 ${num(data.rows)} ${liveBadge(panel)}`;
+  }
 
   // 넷을 한 표에 쌓으면 패널 안에서 세로로만 길어져 넷째 표까지 내려가는
   // 사람이 없다. **2×2 로 눕히고 좁으면 한 줄씩 쌓는다**(market.css).
@@ -468,7 +515,8 @@ function renderRankings(body, code, suffix) {
               ${codeCell(row.entity_id, row.name)}</td>
           <td class="r mono ${table.key === "gainers" ? signClass(row.change) : ""}">${rankMetric(table, row, panel.currency)}</td>
           <td class="r mono">${num(row.close)}
-              <span class="sub ${signClass(row.change)}">${signed(row.change)}</span></td>
+              <span class="sub ${signClass(row.change)}">${signed(row.change)}</span>
+              ${liveCell(row)}</td>
           <td class="r mono">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
         </tr>`
       )
@@ -520,10 +568,16 @@ function renderTreemap(body, code, suffix) {
   const target = document.getElementById(elId);
   if (!t.rows.length) {
     if (note) note.textContent = "";
-    target.innerHTML = `<p class="empty">${noCapReason(code)}</p>`;
+    target.innerHTML = `<p class="empty">${esc(treemapEmptyText(code, t))}</p>`;
     return;
   }
-  if (note) note.textContent = `상위 ${t.rows.length}종목 (최대 ${t.top_n})`;
+  // **시총 세션은 시세 세션과 다를 수 있다**(수집기가 다르다). 날짜를 안
+  // 적으면 며칠 지난 시총이 오늘 것으로 읽힌다 — 순위표가 표마다 자기
+  // 날짜를 적는 것과 같은 이유다.
+  if (note) {
+    note.textContent = `상위 ${t.rows.length}종목 (최대 ${t.top_n})`
+      + (t.session ? ` · 시총 ${t.session}` : "");
+  }
 
   const data = t.rows.map((row) => ({
     name: row.name,
@@ -600,11 +654,37 @@ function renderMacro(body, code, suffix) {
 
 /* -- 한 판 ------------------------------------------------------------------- */
 
+/* 그 칸의 데이터가 **언제 것인가**. 화면에 숫자가 있다는 것과 그 숫자가
+ * 오늘 것이라는 것은 다른 사실인데, 날짜를 안 적으면 둘이 같아 보인다 —
+ * 실측으로 시세 08-14 · 시총 08-11 인 채로 순위표가 멀쩡해 보인 적이 있다.
+ *
+ * 셋을 나눠 적는다. 셋의 출처가 다르기 때문이다:
+ *   시세  일일 수집(collect_daily.sh)이 넣는 종가 세션
+ *   시총  같은 스크립트의 다른 단계 — 자주 어긋난다
+ *   실시간 t8407 장중 체결가. 국장만 있고, 장외에는 아예 없다
+ */
 function renderColumnNote(body, code, suffix) {
-  const b = body.data.markets[code].breadth;
+  const panel = body.data.markets[code];
+  const b = panel.breadth;
+  const cap = (panel.treemap || {}).session;
+  const live = panel.live || {};
   const target = document.getElementById(`col-note-${suffix}`);
   if (!target) return;
-  target.textContent = b.session ? `시세 ${b.session} · ${num(b.traded)}종목` : "시세 없음";
+
+  if (!b.session) {
+    target.textContent = "시세 없음";
+    return;
+  }
+  const parts = [`시세 ${esc(b.session)} · ${num(b.traded)}종목`];
+  // 시총 날짜는 **다를 때만** 적는다. 같으면 같은 날짜를 두 번 읽게 되고,
+  // 그러면 정작 어긋난 날 눈에 안 들어온다.
+  if (cap && cap !== b.session) {
+    parts.push(`<span class="warn">시총 ${esc(cap)}</span>`);
+  }
+  if (live.supported && live.filled) {
+    parts.push(`<span class="live-dot">실시간 ${num(live.filled)}종목</span>`);
+  }
+  target.innerHTML = parts.join(" · ");
 }
 
 async function loadMarket() {
@@ -636,10 +716,16 @@ async function loadMarket() {
     }
     if (!panel.breadth.traded) warnings.push(`${label} 시세가 비어 있다`);
     if (!panel.treemap.rows.length) {
+      warnings.push(`${label} 시가총액이 비어 있다 — 상장주식수 수집을 볼 것`);
+    } else if (
+      // 시총이 시세보다 **늦은** 것은 조용히 넘어가면 안 된다. 화면은 멀쩡해
+      // 보이고 숫자도 있는데, 순위가 며칠 전 시총으로 매겨진다.
+      panel.treemap.session &&
+      panel.breadth.session &&
+      panel.treemap.session < panel.breadth.session
+    ) {
       warnings.push(
-        code === "US"
-          ? "미장 시가총액 미수집 — 상장주식수 소스가 없다"
-          : "국장 시가총액이 비어 있다"
+        `${label} 시총이 시세보다 늦다 — 시세 ${panel.breadth.session} · 시총 ${panel.treemap.session}`
       );
     }
     if (!panel.rankings.floor) {
