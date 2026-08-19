@@ -888,6 +888,7 @@ def market_panel(
     market: str,
     headline: str,
     live_quotes: Any = None,
+    live_index: Any = None,
 ) -> dict[str, Any]:
     """한 시장의 판 전부. KR·US 가 **같은 함수, 같은 모양**이다.
 
@@ -926,6 +927,18 @@ def market_panel(
         live_rows.extend(table.get("rows") or [])
     filled = attach_live(live_rows, live_quotes)
 
+    # **지수·대표 ETF 는 다른 캐시다.** 화면 첫 줄(대표 지수 카드)이 이걸
+    # 읽는다 — 안 붙이면 그 카드가 전일 종가를 오늘 값으로 보여준다.
+    # 실측 2026-08-19 12:31: 화면 코스피 6,869.83(-1.55%)은 **전일 종가**였고
+    # 그때 실시간은 6,488.37(-5.55%) 이었다.
+    index_rows: list[dict[str, Any]] = []
+    for block in (panels.get("panels") or []):
+        index_rows.append(block)
+    idx_list = indices(store, as_of=as_of, market=market, exclude=paneled)
+    for block in (idx_list.get("others") or []):
+        index_rows.append(block)
+    index_filled = attach_live(index_rows, live_index)
+
     return {
         "market": market,
         "currency": CURRENCY.get(market, ""),
@@ -937,7 +950,9 @@ def market_panel(
             "reason": None if market == "KR" else "미장은 실시간 조회 경로가 아직 없다",
         },
         "instrument_panels": panels,
-        "indices": indices(store, as_of=as_of, market=market, exclude=paneled),
+        "indices": idx_list,
+        # 지수 쪽이 장중 값을 몇 개 받았는지. 0 이면 화면이 종가를 보여준다.
+        "live_index_filled": index_filled,
         "breadth": breadth(changes, market=market),
         "rankings": ranked,
         "leaders": top[:LEADER_ROWS],
@@ -996,7 +1011,8 @@ def attach_live(rows: list[dict[str, Any]], cache: Any) -> int:
 
 
 def payload(
-    store: Store, *, as_of: datetime, lookback: int, live_quotes: Any = None
+    store: Store, *, as_of: datetime, lookback: int, live_quotes: Any = None,
+    live_index: Any = None,
 ) -> dict[str, Any]:
     """마켓 탭 한 판. **국장 왼쪽 · 미장 오른쪽**, 두 판이 같은 모양이다.
 
@@ -1017,6 +1033,7 @@ def payload(
                 market=code,
                 headline=headlines[code],
                 live_quotes=live_quotes,
+                live_index=live_index,
             )
             for code in MARKETS
         },

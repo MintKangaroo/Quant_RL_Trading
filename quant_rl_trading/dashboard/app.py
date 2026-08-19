@@ -25,7 +25,7 @@ from quant_rl_trading.dashboard.api import (
     system,
     trading,
 )
-from quant_rl_trading.dashboard.services.live_quotes import LiveQuoteCache
+from quant_rl_trading.dashboard.services.live_quotes import LiveIndexCache, LiveQuoteCache
 from quant_rl_trading.replay.clock import Clock, LiveClock
 from quant_rl_trading.settings import load_env
 from quant_rl_trading.store import ConfigNotFound, Store, StoreError
@@ -83,6 +83,8 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     # 자격증명이 없거나 장외면 빈 결과를 돌려주므로, 여기서 실패를 따지지 않는다 —
     # 화면이 그 열을 비워 그린다.
     app.config["QUANT_RL_LIVE_QUOTES"] = LiveQuoteCache(_ls_client_factory)
+    # 지수·대표 ETF 는 TR 과 경로가 달라 캐시를 따로 둔다(live_quotes 참고).
+    app.config["QUANT_RL_LIVE_INDEX"] = LiveIndexCache(_ls_client_factory)
     #: 한글 응답을 이스케이프하지 않는다. 사람이 읽는 JSON 이다.
     app.json.ensure_ascii = False  # type: ignore[attr-defined]
 

@@ -29,5 +29,6 @@ def overview() -> Any:
             # 두 번 발급받고 TTL 도 따로 돈다 — 실측으로 그 둘이 응답을
             # 2.7초에서 9.7초로 만든 원인이었다.
             live_quotes=current_app.config.get("QUANT_RL_LIVE_QUOTES"),
+            live_index=current_app.config.get("QUANT_RL_LIVE_INDEX"),
         ),
     )

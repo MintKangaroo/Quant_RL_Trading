@@ -81,13 +81,23 @@ function marketKpis(body, code) {
   const spec = head || panels.missing.find((row) => row.role === "primary") || {};
   const b = panel.breadth;
   const label = code === "KR" ? "국장" : "미장";
+  // **장중 값이 있으면 그것을 크게 둔다.** 없으면 종가다.
+  //
+  // 실측 2026-08-19 12:31: 화면이 코스피 6,869.83(-1.55%)을 보여주고 있었는데
+  // 그건 **전일 종가**였고 그때 실시간은 6,488.37(-5.55%) 였다. 종가를 오늘
+  // 값처럼 보여주는 것이 이 화면에서 가장 비싼 거짓이다.
+  const liveOn = head && head.live_price !== null && head.live_price !== undefined;
+  const level = liveOn ? head.live_price : (head ? head.close : null);
+  const move = liveOn ? head.live_change : (head ? head.change : null);
   return [
     kpi(
       `${label} 대표 · ${esc(spec.label || "—")}`,
-      head ? dec(head.close, 2) : "—",
-      head ? `${arrow(head.change)}${pct(head.change)}` : "창고에 없다",
+      head ? dec(level, 2) : "—",
+      head
+        ? `${arrow(move)}${pct(move)}${liveOn ? " · 장중" : " · 종가"}`
+        : "창고에 없다",
       false,
-      { tone: head ? signClass(head.change) : "", spark: head ? head.closes : null }
+      { tone: head ? signClass(move) : "", spark: head ? head.closes : null }
     ),
     // 지수 하나로는 "지수는 올랐는데 종목의 70%는 내렸다" 를 볼 수 없다.
     kpi(

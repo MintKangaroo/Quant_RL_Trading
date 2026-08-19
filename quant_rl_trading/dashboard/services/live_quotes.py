@@ -156,3 +156,138 @@ class LiveQuoteCache:
             self._client = None
             return out
         return out
+
+
+# -- 지수 실시간 ------------------------------------------------------------------
+
+#: 업종(지수) 현재가 TR. **경로가 `/indtp/market-data` 다.**
+#: `/stock/market-data` 로 부르면 `IGW00215 유효하지 않은 TR CD` 가 온다 —
+#: 같은 함정을 `t8410`(일봉)에서 한 번 겪었다(docs/design/ls-api.md).
+TR_INDEX_KR = "t1511"
+PATH_INDEX_KR = "/indtp/market-data"
+
+#: 지수 → LS 업종코드. 선행 프로젝트(ls_kr_rl_trader)에서 검증된 값이다.
+INDEX_UPCODE: dict[str, str] = {
+    "KR:IDX:KOSPI": "001",
+    "KR:IDX:KOSDAQ": "301",
+}
+
+#: 미장 대표 ETF 는 종목이라 `g3104` 로 받는다. 지수 자체는 LS 에 없다
+#: (SPX·VIX 는 빈 응답 — 2026-08-19 실측). ETF 는 지수가 아니므로 화면이
+#: 그 사실을 말해야 한다.
+TR_QUOTE_US = "g3104"
+PATH_QUOTE_US = "/overseas-stock/market-data"
+US_PROXY_EXCHANGE: dict[str, str] = {
+    "US:SPY": "81", "US:DIA": "81", "US:QQQ": "82", "US:SOXX": "82",
+}
+
+
+class LiveIndexCache:
+    """지수·대표 ETF 의 장중 값. `LiveQuoteCache` 와 같은 규약이다.
+
+    **왜 따로 두나** — 종목 시세는 `t8407` 로 50개씩 묶어 받는데 지수는
+    업종코드 하나씩 다른 TR 을 쳐야 하고, 미장 ETF 는 또 다른 경로다.
+    한 클래스에 세 경로를 넣으면 어느 실패가 어느 축인지 안 갈린다.
+
+    실패는 조용히 넘긴다. **장외·권한 없음은 정상**이고, 여기서 예외를 올리면
+    마켓 탭이 통째로 안 뜬다.
+    """
+
+    def __init__(self, client_factory: Any, *, ttl: float = TTL_SECONDS) -> None:
+        self._factory = client_factory
+        self._ttl = ttl
+        self._lock = threading.Lock()
+        self._at = 0.0
+        self._quotes: dict[str, LiveQuote] = {}
+        self._asked: set[str] = set()
+        self._client: Any = None
+
+    def get(self, entity_ids: list[str]) -> dict[str, LiveQuote]:
+        wanted = [
+            e for e in dict.fromkeys(entity_ids)
+            if e in INDEX_UPCODE or e in US_PROXY_EXCHANGE
+        ]
+        if not wanted:
+            return {}
+        with self._lock:
+            fresh = (time.monotonic() - self._at) < self._ttl
+            if fresh and self._asked.issuperset(wanted):
+                return {e: self._quotes[e] for e in wanted if e in self._quotes}
+            fetched = self._fetch(wanted)
+            self._quotes.update(fetched)
+            # **물어본 것**을 기억한다 — 응답이 없는 축(권한 없음)을 매번 다시
+            # 묻지 않기 위해서다. `LiveQuoteCache` 와 같은 이유.
+            self._asked.update(wanted)
+            self._at = time.monotonic()
+            return {e: self._quotes[e] for e in wanted if e in self._quotes}
+
+    def _client_or_none(self) -> Any:
+        if self._client is None:
+            try:
+                self._client = self._factory()
+            except Exception:
+                return None
+        return self._client
+
+    def _fetch(self, entity_ids: list[str]) -> dict[str, LiveQuote]:
+        client = self._client_or_none()
+        if client is None:
+            return {}
+        out: dict[str, LiveQuote] = {}
+        for entity in entity_ids:
+            try:
+                if entity in INDEX_UPCODE:
+                    out.update(self._fetch_index(client, entity))
+                else:
+                    out.update(self._fetch_us_proxy(client, entity))
+            except Exception:
+                # 한 축이 막혀도 나머지는 살린다. 토큰 만료면 다음 호출에서
+                # 다시 만들도록 클라이언트를 버린다.
+                self._client = None
+                continue
+        return out
+
+    def _fetch_index(self, client: Any, entity: str) -> dict[str, LiveQuote]:
+        data = client.request_tr(
+            PATH_INDEX_KR, TR_INDEX_KR,
+            {f"{TR_INDEX_KR}InBlock": {"upcode": INDEX_UPCODE[entity]}},
+        )
+        block = data.get(f"{TR_INDEX_KR}OutBlock") or {}
+        price = float(block.get("pricejisu") or 0.0)
+        if price <= 0:
+            return {}
+        return {
+            entity: LiveQuote(
+                entity_id=entity,
+                price=price,
+                # ``diffjisu`` 가 등락률(%)이다. ``change`` 는 포인트 차이라
+                # 헷갈리기 쉽다 — 실측으로 갈랐다(2026-08-19).
+                change_rate=float(block.get("diffjisu") or 0.0) / 100.0,
+                bid=0.0, ask=0.0,
+            )
+        }
+
+    def _fetch_us_proxy(self, client: Any, entity: str) -> dict[str, LiveQuote]:
+        symbol = entity.split(":", 1)[1]
+        exchange = US_PROXY_EXCHANGE[entity]
+        data = client.request_tr(
+            PATH_QUOTE_US, TR_QUOTE_US,
+            {f"{TR_QUOTE_US}InBlock": {
+                "keysymbol": f"{exchange}{symbol}", "exchcd": exchange, "symbol": symbol,
+            }},
+        )
+        block = data.get(f"{TR_QUOTE_US}OutBlock") or {}
+        price = float(block.get("clos") or 0.0)
+        prev = float(block.get("pcls") or 0.0)
+        if price <= 0:
+            return {}
+        return {
+            entity: LiveQuote(
+                entity_id=entity,
+                price=price,
+                # g3104 는 등락률을 안 준다. 전일 종가(pcls)로 직접 낸다 —
+                # 없으면 0 이 아니라 **비운다**(0 은 "안 움직였다" 로 읽힌다).
+                change_rate=(price / prev - 1.0) if prev > 0 else 0.0,
+                bid=0.0, ask=0.0,
+            )
+        }
