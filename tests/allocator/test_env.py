@@ -409,3 +409,101 @@ def test_잘못된_액션은_거부한다(warehouse) -> None:
     late["delay"] = np.full(n_max, env.params.delay_choices, dtype=np.int64)
     with pytest.raises(ValueError, match="지연"):
         env.step(late)
+
+
+# -- 오라클 카나리 (§0) --------------------------------------------------------
+#
+# 여기서 보는 것은 **정답이 관측의 어느 칸에 어떤 값으로 들어가나** 뿐이다.
+# 그것으로 학습이 되는지는 `tests/rl/test_real_env_canary.py` 가 실제 창고에서
+# 200k 스텝을 돌려 본다 — 합성 데이터로 통과하는 시험은 현실을 말해 주지
+# 않는다(constant-feature 사건).
+
+#: 오라클은 5거래일 앞을 본다. 4일짜리 에피소드에서는 미래가 늘 구간 밖이라
+#: 정답이 통째로 0 이 되고, 그 0 을 "주입이 안 됐다" 와 구분할 수 없다.
+ORACLE_EPISODE = 12
+
+
+def _oracle_env(store, **kwargs):  # type: ignore[no-untyped-def]
+    base = EnvParams.from_store(store, as_of=_moment(START))
+    params = EnvParams(**{**base.__dict__, "episode_days": ORACLE_EPISODE})
+    return LatticeEnv(
+        store, train_start=START, train_end=END, params=params, **kwargs
+    )
+
+
+def test_오라클은_기본이_꺼져_있다(warehouse) -> None:
+    """실수로 켜지면 그 위의 성과가 통째로 가짜다. 섹터 칸(26)은 지금 비어
+    있으므로, 꺼진 상태에서 그 칸은 0 이어야 한다."""
+    env = _oracle_env(warehouse)
+    obs, _ = env.reset(seed=0)
+
+    assert env.oracle_leak is False
+    assert not np.any(obs["assets"][:, env_module.FEATURE_ORACLE])
+
+
+def test_오라클을_켜면_크게_경고한다(warehouse) -> None:
+    with pytest.warns(RuntimeWarning, match="oracle_leak=True"):
+        _oracle_env(warehouse, oracle_leak=True)
+
+
+def test_오라클은_5일뒤_실제_초과수익이다(warehouse) -> None:
+    """**값까지 확인한다.** "0 이 아니다" 로 통과시키면 잡음을 심어 놓고
+    카나리가 도는 것을 배선 정상으로 읽는다.
+
+    창고의 종가·지수가 결정론적이라 정답을 손으로 계산할 수 있다:
+    5세션 뒤 종가 상승률에서 지수 5세션 상승률을 빼고 `ORACLE_SCALE` 로 나눈 값.
+    """
+    with pytest.warns(RuntimeWarning):
+        env = _oracle_env(warehouse, oracle_leak=True)
+    sessions = trading_days(Market.KR, START, END)
+    obs, info = env.reset(options={"start": sessions[0]})
+
+    # 창고 픽스처의 종가 공식. `days` 의 400번째가 첫 거래일이다(그 앞은 이력).
+    def close(offset: int, session: int) -> float:
+        return 10_000.0 + (400 + session) * (3 + offset) + offset * 500
+
+    horizon = env_module.ORACLE_HORIZON
+    index_now = 2_500.0 + 400 * 1.5
+    index_then = 2_500.0 + (400 + horizon) * 1.5
+    benchmark = index_then / index_now - 1.0
+
+    assert info["candidates"], "후보가 0건이면 이 시험은 아무것도 증명하지 않는다"
+    for slot, entity in enumerate(info["candidates"]):
+        offset = ENTITIES.index(entity)
+        expected = (
+            close(offset, horizon) / close(offset, 0) - 1.0 - benchmark
+        ) / env_module.ORACLE_SCALE
+        assert obs["assets"][slot, env_module.FEATURE_ORACLE] == pytest.approx(
+            expected, rel=1e-4
+        ), entity
+
+
+def test_오라클이_관측_규격을_바꾸지_않는다(warehouse) -> None:
+    """칸을 늘리면 `policy.py` 의 `n_asset_features` 가 따라가고, 그 전에 학습한
+    정책이 통째로 못 쓰게 된다. 그래서 **덮어쓴다**."""
+    with pytest.warns(RuntimeWarning):
+        env = _oracle_env(warehouse, oracle_leak=True)
+    obs, _ = env.reset(seed=0)
+
+    assert obs["assets"].shape == (30, 28)
+    assert env.observation_space.contains(obs)
+
+
+def test_에피소드_끝_5일은_정답이_0이다(warehouse) -> None:
+    """미래가 에피소드 밖이라 알려줄 것이 없다. 지어내면 그 5일만 정답이
+    거짓말이 되고, 표에는 안 보인다."""
+    with pytest.warns(RuntimeWarning):
+        env = _oracle_env(warehouse, oracle_leak=True)
+    sessions = trading_days(Market.KR, START, END)
+    obs, _ = env.reset(options={"start": sessions[0]})
+
+    filled = []
+    for _ in range(ORACLE_EPISODE - 1):
+        obs, _r, _t, truncated, _info = env.step(_action(env, obs))
+        if truncated:
+            break
+        filled.append(bool(np.any(obs["assets"][:, env_module.FEATURE_ORACLE])))
+
+    # 커서가 (길이 - 1 - 5) 를 넘어가면 5세션 뒤가 구간 밖이다.
+    assert filled[0] is True
+    assert filled[-1] is False

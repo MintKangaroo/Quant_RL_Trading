@@ -77,7 +77,7 @@ import logging
 import math
 import os
 from collections import OrderedDict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -853,14 +853,24 @@ class CachedSessionReader(SessionReader):
 
     #: 메모리에 들고 있을 세션 수. 에피소드는 세션을 순서대로 지나므로 하나면
     #: 충분하지만, 체결(D+1)이 다음 세션의 상태를 물을 수 있어 여유를 둔다.
+    #:
+    #: **읽는 쪽이 미래를 앞질러 보면 이 값으로는 모자란다.** 오라클 카나리는
+    #: 5세션 앞을 같이 읽는데(§0), 그러면 오늘 것이 5스텝 만에 밀려나 같은
+    #: 파일을 두 번 판다 — 스텝 비용이 그대로 두 배다. 그래서 값을 생성자에서
+    #: 받는다. 늘리는 쪽 비용은 세션 하나당 수백 KB 다.
     LRU = 4
 
-    def __init__(self, store: Store, market: str, root: Path) -> None:
+    def __init__(self, store: Store, market: str, root: Path, *, lru: int = LRU) -> None:
         super().__init__(store, market)
+        self.lru = max(1, int(lru))
         self.root = Path(root)
         self.hits = 0
         self.misses = 0
         self._loaded: OrderedDict[date, SessionCache | None] = OrderedDict()
+        #: 캐시 밖 종목을 창고에서 읽어 기억해 둔 것. 세션→종류→종목→값.
+        #: **세션 캐시와 같이 산다** — 창에서 밀려난 세션의 기억만 남으면
+        #: 그것이 곧 새는 자리가 된다.
+        self._extras: dict[date, dict[str, dict[str, Any]]] = {}
 
     def session_cache(self, as_of: datetime, session: date) -> SessionCache | None:
         if session in self._loaded:
@@ -875,8 +885,9 @@ class CachedSessionReader(SessionReader):
         else:
             self.misses += 1
         self._loaded[session] = cache
-        while len(self._loaded) > self.LRU:
-            self._loaded.popitem(last=False)
+        while len(self._loaded) > self.lru:
+            evicted, _ = self._loaded.popitem(last=False)
+            self._extras.pop(evicted, None)
         return cache
 
     # -- 덮어쓰는 메서드 ----------------------------------------------------
@@ -897,19 +908,81 @@ class CachedSessionReader(SessionReader):
             return super().selection(as_of, equity=equity)
         return cache.selection
 
+    def _absorb(
+        self,
+        as_of: datetime,
+        cache: SessionCache,
+        entities: Sequence[str],
+        *,
+        kind: str,
+        fetch: Callable[[list[str]], dict[str, Any]],
+    ) -> dict[str, Any]:
+        """캐시에 없는 종목을 **창고에서 한 번만** 읽어 그 세션에 붙여 둔다.
+
+        ## 왜 필요한가 — 보유는 후보를 벗어난다
+
+        캐시는 그날 후보(24종목 남짓)만 굽는다. 그런데 학습 중 장부는 그날
+        후보가 아닌 종목을 계속 들고 있고(어제 산 것이 오늘 후보에서 빠진다),
+        그 종목의 시세·베타·체결상태는 매 스텝 창고로 되돌아갔다. 그래서
+        **에피소드가 길어질수록 스텝이 느려졌다** — 실측 12.6ms → 33ms(64스텝),
+        원인은 장부에 쌓인 종목 수였다.
+
+        ## 값이 달라지지 않는 이유
+
+        같은 as_of 로 창고에서 읽은 것을 기억할 뿐이다. 종목별 계산은 서로
+        독립이라(모듈 독스트링) 합친 결과는 전부 창고에서 읽은 것과 같다.
+        **없는 종목은 없다고 기억한다** — 그래야 "그날 봉이 없다"(거래정지·
+        상장폐지)가 그대로 없음으로 남고, 매 스텝 다시 묻지도 않는다.
+
+        ## 종류별로 따로 읽는다
+
+        넷을 한꺼번에 구우면 시세만 필요한 자리(`_plan_orders`·평가)에서도
+        베타까지 읽는다. 베타는 종목당 180세션을 훑어서, 보유가 30종목을
+        넘어가면 그 눈치 없는 선읽기가 스텝을 두 배로 만든다(실측 51.6ms).
+        """
+        memo: dict[str, Any] = self._extras.setdefault(as_of.date(), {}).setdefault(
+            kind, {}
+        )
+        missing = [entity for entity in cache.misses(entities) if entity not in memo]
+        if missing:
+            fetched = fetch(missing)
+            for entity in missing:
+                memo[entity] = fetched.get(entity)
+        return memo
+
     def stats(self, as_of: datetime, entities: Sequence[str]) -> EntityStats:
         cache = self.session_cache(as_of, as_of.date())
         if cache is None:
             return super().stats(as_of, entities)
-        missing = cache.misses(entities)
-        prices = {e: v for e, v in cache.stats.prices.items() if e in set(entities)}
-        adv = {e: v for e, v in cache.stats.adv.items() if e in set(entities)}
-        volatility = {e: v for e, v in cache.stats.volatility.items() if e in set(entities)}
-        if missing:
-            extra = super().stats(as_of, missing)
-            prices.update(extra.prices)
-            adv.update(extra.adv)
-            volatility.update(extra.volatility)
+        wanted = set(entities)
+        prices = {e: v for e, v in cache.stats.prices.items() if e in wanted}
+        adv = {e: v for e, v in cache.stats.adv.items() if e in wanted}
+        volatility = {e: v for e, v in cache.stats.volatility.items() if e in wanted}
+
+        def fetch(missing: list[str]) -> dict[str, Any]:
+            extra = super(CachedSessionReader, self).stats(as_of, missing)
+            return {
+                entity: (
+                    extra.prices.get(entity),
+                    extra.adv.get(entity),
+                    extra.volatility.get(entity),
+                )
+                for entity in missing
+                if entity in extra.prices or entity in extra.adv
+            }
+
+        memo = self._absorb(as_of, cache, entities, kind="stats", fetch=fetch)
+        for entity in wanted:
+            row = memo.get(entity)
+            if row is None:
+                continue
+            price, daily, vol = row
+            if price is not None:
+                prices[entity] = price
+            if daily is not None:
+                adv[entity] = daily
+            if vol is not None:
+                volatility[entity] = vol
         return EntityStats(prices=prices, adv=adv, volatility=volatility)
 
     def signals(
@@ -919,13 +992,34 @@ class CachedSessionReader(SessionReader):
         if cache is None:
             return super().signals(as_of, entities)
         wanted = set(entities)
-        missing = cache.misses(entities)
         combined = {e: v for e, v in cache.combined.items() if e in wanted}
         latest = {key: value for key, value in cache.signals.items() if key[0] in wanted}
-        if missing:
-            extra_combined, extra_latest = super().signals(as_of, missing)
-            combined.update(extra_combined)
-            latest.update(extra_latest)
+
+        def fetch(missing: list[str]) -> dict[str, Any]:
+            extra_combined, extra_latest = super(CachedSessionReader, self).signals(
+                as_of, missing
+            )
+            rows: dict[str, Any] = {}
+            for entity in missing:
+                pairs = {
+                    key[1]: value
+                    for key, value in extra_latest.items()
+                    if key[0] == entity
+                }
+                if entity in extra_combined or pairs:
+                    rows[entity] = (extra_combined.get(entity), pairs)
+            return rows
+
+        memo = self._absorb(as_of, cache, entities, kind="signals", fetch=fetch)
+        for entity in wanted:
+            row = memo.get(entity)
+            if row is None:
+                continue
+            score, pairs = row
+            if score is not None:
+                combined[entity] = score
+            for analyst, pair in pairs.items():
+                latest[(entity, analyst)] = pair
         return combined, latest
 
     def betas(self, as_of: datetime, entities: Sequence[str]) -> dict[str, float]:
@@ -934,9 +1028,18 @@ class CachedSessionReader(SessionReader):
             return super().betas(as_of, entities)
         wanted = set(entities)
         out = {e: v for e, v in cache.betas.items() if e in wanted}
-        missing = cache.misses(entities)
-        if missing:
-            out.update(super().betas(as_of, missing))
+        memo = self._absorb(
+            as_of,
+            cache,
+            entities,
+            kind="betas",
+            fetch=lambda missing: dict(
+                super(CachedSessionReader, self).betas(as_of, missing)
+            ),
+        )
+        out.update(
+            {e: v for e, v in memo.items() if e in wanted and v is not None}
+        )
         return out
 
     def fill_states(
@@ -947,9 +1050,18 @@ class CachedSessionReader(SessionReader):
             return super().fill_states(as_of, entities)
         wanted = set(entities)
         out = {e: v for e, v in cache.fill_states.items() if e in wanted}
-        missing = cache.misses(entities)
-        if missing:
-            out.update(super().fill_states(as_of, missing))
+        memo = self._absorb(
+            as_of,
+            cache,
+            entities,
+            kind="fill_states",
+            fetch=lambda missing: dict(
+                super(CachedSessionReader, self).fill_states(as_of, missing)
+            ),
+        )
+        out.update(
+            {e: v for e, v in memo.items() if e in wanted and v is not None}
+        )
         return out
 
     def scalars(self, as_of: datetime) -> SessionScalars:
@@ -966,7 +1078,12 @@ class CachedSessionReader(SessionReader):
 
 
 def build_reader(
-    store: Store, market: str, *, cache_root: Path | None = None, use_cache: bool = True
+    store: Store,
+    market: str,
+    *,
+    cache_root: Path | None = None,
+    use_cache: bool = True,
+    lru: int = CachedSessionReader.LRU,
 ) -> SessionReader:
     """env 가 부르는 진입점. **캐시가 없으면 그냥 창고 경로다.**"""
     if not use_cache:
@@ -974,4 +1091,4 @@ def build_reader(
     root = Path(cache_root) if cache_root is not None else default_cache_root(store)
     if not root.exists():
         return SessionReader(store, market)
-    return CachedSessionReader(store, market, root)
+    return CachedSessionReader(store, market, root, lru=lru)

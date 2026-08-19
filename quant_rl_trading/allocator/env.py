@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import logging
 import math
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -107,6 +108,26 @@ FEATURE_HOLDING_DAYS = 24
 FEATURE_UNREALIZED = 25
 FEATURE_SECTOR_BASE = 26  # 26..27
 
+#: 오라클 카나리(§0)가 정답을 심는 칸. **26번을 덮어쓴다 — 칸을 늘리지 않는다.**
+#:
+#: 28칸이 이미 다 찼고, 늘리면 관측 규격이 바뀌어 `policy.py` 의
+#: `n_asset_features` 가 따라가고 그 전에 학습한 정책이 통째로 못 쓰게 된다.
+#:
+#: 왜 하필 26 인가. 섹터 one-hot 축약(26~27)은 지금 **항상 0** 이다 — 창고의
+#: ``sectors`` 가 업종이 아니라 KOSDAQ 소속부라 채우지 않기로 한 자리다
+#: (`_asset_features` 의 같은 판단). 살아 있는 피처를 덮으면 오라클 판과
+#: 대조군이 "미래가 들었나" 말고 "그 피처가 빠졌나" 로도 갈려서, 카나리가
+#: 무엇을 쟀는지 말할 수 없게 된다. 0번(종합점수)을 안 쓰는 이유는 첫 칸만
+#: 보는 고장이 그대로 합격으로 찍히기 때문이다(`canary_env.ORACLE_IDX` 의
+#: 같은 이유). 진짜 업종 분류가 들어와 26 이 채워지면 그때 27 로 옮긴다.
+FEATURE_ORACLE = FEATURE_SECTOR_BASE
+
+#: 오라클이 알려주는 지평(거래일). §0 의 ``future_excess_return_5d``.
+ORACLE_HORIZON = 5
+#: 표준화 나눗셈. 5일 초과수익은 5% 규모라 그대로 넣으면 다른 칸(점수·비중)
+#: 보다 두 자리 작다 — 카나리가 배선 대신 스케일을 재게 된다.
+ORACLE_SCALE = 0.05
+
 #: 레짐 one-hot 순서. `analysts/regime.py` 가 내는 상태에 `sideways` 를 더한
 #: 것이다 — agents.md 는 횡보를 포트폴리오 축 상태로 적는데 현재 룰 판정은
 #: 그 상태를 내지 않는다. **칸을 비워 둔다.** 나중에 판정이 늘었을 때 칸을
@@ -117,6 +138,16 @@ REGIME_STATES = ("bull", "bear", "sideways", "volatile", "crisis", "unknown")
 #: 캐시가 조용히 다른 베타를 낸다. 여기서는 이름만 빌린다.
 BETA_WINDOW = cache_module.BETA_WINDOW
 FX_WINDOW = cache_module.FX_WINDOW
+
+
+_LEAK_BANNER = (
+    "\n"
+    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+    "!!  oracle_leak=True — 관측에 5일 뒤 실제 초과수익이 들어 있다.     !!\n"
+    "!!  이 설정으로 나온 성과는 전부 가짜다. 배선 점검 전용이다.       !!\n"
+    "!!  실제 학습·백테스트·실전에서 켜져 있으면 즉시 멈춰라.           !!\n"
+    "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+)
 
 
 @dataclass(frozen=True)
@@ -269,12 +300,21 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         self.market = Market(market)
         self.oracle_leak = oracle_leak
         self.reader = cache_module.build_reader(
-            store, str(self.market), cache_root=cache_root, use_cache=use_cache
+            store,
+            str(self.market),
+            cache_root=cache_root,
+            use_cache=use_cache,
+            # 오라클은 5세션 앞을 같이 읽는다. 기본 창(4)으로는 오늘 것이
+            # 5스텝 만에 밀려나 같은 파일을 두 번 파고, 스텝 비용이 두 배가
+            # 된다 — 카나리가 배선이 아니라 인내심을 재게 된다.
+            lru=cache_module.CachedSessionReader.LRU
+            + (ORACLE_HORIZON if oracle_leak else 0),
         )
         if oracle_leak:  # pragma: no cover - 배선 점검 전용 경로
-            logger.warning(
-                "oracle_leak=True — 관측에 미래가 들어 있다. 이 성과는 전부 가짜다"
-            )
+            # 로그와 경고 둘 다에 남긴다. 로그만 남기면 테스트 러너가 조용히
+            # 삼키고, 경고만 남기면 학습 로그에 흔적이 없다 (`canary_env`).
+            logger.warning(_LEAK_BANNER)
+            warnings.warn(_LEAK_BANNER, RuntimeWarning, stacklevel=2)
 
         self._sessions = trading_days(self.market, train_start, train_end)
         self.params = params or EnvParams.from_store(
@@ -797,6 +837,9 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         stats = self.reader.stats(as_of, entities)
         prices, adv, volatility = stats.prices, stats.adv, stats.volatility
         betas = self.reader.betas(as_of, entities)
+        # 오늘 값은 이미 손에 있다. 다시 읽으면 캐시가 없는 경로에서 같은
+        # 세션의 시세를 두 번 산다.
+        oracle = self._oracle(entities, prices) if self.oracle_leak else {}
         realized = self._realized_weights(state.nav)
         today = state.sessions[state.cursor]
         equity = max(state.nav, 1.0)
@@ -834,12 +877,57 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             )
             if position is not None and position.avg_cost > 0 and price > 0:
                 row[FEATURE_UNREALIZED] = float(price / position.avg_cost - 1.0)
+            if self.oracle_leak:  # pragma: no cover - 배선 점검 전용 경로
+                # **여기가 §0 의 정답이다.** 다른 칸을 다 채운 뒤 덮어쓴다 —
+                # 위에서 섹터 칸을 건드리지 않으므로 실제로 겹치는 것은 없지만,
+                # 순서를 뒤집으면 나중에 26번을 채우는 날 정답이 조용히 지워진다.
+                row[FEATURE_ORACLE] = float(oracle.get(entity, 0.0))
             # 섹터 one-hot 축약(26~27)은 **비워 둔다.** 창고의 ``sectors`` 에
             # 들어 있는 값은 업종이 아니라 KOSDAQ 소속부이고(KOSPI 는 전부
             # 미상), 그걸로 만든 그룹은 상관 노출이 아니라 시장 등급이다
             # (selector/pipeline.py 의 같은 판단). 가짜 그룹을 학습시키느니
             # 칸을 비운다 — 진짜 업종 분류가 들어오면 이 두 줄만 채운다.
         return assets, mask
+
+    def _oracle(
+        self, entities: Sequence[str], prices: dict[str, float]
+    ) -> dict[str, float]:
+        """**미래를 읽는다.** 5거래일 뒤 실제 초과수익, 종목별.
+
+        오라클 카나리(§0)의 정답이다. `oracle_leak=True` 일 때만 불린다 —
+        그 플래그가 꺼져 있으면 이 함수는 한 번도 실행되지 않는다.
+
+        ## as_of 를 일부러 앞으로 민다
+
+        불변식 1(창고 읽기는 전부 as_of 게이트 경유)을 **어기는 것이 목적인**
+        유일한 자리다. 시계는 건드리지 않고 리더에만 미래 시각을 넘긴다 —
+        `self.clock` 이 움직이면 그 뒤의 체결·회계까지 미래로 끌려가서, 카나리가
+        "정책이 정답을 쓰는가" 가 아니라 "환경이 통째로 미래인가" 를 재게 된다.
+
+        ## 지수를 빼는 이유
+
+        보상은 초과수익이다(§3). 종목 수익만 알려주면 시장이 통째로 오르내리는
+        몫까지 정답에 섞여서, 정책이 정답을 완벽히 봐도 보상을 못 맞힌다 —
+        그 미스매치가 EV 를 깎아 배선 고장처럼 보인다.
+
+        구간 끝 5일은 미래가 에피소드 밖이라 0 으로 둔다(250일 중 5일).
+        지어낸 값을 넣으면 그 5일만 정답이 거짓말이 되고, 표에는 안 보인다.
+        """
+        state = self._state
+        ahead = self._session_after(state.sessions[state.cursor], ORACLE_HORIZON)
+        if ahead is None:
+            return {}
+        future = self._moment(ahead)
+        then = self.reader.stats(future, list(entities)).prices
+        # 지수의 5세션 수익률. 세션 캐시에 이미 구워져 있어 따로 읽지 않는다.
+        benchmark = self.reader.scalars(future).index_returns[1]
+        out: dict[str, float] = {}
+        for entity in entities:
+            before = float(prices.get(entity, 0.0))
+            after = float(then.get(entity, 0.0))
+            if before > 0.0 and after > 0.0:
+                out[entity] = ((after / before - 1.0) - benchmark) / ORACLE_SCALE
+        return out
 
     def _portfolio_features(self) -> Array:
         """포트폴리오 축 24칸. 순서는 `rl-training.md §1` 표 그대로다.

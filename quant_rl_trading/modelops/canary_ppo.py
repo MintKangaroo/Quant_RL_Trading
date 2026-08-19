@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -112,17 +113,38 @@ def _stack(obs_list: list[dict[str, Array]]) -> dict[str, Array]:
 def train_canary(
     *,
     reward_params: RewardParams,
-    env_config: CanaryConfig,
+    env_config: CanaryConfig | None = None,
     ppo: PPOConfig | None = None,
     seed: int = 0,
+    env: Any = None,
+    on_iteration: Callable[[IterationLog], None] | None = None,
 ) -> CanaryResult:
-    """오라클 카나리 학습을 끝까지 돌리고 지표를 돌려준다."""
+    """오라클 카나리 학습을 끝까지 돌리고 지표를 돌려준다.
+
+    ``env`` 를 주면 그것을 그대로 쓴다 — 실제 환경(`canary_vec.VecLatticeEnv`)
+    을 물리는 자리다. **루프를 두 벌로 만들지 않기 위한 구멍이다**: 합성 판과
+    실제 판이 다른 루프를 돌면, 성적이 갈렸을 때 그것이 환경 차이인지 루프
+    차이인지 못 가른다 — 그 구분이 이 시험의 존재 이유다(§0).
+
+    ``on_iteration`` 은 진행 보고용이다. 실제 환경 판은 한 시간 단위로 도는데
+    끝날 때까지 아무것도 안 찍으면 살았는지 죽었는지 알 수 없다.
+    """
     ppo = ppo or PPOConfig()
     started = time.perf_counter()
-    env = CanaryEnv(env_config, reward_params=reward_params, seed=seed)
+    if env is None:
+        env = CanaryEnv(
+            env_config or CanaryConfig(), reward_params=reward_params, seed=seed
+        )
+    config = env.config
+    if config.n_envs != ppo.num_envs:
+        # 스텝 수를 `ppo.num_envs` 로 세고 롤아웃은 `env.config.n_envs` 로 돈다.
+        # 둘이 갈리면 "200k 스텝 돌렸다" 가 거짓말이 되고, 로그에는 안 보인다.
+        raise ValueError(
+            f"환경 {config.n_envs}개 · PPO num_envs {ppo.num_envs} — 스텝 계산이 어긋난다"
+        )
     policy = CanaryPolicy(
-        n_asset_features=env_config.n_asset_features,
-        n_portfolio_features=env_config.n_portfolio_features,
+        n_asset_features=config.n_asset_features,
+        n_portfolio_features=config.n_portfolio_features,
         hidden=ppo.hidden,
         seed=seed + 1,
     )
@@ -131,7 +153,7 @@ def train_canary(
     for name in ("wv1", "bv1", "wv2", "bv2"):
         lr[name] = ppo.lr_value
     optimizer = Adam(policy.params, lr=lr)
-    normalizer = ReturnNormalizer(gamma=ppo.gamma, num_envs=env_config.n_envs)
+    normalizer = ReturnNormalizer(gamma=ppo.gamma, num_envs=config.n_envs)
 
     obs = env.reset()
     batch = ppo.num_envs * ppo.n_steps
@@ -147,6 +169,8 @@ def train_canary(
         )
         log.step = (iteration + 1) * batch
         result.logs.append(log)
+        if on_iteration is not None:
+            on_iteration(log)
 
     result.attribution = _attribution(policy, rollout, ppo=ppo)
     result.elapsed_seconds = time.perf_counter() - started
@@ -154,7 +178,7 @@ def train_canary(
 
 
 def _collect(
-    env: CanaryEnv,
+    env: Any,
     policy: CanaryPolicy,
     rng: np.random.Generator,
     obs: dict[str, Array],
