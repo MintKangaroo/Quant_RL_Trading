@@ -43,6 +43,16 @@ def ic_history() -> Any:
     )
 
 
+@bp.get("/training-runs")
+def training_runs() -> Any:
+    """PPO 학습 지표. 학습을 안 돌렸으면 ``has_data: false`` 로 온다."""
+    current = scope()
+    return envelope(
+        current,
+        service.training_runs(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.get("/walk-forward")
 def walk_forward() -> Any:
     current = scope()

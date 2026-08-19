@@ -182,3 +182,65 @@ def test_walk_forward_compares_fixed_snapshot_against_live_store(client) -> None
     assert rows["fundamental"]["live_measured"] is False
     assert rows["fundamental"]["live_ic"] is None
     assert rows["fundamental"]["delta_ic"] is None
+
+
+# -- 학습 지표 (M4) ----------------------------------------------------------
+#
+# **픽스처가 새 경로를 밟게 한다.** 이 저장소에서 두 번, 테스트는 전부
+# 통과하는데 화면만 깨진 적이 있다 — 픽스처에 새 필드가 없어서 새로 만든
+# 분기를 아무 테스트도 지나가지 않았기 때문이다. 그래서 여기서는 0행일
+# 때와 기록이 있을 때를 **둘 다** 밟는다.
+
+
+def _update_row(run_id: str, update: int, ev: float) -> dict[str, Any]:
+    return {
+        "entity_id": run_id,
+        "valid_from": NOW,
+        "observed_at": NOW,
+        "source": "ppo",
+        "update": update,
+        "step": update * 2048,
+        "seed": 7,
+        "market": "KR",
+        "curriculum": "C1",
+        "explained_variance": ev,
+        "approx_kl": 0.015,
+        "entropy": 1.2,
+        "grad_norm": 0.8,
+        "action_reflection": 0.42,
+        "policy_churn": 0.11,
+        "concentration_sum": 30.0,
+        "episode_reward": 0.03,
+        "cash_weight": 0.59,
+        "git_commit": "abc1234",
+        "config_fingerprint": "fp",
+    }
+
+
+def test_학습_기록이_없으면_없다고_말한다(client) -> None:
+    """0행과 '쟀는데 0' 은 다른 사실이다 (불변식 3)."""
+    data = body(client.get("/api/learning/training-runs"))["data"]
+
+    assert data["has_data"] is False
+    assert data["runs"] == []
+    # 경고선은 기록이 없어도 온다 — 화면이 축을 그릴 수 있어야 한다.
+    assert data["guards"]["explained_variance"]["floor"] == 0.1
+
+
+def test_학습_기록이_있으면_곡선을_돌려준다(seeded) -> None:
+    seeded.append(
+        "rl_updates",
+        [_update_row("rl-20260819-a", i, 0.05 * i) for i in range(1, 4)],
+        ingest_run_id="rl-seed",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/learning/training-runs"))["data"]
+
+    assert data["has_data"] is True
+    assert len(data["runs"]) == 1
+    run = data["runs"][0]
+    assert run["updates"] == [1, 2, 3]
+    assert run["series"]["explained_variance"] == pytest.approx([0.05, 0.10, 0.15])
+    # 재현성 정보가 화면까지 온다 (§11) — 없으면 좋은 성적을 다시 못 만든다.
+    assert run["seed"] == 7
+    assert run["git_commit"] == "abc1234"

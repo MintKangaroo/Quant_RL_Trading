@@ -556,12 +556,22 @@ def test_국장과_미장의_세션이_다르면_화면이_그걸_말한다(rend
 
 @pytest.mark.parametrize("suffix", ["kr", "us"])
 def test_순위표_줄마다_이름_가격_등락_시총이_있다(rendered: dict[str, str], suffix: str) -> None:
+    """**등락은 장중 값으로 그린다.** 순위 자체는 종가로 서지만(그래야 새로
+    고칠 때마다 순위가 흔들리지 않는다) 표에 찍히는 숫자는 지금 값이다.
+
+    그래서 여기서 확인하는 것은 ``change``(종가 기준)가 아니라
+    ``live_change`` 다. 장이 닫혀 장중 값이 없으면 종가로 되돌아간다 —
+    두 경우를 다 밟는다.
+    """
     dump = rendered[f"rankings-{suffix}"]
     for table in _rankings(suffix)["tables"]:
         for row in table["rows"]:
             assert html.escape(row["name"]) in dump
-            if row["change"] is not None:
-                assert dec2(row["change"] * 100) + "%" in dump
+            shown = row.get("live_change")
+            if shown is None:
+                shown = row["change"]
+            if shown is not None:
+                assert dec2(shown * 100) + "%" in dump
 
 
 def test_상승률과_하락률은_같은_모집단을_쓴다(rendered: dict[str, str]) -> None:

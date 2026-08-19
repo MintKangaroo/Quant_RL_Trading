@@ -3,9 +3,10 @@
  * 공통 규약은 scope.js 에 있다. 이 화면 고유의 표현만 만든다.
  *
  * dashboard.md §5 가 요구하는 위젯(explained_variance·커리큘럼·학습
- * 곡선·approx KL·IR·시드 분산·Optuna trial)은 지금 잴 수 없다 — allocator/
- * 도, 그 산출물을 담을 테이블도 창고에 없다. 그 자리는 learning/status 가
- * 돌려주는 문구로 채운다. **0 이나 가짜 곡선을 그리지 않는다.**
+ * 곡선·approx KL·IR·시드 분산·Optuna trial) 중 셋은 `rl_updates` 표가
+ * 생기면서 그릴 수 있게 됐다(2026-08-19). 나머지는 학습을 실제로 완주해야
+ * 나온다. **0 이나 가짜 곡선을 그리지 않는다** — 학습 기록이 0행이면
+ * "아직 없다" 를 글자로 말하지 곡선을 0 으로 눕히지 않는다.
  *
  * 지금 실제로 있는 것은 Analyst IC 게이트다. 계산은 Agent Health 화면과
  * 같은 서비스(services/learning.py 가 agent_health 를 그대로 부른다)를
@@ -22,15 +23,90 @@ const M4_TARGETS = {
   seed_variance: "empty-seed-variance",
 };
 
+//: rl_updates 로 그릴 수 있는 위젯 → 그 표의 컬럼.
+const RUN_SERIES = {
+  explained_variance: ["explained_variance"],
+  episode_reward: ["episode_reward", "cash_weight"],
+  optimizer_diag: ["approx_kl", "entropy", "grad_norm"],
+};
+
+const SERIES_LABEL = {
+  explained_variance: "explained_variance",
+  episode_reward: "에피소드 보상",
+  cash_weight: "현금 비중",
+  approx_kl: "approx KL",
+  entropy: "entropy",
+  grad_norm: "gradient norm",
+};
+
 async function renderM4Placeholders() {
-  const { data } = await fetchJson("learning/status");
+  const [statusBody, runsBody] = await Promise.all([
+    fetchJson("learning/status"),
+    fetchJson("learning/training-runs"),
+  ]);
+  const data = statusBody.data;
+  const runs = runsBody.data;
 
   for (const widget of data.widgets) {
     const target = document.getElementById(M4_TARGETS[widget.key]);
     if (!target) continue;
-    target.innerHTML = `<strong>M4 에서 채워진다 · 지금은 학습이 없다.</strong>
-      ${widget.detail ? `<br>${widget.detail}` : ""}`;
+
+    // 그릴 수 있게 된 칸이면 그린다. 아니면 왜 비었는지를 말한다.
+    if (runs.has_data && RUN_SERIES[widget.key]) {
+      drawRunChart(target, widget.key, runs);
+      continue;
+    }
+    const why = RUN_SERIES[widget.key]
+      ? "학습 기록이 0행이다 — 표는 있다(rl_updates). PPO 를 돌리면 채워진다."
+      : "학습을 완주해야 나온다.";
+    target.innerHTML = `<strong>${why}</strong>${
+      widget.detail ? `<br>${widget.detail}` : ""
+    }`;
   }
+}
+
+/** 가장 최근 run 의 지표 곡선. 여러 run 을 겹치면 어느 것이 최신인지 안 보인다. */
+function drawRunChart(target, key, runs) {
+  const run = runs.runs[0];
+  const keys = RUN_SERIES[key].filter((k) => run.series[k]);
+  if (!keys.length) {
+    target.innerHTML = "<strong>이 지표는 아직 기록되지 않았다.</strong>";
+    return;
+  }
+  // 차트가 들어갈 자리를 만든다 — 자리표시자 문구가 남아 있으면 겹친다.
+  target.innerHTML = `<div id="chart-${key}" style="height:220px"></div>
+    <div class="dim" style="font-size:11px;margin-top:4px">
+      ${run.run_id} · seed ${run.seed ?? "—"} ${run.git_commit ? `· ${run.git_commit.slice(0, 7)}` : ""}
+    </div>`;
+
+  const guards = runs.guards || {};
+  const series = keys.map((k, i) => ({
+    name: SERIES_LABEL[k] || k,
+    type: "line",
+    smooth: true,
+    showSymbol: false,
+    data: run.series[k],
+    lineStyle: { width: 2 },
+    itemStyle: { color: ["#4C9AFF", "#F5A623", "#9B7BF7"][i % 3] },
+    // 경고선은 문서(§10)에서 온 값이다. 화면이 따로 정하지 않는다.
+    markLine: guards[k]?.floor !== undefined
+      ? {
+          silent: true,
+          symbol: "none",
+          label: { formatter: guards[k].label, fontSize: 10 },
+          data: [{ yAxis: guards[k].floor }],
+        }
+      : undefined,
+  }));
+
+  chart(`chart-${key}`).setOption({
+    ...BASE,
+    legend: { show: keys.length > 1, bottom: 0, textStyle: { fontSize: 10 } },
+    grid: { left: 44, right: 12, top: 12, bottom: keys.length > 1 ? 30 : 12 },
+    xAxis: { type: "category", data: run.updates, name: "update" },
+    yAxis: { type: "value", scale: true },
+    series,
+  }, true);
 }
 
 async function renderGate() {

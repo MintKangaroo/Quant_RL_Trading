@@ -1,10 +1,11 @@
 {
   "trading/calendar": {
-    "as_of": "2026-08-14T14:21:23.556427+00:00",
+    "as_of": "2026-08-19T05:42:46.430733+00:00",
     "data": {
       "best": null,
       "calendar": {
         "days": [],
+        "indices": {},
         "months": []
       },
       "cumulative": null,

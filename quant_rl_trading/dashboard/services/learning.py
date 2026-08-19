@@ -1,12 +1,19 @@
-"""학습 탭 집계 — RL(M4)은 아직 없다.
+"""학습 탭 집계 — RL(M4)은 **환경까지 왔고 학습 기록이 아직 없다.**
 
 `dashboard-kickoff.md` D-4 는 `dashboard.md` §5 의 자리(explained_variance·
 커리큘럼·학습 곡선·approx KL·베이스라인 대비 IR·시드 분산·Optuna trial)를
-그대로 만들라고 하지만, `docs/milestones.md` 기준 지금은 **M3** 다.
-`allocator/` 는 존재하지 않고, 그 산출물을 담을 테이블(episode·trial 류)도
-창고 스키마에 없다 (`store/tables.py`). 자리는 예약하되 값을 지어내지 않는다
-— 0 으로 채우면 "쟀는데 0" 이 되어 화면이 거짓말한다 (불변식 3, app.py
-``SafeJSONProvider`` 참고).
+그대로 만들라고 한다. 자리는 예약하되 값을 지어내지 않는다 — 0 으로 채우면
+"쟀는데 0" 이 되어 화면이 거짓말한다 (불변식 3, app.py ``SafeJSONProvider``).
+
+**막고 있는 것은 학습 코드가 아니라 담을 표다.** `allocator/` 는 들어왔고
+(env·policy·cache·reward·baseline) 오라클 카나리도 돌았지만, 그 산출물을
+담을 테이블(episode·trial 류)이 창고 스키마에 아직 없다
+(`store/tables.py` 에 0건). 그래서 학습을 돌려도 적을 데가 없고 이 탭은
+그대로 빈다 — 4-5(PPO 루프)를 만들 때 **표를 같이** 만들어야 하는 이유다.
+
+2026-08-19: 이 독스트링과 아래 note 가 "allocator/ 는 존재하지 않고" 라고
+적힌 채로 남아 있었다. `allocator/` 가 들어온 뒤에도 안 고쳐져서 화면이
+사실과 다른 말을 하고 있었다. **자리표시자의 설명문도 화면에 나가는 사실이다.**
 
 지금 실제로 있는 것은 **Analyst IC 게이트**다. M4 상태 인코더가 조합할 입력이
 바로 이것이고, RL 이 없어도 "무엇이 학습을 대신하고 있는가" 를 보여줄 수
@@ -19,8 +26,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+import pandas as pd
+
 from quant_rl_trading.dashboard.services import agent_health
 from quant_rl_trading.store import Store
+
+#: 학습 지표 표 (M4). 이름을 문자열로 흩뿌리지 않는다.
+RL_UPDATES = "rl_updates"
 
 #: M4 가 만들 산출물의 자리. 테이블이 아예 없으므로 조회하지 않는다 —
 #: 조회해서 빈 결과를 받는 것과 애초에 잴 수 없는 것은 다른 사실이다.
@@ -69,9 +81,10 @@ def m4_status() -> dict[str, Any]:
         "active": False,
         "milestone": "M4",
         "note": (
-            "RL 학습은 M4 다. docs/milestones.md 기준 아직 착수 전이라 "
-            "allocator/ 도, 그 산출물을 담을 테이블도 창고에 없다. "
-            "이 탭의 절반은 M4 가 오면 채워질 자리다."
+            "M4 — RL 환경은 들어왔다(allocator/ — env·policy·cache·reward·baseline). "
+            "아직 비어 있는 이유는 학습 코드가 없어서가 아니라 **학습 기록을 "
+            "담을 테이블이 창고에 없기** 때문이다. PPO 학습 루프와 그 표가 "
+            "같이 들어오면 아래 칸들이 채워진다."
         ),
         "widgets": M4_WIDGETS,
     }
@@ -93,6 +106,55 @@ def analyst_gate(store: Store, *, as_of: datetime, lookback: int) -> dict[str, A
         "total": len(roster),
         "active_weight": sum(float(item["weight"]) for item in roster),
     }
+
+
+#: 경고선. `docs/design/rl-training.md` §10 의 표를 그대로 옮긴 것이고,
+#: **여기서 값을 정하지 않는다** — 화면이 문서와 다른 선을 그으면 어느
+#: 쪽이 맞는지 아무도 모르게 된다.
+UPDATE_GUARDS: dict[str, dict[str, Any]] = {
+    "explained_variance": {"floor": 0.1, "label": "0.1 이상. 0 근처 고착 = 실패"},
+    "approx_kl": {"band": [0.01, 0.02], "label": "0.01~0.02. 급등 = 학습률 과다"},
+    "action_reflection": {"floor": 0.30, "label": "30% 미만 경고"},
+}
+
+
+def training_runs(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """PPO 학습 지표 (`rl_updates`). **0행이면 0행이라고 말한다.**
+
+    학습을 안 돌렸을 때와 돌렸는데 0 이 나왔을 때는 다른 사실이다. 0 으로
+    채워 그리면 둘이 같은 그림이 되고, 그때부터 화면은 거짓말을 한다
+    (불변식 3). 그래서 ``has_data`` 를 따로 준다.
+    """
+    frame = store.get(RL_UPDATES, as_of=as_of, lookback=lookback)
+    if frame.empty:
+        return {"has_data": False, "runs": [], "guards": UPDATE_GUARDS}
+
+    runs: list[dict[str, Any]] = []
+    for run_id, rows in frame.groupby("entity_id", sort=False):
+        rows = rows.sort_values("update")
+        series = {
+            key: [None if pd.isna(v) else float(v) for v in rows[key]]
+            for key in UPDATE_GUARDS
+            if key in rows.columns
+        }
+        for extra in ("entropy", "grad_norm", "episode_reward", "cash_weight"):
+            if extra in rows.columns:
+                series[extra] = [
+                    None if pd.isna(v) else float(v) for v in rows[extra]
+                ]
+        last = rows.iloc[-1]
+        runs.append({
+            "run_id": str(run_id),
+            "updates": [int(v) for v in rows["update"]],
+            "series": series,
+            "seed": int(last["seed"]) if not pd.isna(last.get("seed")) else None,
+            "market": str(last.get("market") or ""),
+            "curriculum": str(last.get("curriculum") or ""),
+            "git_commit": str(last.get("git_commit") or ""),
+        })
+    # 최근 실행이 위로. 학습을 여러 번 돌리면 옛 곡선이 화면을 채운다.
+    runs.sort(key=lambda r: r["run_id"], reverse=True)
+    return {"has_data": True, "runs": runs, "guards": UPDATE_GUARDS}
 
 
 def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:

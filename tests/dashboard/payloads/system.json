@@ -1,22 +1,40 @@
 {
   "system/cache": {
-    "as_of": "2026-08-14T14:21:07.204734+00:00",
+    "as_of": "2026-08-19T05:42:29.307505+00:00",
     "data": {
       "rows": [
         {
           "agent": "news-screen",
           "agent_version": "news-screen-v0.1.0",
-          "entries": 78,
-          "last_computed_at": "2026-08-14T16:00:00+09:00"
+          "entries": 219,
+          "last_computed_at": "2026-08-18T16:00:00+09:00"
         },
         {
           "agent": "macro-brief",
           "agent_version": "macro-brief-v0.1.0",
-          "entries": 26,
-          "last_computed_at": "2026-08-14T23:16:01.493895+09:00"
+          "entries": 35,
+          "last_computed_at": "2026-08-18T16:16:35.349325+09:00"
+        },
+        {
+          "agent": "news-title-translate",
+          "agent_version": "news-title-translate-v0.1.0",
+          "entries": 10,
+          "last_computed_at": "2026-08-19T08:58:52.354552+09:00"
+        },
+        {
+          "agent": "briefing-summary",
+          "agent_version": "briefing-summary-v0.1.0",
+          "entries": 3,
+          "last_computed_at": "2026-08-18T06:30:00+09:00"
+        },
+        {
+          "agent": "briefing-summary",
+          "agent_version": "briefing-summary-v0.2.0-61d9262b",
+          "entries": 1,
+          "last_computed_at": "2026-08-18T14:14:17.842822+09:00"
         }
       ],
-      "total": 104
+      "total": 268
     },
     "live": true,
     "lookback_days": 90,
@@ -30,45 +48,48 @@
     }
   },
   "system/jobs": {
-    "as_of": "2026-08-14T14:21:07.358365+00:00",
+    "as_of": "2026-08-19T05:42:29.460555+00:00",
     "data": [
       {
         "key": "collect_daily",
         "label": "일일 수집 (시세·유니버스·수급·거시)",
-        "last_run_ok": true,
-        "last_success_at": "2026-08-14T22:40:01+09:00",
-        "run_count": 2,
-        "runs": [
-          {
-            "market": "KR",
-            "ok": true,
-            "started_at": "2026-08-14T22:40:01+09:00",
-            "steps": [
-              0,
-              0,
-              0
-            ]
-          },
-          {
-            "market": "KR",
-            "ok": true,
-            "started_at": "2026-08-14T19:03:57+09:00",
-            "steps": [
-              0,
-              0,
-              0
-            ]
-          }
-        ],
+        "last_run_ok": null,
+        "last_success_at": null,
+        "run_count": 0,
+        "runs": [],
         "schedule": "평일 15:55, 22:40"
       },
       {
         "key": "run_daily",
         "label": "일일 실행 (Analyst 점수·News/SNS 판정)",
         "last_run_ok": true,
-        "last_success_at": "2026-08-14T16:10:01+09:00",
-        "run_count": 3,
+        "last_success_at": "2026-08-19T12:00:01+09:00",
+        "run_count": 6,
         "runs": [
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-08-19T12:00:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-18T16:10:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-17T16:10:01+09:00",
+            "steps": [
+              0
+            ]
+          },
           {
             "market": "KR",
             "ok": true,
@@ -100,9 +121,33 @@
         "key": "run_shadow",
         "label": "shadow 운용",
         "last_run_ok": true,
-        "last_success_at": "2026-08-14T16:30:01+09:00",
-        "run_count": 7,
+        "last_success_at": "2026-08-19T12:20:01+09:00",
+        "run_count": 10,
         "runs": [
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-08-19T12:20:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-18T16:30:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-17T16:30:01+09:00",
+            "steps": [
+              0
+            ]
+          },
           {
             "market": "KR",
             "ok": true,
@@ -142,22 +187,6 @@
             "steps": [
               0
             ]
-          },
-          {
-            "market": "KR",
-            "ok": true,
-            "started_at": "2026-08-14T12:03:34+09:00",
-            "steps": [
-              0
-            ]
-          },
-          {
-            "market": "KR",
-            "ok": true,
-            "started_at": "2026-08-14T11:58:42+09:00",
-            "steps": [
-              0
-            ]
           }
         ],
         "schedule": "평일 16:30"
@@ -166,9 +195,49 @@
         "key": "collect_news",
         "label": "뉴스 수집",
         "last_run_ok": true,
-        "last_success_at": "2026-08-14T15:40:01+09:00",
-        "run_count": 4,
+        "last_success_at": "2026-08-19T08:20:01+09:00",
+        "run_count": 9,
         "runs": [
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-19T08:20:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-18T15:40:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-18T08:20:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-17T15:40:01+09:00",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-08-17T08:20:01+09:00",
+            "steps": [
+              0
+            ]
+          },
           {
             "market": "KR",
             "ok": true,
@@ -192,14 +261,6 @@
             "steps": [
               0
             ]
-          },
-          {
-            "market": "KR",
-            "ok": true,
-            "started_at": "2026-08-13T10:31:32+09:00",
-            "steps": [
-              0
-            ]
           }
         ],
         "schedule": "평일 08:20, 15:40"
@@ -217,49 +278,50 @@
     }
   },
   "system/latency": {
-    "as_of": "2026-08-14T14:21:07.441438+00:00",
+    "as_of": "2026-08-19T05:42:29.493402+00:00",
     "data": {
       "overall": {
-        "p50": 39.072,
-        "p90": 1548.2627000000002,
-        "p99": 2602.6623899999972
+        "p50": 30.200499999999998,
+        "p90": 1573.1539,
+        "p99": 3455.8142999999973
       },
-      "samples": 19612,
+      "samples": 28578,
       "sources": [
         "krx",
-        "krx_openapi"
+        "krx_openapi",
+        "ls_intraday"
       ],
       "stages": [
         {
-          "ok_rate": 0.997557003257329,
-          "p50": 1346.3555000000001,
-          "p90": 2177.7583,
-          "p99": 3470.9094800000003,
-          "samples": 4912,
+          "ok_rate": 0.9983766233766234,
+          "p50": 1136.8780000000002,
+          "p90": 2984.5389,
+          "p99": 4591.519140000001,
+          "samples": 7392,
           "stage": "fetch"
         },
         {
           "ok_rate": 1.0,
-          "p50": 86.729,
-          "p90": 114.24,
-          "p99": 220.6284000000002,
-          "samples": 4900,
+          "p50": 76.281,
+          "p90": 110.97300000000001,
+          "p99": 287.65925,
+          "samples": 6426,
           "stage": "append"
         },
         {
           "ok_rate": 1.0,
-          "p50": 33.2515,
-          "p90": 46.1102,
-          "p99": 131.7171700000001,
-          "samples": 4900,
+          "p50": 25.5475,
+          "p90": 43.4919,
+          "p99": 108.35057000000003,
+          "samples": 7380,
           "stage": "archive"
         },
         {
           "ok_rate": 1.0,
-          "p50": 8.763,
-          "p90": 15.959100000000001,
-          "p99": 23.11285000000004,
-          "samples": 4900,
+          "p50": 6.645,
+          "p90": 14.8651,
+          "p99": 22.24934,
+          "samples": 7380,
           "stage": "normalize"
         }
       ]
@@ -276,12 +338,49 @@
     }
   },
   "system/llm-usage": {
-    "as_of": "2026-08-14T14:21:12.767204+00:00",
+    "as_of": "2026-08-19T05:42:31.880652+00:00",
     "data": {
-      "calls": 0,
-      "rows": [],
-      "total_cost_usd": null,
-      "total_tokens": 0,
+      "calls": 18,
+      "rows": [
+        {
+          "agent": "news-title-translate",
+          "cache_creation_tokens": 0,
+          "cache_read_tokens": 0,
+          "calls": 9,
+          "cost_usd": 0.0586,
+          "input_tokens": 9913,
+          "items": 22,
+          "last_call_at": "2026-08-19T08:58:52.347905+09:00",
+          "model": "claude-sonnet-5",
+          "output_tokens": 1921
+        },
+        {
+          "agent": "briefing-summary",
+          "cache_creation_tokens": 0,
+          "cache_read_tokens": 0,
+          "calls": 5,
+          "cost_usd": 0.0425,
+          "input_tokens": 10045,
+          "items": 7,
+          "last_call_at": "2026-08-18T14:14:17.816342+09:00",
+          "model": "claude-sonnet-5",
+          "output_tokens": 826
+        },
+        {
+          "agent": "news-screen",
+          "cache_creation_tokens": 0,
+          "cache_read_tokens": 0,
+          "calls": 4,
+          "cost_usd": 0.3159,
+          "input_tokens": 17379,
+          "items": 160,
+          "last_call_at": "2026-08-18T16:00:00+09:00",
+          "model": "claude-opus-5",
+          "output_tokens": 9162
+        }
+      ],
+      "total_cost_usd": 0.42,
+      "total_tokens": 49246,
       "unpriced_models": [],
       "usd_krw_rate": 1450
     },
@@ -297,95 +396,95 @@
     }
   },
   "system/processes": {
-    "as_of": "2026-08-14T14:21:12.974307+00:00",
+    "as_of": "2026-08-19T05:42:31.961862+00:00",
     "data": {
       "processes": [
         {
-          "command": ".venv/bin/python tools/run_backtest.py --start 2026-01-02 --end 2026-03-31 --sandbox data/_backtest",
-          "cpu_pct": 127.4,
-          "pid": 2060266,
-          "rss_mb": 5455.5,
-          "uptime_h": 0.1
+          "command": ".venv/bin/python tools/capture_tab_payloads.py",
+          "cpu_pct": 143.7,
+          "pid": 428863,
+          "rss_mb": 982.2,
+          "uptime_h": 0.0
         },
         {
-          "command": ".venv/bin/python tools/capture_tab_payloads.py",
-          "cpu_pct": 174.4,
-          "pid": 2070547,
-          "rss_mb": 729.3,
+          "command": ".venv/bin/python tools/build_rl_cache.py --start 2024-09-02 --end 2026-08-14 --market KR",
+          "cpu_pct": 222.9,
+          "pid": 396361,
+          "rss_mb": 892.2,
+          "uptime_h": 0.2
+        },
+        {
+          "command": "claude --dangerously-skip-permissions -c",
+          "cpu_pct": 19.3,
+          "pid": 1425,
+          "rss_mb": 698.3,
+          "uptime_h": 157.7
+        },
+        {
+          "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5059",
+          "cpu_pct": 39.6,
+          "pid": 427825,
+          "rss_mb": 422.7,
+          "uptime_h": 0.0
+        },
+        {
+          "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5073",
+          "cpu_pct": 34.5,
+          "pid": 427824,
+          "rss_mb": 385.6,
+          "uptime_h": 0.0
+        },
+        {
+          "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5058",
+          "cpu_pct": 35.1,
+          "pid": 427823,
+          "rss_mb": 384.8,
           "uptime_h": 0.0
         },
         {
           "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5057",
-          "cpu_pct": 0.8,
-          "pid": 1938716,
-          "rss_mb": 661.1,
-          "uptime_h": 2.3
-        },
-        {
-          "command": "claude --dangerously-skip-permissions -c",
-          "cpu_pct": 7.7,
-          "pid": 1425,
-          "rss_mb": 438.8,
-          "uptime_h": 46.8
-        },
-        {
-          "command": ".venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app run --host 0.0.0.0 --port 5058",
-          "cpu_pct": 0.0,
-          "pid": 1938718,
-          "rss_mb": 36.1,
-          "uptime_h": 2.3
+          "cpu_pct": 35.5,
+          "pid": 427822,
+          "rss_mb": 374.7,
+          "uptime_h": 0.0
         },
         {
           "command": "ugrep -G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude",
           "cpu_pct": 0.0,
-          "pid": 2070003,
-          "rss_mb": 7.1,
-          "uptime_h": 0.0
+          "pid": 397956,
+          "rss_mb": 7.3,
+          "uptime_h": 0.2
         },
         {
           "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
           "cpu_pct": 0.0,
-          "pid": 1916857,
+          "pid": 347201,
           "rss_mb": 3.3,
-          "uptime_h": 2.5
+          "uptime_h": 0.7
         },
         {
           "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
           "cpu_pct": 0.0,
-          "pid": 2069981,
+          "pid": 397934,
           "rss_mb": 3.3,
-          "uptime_h": 0.0
+          "uptime_h": 0.2
         },
         {
           "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
           "cpu_pct": 0.0,
-          "pid": 2070525,
+          "pid": 428841,
           "rss_mb": 3.2,
           "uptime_h": 0.0
         },
         {
           "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
           "cpu_pct": 0.0,
-          "pid": 1288518,
-          "rss_mb": 2.7,
-          "uptime_h": 14.1
-        },
-        {
-          "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
-          "cpu_pct": 0.0,
-          "pid": 877636,
-          "rss_mb": 2.6,
-          "uptime_h": 25.2
-        },
-        {
-          "command": "/bin/bash -c source /home/mintkangaroo/.claude/shell-snapshots/snapshot-bash-1786597924299-u8iuyy.sh 2>/dev/null || true",
-          "cpu_pct": 0.0,
-          "pid": 2070002,
-          "rss_mb": 2.2,
-          "uptime_h": 0.0
+          "pid": 1916857,
+          "rss_mb": 3.1,
+          "uptime_h": 113.4
         }
       ],
-      "total_rss_mb": 7358.0
+      "total_rss_mb": 4196.7
     },
     "live": true,
     "lookback_days": 90,
@@ -399,26 +498,26 @@
     }
   },
   "system/resources": {
-    "as_of": "2026-08-14T14:21:13.054222+00:00",
+    "as_of": "2026-08-19T05:42:31.987650+00:00",
     "data": {
       "cpu": {
         "cores": 12,
-        "load1": 2.7,
-        "load15": 3.05,
-        "load1_pct": 22.5,
-        "load5": 2.44
+        "load1": 3.46,
+        "load15": 2.82,
+        "load1_pct": 28.8,
+        "load5": 3.4
       },
       "disk": {
-        "free_gb": 900.8,
+        "free_gb": 894.2,
         "total_gb": 1081.1,
-        "used_gb": 180.3,
-        "used_pct": 16.7
+        "used_gb": 186.9,
+        "used_pct": 17.3
       },
       "memory": {
-        "avail_gb": 1.39,
+        "avail_gb": 4.16,
         "total_gb": 9.48,
-        "used_gb": 8.09,
-        "used_pct": 85.3
+        "used_gb": 5.32,
+        "used_pct": 56.1
       }
     },
     "live": true,
@@ -433,7 +532,7 @@
     }
   },
   "system/safety": {
-    "as_of": "2026-08-14T14:21:13.133652+00:00",
+    "as_of": "2026-08-19T05:42:32.009939+00:00",
     "data": {
       "config_version": 1,
       "killswitch_engaged": false,
@@ -452,24 +551,24 @@
     }
   },
   "system/summary": {
-    "as_of": "2026-08-14T14:21:13.238660+00:00",
+    "as_of": "2026-08-19T05:42:32.042732+00:00",
     "data": {
-      "cache_recent_entries": 104,
+      "cache_recent_entries": 268,
       "config_version": 1,
-      "disk_used_pct": 16.7,
+      "disk_used_pct": 17.3,
       "job_count": 4,
       "job_failed_count": 0,
-      "job_silent_count": 0,
+      "job_silent_count": 1,
       "killswitch_engaged": false,
       "killswitch_reason": "",
       "llm_monthly_budget_usd": 50.0,
-      "llm_usage_cost_usd": null,
+      "llm_usage_cost_usd": 0.42,
       "llm_usage_unpriced_models": [],
-      "mem_used_pct": 83.7,
-      "table_count": 25,
-      "table_stale_count": 1,
+      "mem_used_pct": 58.2,
+      "table_count": 29,
+      "table_stale_count": 0,
       "warnings": [
-        "fx 최신 데이터가 7일 지연"
+        "일일 수집 (시세·유니버스·수급·거시) 완주 여부를 로그에서 확인할 수 없음"
       ]
     },
     "live": true,
@@ -484,156 +583,209 @@
     }
   },
   "system/tables": {
-    "as_of": "2026-08-14T14:21:18.592043+00:00",
+    "as_of": "2026-08-19T05:42:41.860335+00:00",
     "data": [
       {
-        "latest_valid_from": "2026-08-14T23:15:48.874099+09:00",
-        "rows_recent": 104,
+        "alarm": true,
+        "latest_valid_from": "2026-08-19T08:58:42.281544+09:00",
+        "rows_recent": 268,
         "stale_days": 0,
         "table": "agent_cache"
       },
       {
-        "latest_valid_from": "2026-08-14T03:22:33.475652+09:00",
-        "rows_recent": 24,
-        "stale_days": 0,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T16:00:00+09:00",
+        "rows_recent": 36,
+        "stale_days": 1,
         "table": "analyst_weights"
       },
       {
-        "latest_valid_from": null,
-        "rows_recent": 0,
-        "stale_days": null,
+        "alarm": false,
+        "latest_valid_from": "2026-08-17T22:30:00+09:00",
+        "rows_recent": 2,
+        "stale_days": 1,
         "table": "capital_flows"
       },
       {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "dividends"
       },
       {
-        "latest_valid_from": "2026-08-13T13:55:06+09:00",
-        "rows_recent": 4547,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T09:00:00+09:00",
+        "rows_recent": 6312,
         "stale_days": 1,
         "table": "documents"
       },
       {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "events"
       },
       {
-        "latest_valid_from": "2026-08-14T09:00:00+09:00",
-        "rows_recent": 88955,
-        "stale_days": 0,
+        "alarm": true,
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "filings_13f"
+      },
+      {
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T09:00:00+09:00",
+        "rows_recent": 64894,
+        "stale_days": 1,
         "table": "flows"
       },
       {
-        "latest_valid_from": "2026-12-31T09:00:00+09:00",
-        "rows_recent": 341,
-        "stale_days": -139,
+        "alarm": true,
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
         "table": "fundamentals"
       },
       {
-        "latest_valid_from": "2026-08-07T09:00:00+09:00",
-        "rows_recent": 4,
-        "stale_days": 7,
+        "alarm": true,
+        "latest_valid_from": "2026-08-14T09:00:00+09:00",
+        "rows_recent": 5,
+        "stale_days": 2,
         "table": "fx"
       },
       {
-        "latest_valid_from": "2026-08-13T09:00:00+09:00",
-        "rows_recent": 248,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T09:00:00+09:00",
+        "rows_recent": 340,
         "stale_days": 1,
         "table": "indices"
       },
       {
-        "latest_valid_from": "2026-08-14T20:07:10.184134+09:00",
-        "rows_recent": 19612,
+        "alarm": true,
+        "latest_valid_from": "2026-08-19T14:33:39.559242+09:00",
+        "rows_recent": 28578,
         "stale_days": 0,
         "table": "ingest_latency"
       },
       {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "killswitch"
       },
       {
-        "latest_valid_from": null,
-        "rows_recent": 0,
-        "stale_days": null,
+        "alarm": true,
+        "latest_valid_from": "2026-08-19T08:58:42.281544+09:00",
+        "rows_recent": 18,
+        "stale_days": 0,
         "table": "llm_usage"
       },
       {
-        "latest_valid_from": "2026-08-14T22:40:30.417661+09:00",
-        "rows_recent": 77,
+        "alarm": true,
+        "latest_valid_from": "2026-08-19T13:41:58.347693+09:00",
+        "rows_recent": 92,
         "stale_days": 0,
         "table": "macro_releases"
       },
       {
-        "latest_valid_from": "2026-08-11T09:00:00+09:00",
-        "rows_recent": 34458,
-        "stale_days": 3,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T09:00:00+09:00",
+        "rows_recent": 52206,
+        "stale_days": 1,
         "table": "market_stats"
       },
       {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "nav_daily"
       },
       {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "orders"
       },
       {
-        "latest_valid_from": "2026-08-14T09:00:00+09:00",
-        "rows_recent": 69506,
-        "stale_days": 0,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T09:00:00+09:00",
+        "rows_recent": 63710,
+        "stale_days": 1,
         "table": "prices"
       },
       {
+        "alarm": true,
+        "latest_valid_from": "2026-08-19T14:35:00+09:00",
+        "rows_recent": 51432,
+        "stale_days": 0,
+        "table": "prices_intraday"
+      },
+      {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "realized_weights"
       },
       {
-        "latest_valid_from": "2026-08-13T09:00:00+09:00",
-        "rows_recent": 1930,
+        "alarm": true,
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "rl_updates"
+      },
+      {
+        "alarm": true,
+        "latest_valid_from": "2026-08-15T00:52:40.244188+09:00",
+        "rows_recent": 4704,
         "stale_days": 1,
         "table": "sectors"
       },
       {
+        "alarm": true,
+        "latest_valid_from": null,
+        "rows_recent": 0,
+        "stale_days": null,
+        "table": "security_ids"
+      },
+      {
+        "alarm": true,
         "latest_valid_from": null,
         "rows_recent": 0,
         "stale_days": null,
         "table": "shorting"
       },
       {
-        "latest_valid_from": "2026-08-14T16:00:00+09:00",
-        "rows_recent": 41238,
+        "alarm": true,
+        "latest_valid_from": "2026-08-19T05:20:00+09:00",
+        "rows_recent": 76995,
         "stale_days": 0,
         "table": "signals"
       },
       {
-        "latest_valid_from": null,
-        "rows_recent": 0,
-        "stale_days": null,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T22:45:05.386641+09:00",
+        "rows_recent": 4,
+        "stale_days": 1,
         "table": "trades"
       },
       {
-        "latest_valid_from": "2026-08-14T09:00:00+09:00",
-        "rows_recent": 69508,
-        "stale_days": 0,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T09:00:00+09:00",
+        "rows_recent": 63711,
+        "stale_days": 1,
         "table": "universe"
       },
       {
-        "latest_valid_from": "2026-08-14T16:00:00+09:00",
-        "rows_recent": 212,
-        "stale_days": 0,
+        "alarm": true,
+        "latest_valid_from": "2026-08-18T16:00:00+09:00",
+        "rows_recent": 359,
+        "stale_days": 1,
         "table": "verdicts"
       }
     ],

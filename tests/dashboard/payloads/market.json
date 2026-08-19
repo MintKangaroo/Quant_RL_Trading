@@ -1,6 +1,6 @@
 {
   "market": {
-    "as_of": "2026-08-19T03:56:18.459138+00:00",
+    "as_of": "2026-08-19T05:42:23.295945+00:00",
     "data": {
       "fx": {
         "change": -0.002616361071932305,
@@ -567,6 +567,8 @@
                 ],
                 "kind": "index",
                 "label": "KOSPI",
+                "live_change": -0.0553,
+                "live_price": 6490.26,
                 "market": "KR",
                 "ohlc": [
                   [
@@ -1572,11 +1574,11 @@
             }
           ],
           "live": {
-            "filled": 0,
+            "filled": 20,
             "reason": null,
             "supported": true
           },
-          "live_index_filled": 0,
+          "live_index_filled": 1,
           "macro": [
             {
               "actual": 2.6,
@@ -1652,6 +1654,8 @@
                     "change": 0.010334346504559333,
                     "close": 1662000.0,
                     "entity_id": "KR:000660",
+                    "live_change": -0.09269999999999999,
+                    "live_price": 1508000.0,
                     "market_cap": 1214078310630000.0,
                     "metric": 8802822440885.0,
                     "name": "SK하이닉스"
@@ -1660,6 +1664,8 @@
                     "change": -0.021857923497267784,
                     "close": 268500.0,
                     "entity_id": "KR:005930",
+                    "live_change": -0.0764,
+                    "live_price": 248000.0,
                     "market_cap": 1569725806248000.0,
                     "metric": 6742432203720.0,
                     "name": "삼성전자"
@@ -1668,6 +1674,8 @@
                     "change": -0.07573812580231065,
                     "close": 1440000.0,
                     "entity_id": "KR:009150",
+                    "live_change": -0.0354,
+                    "live_price": 1389000.0,
                     "market_cap": 107558922240000.0,
                     "metric": 1625494135000.0,
                     "name": "삼성전기"
@@ -1676,6 +1684,8 @@
                     "change": -0.037321063394682996,
                     "close": 188300.0,
                     "entity_id": "KR:005935",
+                    "live_change": -0.0775,
+                    "live_price": 173700.0,
                     "market_cap": 151086497524900.0,
                     "metric": 845530181400.0,
                     "name": "삼성전자우"
@@ -1684,6 +1694,8 @@
                     "change": -0.016464471403812797,
                     "close": 1135000.0,
                     "entity_id": "KR:402340",
+                    "live_change": -0.1066,
+                    "live_price": 1014000.0,
                     "market_cap": 149772768110000.0,
                     "metric": 845300742500.0,
                     "name": "SK스퀘어"
@@ -1701,6 +1713,8 @@
                     "change": -0.021857923497267784,
                     "close": 268500.0,
                     "entity_id": "KR:005930",
+                    "live_change": -0.0764,
+                    "live_price": 248000.0,
                     "market_cap": 1569725806248000.0,
                     "metric": 1569725806248000.0,
                     "name": "삼성전자"
@@ -1709,6 +1723,8 @@
                     "change": 0.010334346504559333,
                     "close": 1662000.0,
                     "entity_id": "KR:000660",
+                    "live_change": -0.09269999999999999,
+                    "live_price": 1508000.0,
                     "market_cap": 1214078310630000.0,
                     "metric": 1214078310630000.0,
                     "name": "SK하이닉스"
@@ -1717,6 +1733,8 @@
                     "change": -0.037321063394682996,
                     "close": 188300.0,
                     "entity_id": "KR:005935",
+                    "live_change": -0.0775,
+                    "live_price": 173700.0,
                     "market_cap": 151086497524900.0,
                     "metric": 151086497524900.0,
                     "name": "삼성전자우"
@@ -1725,6 +1743,8 @@
                     "change": -0.016464471403812797,
                     "close": 1135000.0,
                     "entity_id": "KR:402340",
+                    "live_change": -0.1066,
+                    "live_price": 1014000.0,
                     "market_cap": 149772768110000.0,
                     "metric": 149772768110000.0,
                     "name": "SK스퀘어"
@@ -1733,6 +1753,8 @@
                     "change": -0.07573812580231065,
                     "close": 1440000.0,
                     "entity_id": "KR:009150",
+                    "live_change": -0.0354,
+                    "live_price": 1389000.0,
                     "market_cap": 107558922240000.0,
                     "metric": 107558922240000.0,
                     "name": "삼성전기"
@@ -1750,6 +1772,8 @@
                     "change": 0.2992261392949269,
                     "close": 15110.0,
                     "entity_id": "KR:006660",
+                    "live_change": -0.0364,
+                    "live_price": 14560.0,
                     "market_cap": 122788604540.0,
                     "metric": 0.2992261392949269,
                     "name": "삼성공조"
@@ -1758,6 +1782,8 @@
                     "change": 0.2991150442477877,
                     "close": 3670.0,
                     "entity_id": "KR:465770",
+                    "live_change": 0.0196,
+                    "live_price": 3742.0,
                     "market_cap": 26491454600.0,
                     "metric": 0.2991150442477877,
                     "name": "STX그린로지스"
@@ -1766,6 +1792,8 @@
                     "change": 0.2989690721649485,
                     "close": 37800.0,
                     "entity_id": "KR:098120",
+                    "live_change": 0.078,
+                    "live_price": 40750.0,
                     "market_cap": 314222554800.0,
                     "metric": 0.2989690721649485,
                     "name": "마이크로컨텍솔"
@@ -1774,6 +1802,8 @@
                     "change": 0.29824561403508776,
                     "close": 5550.0,
                     "entity_id": "KR:019010",
+                    "live_change": -0.059500000000000004,
+                    "live_price": 5220.0,
                     "market_cap": 267510000000.0,
                     "metric": 0.29824561403508776,
                     "name": "베뉴지"
@@ -1782,6 +1812,8 @@
                     "change": 0.22764227642276413,
                     "close": 13590.0,
                     "entity_id": "KR:387690",
+                    "live_change": -0.0258,
+                    "live_price": 13240.0,
                     "market_cap": 103634499690.0,
                     "metric": 0.22764227642276413,
                     "name": "레메디"
@@ -1799,6 +1831,8 @@
                     "change": -0.2616052060737527,
                     "close": 17020.0,
                     "entity_id": "KR:039830",
+                    "live_change": -0.0212,
+                    "live_price": 16660.0,
                     "market_cap": 183184387800.0,
                     "metric": -0.2616052060737527,
                     "name": "오로라"
@@ -1807,6 +1841,8 @@
                     "change": -0.23221476510067118,
                     "close": 5720.0,
                     "entity_id": "KR:226340",
+                    "live_change": -0.1399,
+                    "live_price": 4920.0,
                     "market_cap": 47993568480.0,
                     "metric": -0.23221476510067118,
                     "name": "본느"
@@ -1815,6 +1851,8 @@
                     "change": -0.18181818181818177,
                     "close": 8100.0,
                     "entity_id": "KR:031330",
+                    "live_change": -0.0556,
+                    "live_price": 7650.0,
                     "market_cap": 809960042700.0,
                     "metric": -0.18181818181818177,
                     "name": "에스에이엠티"
@@ -1823,6 +1861,8 @@
                     "change": -0.17513736263736268,
                     "close": 12010.0,
                     "entity_id": "KR:194700",
+                    "live_change": -0.0616,
+                    "live_price": 11270.0,
                     "market_cap": 219240724480.0,
                     "metric": -0.17513736263736268,
                     "name": "노바렉스"
@@ -1831,6 +1871,8 @@
                     "change": -0.1655450874831763,
                     "close": 12400.0,
                     "entity_id": "KR:487400",
+                    "live_change": -0.041100000000000005,
+                    "live_price": 11890.0,
                     "market_cap": 127234936800.0,
                     "metric": -0.1655450874831763,
                     "name": "케이앤에스아이앤씨"
@@ -2226,17 +2268,33 @@
             "excluded": [],
             "others": [
               {
-                "change": 0.016424996275282933,
-                "close": 12621.0,
+                "change": -0.04980112510894552,
+                "close": 11992.46,
                 "entity_id": "US:IDX:SOX",
                 "kind": "price",
                 "market": "US",
-                "session": "2026-08-17"
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.016816589754822253,
+                "close": 29490.96,
+                "entity_id": "US:IDX:NASDAQ100",
+                "kind": "price",
+                "market": "US",
+                "session": "2026-08-18"
               },
               {
                 "change": -0.015985768454475635,
                 "close": 21495.23,
                 "entity_id": "US:IDX:DJTA",
+                "kind": "price",
+                "market": "US",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.013330876328724761,
+                "close": 26289.71,
+                "entity_id": "US:IDX:NASDAQ",
                 "kind": "price",
                 "market": "US",
                 "session": "2026-08-18"
@@ -2250,14 +2308,6 @@
                 "session": "2026-08-18"
               },
               {
-                "change": -0.003151988315382881,
-                "close": 26644.91,
-                "entity_id": "US:IDX:NASDAQ",
-                "kind": "price",
-                "market": "US",
-                "session": "2026-08-17"
-              },
-              {
                 "change": -0.0021769636912085666,
                 "close": 53343.4,
                 "entity_id": "US:IDX:DJIA",
@@ -2266,20 +2316,20 @@
                 "session": "2026-08-18"
               },
               {
-                "change": -0.0016894017001850559,
-                "close": 29995.38,
-                "entity_id": "US:IDX:NASDAQ100",
-                "kind": "price",
-                "market": "US",
-                "session": "2026-08-17"
-              },
-              {
                 "change": 8.117468792834259e-05,
                 "close": 1108.81,
                 "entity_id": "US:IDX:DJUA",
                 "kind": "price",
                 "market": "US",
                 "session": "2026-08-18"
+              },
+              {
+                "change": 0.0,
+                "close": 3.63,
+                "entity_id": "US:RATE:FED_FUNDS",
+                "kind": "price",
+                "market": "US",
+                "session": "2026-08-17"
               },
               {
                 "change": 0.06596491228070178,
@@ -2306,7 +2356,7 @@
                 "session": "2026-08-17"
               }
             ],
-            "total": 10
+            "total": 11
           },
           "instrument_panels": {
             "kind": "etf",
@@ -2390,6 +2440,8 @@
                 ],
                 "kind": "etf",
                 "label": "SPY",
+                "live_change": 0.0,
+                "live_price": 767.45,
                 "market": "US",
                 "ohlc": [
                   [
@@ -4446,7 +4498,7 @@
             "reason": "미장은 실시간 조회 경로가 아직 없다",
             "supported": false
           },
-          "live_index_filled": 0,
+          "live_index_filled": 1,
           "macro": [
             {
               "actual": 102.9939,

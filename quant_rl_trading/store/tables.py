@@ -396,6 +396,45 @@ _SPECS: dict[str, TableSpec] = {
             "없다. 차단된 종목의 이후 수익률로 성적표를 만든다."
         ),
     ),
+    # -- RL 학습 (M4) ---------------------------------------------------------
+    "rl_updates": TableSpec(
+        name="rl_updates",
+        columns={
+            "update": pa.int32(),
+            "step": pa.int64(),
+            "seed": pa.int32(),
+            "market": pa.string(),
+            "curriculum": pa.string(),
+            # rl-training.md §10 의 로깅 지표. 이름을 그 표와 맞춘다 —
+            # 화면·문서·창고가 같은 말을 써야 "경고선 위/아래" 를 옮겨
+            # 적는 곳이 생기지 않는다.
+            "explained_variance": pa.float64(),
+            "approx_kl": pa.float64(),
+            "entropy": pa.float64(),
+            "grad_norm": pa.float64(),
+            "action_reflection": pa.float64(),
+            "policy_churn": pa.float64(),
+            "concentration_sum": pa.float64(),
+            "episode_reward": pa.float64(),
+            "cash_weight": pa.float64(),
+            # 재현성 (§11). 이게 없으면 좋은 성적이 나와도 다시 못 만든다.
+            "git_commit": pa.string(),
+            "config_fingerprint": pa.string(),
+        },
+        # 같은 run 의 같은 업데이트는 한 번만. 학습을 이어받아 다시 돌리면
+        # 같은 번호가 또 나오는데, 그때 두 벌이 쌓이면 곡선이 겹쳐 그려진다.
+        natural_key=("entity_id", "update"),
+        # entity_id 가 종목이 아니라 **run_id** 다. analyst_weights 와 같은
+        # 사정이라 시장 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
+        market_prefixed_entity=False,
+        doc=(
+            "PPO 학습 업데이트 1회 = 1행. entity_id = run_id. "
+            "학습 탭의 explained_variance·학습곡선·approx KL 이 여기서 온다. "
+            "**표가 없어서 화면이 비어 있었다** — 학습 코드가 없어서가 "
+            "아니었다(2026-08-19). 값을 지어내지 않으므로 학습을 안 돌리면 "
+            "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
+        ),
+    ),
     "analyst_weights": TableSpec(
         name="analyst_weights",
         columns={
