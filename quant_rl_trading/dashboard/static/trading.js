@@ -93,7 +93,12 @@ const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up
  * 있을 때만 — 장외에는 마지막 체결가가 곧 종가라 0 이 찍히는데, 그 0 은
  * "오늘 안 움직였다" 가 아니라 "아직 안 열렸다" 다.
  */
-function todayPnlNote(k) {
+function todayPnlNote(k, signed) {
+  // **`signed` 를 인자로 받는다.** 그 포매터는 renderKpis 안의 지역 상수라
+  // 최상위 함수에서는 안 보인다 — 그냥 부르면 런타임에 ReferenceError 로
+  // 죽고, 그러면 이 아래 KPI 가 통째로 안 그려진다(실제로 그랬다).
+  // 여기서 부호 규칙을 다시 만들지 않는 이유는 그것이 두 곳에 생기면
+  // 언젠가 한쪽만 고쳐지기 때문이다.
   const base = `지수 ${dec(k.index_value, 2)}`;
   if (k.live_session_open === false) return base;
   if (k.live_today_pnl === null || k.live_today_pnl === undefined) return base;
@@ -150,7 +155,7 @@ function renderKpis(body) {
              liveNavNote(k), false,
              { unit: "KRW", tone: k.live_session_open === false ? "" : tone(k.live_change) })]),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
-    kpi("오늘 수익금", signed(k.today_pnl), todayPnlNote(k), false,
+    kpi("오늘 수익금", signed(k.today_pnl), todayPnlNote(k, signed), false,
         { unit: "KRW", tone: tone(k.today_pnl) }),
     kpi("오늘 수익률", pct(k.daily_return), "TWR 기준", false, { tone: tone(k.daily_return) }),
     kpi("총 수익금", signed(k.total_pnl), "원금 대비", false,
