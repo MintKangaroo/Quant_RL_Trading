@@ -81,6 +81,25 @@ function bindEmergencyStop() {
 
 const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up" : "down");
 
+
+/* "오늘 수익금" 카드의 아랫줄.
+ *
+ * **큰 숫자는 종가 기준으로 둔다.** 그것이 회계가 확정한 값이고 벤치마크·
+ * MDD·TWR 이 전부 같은 시각으로 서 있다. 장중 값으로 덮으면 기준 시각이
+ * 어긋나 그 차이가 통째로 가짜 손익이 된다(accounting.md §2 — 스냅샷은
+ * 15:40 하루 한 번).
+ *
+ * 그래서 장중 손익은 **아랫줄에 참고로** 붙인다. 장이 열려 있고 값이
+ * 있을 때만 — 장외에는 마지막 체결가가 곧 종가라 0 이 찍히는데, 그 0 은
+ * "오늘 안 움직였다" 가 아니라 "아직 안 열렸다" 다.
+ */
+function todayPnlNote(k) {
+  const base = `지수 ${dec(k.index_value, 2)}`;
+  if (k.live_session_open === false) return base;
+  if (k.live_today_pnl === null || k.live_today_pnl === undefined) return base;
+  return `${base} · 장중 ${signed(k.live_today_pnl)}`;
+}
+
 /* 장중 총자산 카드의 아랫줄. **0.00% 는 두 가지 뜻이라 반드시 갈라 적는다.**
  *
  * 장외에는 t8407 이 마지막 체결가를 주는데 그것이 곧 전일 종가다. 그래서
@@ -92,7 +111,11 @@ function liveNavNote(k) {
   if (k.live_session_open === false) {
     return "장외 — 마지막 체결가 기준 · 참고값";
   }
-  return `종가 대비 ${pct(k.live_change)} · 참고값`;
+  // **마지막으로 읽어 온 시각을 적는다.** 안 적으면 값이 안 바뀌었을 때
+  // "갱신이 멈췄다" 와 "시세가 안 움직였다" 를 구분할 수 없다 — 사람은
+  // 앞쪽으로 읽고 고장이라고 판단한다(2026-08-19 실제로 그랬다).
+  const stamp = new Date().toLocaleTimeString("ko-KR", { hour12: false });
+  return `종가 대비 ${pct(k.live_change)} · 참고값 · ${stamp} 기준`;
 }
 
 /** 총자산 카드의 아랫줄. **장중 값이 있으면 그것이 몇 종목을 덮는지 적는다.**
@@ -127,7 +150,7 @@ function renderKpis(body) {
              liveNavNote(k), false,
              { unit: "KRW", tone: k.live_session_open === false ? "" : tone(k.live_change) })]),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
-    kpi("오늘 수익금", signed(k.today_pnl), `지수 ${dec(k.index_value, 2)}`, false,
+    kpi("오늘 수익금", signed(k.today_pnl), todayPnlNote(k), false,
         { unit: "KRW", tone: tone(k.today_pnl) }),
     kpi("오늘 수익률", pct(k.daily_return), "TWR 기준", false, { tone: tone(k.daily_return) }),
     kpi("총 수익금", signed(k.total_pnl), "원금 대비", false,

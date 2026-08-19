@@ -249,6 +249,16 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         "live_nav": live["nav"],
         "live_change": live["change"],
         "live_session_open": live.get("session_open"),
+        # **오늘 손익의 장중 판.** `today_pnl` 은 마지막 회계 스냅샷(=직전
+        # 세션 종가)까지의 확정 손익이라 장중에 안 움직인다. 그것과 지금
+        # 평가액의 차이가 오늘 장중에 생긴 손익이다.
+        #
+        # 여기서 계산해 내려주는 이유: 화면이 `live_nav - nav` 를 하면 같은
+        # 규칙이 두 곳에 생기고, 나중에 한쪽만 고쳐진다. 회계 규칙은 서버가
+        # 한 번만 정한다.
+        "live_today_pnl": (
+            None if live["nav"] is None else live["nav"] - nav
+        ),
         "live_equity": live["equity"],
         "live_covered": live["covered"],
         "principal": principal or None,
