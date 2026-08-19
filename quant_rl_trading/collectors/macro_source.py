@@ -125,6 +125,17 @@ FRED_INDICES: dict[str, tuple[str, str]] = {
     "VIXCLS": ("US:IDX:VIX", "VIX 변동성"),
     "VXNCLS": ("US:IDX:VXN", "나스닥100 변동성"),
     "RVXCLS": ("US:IDX:RVX", "러셀2000 변동성"),
+    # **정책금리 — 지수가 아니지만 여기로 온다.**
+    #
+    # `macro_releases` 에도 FED_FUNDS 가 있지만 그 표는 "언제 무엇이 발표되나"
+    # 를 담는 **일정 표**다. `valid_from` 이 설계상 "우리가 안 시각"(=수집
+    # 시각)이라, 과거 as_of 로 조회하면 한 행도 안 걸린다 — RL 환경의 금리차
+    # 칸이 200k 스텝 내내 0 이었던 이유가 이것이다(2026-08-19 실측).
+    #
+    # 시계열로 읽어야 하는 값은 `indices` 에 온다. 여기 오는 것은 **지수라서**
+    # 가 아니라 **날짜별 값이라서**다. 벤치마크로 쓰이지 않게 이름을
+    # `IDX` 가 아니라 `RATE` 로 둔다.
+    "DFF": ("US:RATE:FED_FUNDS", "미국 연방기금금리(실효)"),
 }
 
 
@@ -299,14 +310,22 @@ class EcosSource:
     def usable(self) -> bool:
         return bool(self.api_key)
 
-    def search(self, spec: dict[str, str], *, start: str, end: str) -> list[dict[str, Any]]:
-        """통계 조회. URL 경로에 파라미터를 **순서대로** 붙이는 규격이다."""
+    def search(
+        self, spec: dict[str, str], *, start: str, end: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """통계 조회. URL 경로에 파라미터를 **순서대로** 붙이는 규격이다.
+
+        ``limit`` 은 그 경로의 "끝 행" 이다. 기본 10 은 일일 수집용 — 최근
+        몇 달만 따라잡으면 되기 때문이다. **과거 백필은 넉넉히 줘야 한다**:
+        10 으로 두면 39개월을 물어도 10행만 오고, 그 10행이 조용히 "그게
+        전부" 로 읽힌다(2026-08-19 실측).
+        """
         if not self.usable():
             raise MissingCredentials(f"{ECOS_KEY_ENV} 미설정")
         path = "/".join(
             [
                 f"{ECOS_BASE}/StatisticSearch",
-                self.api_key, "json", "kr", "1", "10",
+                self.api_key, "json", "kr", "1", str(max(1, limit)),
                 spec["stat_code"], spec.get("cycle", "M"), start, end, spec["item_code"],
             ]
         )
@@ -549,7 +568,13 @@ class EcosCollector:
         for indicator, spec in ECOS_STATS.items():
             try:
                 found = self.source.search(
-                    spec, start=start.strftime("%Y%m"), end=end.strftime("%Y%m")
+                    spec,
+                    start=start.strftime("%Y%m"),
+                    end=end.strftime("%Y%m"),
+                    # **필요한 만큼 명시한다.** 기본 10 은 지금 우연히 맞는다
+                    # (전 지표가 월별이고 lookback 이 8개월). 둘 중 하나만
+                    # 바뀌면 조용히 잘리고, 잘린 응답은 "그게 전부" 로 읽힌다.
+                    limit=self.lookback_months + 4,
                 )
             except CollectorError:
                 # 한 지표 실패로 나머지를 버리지 않는다.

@@ -229,8 +229,12 @@ allocator:
     # 한미 정책금리차 피처가 읽는 macro_releases 의 entity_id.
     # benchmark.kr_index 와 같은 종류의 값이다 — 창고에 실제로 있는 이름을
     # 코드가 짐작하지 않게 설정으로 든다.
-    kr_policy_rate_series: "KR:BASE_RATE"
-    us_policy_rate_series: "US:FED_FUNDS"
+    # **`indices` 의 이름이다. `macro_releases` 가 아니다.**
+    # 그 표는 "언제 무엇이 발표되나" 를 담는 일정 표라 valid_from 이 수집
+    # 시각이고, 과거 as_of 로 조회하면 한 행도 안 걸린다 — RL 환경의 금리차
+    # 칸이 200k 스텝 내내 0 이었던 이유가 이것이다(2026-08-19).
+    kr_policy_rate_series: "KR:RATE:BASE"
+    us_policy_rate_series: "US:RATE:FED_FUNDS"
 
 fx:
   rebalance_deadband: 0.10   # 10%p 넘을 때만 환전

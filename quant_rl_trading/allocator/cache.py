@@ -408,9 +408,18 @@ class SessionReader:
 
         없으면 0 이다 — **0 은 "차이가 없다" 가 아니라 "모른다" 인데**, 관측
         텐서에는 결측을 표현할 자리가 없다. 발표가 월 단위라 최근 400일을 본다.
+
+        **`macro_releases` 가 아니라 `indices` 를 읽는다.** 금리가 저 표에도
+        있어서 원래 저기서 읽었는데, 그 표는 "언제 무엇이 발표되나" 를 담는
+        **일정** 표라 `valid_from` 이 설계상 수집 시각이다. 그래서 과거 as_of
+        로 조회하면 한 행도 안 걸리고, 이 칸이 200k 스텝 내내 0 이었다
+        (2026-08-19 실측). 시계열로 읽어야 하는 값은 `indices` 에 온다.
+
+        섹터·USD 칸이 비어 있는 것은 설계지만 이건 아니었다 — **비어 있는
+        칸을 볼 때 "원래 그런 것" 과 "읽는 표가 틀린 것" 은 겉모습이 같다.**
         """
         frame = self.store.get(
-            MACRO, as_of=as_of, lookback=400, columns=["entity_id", "actual"]
+            INDICES, as_of=as_of, lookback=400, columns=["entity_id", "close"]
         )
         if frame.empty:
             return 0.0
@@ -418,8 +427,8 @@ class SessionReader:
         us_name = str(self.store.config("allocator.env.us_policy_rate_series", as_of=as_of))
 
         def latest(entity: str) -> float | None:
-            rows = frame[frame["entity_id"] == entity].dropna(subset=["actual"])
-            return float(rows["actual"].iloc[-1]) if not rows.empty else None
+            rows = frame[frame["entity_id"] == entity].dropna(subset=["close"])
+            return float(rows["close"].iloc[-1]) if not rows.empty else None
 
         kr, us = latest(kr_name), latest(us_name)
         if kr is None or us is None:
