@@ -313,3 +313,23 @@ def test_모드가_창고에서_유도된다(client) -> None:
     system = client.get("/api/trading").get_json()["data"]["system"]
     assert system["mode"] in {"LIVE", "SHADOW", "BACKTEST"}
     assert system["store_root"]
+
+
+def test_장이_닫혀_있으면_실시간_값이_종가라고_말한다(client) -> None:
+    """**마감 후의 마지막 체결가는 참고값이 아니라 오늘 종가다.**
+
+    일봉 수집이 장 끝난 뒤에 돌기 때문에, 그 사이 창고 기준 `nav`·`today_pnl`
+    은 아직 어제를 가리킨다. 화면이 그 구간에서 실시간 값을 버리면 "오늘
+    수익률 0.00%" 가 되는데, 안 움직인 것이 아니라 아직 모르는 것이다
+    (2026-08-19 실측 -1.13%).
+
+    시각 판단을 화면이 하면 장 마감 시각이 두 곳에 생기므로 서버가 말한다.
+    """
+    kpis = client.get("/api/trading").get_json()["data"]["kpis"]
+
+    assert "live_is_close" in kpis
+    # 이 픽스처의 NOW 는 정규장 밖이다 — 실시간 값이 있으면 그것이 종가다.
+    if kpis["live_session_open"] is False and kpis["live_nav"] is not None:
+        assert kpis["live_is_close"] is True
+    else:
+        assert kpis["live_is_close"] is False

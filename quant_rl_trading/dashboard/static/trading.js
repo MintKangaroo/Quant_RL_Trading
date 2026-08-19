@@ -100,8 +100,12 @@ function todayPnlNote(k, signed, liveOn) {
   // 여기서 부호 규칙을 다시 만들지 않는 이유는 그것이 두 곳에 생기면
   // 언젠가 한쪽만 고쳐지기 때문이다.
   const base = `지수 ${dec(k.index_value, 2)}`;
-  // 큰 숫자가 이미 장중이면 여기서 또 "장중" 이라고 적지 않는다 — 대신
-  // 종가 확정값을 참고로 남긴다. 둘 다 볼 수 있어야 어제와 오늘이 갈린다.
+  // **장 마감 후에는 회계 확정값을 덧붙이지 않는다.** 그 값(`today_pnl`)은
+  // 아직 어제 종가끼리의 차이라 0 이고, 큰 숫자 옆에 "종가 0" 이 붙으면
+  // 사람은 큰 숫자를 의심한다 — 사용자가 본 화면이 정확히 그랬다.
+  if (k.live_is_close === true) return base;
+  // 장중이면 종가 확정값을 참고로 남긴다. 둘 다 볼 수 있어야 어제와 오늘이
+  // 갈린다.
   if (liveOn) return `${base} · 종가 ${signed(k.today_pnl)}`;
   return base;
 }
@@ -111,9 +115,13 @@ function todayPnlNote(k, signed, liveOn) {
  * 절반만 실시간인 수치를 "지금 총자산" 이라고 말하면 안 된다 — 장외거나
  * 일부 종목만 응답이 오는 경우가 실제로 있고, 그때 숫자는 종가와 장중이
  * 섞인 값이다. 덮은 종목 수를 같이 보여주면 그 사실이 화면에 남는다. */
-function navFoot(k, liveOn) {
+function navFoot(k, liveOn, closed) {
   const base = `원금 ${num(Math.round(k.principal || 0))}`;
   if (k.live_nav === null || k.live_nav === undefined) return base;
+  // 마감 후에는 그 값이 **오늘 종가**다. "장외 — 마지막 체결가" 는 값의
+  // 출처는 맞게 말하지만 그것이 종가라는 사실을 숨겨서, 읽는 사람이 어제
+  // 종가와 헷갈린다.
+  if (closed) return `${base} · ${k.live_covered}종목 · 오늘 종가`;
   if (!liveOn) return `${base} · 장외 — 마지막 체결가`;
   // **마지막으로 읽어 온 시각을 적는다.** 안 적으면 값이 안 바뀌었을 때
   // "갱신이 멈췄다" 와 "시세가 안 움직였다" 를 구분할 수 없다 — 사람은
@@ -153,21 +161,32 @@ function renderKpis(body) {
   // 카드들에는 **[종가] 배지**를 붙여 어느 시각 기준인지 화면이 말한다.
   const liveOn = k.live_session_open !== false
     && k.live_nav !== null && k.live_nav !== undefined;
-  const navValue = liveOn ? k.live_nav : k.nav;
-  const todayPnl = liveOn && k.live_today_pnl !== null && k.live_today_pnl !== undefined
+  // **장이 끝나면 마지막 체결가가 오늘 종가다.** 그런데 일봉 수집은 장이
+  // 끝난 뒤에 도니까, 그 사이 창고 기준 값(`nav`·`today_pnl`)은 아직 어제를
+  // 가리킨다. 그때 실시간 값을 버리면 화면이 "오늘 수익률 0.00%" 를 보여준다
+  // — 안 움직인 것이 아니라 아직 모르는 것인데(2026-08-19 실측 -1.13%).
+  //
+  // 그래서 장중이든 마감 후든 실시간 값이 있으면 쓴다. 다른 것은 **이름**
+  // 뿐이다: 장중은 참고값, 마감 후는 종가.
+  const closed = k.live_is_close === true;
+  const useLive = liveOn || closed;
+  const navValue = useLive ? k.live_nav : k.nav;
+  const todayPnl = useLive && k.live_today_pnl !== null && k.live_today_pnl !== undefined
     ? k.live_today_pnl : k.today_pnl;
-  const todayReturn = liveOn && k.live_change !== null && k.live_change !== undefined
+  const todayReturn = useLive && k.live_change !== null && k.live_change !== undefined
     ? k.live_change : k.daily_return;
   const closeBadge = "종가 기준";
+  // 오늘 수익 두 칸의 부제. 셋을 구분한다 — 장중 / 마감(종가) / 장 열기 전.
+  const todayFoot = liveOn ? `${stampNow()} 기준`
+    : closed ? "종가 기준 · 일봉 수집 전" : "TWR 기준";
 
   const cards = [
-    kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn), false,
-        { unit: "KRW", spark: navLine, tone: liveOn ? tone(k.live_change) : "" }),
+    kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn, closed), false,
+        { unit: "KRW", spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
-    kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, liveOn), false,
+    kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
         { unit: "KRW", tone: tone(todayPnl) }),
-    kpi("오늘 수익률", pct(todayReturn),
-        liveOn ? `${stampNow()} 기준` : "TWR 기준", false, { tone: tone(todayReturn) }),
+    kpi("오늘 수익률", pct(todayReturn), todayFoot, false, { tone: tone(todayReturn) }),
     kpi("총 수익금", signed(k.total_pnl), `원금 대비 · ${closeBadge}`, false,
         { unit: "KRW", tone: tone(k.total_pnl) }),
     kpi("총 수익률", pct(k.cumulative_return), `TWR 누적 · ${closeBadge}`, false,
