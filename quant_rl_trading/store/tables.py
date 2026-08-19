@@ -396,6 +396,38 @@ _SPECS: dict[str, TableSpec] = {
             "없다. 차단된 종목의 이후 수익률로 성적표를 만든다."
         ),
     ),
+    "short_flow": TableSpec(
+        name="short_flow",
+        columns={
+            "market": pa.string(),
+            # **주기가 다른 두 계열을 자연키로 가른다.**
+            #   volume    매일. FINRA 통합 공매도 거래량(CNMS)
+            #   interest  월 2회. 공매도 잔고
+            # 한 계열로 섞으면 반월 값이 발표 사이 구간에서 매일 반복되는데,
+            # 그게 피처에서는 "변화 없음" 이 아니라 "관측됨" 으로 읽힌다.
+            "kind": pa.string(),
+            # kind = volume
+            "short_volume": pa.float64(),
+            "short_exempt_volume": pa.float64(),
+            "total_volume": pa.float64(),
+            # kind = interest
+            "short_position": pa.float64(),
+            "previous_short_position": pa.float64(),
+            "days_to_cover": pa.float64(),
+            "average_daily_volume": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "kind"),
+        # 그날의 공매도 거래량을 그날보다 먼저 알 수는 없다. 늦게 오는 정정본은
+        # 하한 위라 안 잘린다. 선언이 없으면 프루닝이 통째로 꺼진다(`flows` 와
+        # 같은 사정 — 그때 45일 요청이 1,200개 파티션을 열었다).
+        observation_lag_days=3,
+        doc=(
+            "FINRA 공매도. flow_us Analyst 의 입력. **flows 와 별도 표다** — "
+            "거기에 컬럼을 더하면 union_by_name 이 없는 컬럼을 만들어주지 "
+            "않아 오래된 구간이 죽는다. 비율(short_volume/total_volume)은 "
+            "저장하지 않는다. 분자·분모를 두면 나중에 다르게 물을 수 있다."
+        ),
+    ),
     # -- RL 학습 (M4) ---------------------------------------------------------
     "rl_updates": TableSpec(
         name="rl_updates",
