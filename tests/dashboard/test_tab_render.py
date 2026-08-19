@@ -33,7 +33,7 @@ PAYLOADS = Path(__file__).parent / "payloads"
 #: 네 번째 칸은 템플릿이 그 스크립트보다 **앞에서** 부르는 것들이다 — 빠뜨리면
 #: 브라우저에서는 되는데 테스트만 ReferenceError 로 죽는다.
 TABS = [
-    ("market", "market.html", "market.js", ()),
+    ("market", "market.html", "market.js", ("candles.js",)),
     ("headlines", "headlines.html", "headlines.js", ()),
     ("system", "system.html", "system.js", ()),
     ("learning", "learning.html", "learning.js", ()),

@@ -152,6 +152,10 @@ def _render(payload: dict | None = None) -> dict[str, str]:
     js = "\n".join([
         HARNESS.replace("IDS", json.dumps(ids)),
         (STATIC / "scope.js").read_text(encoding="utf-8"),
+        # market.html 이 market.js 보다 먼저 싣는다. 빠뜨리면 브라우저에서는
+        # 멀쩡한 화면이 여기서만 죽는다 — 반대로, **여기서 죽으면 브라우저에서도
+        # 죽는다**. 봉 그리기는 트레이딩 탭과 공유한다(candles.js).
+        (STATIC / "candles.js").read_text(encoding="utf-8"),
         source,
         DRIVER.replace("PAYLOAD", json.dumps(payload)).replace("JOBS", jobs),
     ])
@@ -602,3 +606,82 @@ def test_줄_수는_config_가_정한다(rendered: dict[str, str]) -> None:
         assert data["rows"] == data["floor"]["rows"]
         for table in data["tables"]:
             assert len(table["rows"]) <= data["rows"]
+
+
+# -- 봉 전환 버튼 ---------------------------------------------------------------
+#
+# **꺼진 버튼도 화면에 남아야 한다.** 지수·ETF 에는 분봉이 한 봉도 없는데
+# (수집이 보유·워치리스트·shadow 보유 종목만 받는다) 버튼을 지우면 "이 화면은
+# 일봉 전용" 이 되고, 켜 두면 눌렀을 때 빈 화면이 뜬다. 남기고 끄고 **이유를
+# title 에 적는** 것이 셋 중 유일하게 정직한 길이다.
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_패널마다_봉_전환_버튼이_선다(rendered: dict[str, str], suffix: str) -> None:
+    dump = _group(rendered, suffix)
+    for interval in ("1m", "5m", "15m", "1H", "4H", "1D", "1W"):
+        assert f'data-interval="{interval}"' in dump, f"{interval} 버튼이 없다"
+    # 지금 그린 것은 일봉이다 — **그 버튼에만** 불이 켜진다. 두 개가 켜져
+    # 있으면 화면이 무엇을 보고 있는지 말하지 않는 것과 같다.
+    lit = [
+        interval
+        for interval in ("1m", "5m", "15m", "1H", "4H", "1D", "1W")
+        for chunk in [dump.partition(f'data-interval="{interval}"')[2]]
+        if 'class="on"' in chunk[: chunk.index("</button>")]
+    ]
+    assert lit == ["1D"], lit
+    # 버튼은 패널마다 하나씩이고, 어느 패널의 것인지 자기가 안다.
+    for panel in _panels(suffix)["panels"]:
+        assert f'data-entity="{html.escape(panel["entity_id"])}"' in dump
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_분봉이_없으면_버튼이_꺼지고_이유를_적는다(rendered, suffix: str) -> None:
+    """**왜 꺼졌는지 화면이 말해야 한다.** 이유가 없으면 사용자는 고장으로
+    읽고, 실제 원인(수집 대상이 아니다)에서 멀어진다."""
+    data = _panels(suffix)
+    dump = _group(rendered, suffix)
+    for panel in data["panels"]:
+        # 실측: 지수·ETF 는 분봉이 하나도 없다.
+        assert panel["intervals"] == ["1D", "1W"], panel["entity_id"]
+    assert "disabled" in dump
+    assert "보유·워치리스트" in dump, "왜 꺼졌는지 화면이 말하지 않는다"
+
+
+def test_창고에_분봉이_있으면_그_버튼만_켜진다() -> None:
+    """민감도 — 버튼을 끄는 판단이 **응답의 사실**을 따라가는지 본다.
+
+    실창고의 지수·ETF 에는 분봉이 없어 위 검사는 "전부 꺼짐" 만 본다. 그것만
+    보면 "무조건 끈다" 로 짜여 있어도 통과한다. 그래서 응답을 한 줄 바꿔 넣고
+    그 봉만 켜지는지 확인한다.
+    """
+    payload = _payload()
+    panel = payload["data"]["markets"]["KR"]["instrument_panels"]["panels"][0]
+    panel["intervals"] = ["5m", "1D", "1W"]
+    dump = _group(_render(payload), "kr")
+
+    assert '<button type="button" data-interval="5m"' in dump
+    tail = dump.partition('data-interval="5m"')[2]
+    assert "disabled" not in tail[: tail.index("</button>")], "있는 봉인데 꺼져 있다"
+    # 나머지 분봉은 여전히 꺼져 있다 — 하나가 켜졌다고 다 켜지면 안 된다.
+    for interval in ("1m", "15m", "1H", "4H"):
+        after = dump.partition(f'data-interval="{interval}"')[2]
+        assert "disabled" in after[: after.index("</button>")], f"{interval} 이 켜져 있다"
+
+
+def test_템플릿이_공용_봉_렌더러를_싣는다() -> None:
+    """**노드 하니스는 이걸 못 잡는다.** 하니스는 스크립트 목록을 자기가 들고
+    있어서, 템플릿에서 ``candles.js`` 를 빼도 여기 검사들은 전부 통과한다 —
+    그리고 브라우저에서만 ``candleOption is not defined`` 로 죽는다. 오늘 이
+    화면이 그 방식으로 두 번 깨졌다.
+
+    두 탭 다 본다. 봉 그리는 코드가 한 벌이라는 것은 곧 **두 화면이 같은
+    파일에 의존한다**는 뜻이고, 한쪽 템플릿만 고치면 다른 쪽이 죽는다.
+    """
+    for name, main in (("market.html", "market.js"), ("trading.html", "trading.js")):
+        source = (TEMPLATES / name).read_text(encoding="utf-8")
+        # 주석에도 파일 이름이 나오므로 **script 태그만** 본다.
+        loaded = re.findall(r"filename='([^']+\.js)'", source)
+        assert "candles.js" in loaded, f"{name} 이 candles.js 를 안 싣는다"
+        # 순서도 본다 — 뒤에 실으면 함수가 없는 채로 실행된다.
+        assert loaded.index("candles.js") < loaded.index(main), f"{name} 의 로드 순서"

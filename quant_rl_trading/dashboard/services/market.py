@@ -162,7 +162,7 @@ PANEL_KIND = {"KR": "index", "US": "etf"}
 #: 순서가 곧 화면 버튼의 순서다(짧은 것 → 긴 것).
 DAILY_INTERVAL = "1D"
 WEEKLY_INTERVAL = "1W"
-PANEL_INTERVALS = trading_service.INTRADAY_INTERVALS + (DAILY_INTERVAL, WEEKLY_INTERVAL)
+PANEL_INTERVALS = (*trading_service.INTRADAY_INTERVALS, DAILY_INTERVAL, WEEKLY_INTERVAL)
 
 #: 주봉을 만들려고 읽는 **일봉**의 창(일).
 #:
@@ -649,7 +649,7 @@ def weekly_bars(
                 "low": None if lows.isna().all() else float(lows.min()),
                 "close": float(closes.iloc[-1]),
                 "volume": float(volumes.sum()),
-                "sessions": int(len(group)),
+                "sessions": len(group),
                 # 그 주에 원래 몇 거래일이 있(었)나. 세션 수와 어긋나면
                 # 수집이 빈 것이고, 그 차이를 화면이 볼 수 있어야 한다.
                 "expected": len(week_days),

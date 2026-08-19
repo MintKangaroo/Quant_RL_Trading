@@ -1,14 +1,11 @@
 {
   "market": {
-    "as_of": "2026-08-15T08:40:40.398848+00:00",
+    "as_of": "2026-08-19T03:56:18.459138+00:00",
     "data": {
       "fx": {
-        "change": -0.009602348957930773,
-        "rate": 1409.94,
+        "change": -0.002616361071932305,
+        "rate": 1414.29,
         "rates": [
-          1494.67,
-          1508.49,
-          1498.77,
           1508.47,
           1517.33,
           1506.75,
@@ -58,16 +55,18 @@
           1446.32,
           1424.05,
           1436.81,
-          1467.54,
+          1430.49,
           1427.48,
           1424.0,
           1423.61,
-          1409.94
+          1409.94,
+          1417.54,
+          1412.93,
+          1416.3,
+          1418.0,
+          1414.29
         ],
         "sessions": [
-          "2026-05-18",
-          "2026-05-19",
-          "2026-05-20",
           "2026-05-21",
           "2026-05-22",
           "2026-05-26",
@@ -121,20 +120,25 @@
           "2026-08-04",
           "2026-08-05",
           "2026-08-06",
-          "2026-08-07"
+          "2026-08-07",
+          "2026-08-10",
+          "2026-08-11",
+          "2026-08-12",
+          "2026-08-13",
+          "2026-08-14"
         ]
       },
       "markets": {
         "KR": {
           "breadth": {
-            "advancers": 1631,
+            "advancers": 601,
             "currency": "KRW",
-            "decliners": 979,
-            "session": "2026-08-14",
+            "decliners": 2013,
+            "session": "2026-08-18",
             "traded": 2873,
-            "unchanged": 262,
-            "unmeasured": 1,
-            "value": 34756494729462.0
+            "unchanged": 257,
+            "unmeasured": 2,
+            "value": 38024293333576.0
           },
           "currency": "KRW",
           "indices": {
@@ -144,340 +148,340 @@
             ],
             "others": [
               {
-                "change": 0.10687022900763354,
-                "close": 1.45,
+                "change": -0.04638627158126363,
+                "close": 1551.52,
+                "entity_id": "KR:IDX:KRX K콘텐츠",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.04638034707136485,
+                "close": 1892.01,
+                "entity_id": "KR:IDX:KRX 증권",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.04282630343293681,
+                "close": 1316.87,
+                "entity_id": "KR:IDX:KRX 건설",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.04054054054054057,
+                "close": 1.42,
                 "entity_id": "KR:IDX:K-샤프지수(1년)",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.060975609756097615,
-                "close": 0.87,
-                "entity_id": "KR:IDX:K-샤프지수(3년)",
+                "change": -0.03938897108809525,
+                "close": 3122.86,
+                "entity_id": "KR:IDX:KRX 자동차",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.05917553115804708,
-                "close": 9304.91,
-                "entity_id": "KR:IDX:KRX SK하이닉스 지수",
+                "change": -0.03719437156378791,
+                "close": 3497.17,
+                "entity_id": "KR:IDX:KRX 300 헬스케어",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.057247953199182744,
-                "close": 5754.22,
-                "entity_id": "KR:IDX:KRX 정보기술",
+                "change": -0.036770161036139726,
+                "close": 3972.88,
+                "entity_id": "KR:IDX:KRX 헬스케어",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.055524571140716183,
-                "close": 9387.16,
+                "change": -0.03653196965139216,
+                "close": 1441.3,
+                "entity_id": "KR:IDX:KOSDAQ150",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.034960577084381717,
+                "close": 2588.67,
+                "entity_id": "KR:IDX:KRX 300 자유소비재",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.0338332411594392,
+                "close": 1484.95,
+                "entity_id": "KR:IDX:KRX 기계장비",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.03090198268640043,
+                "close": 1735.17,
+                "entity_id": "KR:IDX:KRX 중형 TMI",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.029384257620949428,
+                "close": 1535.98,
+                "entity_id": "KR:IDX:KRX 300 커뮤니케이션서비스",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.029216069186776328,
+                "close": 1391.91,
+                "entity_id": "KR:IDX:KRX 소형 TMI",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.02842370574322406,
+                "close": 9386.35,
                 "entity_id": "KR:IDX:KRX 300 정보기술",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.04999999999999982,
+                "change": 0.02614726719571081,
+                "close": 4340.88,
+                "entity_id": "KR:IDX:KRX 보험",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.02496852738612143,
+                "close": 19215.54,
+                "entity_id": "KR:IDX:KTOP 30",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.024638789035107078,
+                "close": 1543.87,
+                "entity_id": "KR:IDX:KRX 300 소재",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.0245010495973933,
+                "close": 1868.1,
+                "entity_id": "KR:IDX:KRX 300 산업재",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.023255813953488413,
                 "close": 0.42,
                 "entity_id": "KR:IDX:K-샤프지수(5년)",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.04892531099518438,
-                "close": 5018.73,
-                "entity_id": "KR:IDX:KRX 삼성전자 지수",
+                "change": -0.02301672548718736,
+                "close": 5793.97,
+                "entity_id": "KR:IDX:KRX 정보기술",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.04761904761904767,
+                "change": -0.022222222222222254,
                 "close": 0.44,
                 "entity_id": "KR:IDX:K-샤프지수(10년)",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.041574073703064096,
-                "close": 12997.23,
-                "entity_id": "KR:IDX:KRX 반도체",
+                "change": -0.02185800854010833,
+                "close": 5028.09,
+                "entity_id": "KR:IDX:KRX 삼성전자 지수",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.041268960368930685,
-                "close": 16961.48,
-                "entity_id": "KR:IDX:KRX 100",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.040614709110867064,
-                "close": 1071.24,
-                "entity_id": "KR:IDX:KOSPI200",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.039114680421279635,
-                "close": 4665.76,
-                "entity_id": "KR:IDX:KRX 300",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.038128812466365014,
-                "close": 4378.9,
-                "entity_id": "KR:IDX:KRX 중대형 TMI",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.03750349195782521,
-                "close": 19200.88,
-                "entity_id": "KR:IDX:KTOP 30",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.03686757075127267,
-                "close": 4260.24,
-                "entity_id": "KR:IDX:KRX TMI",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.033354655655059684,
-                "close": 3263.21,
-                "entity_id": "KR:IDX:코리아 밸류업 지수",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.02795857181793404,
-                "close": 1885.79,
-                "entity_id": "KR:IDX:KRX 300 산업재",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.02054344777522976,
-                "close": 3092.91,
-                "entity_id": "KR:IDX:KRX 자동차",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.018483865987339865,
-                "close": 1649.18,
-                "entity_id": "KR:IDX:KRX 은행",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.017624784115167103,
-                "close": 948.64,
-                "entity_id": "KR:IDX:KRX 유틸리티",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.015251855517070867,
-                "close": 2564.78,
-                "entity_id": "KR:IDX:KRX 300 자유소비재",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.013522912183087543,
-                "close": 1544.69,
-                "entity_id": "KR:IDX:KRX 300 커뮤니케이션서비스",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": -0.011407792553338902,
-                "close": 1783.45,
-                "entity_id": "KR:IDX:KRX 300 필수소비재",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.01068457198430628,
-                "close": 1517.27,
-                "entity_id": "KR:IDX:KRX 기계장비",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.01054218800128326,
-                "close": 1574.93,
-                "entity_id": "KR:IDX:KRX 300 소재",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.009494547623742244,
-                "close": 4044.55,
-                "entity_id": "KR:IDX:KRX 보험",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.009154814451528548,
-                "close": 2098.82,
-                "entity_id": "KR:IDX:KRX 300 금융",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.007766919927041593,
-                "close": 2502.9,
+                "change": -0.02093997761958044,
+                "close": 2467.29,
                 "entity_id": "KR:IDX:KRX 철강",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": -0.007112255092882602,
-                "close": 1758.99,
-                "entity_id": "KR:IDX:KRX 필수소비재",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.0066313623638143415,
-                "close": 1492.18,
-                "entity_id": "KR:IDX:KOSDAQ150",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.006612541328383292,
-                "close": 1610.57,
-                "entity_id": "KR:IDX:KRX K콘텐츠",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": -0.006197387967318613,
-                "close": 1284.47,
-                "entity_id": "KR:IDX:KRX 운송",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.005253313982604979,
-                "close": 1967.14,
-                "entity_id": "KR:IDX:KRX 증권",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.004843795178234522,
-                "close": 3649.04,
-                "entity_id": "KR:IDX:KRX 300 헬스케어",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.004748413011512298,
-                "close": 2801.54,
-                "entity_id": "KR:IDX:KRX 에너지화학",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.004041285070504497,
-                "close": 4144.08,
-                "entity_id": "KR:IDX:KRX 헬스케어",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.003867944684707192,
-                "close": 1362.56,
-                "entity_id": "KR:IDX:KRX 건설",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": -0.0030014867177199367,
-                "close": 1421.68,
-                "entity_id": "KR:IDX:KRX 소형 TMI",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": -0.0028595653146700206,
-                "close": 5080.61,
-                "entity_id": "KR:IDX:KRX 초소형 TMI",
-                "kind": "price",
-                "market": "KR",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.002118731593887979,
-                "close": 1698.0,
+                "change": -0.01843275394121391,
+                "close": 1699.78,
                 "entity_id": "KR:IDX:KRX 경기소비재",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": -0.001656067070716305,
-                "close": 868.09,
+                "change": -0.01636584252550055,
+                "close": 4288.34,
+                "entity_id": "KR:IDX:KRX TMI",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.0160576908063641,
+                "close": 4411.22,
+                "entity_id": "KR:IDX:KRX 중대형 TMI",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.015694579301570255,
+                "close": 4703.72,
+                "entity_id": "KR:IDX:KRX 300",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.014842443522805837,
+                "close": 17131.22,
+                "entity_id": "KR:IDX:KRX 100",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.014733468101768454,
+                "close": 1082.0,
+                "entity_id": "KR:IDX:KOSPI200",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.013556096203395374,
+                "close": 3296.37,
+                "entity_id": "KR:IDX:코리아 밸류업 지수",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.012562429625677218,
+                "close": 5033.7,
+                "entity_id": "KR:IDX:KRX 초소형 TMI",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.012516586665546336,
+                "close": 2820.46,
+                "entity_id": "KR:IDX:KRX 에너지화학",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.012231908696057836,
+                "close": 952.89,
+                "entity_id": "KR:IDX:KRX 유틸리티",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.011111111111111072,
+                "close": 0.89,
+                "entity_id": "KR:IDX:K-샤프지수(3년)",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.010445345949408269,
+                "close": 1761.15,
+                "entity_id": "KR:IDX:KRX 필수소비재",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": 0.010334448995903855,
+                "close": 9707.94,
+                "entity_id": "KR:IDX:KRX SK하이닉스 지수",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.009459391864478417,
+                "close": 1782.25,
+                "entity_id": "KR:IDX:KRX 300 필수소비재",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.007147111375818915,
+                "close": 900.18,
                 "entity_id": "KR:IDX:KRX 방송통신",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": -1.6890465332486393e-05,
-                "close": 1776.12,
-                "entity_id": "KR:IDX:KRX 중형 TMI",
+                "change": -0.006875560180701568,
+                "close": 1650.98,
+                "entity_id": "KR:IDX:KRX 은행",
                 "kind": "price",
                 "market": "KR",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.0047375551437984775,
+                "close": 13186.68,
+                "entity_id": "KR:IDX:KRX 반도체",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.004492456064344785,
+                "close": 2114.02,
+                "entity_id": "KR:IDX:KRX 300 금융",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.0011033076402152675,
+                "close": 1312.78,
+                "entity_id": "KR:IDX:KRX 운송",
+                "kind": "price",
+                "market": "KR",
+                "session": "2026-08-18"
               }
             ],
             "total": 44
@@ -489,12 +493,9 @@
             "panels": [
               {
                 "benchmark": true,
-                "change": 0.03561309856757222,
-                "close": 6813.34,
+                "change": -0.015493111147415917,
+                "close": 6869.83,
                 "closes": [
-                  7516.04,
-                  7271.66,
-                  7208.95,
                   7815.59,
                   7847.71,
                   8047.51,
@@ -552,33 +553,22 @@
                   6299.66,
                   6345.53,
                   6579.04,
-                  6813.34
+                  6813.34,
+                  6977.94,
+                  6869.83
                 ],
                 "entity_id": "KR:IDX:KOSPI",
-                "first_session": "2026-05-18",
+                "first_session": "2026-05-21",
                 "has_ohlc": true,
+                "interval": "1D",
+                "intervals": [
+                  "1D",
+                  "1W"
+                ],
                 "kind": "index",
                 "label": "KOSPI",
                 "market": "KR",
                 "ohlc": [
-                  [
-                    7443.29,
-                    7516.04,
-                    7142.71,
-                    7636.2
-                  ],
-                  [
-                    7425.66,
-                    7271.66,
-                    7141.91,
-                    7446.57
-                  ],
-                  [
-                    7324.52,
-                    7208.95,
-                    7053.84,
-                    7324.52
-                  ],
                   [
                     7486.37,
                     7815.59,
@@ -926,14 +916,25 @@
                     6813.34,
                     6748.13,
                     6895.63
+                  ],
+                  [
+                    6995.67,
+                    6977.94,
+                    6848.43,
+                    7010.86
+                  ],
+                  [
+                    7127.77,
+                    6869.83,
+                    6788.78,
+                    7216.62
                   ]
                 ],
+                "partial": null,
+                "reason": null,
                 "role": "primary",
-                "session": "2026-08-13",
+                "session": "2026-08-18",
                 "sessions": [
-                  "2026-05-18",
-                  "2026-05-19",
-                  "2026-05-20",
                   "2026-05-21",
                   "2026-05-22",
                   "2026-05-26",
@@ -991,19 +992,18 @@
                   "2026-08-10",
                   "2026-08-11",
                   "2026-08-12",
-                  "2026-08-13"
+                  "2026-08-13",
+                  "2026-08-14",
+                  "2026-08-18"
                 ],
-                "total": -0.093493382153368,
+                "total": -0.12100941835485235,
                 "tracks": null
               },
               {
                 "benchmark": false,
-                "change": 0.0028640951904157497,
-                "close": 861.37,
+                "change": -0.03521656161452602,
+                "close": 834.2,
                 "closes": [
-                  1111.09,
-                  1084.36,
-                  1056.07,
                   1105.97,
                   1161.13,
                   1172.52,
@@ -1061,33 +1061,22 @@
                   854.47,
                   857.84,
                   858.91,
-                  861.37
+                  861.37,
+                  864.65,
+                  834.2
                 ],
                 "entity_id": "KR:IDX:KOSDAQ",
-                "first_session": "2026-05-18",
+                "first_session": "2026-05-21",
                 "has_ohlc": true,
+                "interval": "1D",
+                "intervals": [
+                  "1D",
+                  "1W"
+                ],
                 "kind": "index",
                 "label": "KOSDAQ",
                 "market": "KR",
                 "ohlc": [
-                  [
-                    1122.57,
-                    1111.09,
-                    1071.66,
-                    1122.57
-                  ],
-                  [
-                    1111.36,
-                    1084.36,
-                    1063.28,
-                    1122.85
-                  ],
-                  [
-                    1081.04,
-                    1056.07,
-                    1038.23,
-                    1081.04
-                  ],
                   [
                     1085.3,
                     1105.97,
@@ -1435,14 +1424,25 @@
                     861.37,
                     853.09,
                     870.96
+                  ],
+                  [
+                    868.07,
+                    864.65,
+                    845.41,
+                    879.29
+                  ],
+                  [
+                    866.59,
+                    834.2,
+                    827.97,
+                    872.59
                   ]
                 ],
+                "partial": null,
+                "reason": null,
                 "role": "companion",
-                "session": "2026-08-13",
+                "session": "2026-08-18",
                 "sessions": [
-                  "2026-05-18",
-                  "2026-05-19",
-                  "2026-05-20",
                   "2026-05-21",
                   "2026-05-22",
                   "2026-05-26",
@@ -1500,75 +1500,83 @@
                   "2026-08-10",
                   "2026-08-11",
                   "2026-08-12",
-                  "2026-08-13"
+                  "2026-08-13",
+                  "2026-08-14",
+                  "2026-08-18"
                 ],
-                "total": -0.2247522702931355,
+                "total": -0.2457299926761124,
                 "tracks": null
               }
             ]
           },
           "leaders": [
             {
-              "change": 0.02425373134328357,
+              "change": -0.021857923497267784,
               "entity_id": "KR:005930",
-              "market_cap": 1400183726616000.0,
+              "market_cap": 1569725806248000.0,
               "name": "삼성전자"
             },
             {
-              "change": 0.03264281230382915,
+              "change": 0.010334346504559333,
               "entity_id": "KR:000660",
-              "market_cap": 1040951620125000.0,
+              "market_cap": 1214078310630000.0,
               "name": "SK하이닉스"
             },
             {
-              "change": 0.04153354632587858,
+              "change": -0.037321063394682996,
               "entity_id": "KR:005935",
-              "market_cap": 144587290780600.0,
+              "market_cap": 151086497524900.0,
               "name": "삼성전자우"
             },
             {
-              "change": 0.033124440465532645,
+              "change": -0.016464471403812797,
               "entity_id": "KR:402340",
-              "market_cap": 124700674770000.0,
+              "market_cap": 149772768110000.0,
               "name": "SK스퀘어"
             },
             {
-              "change": 0.03659347970725224,
+              "change": -0.07573812580231065,
               "entity_id": "KR:009150",
-              "market_cap": 94263444352000.0,
+              "market_cap": 107558922240000.0,
               "name": "삼성전기"
             },
             {
-              "change": 0.010943912448700521,
-              "entity_id": "KR:373220",
-              "market_cap": 82953000000000.0,
-              "name": "LG에너지솔루션"
-            },
-            {
-              "change": 0.08243727598566308,
+              "change": -0.039735099337748325,
               "entity_id": "KR:005380",
-              "market_cap": 82517379698000.0,
+              "market_cap": 89069628210000.0,
               "name": "현대차"
             },
             {
-              "change": -0.010230179028132946,
+              "change": -0.05006765899864685,
+              "entity_id": "KR:373220",
+              "market_cap": 82134000000000.0,
+              "name": "LG에너지솔루션"
+            },
+            {
+              "change": -0.010981912144702788,
               "entity_id": "KR:207940",
-              "market_cap": 74482140159000.0,
+              "market_cap": 70871445981000.0,
               "name": "삼성바이오로직스"
             },
             {
-              "change": 0.002379535990481907,
-              "entity_id": "KR:105560",
-              "market_cap": 59090976484400.0,
-              "name": "KB금융"
+              "change": 0.03156146179401986,
+              "entity_id": "KR:032830",
+              "market_cap": 62100000000000.0,
+              "name": "삼성생명"
             },
             {
-              "change": 0.032590051457976,
-              "entity_id": "KR:032830",
-              "market_cap": 57900000000000.0,
-              "name": "삼성생명"
+              "change": 0.0,
+              "entity_id": "KR:028260",
+              "market_cap": 59839837389000.0,
+              "name": "삼성물산"
             }
           ],
+          "live": {
+            "filled": 0,
+            "reason": null,
+            "supported": true
+          },
+          "live_index_filled": 0,
           "macro": [
             {
               "actual": 2.6,
@@ -1624,7 +1632,7 @@
           "market": "KR",
           "rankings": {
             "currency": "KRW",
-            "eligible": 870,
+            "eligible": 928,
             "floor": {
               "currency": "KRW",
               "min_price": 1000.0,
@@ -1641,47 +1649,47 @@
                 "pooled": null,
                 "rows": [
                   {
-                    "change": 0.03264281230382915,
-                    "close": 1645000.0,
+                    "change": 0.010334346504559333,
+                    "close": 1662000.0,
                     "entity_id": "KR:000660",
-                    "market_cap": 1040951620125000.0,
-                    "metric": 7489699281000.0,
+                    "market_cap": 1214078310630000.0,
+                    "metric": 8802822440885.0,
                     "name": "SK하이닉스"
                   },
                   {
-                    "change": 0.02425373134328357,
-                    "close": 274500.0,
+                    "change": -0.021857923497267784,
+                    "close": 268500.0,
                     "entity_id": "KR:005930",
-                    "market_cap": 1400183726616000.0,
-                    "metric": 5874450961500.0,
+                    "market_cap": 1569725806248000.0,
+                    "metric": 6742432203720.0,
                     "name": "삼성전자"
                   },
                   {
-                    "change": 0.03659347970725224,
-                    "close": 1558000.0,
+                    "change": -0.07573812580231065,
+                    "close": 1440000.0,
                     "entity_id": "KR:009150",
-                    "market_cap": 94263444352000.0,
-                    "metric": 1504282797000.0,
+                    "market_cap": 107558922240000.0,
+                    "metric": 1625494135000.0,
                     "name": "삼성전기"
                   },
                   {
-                    "change": 0.033124440465532645,
-                    "close": 1154000.0,
-                    "entity_id": "KR:402340",
-                    "market_cap": 124700674770000.0,
-                    "metric": 759169507500.0,
-                    "name": "SK스퀘어"
+                    "change": -0.037321063394682996,
+                    "close": 188300.0,
+                    "entity_id": "KR:005935",
+                    "market_cap": 151086497524900.0,
+                    "metric": 845530181400.0,
+                    "name": "삼성전자우"
                   },
                   {
-                    "change": 0.04153354632587858,
-                    "close": 195600.0,
-                    "entity_id": "KR:005935",
-                    "market_cap": 144587290780600.0,
-                    "metric": 744107274500.0,
-                    "name": "삼성전자우"
+                    "change": -0.016464471403812797,
+                    "close": 1135000.0,
+                    "entity_id": "KR:402340",
+                    "market_cap": 149772768110000.0,
+                    "metric": 845300742500.0,
+                    "name": "SK스퀘어"
                   }
                 ],
-                "session": "2026-08-14",
+                "session": "2026-08-18",
                 "sort_by": "prices.value — 체결 금액"
               },
               {
@@ -1690,47 +1698,47 @@
                 "pooled": null,
                 "rows": [
                   {
-                    "change": 0.02425373134328357,
-                    "close": 274500.0,
+                    "change": -0.021857923497267784,
+                    "close": 268500.0,
                     "entity_id": "KR:005930",
-                    "market_cap": 1400183726616000.0,
-                    "metric": 1400183726616000.0,
+                    "market_cap": 1569725806248000.0,
+                    "metric": 1569725806248000.0,
                     "name": "삼성전자"
                   },
                   {
-                    "change": 0.03264281230382915,
-                    "close": 1645000.0,
+                    "change": 0.010334346504559333,
+                    "close": 1662000.0,
                     "entity_id": "KR:000660",
-                    "market_cap": 1040951620125000.0,
-                    "metric": 1040951620125000.0,
+                    "market_cap": 1214078310630000.0,
+                    "metric": 1214078310630000.0,
                     "name": "SK하이닉스"
                   },
                   {
-                    "change": 0.04153354632587858,
-                    "close": 195600.0,
+                    "change": -0.037321063394682996,
+                    "close": 188300.0,
                     "entity_id": "KR:005935",
-                    "market_cap": 144587290780600.0,
-                    "metric": 144587290780600.0,
+                    "market_cap": 151086497524900.0,
+                    "metric": 151086497524900.0,
                     "name": "삼성전자우"
                   },
                   {
-                    "change": 0.033124440465532645,
-                    "close": 1154000.0,
+                    "change": -0.016464471403812797,
+                    "close": 1135000.0,
                     "entity_id": "KR:402340",
-                    "market_cap": 124700674770000.0,
-                    "metric": 124700674770000.0,
+                    "market_cap": 149772768110000.0,
+                    "metric": 149772768110000.0,
                     "name": "SK스퀘어"
                   },
                   {
-                    "change": 0.03659347970725224,
-                    "close": 1558000.0,
+                    "change": -0.07573812580231065,
+                    "close": 1440000.0,
                     "entity_id": "KR:009150",
-                    "market_cap": 94263444352000.0,
-                    "metric": 94263444352000.0,
+                    "market_cap": 107558922240000.0,
+                    "metric": 107558922240000.0,
                     "name": "삼성전기"
                   }
                 ],
-                "session": "2026-08-11",
+                "session": "2026-08-18",
                 "sort_by": "market_stats.market_cap"
               },
               {
@@ -1739,47 +1747,47 @@
                 "pooled": 300,
                 "rows": [
                   {
-                    "change": 0.29984856133266025,
-                    "close": 2575.0,
-                    "entity_id": "KR:459550",
-                    "market_cap": 46708849372.0,
-                    "metric": 0.29984856133266025,
-                    "name": "알트"
+                    "change": 0.2992261392949269,
+                    "close": 15110.0,
+                    "entity_id": "KR:006660",
+                    "market_cap": 122788604540.0,
+                    "metric": 0.2992261392949269,
+                    "name": "삼성공조"
                   },
                   {
-                    "change": 0.29928057553956844,
-                    "close": 9030.0,
-                    "entity_id": "KR:049630",
-                    "market_cap": 155378174350.0,
-                    "metric": 0.29928057553956844,
-                    "name": "재영솔루텍"
+                    "change": 0.2991150442477877,
+                    "close": 3670.0,
+                    "entity_id": "KR:465770",
+                    "market_cap": 26491454600.0,
+                    "metric": 0.2991150442477877,
+                    "name": "STX그린로지스"
                   },
                   {
-                    "change": 0.2533333333333334,
-                    "close": 6580.0,
-                    "entity_id": "KR:092200",
-                    "market_cap": 203387215870.0,
-                    "metric": 0.2533333333333334,
-                    "name": "디아이씨"
+                    "change": 0.2989690721649485,
+                    "close": 37800.0,
+                    "entity_id": "KR:098120",
+                    "market_cap": 314222554800.0,
+                    "metric": 0.2989690721649485,
+                    "name": "마이크로컨텍솔"
                   },
                   {
-                    "change": 0.23739130434782618,
-                    "close": 14230.0,
-                    "entity_id": "KR:237880",
-                    "market_cap": 210711975980.0,
-                    "metric": 0.23739130434782618,
-                    "name": "클리오"
+                    "change": 0.29824561403508776,
+                    "close": 5550.0,
+                    "entity_id": "KR:019010",
+                    "market_cap": 267510000000.0,
+                    "metric": 0.29824561403508776,
+                    "name": "베뉴지"
                   },
                   {
-                    "change": 0.20175438596491224,
-                    "close": 12330.0,
-                    "entity_id": "KR:212560",
-                    "market_cap": 140932336600.0,
-                    "metric": 0.20175438596491224,
-                    "name": "네오오토"
+                    "change": 0.22764227642276413,
+                    "close": 13590.0,
+                    "entity_id": "KR:387690",
+                    "market_cap": 103634499690.0,
+                    "metric": 0.22764227642276413,
+                    "name": "레메디"
                   }
                 ],
-                "session": "2026-08-14",
+                "session": "2026-08-18",
                 "sort_by": "직전 세션 대비 등락률 — 거래대금 상위 모집단 안에서"
               },
               {
@@ -1788,512 +1796,514 @@
                 "pooled": 300,
                 "rows": [
                   {
-                    "change": -0.11977715877437323,
-                    "close": 15800.0,
-                    "entity_id": "KR:033160",
-                    "market_cap": 432355107420.0,
-                    "metric": -0.11977715877437323,
-                    "name": "엠케이전자"
+                    "change": -0.2616052060737527,
+                    "close": 17020.0,
+                    "entity_id": "KR:039830",
+                    "market_cap": 183184387800.0,
+                    "metric": -0.2616052060737527,
+                    "name": "오로라"
                   },
                   {
-                    "change": -0.11783783783783786,
-                    "close": 8160.0,
-                    "entity_id": "KR:0039P0",
-                    "market_cap": 169266600000.0,
-                    "metric": -0.11783783783783786,
-                    "name": "매드업"
+                    "change": -0.23221476510067118,
+                    "close": 5720.0,
+                    "entity_id": "KR:226340",
+                    "market_cap": 47993568480.0,
+                    "metric": -0.23221476510067118,
+                    "name": "본느"
                   },
                   {
-                    "change": -0.10577971646673934,
-                    "close": 4100.0,
-                    "entity_id": "KR:027360",
-                    "market_cap": 442180731900.0,
-                    "metric": -0.10577971646673934,
-                    "name": "아주IB투자"
+                    "change": -0.18181818181818177,
+                    "close": 8100.0,
+                    "entity_id": "KR:031330",
+                    "market_cap": 809960042700.0,
+                    "metric": -0.18181818181818177,
+                    "name": "에스에이엠티"
                   },
                   {
-                    "change": -0.10568454763811053,
-                    "close": 11170.0,
-                    "entity_id": "KR:144960",
-                    "market_cap": 518631446880.0,
-                    "metric": -0.10568454763811053,
-                    "name": "뉴파워프라즈마"
+                    "change": -0.17513736263736268,
+                    "close": 12010.0,
+                    "entity_id": "KR:194700",
+                    "market_cap": 219240724480.0,
+                    "metric": -0.17513736263736268,
+                    "name": "노바렉스"
                   },
                   {
-                    "change": -0.10435931307793922,
-                    "close": 33900.0,
-                    "entity_id": "KR:327260",
-                    "market_cap": 345413184000.0,
-                    "metric": -0.10435931307793922,
-                    "name": "RF머트리얼즈"
+                    "change": -0.1655450874831763,
+                    "close": 12400.0,
+                    "entity_id": "KR:487400",
+                    "market_cap": 127234936800.0,
+                    "metric": -0.1655450874831763,
+                    "name": "케이앤에스아이앤씨"
                   }
                 ],
-                "session": "2026-08-14",
+                "session": "2026-08-18",
                 "sort_by": "직전 세션 대비 등락률 — 상승률과 같은 모집단"
               }
             ],
             "universe": 2873
           },
           "treemap": {
+            "lookback": 15,
             "rows": [
               {
-                "change": 0.02425373134328357,
+                "change": -0.021857923497267784,
                 "entity_id": "KR:005930",
-                "market_cap": 1400183726616000.0,
+                "market_cap": 1569725806248000.0,
                 "name": "삼성전자"
               },
               {
-                "change": 0.03264281230382915,
+                "change": 0.010334346504559333,
                 "entity_id": "KR:000660",
-                "market_cap": 1040951620125000.0,
+                "market_cap": 1214078310630000.0,
                 "name": "SK하이닉스"
               },
               {
-                "change": 0.04153354632587858,
+                "change": -0.037321063394682996,
                 "entity_id": "KR:005935",
-                "market_cap": 144587290780600.0,
+                "market_cap": 151086497524900.0,
                 "name": "삼성전자우"
               },
               {
-                "change": 0.033124440465532645,
+                "change": -0.016464471403812797,
                 "entity_id": "KR:402340",
-                "market_cap": 124700674770000.0,
+                "market_cap": 149772768110000.0,
                 "name": "SK스퀘어"
               },
               {
-                "change": 0.03659347970725224,
+                "change": -0.07573812580231065,
                 "entity_id": "KR:009150",
-                "market_cap": 94263444352000.0,
+                "market_cap": 107558922240000.0,
                 "name": "삼성전기"
               },
               {
-                "change": 0.010943912448700521,
-                "entity_id": "KR:373220",
-                "market_cap": 82953000000000.0,
-                "name": "LG에너지솔루션"
-              },
-              {
-                "change": 0.08243727598566308,
+                "change": -0.039735099337748325,
                 "entity_id": "KR:005380",
-                "market_cap": 82517379698000.0,
+                "market_cap": 89069628210000.0,
                 "name": "현대차"
               },
               {
-                "change": -0.010230179028132946,
+                "change": -0.05006765899864685,
+                "entity_id": "KR:373220",
+                "market_cap": 82134000000000.0,
+                "name": "LG에너지솔루션"
+              },
+              {
+                "change": -0.010981912144702788,
                 "entity_id": "KR:207940",
-                "market_cap": 74482140159000.0,
+                "market_cap": 70871445981000.0,
                 "name": "삼성바이오로직스"
               },
               {
-                "change": 0.002379535990481907,
-                "entity_id": "KR:105560",
-                "market_cap": 59090976484400.0,
-                "name": "KB금융"
-              },
-              {
-                "change": 0.032590051457976,
+                "change": 0.03156146179401986,
                 "entity_id": "KR:032830",
-                "market_cap": 57900000000000.0,
+                "market_cap": 62100000000000.0,
                 "name": "삼성생명"
               },
               {
-                "change": -0.021097046413502074,
-                "entity_id": "KR:012450",
-                "market_cap": 56616614298000.0,
-                "name": "한화에어로스페이스"
-              },
-              {
-                "change": 0.010958904109588996,
+                "change": 0.0,
                 "entity_id": "KR:028260",
-                "market_cap": 55866731654500.0,
+                "market_cap": 59839837389000.0,
                 "name": "삼성물산"
               },
               {
-                "change": 0.02822580645161299,
-                "entity_id": "KR:329180",
-                "market_cap": 52795496175000.0,
-                "name": "HD현대중공업"
+                "change": 0.0,
+                "entity_id": "KR:105560",
+                "market_cap": 59764883179000.0,
+                "name": "KB금융"
               },
               {
-                "change": 0.03129548762736545,
+                "change": -0.012068965517241348,
+                "entity_id": "KR:012450",
+                "market_cap": 59091657546000.0,
+                "name": "한화에어로스페이스"
+              },
+              {
+                "change": -0.031757233592095924,
                 "entity_id": "KR:000270",
-                "market_cap": 52432465631400.0,
+                "market_cap": 53564663325600.0,
                 "name": "기아"
               },
               {
-                "change": 0.021013597033374465,
+                "change": -0.04019607843137252,
+                "entity_id": "KR:329180",
+                "market_cap": 51378519637500.0,
+                "name": "HD현대중공업"
+              },
+              {
+                "change": -0.008379888268156388,
+                "entity_id": "KR:055550",
+                "market_cap": 49996450453500.0,
+                "name": "신한지주"
+              },
+              {
+                "change": -0.056900726392251855,
                 "entity_id": "KR:034020",
                 "market_cap": 49899713273400.0,
                 "name": "두산에너빌리티"
               },
               {
-                "change": 0.007504690431519689,
-                "entity_id": "KR:055550",
-                "market_cap": 49057549975500.0,
-                "name": "신한지주"
-              },
-              {
-                "change": -0.004950495049504955,
-                "entity_id": "KR:068270",
-                "market_cap": 48952555113000.0,
-                "name": "셀트리온"
-              },
-              {
-                "change": 0.07045009784735812,
+                "change": -0.05301645338208405,
                 "entity_id": "KR:012330",
-                "market_cap": 44957994876500.0,
+                "market_cap": 46999477994000.0,
                 "name": "현대모비스"
               },
               {
-                "change": 0.05786618444846292,
+                "change": -0.027363184079602032,
+                "entity_id": "KR:068270",
+                "market_cap": 45476657908000.0,
+                "name": "셀트리온"
+              },
+              {
+                "change": 0.008547008547008517,
                 "entity_id": "KR:034730",
-                "market_cap": 37991416372000.0,
+                "market_cap": 42776594770000.0,
                 "name": "SK"
               },
               {
-                "change": 0.05954825462012314,
+                "change": -0.054263565891472854,
                 "entity_id": "KR:006400",
-                "market_cap": 37029051035000.0,
+                "market_cap": 39325738640000.0,
                 "name": "삼성SDI"
               },
               {
-                "change": 0.01526717557251911,
+                "change": -0.017293233082706805,
                 "entity_id": "KR:086790",
-                "market_cap": 35036761419600.0,
+                "market_cap": 35859864663600.0,
                 "name": "하나금융지주"
               },
               {
-                "change": 0.0066225165562914245,
+                "change": -0.04824561403508776,
                 "entity_id": "KR:035420",
-                "market_cap": 33593203190000.0,
+                "market_cap": 34064135945000.0,
                 "name": "NAVER"
               },
               {
-                "change": -0.03504672897196259,
-                "entity_id": "KR:010120",
-                "market_cap": 30450000000000.0,
-                "name": "LS ELECTRIC"
-              },
-              {
-                "change": 0.041162227602905554,
+                "change": -0.032558139534883734,
                 "entity_id": "KR:066570",
-                "market_cap": 29596138724600.0,
+                "market_cap": 33880004704000.0,
                 "name": "LG전자"
               },
               {
-                "change": 0.00654664484451728,
-                "entity_id": "KR:000810",
-                "market_cap": 28619030193000.0,
-                "name": "삼성화재"
+                "change": 0.012106537530266248,
+                "entity_id": "KR:010120",
+                "market_cap": 31350000000000.0,
+                "name": "LS ELECTRIC"
               },
               {
-                "change": 0.03903095558546443,
-                "entity_id": "KR:009540",
-                "market_cap": 28167700168000.0,
-                "name": "HD한국조선해양"
-              },
-              {
-                "change": 0.05622932745314224,
-                "entity_id": "KR:042660",
-                "market_cap": 27270792066000.0,
-                "name": "한화오션"
-              },
-              {
-                "change": 0.02292993630573248,
+                "change": -0.02241594022415938,
                 "entity_id": "KR:267260",
-                "market_cap": 26638832765000.0,
+                "market_cap": 28297000975000.0,
                 "name": "HD현대일렉트릭"
               },
               {
-                "change": -0.02088167053364265,
+                "change": 0.01788617886178856,
+                "entity_id": "KR:000810",
+                "market_cap": 27949318098000.0,
+                "name": "삼성화재"
+              },
+              {
+                "change": -0.051148225469728636,
+                "entity_id": "KR:042660",
+                "market_cap": 27852977514600.0,
+                "name": "한화오션"
+              },
+              {
+                "change": 0.010155721056194889,
                 "entity_id": "KR:298040",
-                "market_cap": 26397795388000.0,
+                "market_cap": 27824451232000.0,
                 "name": "효성중공업"
               },
               {
-                "change": 0.02611367127496167,
+                "change": -0.029792746113989632,
+                "entity_id": "KR:009540",
+                "market_cap": 26504531942000.0,
+                "name": "HD한국조선해양"
+              },
+              {
+                "change": -0.02844311377245512,
                 "entity_id": "KR:005490",
-                "market_cap": 25872358565500.0,
+                "market_cap": 25713875511500.0,
                 "name": "POSCO홀딩스"
               },
               {
-                "change": -0.030008110300081103,
+                "change": 0.019230769230769162,
                 "entity_id": "KR:010130",
-                "market_cap": 25652878901000.0,
+                "market_cap": 25444149211000.0,
                 "name": "고려아연"
               },
               {
-                "change": 0.012012012012011963,
+                "change": 0.0014836795252226587,
                 "entity_id": "KR:316140",
-                "market_cap": 24609431251600.0,
+                "market_cap": 24573026767500.0,
                 "name": "우리금융지주"
               },
               {
-                "change": 0.004531722054380571,
-                "entity_id": "KR:015760",
-                "market_cap": 22597135510400.0,
-                "name": "한국전력"
-              },
-              {
-                "change": 0.05751848808545601,
+                "change": 0.02175602175602176,
                 "entity_id": "KR:096770",
-                "market_cap": 20979450990800.0,
+                "market_cap": 22230441622000.0,
                 "name": "SK이노베이션"
               },
               {
-                "change": -0.016020236087689765,
-                "entity_id": "KR:138040",
-                "market_cap": 20717592397400.0,
-                "name": "메리츠금융지주"
-              },
-              {
-                "change": 0.009501187648456089,
-                "entity_id": "KR:011200",
-                "market_cap": 20421102050500.0,
-                "name": "HMM"
-              },
-              {
-                "change": 0.01327433628318575,
+                "change": 0.0,
                 "entity_id": "KR:042700",
-                "market_cap": 20301498600000.0,
+                "market_cap": 21826493800000.0,
                 "name": "한미반도체"
               },
               {
-                "change": -0.010512483574244391,
-                "entity_id": "KR:006800",
-                "market_cap": 19864624240000.0,
-                "name": "미래에셋증권"
-              },
-              {
-                "change": 0.01814882032667886,
-                "entity_id": "KR:051910",
-                "market_cap": 19342301982000.0,
-                "name": "LG화학"
-              },
-              {
-                "change": 0.013636363636363669,
-                "entity_id": "KR:010140",
-                "market_cap": 19184000000000.0,
-                "name": "삼성중공업"
-              },
-              {
-                "change": 0.011093502377178988,
-                "entity_id": "KR:000150",
-                "market_cap": 19060143795000.0,
-                "name": "두산"
-              },
-              {
-                "change": 0.012658227848101333,
-                "entity_id": "KR:033780",
-                "market_cap": 18675501034400.0,
-                "name": "KT&G"
-              },
-              {
-                "change": 0.10318331503841938,
+                "change": -0.006965174129353269,
                 "entity_id": "KR:017670",
-                "market_cap": 18471944558000.0,
+                "market_cap": 21436047289400.0,
                 "name": "SK텔레콤"
               },
               {
-                "change": 0.02742616033755274,
-                "entity_id": "KR:018260",
-                "market_cap": 18338538600000.0,
-                "name": "삼성에스디에스"
+                "change": 0.0658823529411765,
+                "entity_id": "KR:011200",
+                "market_cap": 21364340020500.0,
+                "name": "HMM"
               },
               {
-                "change": -0.0024937655860348684,
-                "entity_id": "KR:035720",
-                "market_cap": 18029329549000.0,
-                "name": "카카오"
+                "change": -0.019548872180451093,
+                "entity_id": "KR:015760",
+                "market_cap": 20928028910200.0,
+                "name": "한국전력"
               },
               {
-                "change": 0.028384279475982543,
+                "change": -0.03452855245683928,
+                "entity_id": "KR:006800",
+                "market_cap": 20340256088000.0,
+                "name": "미래에셋증권"
+              },
+              {
+                "change": -0.020376175548589393,
+                "entity_id": "KR:000150",
+                "market_cap": 20242293750000.0,
+                "name": "두산"
+              },
+              {
+                "change": 0.00428449014567267,
+                "entity_id": "KR:138040",
+                "market_cap": 19613100395600.0,
+                "name": "메리츠금융지주"
+              },
+              {
+                "change": -0.035650623885918,
+                "entity_id": "KR:051910",
+                "market_cap": 19095228781500.0,
+                "name": "LG화학"
+              },
+              {
+                "change": -0.047085201793722,
+                "entity_id": "KR:010140",
+                "market_cap": 18700000000000.0,
+                "name": "삼성중공업"
+              },
+              {
+                "change": -0.00424628450106157,
                 "entity_id": "KR:267250",
-                "market_cap": 17733947582500.0,
+                "market_cap": 18523878432500.0,
                 "name": "HD현대"
               },
               {
-                "change": -0.011023622047244053,
-                "entity_id": "KR:196170",
-                "market_cap": 17549527332500.0,
-                "name": "알테오젠"
+                "change": 0.003409090909090917,
+                "entity_id": "KR:033780",
+                "market_cap": 18332926529600.0,
+                "name": "KT&G"
               },
               {
-                "change": -0.02628434886499398,
+                "change": -0.061601642710472304,
+                "entity_id": "KR:018260",
+                "market_cap": 17680827300000.0,
+                "name": "삼성에스디에스"
+              },
+              {
+                "change": -0.024539877300613466,
                 "entity_id": "KR:079550",
-                "market_cap": 16720000000000.0,
+                "market_cap": 17490000000000.0,
                 "name": "LIG디펜스앤에어로스페이스"
               },
               {
-                "change": 0.0554089709762533,
-                "entity_id": "KR:003550",
-                "market_cap": 16374094033200.0,
-                "name": "LG"
-              },
-              {
-                "change": 0.020000000000000018,
-                "entity_id": "KR:024110",
-                "market_cap": 16068131260350.0,
-                "name": "기업은행"
-              },
-              {
-                "change": 0.0475514549325764,
+                "change": 0.04065040650406515,
                 "entity_id": "KR:010950",
-                "market_cap": 15941723347200.0,
+                "market_cap": 17292716851200.0,
                 "name": "S-Oil"
               },
               {
-                "change": -0.004742547425474308,
+                "change": -0.060833333333333295,
+                "entity_id": "KR:003550",
+                "market_cap": 17039338850800.0,
+                "name": "LG"
+              },
+              {
+                "change": -0.043749999999999956,
+                "entity_id": "KR:035720",
+                "market_cap": 16944025927500.0,
+                "name": "카카오"
+              },
+              {
+                "change": 0.002450980392156854,
+                "entity_id": "KR:024110",
+                "market_cap": 16307359021050.0,
+                "name": "기업은행"
+              },
+              {
+                "change": -0.05095541401273884,
+                "entity_id": "KR:196170",
+                "market_cap": 15968730214000.0,
+                "name": "알테오젠"
+              },
+              {
+                "change": -0.025187202178352575,
                 "entity_id": "KR:064350",
-                "market_cap": 15432720230200.0,
+                "market_cap": 15629176357600.0,
                 "name": "현대로템"
               },
               {
-                "change": 0.0317848410757946,
+                "change": -0.021327014218009532,
                 "entity_id": "KR:086280",
-                "market_cap": 15112500000000.0,
+                "market_cap": 15487500000000.0,
                 "name": "현대글로비스"
               },
               {
-                "change": -0.02252816020025028,
-                "entity_id": "KR:278470",
-                "market_cap": 14432408752500.0,
-                "name": "에이피알"
-              },
-              {
-                "change": 0.02772754671488853,
-                "entity_id": "KR:003670",
-                "market_cap": 13955661918000.0,
-                "name": "포스코퓨처엠"
-              },
-              {
-                "change": 0.008793969849246297,
+                "change": -0.00498132004981322,
                 "entity_id": "KR:272210",
-                "market_cap": 13772223458100.0,
+                "market_cap": 15094659181100.0,
                 "name": "한화시스템"
               },
               {
-                "change": 0.017142857142857126,
-                "entity_id": "KR:030200",
-                "market_cap": 13306744968000.0,
-                "name": "KT"
-              },
-              {
-                "change": -0.031746031746031744,
-                "entity_id": "KR:047810",
-                "market_cap": 13207876998500.0,
-                "name": "한국항공우주"
-              },
-              {
-                "change": 0.06341463414634152,
+                "change": -0.032110091743119296,
                 "entity_id": "KR:011070",
-                "market_cap": 12993241743000.0,
+                "market_cap": 14981278731000.0,
                 "name": "LG이노텍"
               },
               {
-                "change": 0.01846965699208436,
-                "entity_id": "KR:000720",
-                "market_cap": 12505252409500.0,
-                "name": "현대건설"
+                "change": 0.015364916773367376,
+                "entity_id": "KR:278470",
+                "market_cap": 14844228457500.0,
+                "name": "에이피알"
+              },
+              {
+                "change": -0.059237536656891465,
+                "entity_id": "KR:003670",
+                "market_cap": 14266973688000.0,
+                "name": "포스코퓨처엠"
+              },
+              {
+                "change": 0.016853932584269593,
+                "entity_id": "KR:030200",
+                "market_cap": 13684777495500.0,
+                "name": "KT"
+              },
+              {
+                "change": -0.04371584699453557,
+                "entity_id": "KR:047810",
+                "market_cap": 13646514980000.0,
+                "name": "한국항공우주"
+              },
+              {
+                "change": -0.0786516853932584,
+                "entity_id": "KR:307950",
+                "market_cap": 12368215882000.0,
+                "name": "현대오토에버"
               }
             ],
+            "session": "2026-08-18",
             "top_n": 60
           }
         },
         "US": {
           "breadth": {
-            "advancers": 3206,
+            "advancers": 2276,
             "currency": "USD",
-            "decliners": 2813,
-            "session": "2026-08-12",
-            "traded": 6647,
-            "unchanged": 628,
+            "decliners": 3757,
+            "session": "2026-08-18",
+            "traded": 6634,
+            "unchanged": 601,
             "unmeasured": 0,
-            "value": 755169560927.0
+            "value": 544091581043.0
           },
           "currency": "USD",
           "indices": {
             "excluded": [],
             "others": [
               {
-                "change": 0.011495296308997816,
-                "close": 30084.5,
-                "entity_id": "US:IDX:NASDAQ100",
-                "kind": "price",
-                "market": "US",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.00806890500363111,
-                "close": 26803.03,
-                "entity_id": "US:IDX:NASDAQ",
-                "kind": "price",
-                "market": "US",
-                "session": "2026-08-13"
-              },
-              {
-                "change": 0.00651609989030133,
-                "close": 7798.99,
-                "entity_id": "US:IDX:SP500",
-                "kind": "price",
-                "market": "US",
-                "session": "2026-08-13"
-              },
-              {
-                "change": -0.006186596619398466,
-                "close": 21792.39,
-                "entity_id": "US:IDX:DJTA",
-                "kind": "price",
-                "market": "US",
-                "session": "2026-08-14"
-              },
-              {
-                "change": 0.0045663573501255605,
-                "close": 12456.0,
+                "change": 0.016424996275282933,
+                "close": 12621.0,
                 "entity_id": "US:IDX:SOX",
                 "kind": "price",
                 "market": "US",
-                "session": "2026-08-13"
+                "session": "2026-08-17"
               },
               {
-                "change": 0.0025234546093604315,
-                "close": 1112.39,
-                "entity_id": "US:IDX:DJUA",
+                "change": -0.015985768454475635,
+                "close": 21495.23,
+                "entity_id": "US:IDX:DJTA",
                 "kind": "price",
                 "market": "US",
-                "session": "2026-08-14"
+                "session": "2026-08-18"
               },
               {
-                "change": -0.001998143015999765,
-                "close": 53732.41,
+                "change": -0.00688180595114829,
+                "close": 7691.76,
+                "entity_id": "US:IDX:SP500",
+                "kind": "price",
+                "market": "US",
+                "session": "2026-08-18"
+              },
+              {
+                "change": -0.003151988315382881,
+                "close": 26644.91,
+                "entity_id": "US:IDX:NASDAQ",
+                "kind": "price",
+                "market": "US",
+                "session": "2026-08-17"
+              },
+              {
+                "change": -0.0021769636912085666,
+                "close": 53343.4,
                 "entity_id": "US:IDX:DJIA",
                 "kind": "price",
                 "market": "US",
-                "session": "2026-08-14"
+                "session": "2026-08-18"
               },
               {
-                "change": -0.02055555555555566,
-                "close": 17.63,
-                "entity_id": "US:IDX:RVX",
-                "kind": "volatility",
+                "change": -0.0016894017001850559,
+                "close": 29995.38,
+                "entity_id": "US:IDX:NASDAQ100",
+                "kind": "price",
                 "market": "US",
-                "session": "2026-08-13"
+                "session": "2026-08-17"
               },
               {
-                "change": 0.012398664759179834,
-                "close": 21.23,
-                "entity_id": "US:IDX:VXN",
-                "kind": "volatility",
+                "change": 8.117468792834259e-05,
+                "close": 1108.81,
+                "entity_id": "US:IDX:DJUA",
+                "kind": "price",
                 "market": "US",
-                "session": "2026-08-13"
+                "session": "2026-08-18"
               },
               {
-                "change": 0.005498281786941561,
-                "close": 14.63,
+                "change": 0.06596491228070178,
+                "close": 15.19,
                 "entity_id": "US:IDX:VIX",
                 "kind": "volatility",
                 "market": "US",
-                "session": "2026-08-13"
+                "session": "2026-08-17"
+              },
+              {
+                "change": 0.04121964991530214,
+                "close": 18.44,
+                "entity_id": "US:IDX:RVX",
+                "kind": "volatility",
+                "market": "US",
+                "session": "2026-08-17"
+              },
+              {
+                "change": 0.03812741312741319,
+                "close": 21.51,
+                "entity_id": "US:IDX:VXN",
+                "kind": "volatility",
+                "market": "US",
+                "session": "2026-08-17"
               }
             ],
             "total": 10
@@ -2301,26 +2311,13 @@
           "instrument_panels": {
             "kind": "etf",
             "lookback": 90,
-            "missing": [
-              {
-                "benchmark": false,
-                "entity_id": "US:SOXX",
-                "kind": "etf",
-                "label": "SOXX",
-                "market": "US",
-                "role": "companion",
-                "tracks": "ICE 반도체"
-              }
-            ],
+            "missing": [],
             "panels": [
               {
                 "benchmark": false,
-                "change": 0.0025046719269103956,
-                "close": 772.49,
+                "change": -0.00675579484126454,
+                "close": 767.45,
                 "closes": [
-                  738.65,
-                  733.73,
-                  741.25,
                   742.72,
                   745.64,
                   750.59,
@@ -2377,33 +2374,24 @@
                   773.26,
                   773.03,
                   770.56,
-                  772.49
+                  772.49,
+                  777.88,
+                  776.34,
+                  772.67,
+                  767.45
                 ],
                 "entity_id": "US:SPY",
-                "first_session": "2026-05-18",
+                "first_session": "2026-05-21",
                 "has_ohlc": true,
+                "interval": "1D",
+                "intervals": [
+                  "1D",
+                  "1W"
+                ],
                 "kind": "etf",
                 "label": "SPY",
                 "market": "US",
                 "ohlc": [
-                  [
-                    739.83,
-                    738.65,
-                    733.39,
-                    741.415
-                  ],
-                  [
-                    734.78,
-                    733.73,
-                    731.53,
-                    737.65
-                  ],
-                  [
-                    735.71,
-                    741.25,
-                    733.89,
-                    741.87
-                  ],
                   [
                     738.64,
                     742.72,
@@ -2745,14 +2733,37 @@
                     772.49,
                     771.28,
                     774.9
+                  ],
+                  [
+                    774.87,
+                    777.88,
+                    774.111,
+                    779.37
+                  ],
+                  [
+                    778.54,
+                    776.34,
+                    775.4301,
+                    778.8
+                  ],
+                  [
+                    776.18,
+                    772.67,
+                    772.51,
+                    776.775
+                  ],
+                  [
+                    768.7,
+                    767.45,
+                    766.92,
+                    769.5
                   ]
                 ],
+                "partial": null,
+                "reason": null,
                 "role": "primary",
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sessions": [
-                  "2026-05-18",
-                  "2026-05-19",
-                  "2026-05-20",
                   "2026-05-21",
                   "2026-05-22",
                   "2026-05-26",
@@ -2809,19 +2820,20 @@
                   "2026-08-07",
                   "2026-08-10",
                   "2026-08-11",
-                  "2026-08-12"
+                  "2026-08-12",
+                  "2026-08-13",
+                  "2026-08-14",
+                  "2026-08-17",
+                  "2026-08-18"
                 ],
-                "total": 0.04581330806200512,
+                "total": 0.03329653166738478,
                 "tracks": "S&P 500"
               },
               {
                 "benchmark": false,
-                "change": 0.007307397870415455,
-                "close": 723.7,
+                "change": -0.016934522586213974,
+                "close": 717.51,
                 "closes": [
-                  705.88,
-                  701.53,
-                  713.15,
                   714.51,
                   717.54,
                   730.28,
@@ -2878,33 +2890,24 @@
                   723.03,
                   720.87,
                   718.45,
-                  723.7
+                  723.7,
+                  732.07,
+                  731.07,
+                  729.87,
+                  717.51
                 ],
                 "entity_id": "US:QQQ",
-                "first_session": "2026-05-18",
+                "first_session": "2026-05-21",
                 "has_ohlc": true,
+                "interval": "1D",
+                "intervals": [
+                  "1D",
+                  "1W"
+                ],
                 "kind": "etf",
                 "label": "QQQ",
                 "market": "US",
                 "ohlc": [
-                  [
-                    711.54,
-                    705.88,
-                    698.85,
-                    712.07
-                  ],
-                  [
-                    699.81,
-                    701.53,
-                    695.25,
-                    706.49
-                  ],
-                  [
-                    705.29,
-                    713.15,
-                    703.79,
-                    713.15
-                  ],
                   [
                     708.99,
                     714.51,
@@ -3246,14 +3249,37 @@
                     723.7,
                     722.92,
                     727.25
+                  ],
+                  [
+                    725.15,
+                    732.07,
+                    724.03,
+                    733.96
+                  ],
+                  [
+                    733.41,
+                    731.07,
+                    728.32,
+                    734.39
+                  ],
+                  [
+                    732.95,
+                    729.87,
+                    729.27,
+                    734.58
+                  ],
+                  [
+                    720.21,
+                    717.51,
+                    715.92,
+                    722.13
                   ]
                 ],
+                "partial": null,
+                "reason": null,
                 "role": "companion",
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sessions": [
-                  "2026-05-18",
-                  "2026-05-19",
-                  "2026-05-20",
                   "2026-05-21",
                   "2026-05-22",
                   "2026-05-26",
@@ -3310,19 +3336,20 @@
                   "2026-08-07",
                   "2026-08-10",
                   "2026-08-11",
-                  "2026-08-12"
+                  "2026-08-12",
+                  "2026-08-13",
+                  "2026-08-14",
+                  "2026-08-17",
+                  "2026-08-18"
                 ],
-                "total": 0.025245084150280483,
+                "total": 0.0041986816139731875,
                 "tracks": "나스닥 100"
               },
               {
                 "benchmark": false,
-                "change": -0.00024195949970218233,
-                "close": 537.15,
+                "change": -0.0023961511821638526,
+                "close": 532.91,
                 "closes": [
-                  497.01,
-                  493.98,
-                  500.24,
                   503.11,
                   506.12,
                   505.25,
@@ -3379,33 +3406,24 @@
                   539.62,
                   538.99,
                   537.28,
-                  537.15
+                  537.15,
+                  537.91,
+                  536.8,
+                  534.19,
+                  532.91
                 ],
                 "entity_id": "US:DIA",
-                "first_session": "2026-05-18",
+                "first_session": "2026-05-21",
                 "has_ohlc": true,
+                "interval": "1D",
+                "intervals": [
+                  "1D",
+                  "1W"
+                ],
                 "kind": "etf",
                 "label": "DIA",
                 "market": "US",
                 "ohlc": [
-                  [
-                    495.65,
-                    497.01,
-                    493.6,
-                    497.64
-                  ],
-                  [
-                    494.83,
-                    493.98,
-                    492.58,
-                    496.34
-                  ],
-                  [
-                    495.87,
-                    500.24,
-                    492.49,
-                    500.93
-                  ],
                   [
                     498.78,
                     503.11,
@@ -3747,14 +3765,37 @@
                     537.15,
                     536.86,
                     539.185
+                  ],
+                  [
+                    538.7,
+                    537.91,
+                    535.69,
+                    539.967
+                  ],
+                  [
+                    537.405,
+                    536.8,
+                    536.2,
+                    538.28
+                  ],
+                  [
+                    534.495,
+                    534.19,
+                    533.49,
+                    535.975
+                  ],
+                  [
+                    533.38,
+                    532.91,
+                    532.02,
+                    534.26
                   ]
                 ],
+                "partial": null,
+                "reason": null,
                 "role": "companion",
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sessions": [
-                  "2026-05-18",
-                  "2026-05-19",
-                  "2026-05-20",
                   "2026-05-21",
                   "2026-05-22",
                   "2026-05-26",
@@ -3811,76 +3852,622 @@
                   "2026-08-07",
                   "2026-08-10",
                   "2026-08-11",
-                  "2026-08-12"
+                  "2026-08-12",
+                  "2026-08-13",
+                  "2026-08-14",
+                  "2026-08-17",
+                  "2026-08-18"
                 ],
-                "total": 0.0807629625158448,
+                "total": 0.0592315795750431,
                 "tracks": "다우존스 산업평균"
+              },
+              {
+                "benchmark": false,
+                "change": -0.049595793389612286,
+                "close": 531.39,
+                "closes": [
+                  524.71,
+                  537.33,
+                  570.09,
+                  563.98,
+                  569.47,
+                  569.08,
+                  571.93,
+                  605.02,
+                  615.68,
+                  602.72,
+                  539.77,
+                  571.45,
+                  562.14,
+                  541.51,
+                  586.93,
+                  596.25,
+                  628.45,
+                  591.24,
+                  599.73,
+                  639.45,
+                  655.01,
+                  603.39,
+                  601.5,
+                  625.2,
+                  589.94,
+                  614.35,
+                  640.76,
+                  599.7,
+                  566.32,
+                  581.51,
+                  551.69,
+                  562.03,
+                  581.7,
+                  581.34,
+                  553.61,
+                  567.92,
+                  555.27,
+                  530.5,
+                  521.81,
+                  524.14,
+                  552.69,
+                  555.52,
+                  551.24,
+                  527.01,
+                  516.23,
+                  491.46,
+                  465.0,
+                  504.53,
+                  504.89,
+                  507.68,
+                  542.21,
+                  530.7,
+                  532.52,
+                  543.27,
+                  529.39,
+                  534.2,
+                  546.61,
+                  550.74,
+                  550.42,
+                  559.12,
+                  531.39
+                ],
+                "entity_id": "US:SOXX",
+                "first_session": "2026-05-21",
+                "has_ohlc": true,
+                "interval": "1D",
+                "intervals": [
+                  "1D",
+                  "1W"
+                ],
+                "kind": "etf",
+                "label": "SOXX",
+                "market": "US",
+                "ohlc": [
+                  [
+                    518.17,
+                    524.71,
+                    515.0,
+                    526.78
+                  ],
+                  [
+                    531.88,
+                    537.33,
+                    530.17,
+                    541.89
+                  ],
+                  [
+                    556.99,
+                    570.09,
+                    555.41,
+                    572.95
+                  ],
+                  [
+                    584.38,
+                    563.98,
+                    551.89,
+                    584.5
+                  ],
+                  [
+                    564.32,
+                    569.47,
+                    554.825,
+                    575.8
+                  ],
+                  [
+                    576.44,
+                    569.08,
+                    564.6,
+                    582.23
+                  ],
+                  [
+                    563.67,
+                    571.93,
+                    557.38,
+                    577.99
+                  ],
+                  [
+                    585.17,
+                    605.02,
+                    581.925,
+                    605.44
+                  ],
+                  [
+                    616.21,
+                    615.68,
+                    598.01,
+                    618.84
+                  ],
+                  [
+                    587.64,
+                    602.72,
+                    577.54,
+                    611.26
+                  ],
+                  [
+                    577.86,
+                    539.77,
+                    539.57,
+                    580.5
+                  ],
+                  [
+                    569.765,
+                    571.45,
+                    560.79,
+                    581.3799
+                  ],
+                  [
+                    585.45,
+                    562.14,
+                    522.24,
+                    588.58
+                  ],
+                  [
+                    551.66,
+                    541.51,
+                    539.38,
+                    572.51
+                  ],
+                  [
+                    555.42,
+                    586.93,
+                    554.81,
+                    588.0
+                  ],
+                  [
+                    584.11,
+                    596.25,
+                    578.53,
+                    602.69
+                  ],
+                  [
+                    622.61,
+                    628.45,
+                    618.45,
+                    629.7199
+                  ],
+                  [
+                    623.84,
+                    591.24,
+                    590.63,
+                    629.64
+                  ],
+                  [
+                    611.56,
+                    599.73,
+                    598.95,
+                    621.99
+                  ],
+                  [
+                    626.52,
+                    639.45,
+                    626.15,
+                    644.43
+                  ],
+                  [
+                    653.955,
+                    655.01,
+                    643.93,
+                    655.95
+                  ],
+                  [
+                    607.64,
+                    603.39,
+                    598.19,
+                    619.94
+                  ],
+                  [
+                    606.19,
+                    601.5,
+                    586.66,
+                    609.69
+                  ],
+                  [
+                    637.33,
+                    625.2,
+                    598.83,
+                    638.47
+                  ],
+                  [
+                    601.44,
+                    589.94,
+                    588.51,
+                    605.89
+                  ],
+                  [
+                    593.71,
+                    614.35,
+                    571.6,
+                    615.3499
+                  ],
+                  [
+                    616.15,
+                    640.76,
+                    616.15,
+                    644.94
+                  ],
+                  [
+                    616.815,
+                    599.7,
+                    597.88,
+                    622.89
+                  ],
+                  [
+                    601.235,
+                    566.32,
+                    554.91,
+                    608.11
+                  ],
+                  [
+                    583.153,
+                    581.51,
+                    580.48,
+                    598.0
+                  ],
+                  [
+                    551.925,
+                    551.69,
+                    536.12,
+                    558.06
+                  ],
+                  [
+                    544.66,
+                    562.03,
+                    543.87,
+                    564.5
+                  ],
+                  [
+                    589.5,
+                    581.7,
+                    579.14,
+                    594.99
+                  ],
+                  [
+                    571.99,
+                    581.34,
+                    566.67,
+                    585.79
+                  ],
+                  [
+                    563.58,
+                    553.61,
+                    550.26,
+                    566.65
+                  ],
+                  [
+                    580.51,
+                    567.92,
+                    560.24,
+                    580.67
+                  ],
+                  [
+                    575.12,
+                    555.27,
+                    538.53,
+                    575.88
+                  ],
+                  [
+                    539.05,
+                    530.5,
+                    525.43,
+                    545.55
+                  ],
+                  [
+                    508.545,
+                    521.81,
+                    498.542,
+                    533.19
+                  ],
+                  [
+                    534.0,
+                    524.14,
+                    522.84,
+                    539.54
+                  ],
+                  [
+                    549.095,
+                    552.69,
+                    540.15,
+                    555.16
+                  ],
+                  [
+                    538.75,
+                    555.52,
+                    538.72,
+                    561.18
+                  ],
+                  [
+                    545.5,
+                    551.24,
+                    543.79,
+                    558.09
+                  ],
+                  [
+                    544.36,
+                    527.01,
+                    522.21,
+                    548.0
+                  ],
+                  [
+                    532.64,
+                    516.23,
+                    500.0,
+                    534.305
+                  ],
+                  [
+                    496.74,
+                    491.46,
+                    480.5,
+                    498.48
+                  ],
+                  [
+                    488.65,
+                    465.0,
+                    464.08,
+                    496.06
+                  ],
+                  [
+                    491.57,
+                    504.53,
+                    488.01,
+                    509.98
+                  ],
+                  [
+                    527.1,
+                    504.89,
+                    501.3,
+                    532.67
+                  ],
+                  [
+                    491.92,
+                    507.68,
+                    485.71,
+                    510.95
+                  ],
+                  [
+                    529.31,
+                    542.21,
+                    526.57,
+                    545.385
+                  ],
+                  [
+                    536.4,
+                    530.7,
+                    528.88,
+                    547.57
+                  ],
+                  [
+                    522.66,
+                    532.52,
+                    516.41,
+                    542.56
+                  ],
+                  [
+                    545.2,
+                    543.27,
+                    531.27,
+                    547.9038
+                  ],
+                  [
+                    545.85,
+                    529.39,
+                    529.39,
+                    547.22
+                  ],
+                  [
+                    537.91,
+                    534.2,
+                    530.1,
+                    539.05
+                  ],
+                  [
+                    553.4,
+                    546.61,
+                    546.47,
+                    554.11
+                  ],
+                  [
+                    547.14,
+                    550.74,
+                    546.4,
+                    562.25
+                  ],
+                  [
+                    549.58,
+                    550.42,
+                    542.93,
+                    552.89
+                  ],
+                  [
+                    557.92,
+                    559.12,
+                    555.84,
+                    566.02
+                  ],
+                  [
+                    537.42,
+                    531.39,
+                    523.03,
+                    541.7
+                  ]
+                ],
+                "partial": null,
+                "reason": null,
+                "role": "companion",
+                "session": "2026-08-18",
+                "sessions": [
+                  "2026-05-21",
+                  "2026-05-22",
+                  "2026-05-26",
+                  "2026-05-27",
+                  "2026-05-28",
+                  "2026-05-29",
+                  "2026-06-01",
+                  "2026-06-02",
+                  "2026-06-03",
+                  "2026-06-04",
+                  "2026-06-05",
+                  "2026-06-08",
+                  "2026-06-09",
+                  "2026-06-10",
+                  "2026-06-11",
+                  "2026-06-12",
+                  "2026-06-15",
+                  "2026-06-16",
+                  "2026-06-17",
+                  "2026-06-18",
+                  "2026-06-22",
+                  "2026-06-23",
+                  "2026-06-24",
+                  "2026-06-25",
+                  "2026-06-26",
+                  "2026-06-29",
+                  "2026-06-30",
+                  "2026-07-01",
+                  "2026-07-02",
+                  "2026-07-06",
+                  "2026-07-07",
+                  "2026-07-08",
+                  "2026-07-09",
+                  "2026-07-10",
+                  "2026-07-13",
+                  "2026-07-14",
+                  "2026-07-15",
+                  "2026-07-16",
+                  "2026-07-17",
+                  "2026-07-20",
+                  "2026-07-21",
+                  "2026-07-22",
+                  "2026-07-23",
+                  "2026-07-24",
+                  "2026-07-27",
+                  "2026-07-28",
+                  "2026-07-29",
+                  "2026-07-30",
+                  "2026-07-31",
+                  "2026-08-03",
+                  "2026-08-04",
+                  "2026-08-05",
+                  "2026-08-06",
+                  "2026-08-07",
+                  "2026-08-10",
+                  "2026-08-11",
+                  "2026-08-12",
+                  "2026-08-13",
+                  "2026-08-14",
+                  "2026-08-17",
+                  "2026-08-18"
+                ],
+                "total": 0.012730841798326509,
+                "tracks": "ICE 반도체"
               }
             ]
           },
           "leaders": [
             {
-              "change": 0.0302988505747126,
+              "change": -0.023421181280831926,
               "entity_id": "US:NVDA",
-              "market_cap": 5422978000000.0,
+              "market_cap": 5317708000000.0,
               "name": "NVDA"
             },
             {
-              "change": -0.00872388573677485,
+              "change": 0.014529271245786735,
               "entity_id": "US:AAPL",
-              "market_cap": 4411090905000.0,
+              "market_cap": 4524633625400.0,
               "name": "AAPL"
             },
             {
-              "change": -0.0007562536358347582,
+              "change": 0.0005813953488371659,
               "entity_id": "US:GOOGL",
-              "market_cap": 4201494200000.0005,
+              "market_cap": 4209566000000.0,
               "name": "GOOGL"
             },
             {
-              "change": -0.001836734693877573,
+              "change": -0.0004978767022990604,
               "entity_id": "US:GOOG",
-              "market_cap": 4187185100000.0,
+              "market_cap": 4173854399999.9995,
               "name": "GOOG"
             },
             {
-              "change": -0.02258788035171988,
+              "change": 0.0026647236390131557,
               "entity_id": "US:MSFT",
-              "market_cap": 3656561366133.13,
+              "market_cap": 3576365474830.33,
               "name": "MSFT"
             },
             {
-              "change": -0.018327395599955998,
+              "change": -0.007117982472924944,
               "entity_id": "US:AMZN",
-              "market_cap": 2882965891524.1597,
+              "market_cap": 2798509056255.4,
               "name": "AMZN"
             },
             {
-              "change": -7.210151893854988e-05,
+              "change": -0.03167443875340825,
               "entity_id": "US:AVGO",
-              "market_cap": 1979391241377.9001,
+              "market_cap": 1807880475240.0,
               "name": "AVGO"
             },
             {
-              "change": -0.0159250022535381,
+              "change": -0.0071618037135279256,
               "entity_id": "US:TSLA",
-              "market_cap": 1293516267008.94,
+              "market_cap": 1330484030616.78,
               "name": "TSLA"
             },
             {
-              "change": 0.004329146845319487,
-              "entity_id": "US:LLY",
-              "market_cap": 1148719199278.2,
-              "name": "LLY"
+              "change": 0.05039893617021285,
+              "entity_id": "US:AKTX",
+              "market_cap": 1230336624781.167,
+              "name": "AKTX"
             },
             {
-              "change": 0.0492446921199281,
-              "entity_id": "US:MU",
-              "market_cap": 1029204684574.7899,
-              "name": "MU"
+              "change": 0.03597991818519897,
+              "entity_id": "US:LLY",
+              "market_cap": 1153849595282.45,
+              "name": "LLY"
             }
           ],
+          "live": {
+            "filled": 0,
+            "reason": "미장은 실시간 조회 경로가 아직 없다",
+            "supported": false
+          },
+          "live_index_filled": 0,
           "macro": [
+            {
+              "actual": 102.9939,
+              "entity_id": "US:INDUSTRIAL_PRODUCTION",
+              "indicator": "INDUSTRIAL_PRODUCTION",
+              "market": "US",
+              "previous": 102.7868,
+              "release_name": "G.17 Industrial Production and Capacity Utilization",
+              "scheduled_at": "2026-08-18T21:30:00+09:00",
+              "unit": "index"
+            },
+            {
+              "actual": 1239.0,
+              "entity_id": "US:HOUSING_STARTS",
+              "indicator": "HOUSING_STARTS",
+              "market": "US",
+              "previous": 1415.0,
+              "release_name": "New Residential Construction",
+              "scheduled_at": "2026-08-18T21:30:00+09:00",
+              "unit": "thousands"
+            },
             {
               "actual": 3.63,
               "entity_id": "US:FED_FUNDS",
@@ -3888,7 +4475,17 @@
               "market": "US",
               "previous": 3.63,
               "release_name": "H.15 Selected Interest Rates",
-              "scheduled_at": "2026-08-14T21:30:00+09:00",
+              "scheduled_at": "2026-08-18T21:30:00+09:00",
+              "unit": "percent"
+            },
+            {
+              "actual": 3.63,
+              "entity_id": "US:FED_FUNDS",
+              "indicator": "FED_FUNDS",
+              "market": "US",
+              "previous": 3.63,
+              "release_name": "H.15 Selected Interest Rates",
+              "scheduled_at": "2026-08-17T21:30:00+09:00",
               "unit": "percent"
             },
             {
@@ -3900,42 +4497,12 @@
               "release_name": "Monthly Retail Trade and Food Services",
               "scheduled_at": "2026-08-14T21:30:00+09:00",
               "unit": "mn_usd"
-            },
-            {
-              "actual": 763602.0,
-              "entity_id": "US:RETAIL_ADVANCE",
-              "indicator": "RETAIL_ADVANCE",
-              "market": "US",
-              "previous": 768072.0,
-              "release_name": "Advance Monthly Sales for Retail and Food Services",
-              "scheduled_at": "2026-08-14T21:30:00+09:00",
-              "unit": "mn_usd"
-            },
-            {
-              "actual": 3.63,
-              "entity_id": "US:FED_FUNDS",
-              "indicator": "FED_FUNDS",
-              "market": "US",
-              "previous": 3.63,
-              "release_name": "H.15 Selected Interest Rates",
-              "scheduled_at": "2026-08-13T21:30:00+09:00",
-              "unit": "percent"
-            },
-            {
-              "actual": 284.057,
-              "entity_id": "US:PPI",
-              "indicator": "PPI",
-              "market": "US",
-              "previous": 286.279,
-              "release_name": "Producer Price Index",
-              "scheduled_at": "2026-08-13T21:30:00+09:00",
-              "unit": "index"
             }
           ],
           "market": "US",
           "rankings": {
             "currency": "USD",
-            "eligible": 3045,
+            "eligible": 2602,
             "floor": {
               "currency": "USD",
               "min_price": 1.0,
@@ -3952,47 +4519,47 @@
                 "pooled": null,
                 "rows": [
                   {
-                    "change": 0.0492446921199281,
-                    "close": 911.29,
+                    "change": -0.07016555473190023,
+                    "close": 940.76,
                     "entity_id": "US:MU",
-                    "market_cap": 1029204684574.7899,
-                    "metric": 33821190568.0,
+                    "market_cap": 1062487900734.76,
+                    "metric": 35319763292.0,
                     "name": "MU"
                   },
                   {
-                    "change": 0.0025046719269103956,
-                    "close": 772.49,
-                    "entity_id": "US:SPY",
-                    "market_cap": null,
-                    "metric": 25868394181.0,
-                    "name": "SPY"
+                    "change": -0.09014186977082572,
+                    "close": 1625.78,
+                    "entity_id": "US:SNDK",
+                    "market_cap": 240761366761.24,
+                    "metric": 30691055960.0,
+                    "name": "SNDK"
                   },
                   {
-                    "change": 0.0302988505747126,
-                    "close": 224.09,
+                    "change": -0.023421181280831926,
+                    "close": 219.74,
                     "entity_id": "US:NVDA",
-                    "market_cap": 5422978000000.0,
-                    "metric": 24296829009.0,
+                    "market_cap": 5317708000000.0,
+                    "metric": 22669509699.0,
                     "name": "NVDA"
                   },
                   {
-                    "change": 0.09648135644084332,
-                    "close": 146.15,
-                    "entity_id": "US:SPCX",
+                    "change": -0.04446631632599274,
+                    "close": 543.67,
+                    "entity_id": "US:META",
                     "market_cap": null,
-                    "metric": 23898065286.0,
-                    "name": "SPCX"
+                    "metric": 14868901093.0,
+                    "name": "META"
                   },
                   {
-                    "change": 0.007307397870415455,
-                    "close": 723.7,
-                    "entity_id": "US:QQQ",
-                    "market_cap": null,
-                    "metric": 21078514290.0,
-                    "name": "QQQ"
+                    "change": 0.0026647236390131557,
+                    "close": 481.63,
+                    "entity_id": "US:MSFT",
+                    "market_cap": 3576365474830.33,
+                    "metric": 13640129947.0,
+                    "name": "MSFT"
                   }
                 ],
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sort_by": "prices.value — 체결 금액"
               },
               {
@@ -4001,47 +4568,47 @@
                 "pooled": null,
                 "rows": [
                   {
-                    "change": 0.0302988505747126,
-                    "close": 224.09,
+                    "change": -0.023421181280831926,
+                    "close": 219.74,
                     "entity_id": "US:NVDA",
-                    "market_cap": 5422978000000.0,
-                    "metric": 5422978000000.0,
+                    "market_cap": 5317708000000.0,
+                    "metric": 5317708000000.0,
                     "name": "NVDA"
                   },
                   {
-                    "change": -0.00872388573677485,
-                    "close": 302.25,
+                    "change": 0.014529271245786735,
+                    "close": 310.03,
                     "entity_id": "US:AAPL",
-                    "market_cap": 4411090905000.0,
-                    "metric": 4411090905000.0,
+                    "market_cap": 4524633625400.0,
+                    "metric": 4524633625400.0,
                     "name": "AAPL"
                   },
                   {
-                    "change": -0.0007562536358347582,
-                    "close": 343.54,
+                    "change": 0.0005813953488371659,
+                    "close": 344.2,
                     "entity_id": "US:GOOGL",
-                    "market_cap": 4201494200000.0005,
-                    "metric": 4201494200000.0005,
+                    "market_cap": 4209566000000.0,
+                    "metric": 4209566000000.0,
                     "name": "GOOGL"
                   },
                   {
-                    "change": -0.001836734693877573,
-                    "close": 342.37,
+                    "change": -0.0004978767022990604,
+                    "close": 341.28,
                     "entity_id": "US:GOOG",
-                    "market_cap": 4187185100000.0,
-                    "metric": 4187185100000.0,
+                    "market_cap": 4173854399999.9995,
+                    "metric": 4173854399999.9995,
                     "name": "GOOG"
                   },
                   {
-                    "change": -0.02258788035171988,
-                    "close": 492.43,
+                    "change": 0.0026647236390131557,
+                    "close": 481.63,
                     "entity_id": "US:MSFT",
-                    "market_cap": 3656561366133.13,
-                    "metric": 3656561366133.13,
+                    "market_cap": 3576365474830.33,
+                    "metric": 3576365474830.33,
                     "name": "MSFT"
                   }
                 ],
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sort_by": "market_stats.market_cap"
               },
               {
@@ -4050,47 +4617,47 @@
                 "pooled": 300,
                 "rows": [
                   {
-                    "change": 1.6860068259385663,
-                    "close": 7.87,
-                    "entity_id": "US:BOXL",
-                    "market_cap": 31493434.09,
-                    "metric": 1.6860068259385663,
-                    "name": "BOXL"
+                    "change": 5.066225165562914,
+                    "close": 27.48,
+                    "entity_id": "US:PFSA",
+                    "market_cap": 128064164.64,
+                    "metric": 5.066225165562914,
+                    "name": "PFSA"
                   },
                   {
-                    "change": 0.3414066138798324,
-                    "close": 259.2,
-                    "entity_id": "US:NBIS",
+                    "change": 1.1326116373477673,
+                    "close": 15.76,
+                    "entity_id": "US:IPST",
+                    "market_cap": 10812620.8,
+                    "metric": 1.1326116373477673,
+                    "name": "IPST"
+                  },
+                  {
+                    "change": 1.1244019138755985,
+                    "close": 4.44,
+                    "entity_id": "US:XOS",
+                    "market_cap": 63127262.88,
+                    "metric": 1.1244019138755985,
+                    "name": "XOS"
+                  },
+                  {
+                    "change": 0.34200894672631144,
+                    "close": 33.0,
+                    "entity_id": "US:WETO",
                     "market_cap": null,
-                    "metric": 0.3414066138798324,
-                    "name": "NBIS"
+                    "metric": 0.34200894672631144,
+                    "name": "WETO"
                   },
                   {
-                    "change": 0.19275907883082377,
-                    "close": 107.73,
-                    "entity_id": "US:CRWV",
-                    "market_cap": null,
-                    "metric": 0.19275907883082377,
-                    "name": "CRWV"
-                  },
-                  {
-                    "change": 0.19018987341772142,
-                    "close": 37.61,
-                    "entity_id": "US:SMCI",
-                    "market_cap": 22619349108.02,
-                    "metric": 0.19018987341772142,
-                    "name": "SMCI"
-                  },
-                  {
-                    "change": 0.16091707735161775,
-                    "close": 54.18,
-                    "entity_id": "US:HRB",
-                    "market_cap": 6867868015.26,
-                    "metric": 0.16091707735161775,
-                    "name": "HRB"
+                    "change": 0.31645569620253156,
+                    "close": 7.28,
+                    "entity_id": "US:WEAV",
+                    "market_cap": 582393586.32,
+                    "metric": 0.31645569620253156,
+                    "name": "WEAV"
                   }
                 ],
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sort_by": "직전 세션 대비 등락률 — 거래대금 상위 모집단 안에서"
               },
               {
@@ -4099,415 +4666,417 @@
                 "pooled": 300,
                 "rows": [
                   {
-                    "change": -0.05900500194686553,
-                    "close": 314.17,
-                    "entity_id": "US:COR",
-                    "market_cap": 59952170428.05,
-                    "metric": -0.05900500194686553,
-                    "name": "COR"
+                    "change": -0.2280881599179908,
+                    "close": 15.06,
+                    "entity_id": "US:KLAR",
+                    "market_cap": null,
+                    "metric": -0.2280881599179908,
+                    "name": "KLAR"
                   },
                   {
-                    "change": -0.05758247422680418,
-                    "close": 1828.29,
-                    "entity_id": "US:MELI",
-                    "market_cap": 92688456128.58,
-                    "metric": -0.05758247422680418,
-                    "name": "MELI"
+                    "change": -0.19377526813458523,
+                    "close": 482.59,
+                    "entity_id": "US:FN",
+                    "market_cap": 17291074226.6,
+                    "metric": -0.19377526813458523,
+                    "name": "FN"
                   },
                   {
-                    "change": -0.0574763074763075,
-                    "close": 107.41,
-                    "entity_id": "US:PFGC",
-                    "market_cap": 16873020895.91,
-                    "metric": -0.0574763074763075,
-                    "name": "PFGC"
+                    "change": -0.1275269062126303,
+                    "close": 306.43,
+                    "entity_id": "US:COHR",
+                    "market_cap": 59949757134.03,
+                    "metric": -0.1275269062126303,
+                    "name": "COHR"
                   },
                   {
-                    "change": -0.05740912448334923,
-                    "close": 599.78,
-                    "entity_id": "US:AXON",
-                    "market_cap": 48724576768.7,
-                    "metric": -0.05740912448334923,
-                    "name": "AXON"
+                    "change": -0.1272570111409912,
+                    "close": 90.87,
+                    "entity_id": "US:BIDU",
+                    "market_cap": null,
+                    "metric": -0.1272570111409912,
+                    "name": "BIDU"
                   },
                   {
-                    "change": -0.0468181247646543,
-                    "close": 303.76,
-                    "entity_id": "US:APP",
-                    "market_cap": 101847994160.0,
-                    "metric": -0.0468181247646543,
-                    "name": "APP"
+                    "change": -0.126875148821335,
+                    "close": 220.01,
+                    "entity_id": "US:CBRS",
+                    "market_cap": null,
+                    "metric": -0.126875148821335,
+                    "name": "CBRS"
                   }
                 ],
-                "session": "2026-08-12",
+                "session": "2026-08-18",
                 "sort_by": "직전 세션 대비 등락률 — 상승률과 같은 모집단"
               }
             ],
-            "universe": 6647
+            "universe": 6634
           },
           "treemap": {
+            "lookback": 15,
             "rows": [
               {
-                "change": 0.0302988505747126,
+                "change": -0.023421181280831926,
                 "entity_id": "US:NVDA",
-                "market_cap": 5422978000000.0,
+                "market_cap": 5317708000000.0,
                 "name": "NVDA"
               },
               {
-                "change": -0.00872388573677485,
+                "change": 0.014529271245786735,
                 "entity_id": "US:AAPL",
-                "market_cap": 4411090905000.0,
+                "market_cap": 4524633625400.0,
                 "name": "AAPL"
               },
               {
-                "change": -0.0007562536358347582,
+                "change": 0.0005813953488371659,
                 "entity_id": "US:GOOGL",
-                "market_cap": 4201494200000.0005,
+                "market_cap": 4209566000000.0,
                 "name": "GOOGL"
               },
               {
-                "change": -0.001836734693877573,
+                "change": -0.0004978767022990604,
                 "entity_id": "US:GOOG",
-                "market_cap": 4187185100000.0,
+                "market_cap": 4173854399999.9995,
                 "name": "GOOG"
               },
               {
-                "change": -0.02258788035171988,
+                "change": 0.0026647236390131557,
                 "entity_id": "US:MSFT",
-                "market_cap": 3656561366133.13,
+                "market_cap": 3576365474830.33,
                 "name": "MSFT"
               },
               {
-                "change": -0.018327395599955998,
+                "change": -0.007117982472924944,
                 "entity_id": "US:AMZN",
-                "market_cap": 2882965891524.1597,
+                "market_cap": 2798509056255.4,
                 "name": "AMZN"
               },
               {
-                "change": -7.210151893854988e-05,
+                "change": -0.03167443875340825,
                 "entity_id": "US:AVGO",
-                "market_cap": 1979391241377.9001,
+                "market_cap": 1807880475240.0,
                 "name": "AVGO"
               },
               {
-                "change": -0.0159250022535381,
+                "change": -0.0071618037135279256,
                 "entity_id": "US:TSLA",
-                "market_cap": 1293516267008.94,
+                "market_cap": 1330484030616.78,
                 "name": "TSLA"
               },
               {
-                "change": 0.004329146845319487,
-                "entity_id": "US:LLY",
-                "market_cap": 1148719199278.2,
-                "name": "LLY"
-              },
-              {
-                "change": 0.0492446921199281,
-                "entity_id": "US:MU",
-                "market_cap": 1029204684574.7899,
-                "name": "MU"
-              },
-              {
-                "change": 0.008673074798364766,
-                "entity_id": "US:JPM",
-                "market_cap": 970716434690.1,
-                "name": "JPM"
-              },
-              {
-                "change": 0.024280416740243727,
-                "entity_id": "US:WMT",
-                "market_cap": 923216762771.55,
-                "name": "WMT"
-              },
-              {
-                "change": 0.018152302243211293,
-                "entity_id": "US:AMD",
-                "market_cap": 788371172033.06,
-                "name": "AMD"
-              },
-              {
-                "change": -0.0711513583441139,
+                "change": 0.05039893617021285,
                 "entity_id": "US:AKTX",
-                "market_cap": 657451128446.94,
+                "market_cap": 1230336624781.167,
                 "name": "AKTX"
               },
               {
-                "change": -0.00031289111389243285,
+                "change": 0.03597991818519897,
+                "entity_id": "US:LLY",
+                "market_cap": 1153849595282.45,
+                "name": "LLY"
+              },
+              {
+                "change": -0.07016555473190023,
+                "entity_id": "US:MU",
+                "market_cap": 1062487900734.76,
+                "name": "MU"
+              },
+              {
+                "change": 0.006344193262411313,
+                "entity_id": "US:JPM",
+                "market_cap": 965586135333.75,
+                "name": "JPM"
+              },
+              {
+                "change": 0.007609551298871642,
+                "entity_id": "US:WMT",
+                "market_cap": 916770718656.0,
+                "name": "WMT"
+              },
+              {
+                "change": -0.04270750988142291,
+                "entity_id": "US:AMD",
+                "market_cap": 790754585594.38,
+                "name": "AMD"
+              },
+              {
+                "change": 0.025393286262851422,
                 "entity_id": "US:XOM",
-                "market_cap": 656877935610.0,
+                "market_cap": 680768144097.6,
                 "name": "XOM"
               },
               {
-                "change": 0.004080061585835182,
+                "change": 0.03331173533559473,
                 "entity_id": "US:JNJ",
-                "market_cap": 628646148013.42,
+                "market_cap": 653347608632.67,
                 "name": "JNJ"
               },
               {
-                "change": -0.0014230534661516803,
+                "change": -0.0036712217009994275,
                 "entity_id": "US:GOOGM",
-                "market_cap": 600737600000.0,
+                "market_cap": 597435500000.0,
                 "name": "GOOGM"
               },
               {
-                "change": -0.0018352365415986727,
+                "change": -0.001437076575651841,
                 "entity_id": "US:GOOGN",
-                "market_cap": 598658500000.0,
+                "market_cap": 594867200000.0,
                 "name": "GOOGN"
               },
               {
-                "change": -0.0006123528265649103,
+                "change": 0.01831673609003892,
                 "entity_id": "US:ONC",
-                "market_cap": 530720567615.25,
+                "market_cap": 545649624105.74994,
                 "name": "ONC"
               },
               {
-                "change": 0.03315934909425855,
+                "change": -0.06575514542467864,
                 "entity_id": "US:INTC",
-                "market_cap": 509191800000.0,
+                "market_cap": 487679140000.0,
                 "name": "INTC"
               },
               {
-                "change": 0.028647347006559798,
-                "entity_id": "US:CSCO",
-                "market_cap": 488264926300.2,
-                "name": "CSCO"
-              },
-              {
-                "change": 0.012656250000000036,
-                "entity_id": "US:BAC",
-                "market_cap": 453200021535.65,
-                "name": "BAC"
-              },
-              {
-                "change": 0.05361561726697839,
-                "entity_id": "US:ORCL",
-                "market_cap": 441518594880.0,
-                "name": "ORCL"
-              },
-              {
-                "change": -0.005318085489223967,
+                "change": 0.034314704589941236,
                 "entity_id": "US:ABBV",
-                "market_cap": 439588095816.6,
+                "market_cap": 457542007432.2,
                 "name": "ABBV"
               },
               {
-                "change": 0.04288350678259545,
-                "entity_id": "US:AMAT",
-                "market_cap": 435208861554.5,
-                "name": "AMAT"
+                "change": 0.005321646580059625,
+                "entity_id": "US:BAC",
+                "market_cap": 449144227483.95,
+                "name": "BAC"
               },
               {
-                "change": 0.005564850898000628,
+                "change": -0.011426040744021315,
+                "entity_id": "US:CSCO",
+                "market_cap": 439903522960.65,
+                "name": "CSCO"
+              },
+              {
+                "change": 0.00823282642894596,
                 "entity_id": "US:COST",
-                "market_cap": 421116385308.30005,
+                "market_cap": 426338348225.4,
                 "name": "COST"
               },
               {
-                "change": -0.022293357722647844,
+                "change": -0.005853375833091978,
                 "entity_id": "US:PLTR",
-                "market_cap": 410991502880.0,
+                "market_cap": 412192951380.0,
                 "name": "PLTR"
               },
               {
-                "change": 0.0472046498185672,
+                "change": -0.026321172860552466,
+                "entity_id": "US:ORCL",
+                "market_cap": 411302454090.0,
+                "name": "ORCL"
+              },
+              {
+                "change": -0.046300604932526634,
                 "entity_id": "US:LRCX",
-                "market_cap": 408068291310.0,
+                "market_cap": 410333182320.0,
                 "name": "LRCX"
               },
               {
-                "change": 0.0145013457912897,
-                "entity_id": "US:CAT",
-                "market_cap": 393297835028.4,
-                "name": "CAT"
+                "change": -0.0391922437466139,
+                "entity_id": "US:AMAT",
+                "market_cap": 408357153631.9,
+                "name": "AMAT"
               },
               {
-                "change": -0.00030509508796905394,
+                "change": 0.014997533300444177,
                 "entity_id": "US:CVX",
-                "market_cap": 388436632468.39996,
+                "market_cap": 406495181912.76,
                 "name": "CVX"
               },
               {
-                "change": -0.007417268923545106,
+                "change": 0.015320899764502016,
                 "entity_id": "US:GE",
-                "market_cap": 379052712874.29,
+                "market_cap": 389179323001.17,
                 "name": "GE"
               },
               {
-                "change": 0.0026595744680850686,
+                "change": -0.04625418249872393,
+                "entity_id": "US:CAT",
+                "market_cap": 386526823913.43,
+                "name": "CAT"
+              },
+              {
+                "change": 0.021154288342147387,
                 "entity_id": "US:KO",
-                "market_cap": 373068250464.77997,
+                "market_cap": 382146488366.75995,
                 "name": "KO"
               },
               {
-                "change": 0.00845371590541788,
+                "change": -0.00427177594661543,
                 "entity_id": "US:UNH",
-                "market_cap": 364055493994.73,
+                "market_cap": 353589538078.71,
                 "name": "UNH"
               },
               {
-                "change": -0.03117242157526523,
-                "entity_id": "US:HD",
-                "market_cap": 342439782099.26,
-                "name": "HD"
-              },
-              {
-                "change": 0.011949597805365642,
+                "change": -0.0030246093212960012,
                 "entity_id": "US:MS",
-                "market_cap": 341818047790.88,
+                "market_cap": 341676696824.60004,
                 "name": "MS"
               },
               {
-                "change": -0.007781833207079369,
-                "entity_id": "US:PG",
-                "market_cap": 334904315284.80005,
-                "name": "PG"
+                "change": -0.001154255948857541,
+                "entity_id": "US:HD",
+                "market_cap": 336516909008.18,
+                "name": "HD"
               },
               {
-                "change": 0.019168839135101923,
+                "change": -0.005883650805324825,
                 "entity_id": "US:MRK",
-                "market_cap": 327936454122.95996,
+                "market_cap": 333487590308.45996,
                 "name": "MRK"
               },
               {
-                "change": 0.008363731109953143,
-                "entity_id": "US:PANW",
-                "market_cap": 315413150000.0,
-                "name": "PANW"
+                "change": 0.0023057574063720665,
+                "entity_id": "US:PG",
+                "market_cap": 333439922457.0,
+                "name": "PG"
               },
               {
-                "change": 0.09871419824477856,
-                "entity_id": "US:DELL",
-                "market_cap": 314440500000.0,
-                "name": "DELL"
-              },
-              {
-                "change": -0.007755047466239007,
+                "change": 0.023020257826887658,
                 "entity_id": "US:NFLX",
-                "market_cap": 309005963355.95996,
+                "market_cap": 323829588602.51996,
                 "name": "NFLX"
               },
               {
-                "change": 0.002706857048945688,
-                "entity_id": "US:GS",
-                "market_cap": 302005896091.68,
-                "name": "GS"
+                "change": -0.00431126250798386,
+                "entity_id": "US:PANW",
+                "market_cap": 304924100000.0,
+                "name": "PANW"
               },
               {
-                "change": -0.004913785401590376,
+                "change": -0.02325920676934623,
+                "entity_id": "US:DELL",
+                "market_cap": 304153850000.0,
+                "name": "DELL"
+              },
+              {
+                "change": 0.017370510738134115,
                 "entity_id": "US:RTX",
-                "market_cap": 300226604157.44,
+                "market_cap": 303905983890.56,
                 "name": "RTX"
               },
               {
-                "change": 0.015314372681441979,
+                "change": -0.010310945391939552,
+                "entity_id": "US:GS",
+                "market_cap": 302955114881.76,
+                "name": "GS"
+              },
+              {
+                "change": -0.014801794717609451,
                 "entity_id": "US:RY",
-                "market_cap": 299007631956.24,
+                "market_cap": 298321320640.62,
                 "name": "RY"
               },
               {
-                "change": -0.00016109977446032708,
+                "change": 0.016800346845870395,
                 "entity_id": "US:PM",
-                "market_cap": 290198236207.41,
+                "market_cap": 292427053425.18,
                 "name": "PM"
               },
               {
-                "change": 0.027691030556983076,
+                "change": -0.06901760889712705,
                 "entity_id": "US:GEV",
-                "market_cap": 276960290881.9,
+                "market_cap": 267540072121.93,
                 "name": "GEV"
               },
               {
-                "change": 0.0388087993215942,
-                "entity_id": "US:KLAC",
-                "market_cap": 272088367559.75,
-                "name": "KLAC"
-              },
-              {
-                "change": 0.016923956546598173,
+                "change": -0.001599268905643103,
                 "entity_id": "US:WFC",
-                "market_cap": 268924260950.48,
+                "market_cap": 264297541966.40002,
                 "name": "WFC"
               },
               {
-                "change": 0.06393732625726556,
-                "entity_id": "US:ANET",
-                "market_cap": 265487788404.0,
-                "name": "ANET"
+                "change": -0.05331454121306378,
+                "entity_id": "US:KLAC",
+                "market_cap": 254502247860.56998,
+                "name": "KLAC"
               },
               {
-                "change": -0.016533921206087432,
+                "change": -0.03771517443710015,
                 "entity_id": "US:TXN",
-                "market_cap": 252595177470.74,
+                "market_cap": 248622550036.64,
                 "name": "TXN"
               },
               {
-                "change": 0.013331369227369771,
+                "change": -0.04271555996035681,
+                "entity_id": "US:ANET",
+                "market_cap": 243643377500.64,
+                "name": "ANET"
+              },
+              {
+                "change": -0.006208937982816964,
                 "entity_id": "US:C",
-                "market_cap": 240671309258.22003,
+                "market_cap": 240793761588.85,
                 "name": "C"
               },
               {
-                "change": 0.009594788885302519,
-                "entity_id": "US:AXP",
-                "market_cap": 232360607338.63998,
-                "name": "AXP"
-              },
-              {
-                "change": 0.004537774559497887,
-                "entity_id": "US:AMGN",
-                "market_cap": 225000227840.9,
-                "name": "AMGN"
-              },
-              {
-                "change": -0.003289256198347079,
-                "entity_id": "US:TMO",
-                "market_cap": 222961310930.86,
-                "name": "TMO"
-              },
-              {
-                "change": -0.01023404076839185,
-                "entity_id": "US:IBM",
-                "market_cap": 222324873352.19998,
-                "name": "IBM"
-              },
-              {
-                "change": -0.02262858540762025,
-                "entity_id": "US:LIN",
-                "market_cap": 221007719547.09,
-                "name": "LIN"
-              },
-              {
-                "change": 0.01632482210129771,
-                "entity_id": "US:APH",
-                "market_cap": 209557868351.72,
-                "name": "APH"
-              },
-              {
-                "change": 0.015984180604762255,
-                "entity_id": "US:TD",
-                "market_cap": 208331690721.55002,
-                "name": "TD"
-              },
-              {
-                "change": 0.05762165139058251,
+                "change": -0.09014186977082572,
                 "entity_id": "US:SNDK",
-                "market_cap": 199075580781.82,
+                "market_cap": 240761366761.24,
                 "name": "SNDK"
               },
               {
-                "change": 0.07030907229561745,
+                "change": 0.014068386666030719,
+                "entity_id": "US:AMGN",
+                "market_cap": 229919979086.4,
+                "name": "AMGN"
+              },
+              {
+                "change": 0.006870705808869504,
+                "entity_id": "US:AXP",
+                "market_cap": 228605884667.15997,
+                "name": "AXP"
+              },
+              {
+                "change": 0.009223536356544937,
+                "entity_id": "US:LIN",
+                "market_cap": 220673508928.91498,
+                "name": "LIN"
+              },
+              {
+                "change": 0.01669215643434563,
+                "entity_id": "US:IBM",
+                "market_cap": 219206408521.3,
+                "name": "IBM"
+              },
+              {
+                "change": 0.006028932042151158,
+                "entity_id": "US:TMO",
+                "market_cap": 217795941345.43997,
+                "name": "TMO"
+              },
+              {
+                "change": -0.01906064018015119,
+                "entity_id": "US:TD",
+                "market_cap": 206067766744.85,
+                "name": "TD"
+              },
+              {
+                "change": -0.09158716915127818,
                 "entity_id": "US:STX",
-                "market_cap": 199041482152.78,
+                "market_cap": 204814118026.24,
                 "name": "STX"
               },
               {
-                "change": -0.006134969325153561,
+                "change": 0.009987515605493158,
                 "entity_id": "US:VZ",
-                "market_cap": 195191338989.96,
+                "market_cap": 201672788305.08,
                 "name": "VZ"
+              },
+              {
+                "change": -0.06613214724644478,
+                "entity_id": "US:APH",
+                "market_cap": 196747170233.49,
+                "name": "APH"
               }
             ],
+            "session": "2026-08-18",
             "top_n": 60
           }
         }
