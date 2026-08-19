@@ -463,3 +463,77 @@ def test_deterministic_act_uses_dirichlet_mean(policy: AllocatorPolicy) -> None:
     expected = out.concentration / out.concentration.sum(dim=-1, keepdim=True)
     torch.testing.assert_close(action["weights"], expected, atol=1e-6, rtol=0)
     torch.testing.assert_close(action["weights"].sum(dim=-1), torch.ones(BATCH), atol=1e-6, rtol=0)
+
+
+# -- 패딩 슬롯이 분포를 오염시키지 않는다 (2026-08-19) -------------------------
+
+
+def test_패딩_슬롯이_로그확률을_지배하지_않는다() -> None:
+    """**작은 concentration 으로 눌러 두는 것으로는 부족하다.**
+
+    Dirichlet 의 log_prob 에는 `(a-1)·log x` 항이 있다. 패딩 슬롯의
+    concentration 이 1e-3 이고 비중이 0 근처면 그 항이 슬롯당 +87 쯤 되는데,
+    **NaN 이 아니라 거대한 유한값**이라 아무 데서도 안 걸린다.
+
+    실측(고치기 전, 30슬롯 중 24개 유효): log_prob +514.65 · entropy -6002.60.
+    유효 슬롯만 세면 +59.05 · -55.94 였다 — 패딩 6칸이 90%/99% 를 만들었다.
+
+    그래서 **유효 칸 수만 바뀌고 나머지가 같으면 값이 안 변해야 한다.**
+    """
+    import torch
+
+    from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig
+
+    torch.manual_seed(0)
+    policy = AllocatorPolicy(
+        PolicyConfig(
+            n_max=30, n_asset_features=28, n_portfolio_features=24, n_delay_choices=3
+        )
+    )
+    portfolio = torch.randn(4, 24)
+    assets = torch.randn(4, 30, 28)
+    delay = torch.zeros(4, 30, dtype=torch.long)
+
+    narrow = torch.zeros(4, 30, dtype=torch.bool)
+    narrow[:, :10] = True
+
+    with torch.no_grad():
+        out = policy(portfolio, assets, narrow)
+        weights = out.weights_dist.sample()
+        # 패딩 비중을 0 으로 둔다 — 환경(`_decode`)이 하는 그대로다.
+        weights = torch.where(out.weight_valid, weights, torch.zeros_like(weights))
+        log_prob = out.log_prob(weights, delay)
+        entropy = out.entropy()
+
+    # 패딩이 20칸이나 되는데도 값이 유한하고 상식적인 규모여야 한다.
+    assert torch.isfinite(log_prob).all()
+    assert torch.isfinite(entropy).all()
+    assert log_prob.abs().max() < 200.0, f"패딩이 로그확률을 지배한다: {log_prob}"
+    assert entropy.abs().max() < 200.0, f"패딩이 엔트로피를 지배한다: {entropy}"
+
+
+def test_마스크_Dirichlet_은_torch_기본_구현과_같다() -> None:
+    """식을 직접 썼으므로 참조와 맞는지 고정한다. 전부 유효하면 같은 값이다."""
+    import torch
+    from torch.distributions import Dirichlet
+
+    from quant_rl_trading.allocator.policy import (
+        _masked_dirichlet_entropy,
+        _masked_dirichlet_log_prob,
+    )
+
+    torch.manual_seed(0)
+    concentration = torch.rand(5, 7) + 0.3
+    valid = torch.ones(5, 7, dtype=torch.bool)
+    sample = Dirichlet(concentration).sample()
+
+    assert torch.allclose(
+        _masked_dirichlet_log_prob(concentration, sample, valid),
+        Dirichlet(concentration).log_prob(sample),
+        atol=1e-5,
+    )
+    assert torch.allclose(
+        _masked_dirichlet_entropy(concentration, valid),
+        Dirichlet(concentration).entropy(),
+        atol=1e-5,
+    )

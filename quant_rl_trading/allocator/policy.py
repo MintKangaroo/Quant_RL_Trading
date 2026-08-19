@@ -155,38 +155,117 @@ class PolicyOutput:
     def delay_dist(self) -> Categorical:
         return Categorical(logits=self.delay_logits)
 
+    @property
+    def weight_valid(self) -> Tensor:
+        """비중 축의 유효 칸 (B, N+1). 현금은 언제나 유효하다."""
+        cash = torch.ones_like(self.mask[:, :1])
+        return torch.cat([self.mask, cash], dim=-1)
+
     def log_prob(self, weights: Tensor, delay: Tensor) -> Tensor:
         """결합 로그확률 (B,). 두 헤드는 조건부 독립이라 더한다.
 
-        **패딩 슬롯의 지연은 더하지 않는다.** 존재하지 않는 종목을 언제 살지는
-        결정이 아니고, 그 항을 더하면 후보 수에 따라 로그확률의 눈금이 달라져
-        PPO 의 비율이 관측마다 다른 척도를 갖게 된다.
+        **패딩 슬롯은 분포에서 뺀다. 작은 concentration 으로 눌러 두는 것으로는
+        부족하다.** `MASKED_CONCENTRATION` 은 1e-3 이고, Dirichlet 의 log_prob
+        에는 `(a-1)·log x` 항이 있다. a=1e-3 이고 x 가 1e-38 근처면 그 항이
+        슬롯당 +87 쯤 된다 — **NaN 이 아니라 거대한 유한값**이라 아무 데서도
+        안 걸리고 어드밴티지를 통째로 오염시킨다.
+
+        실측 2026-08-19(30슬롯 중 24개 유효):
+
+            전체(패딩 포함)  log_prob +514.65 · entropy -6002.60
+            유효 슬롯만      log_prob  +59.05 · entropy   -55.94
+
+        패딩 6칸이 log_prob 의 90%, entropy 의 99% 를 만들고 있었다. PPO 비율은
+        `exp(logp - old_logp)` 라 그 오염이 그대로 실린다 — 실제로 approx KL 이
+        목표 0.02 에 대해 172 까지 튀었다.
+
+        `modelops/canary_policy.py` 는 처음부터 이 방식을 피했고 독스트링에
+        이유까지 적어 뒀다. 진짜 정책망만 그 함정에 있었다.
+
+        지연도 유효 슬롯만 더한다 — 존재하지 않는 종목을 언제 살지는 결정이
+        아니고, 그 항을 더하면 후보 수에 따라 로그확률의 눈금이 달라진다.
         """
-        # torch.distributions 는 py.typed 를 실었지만 메서드에 주석이 없다.
-        # strict mypy 가 "untyped call" 로 잡는 것은 우리 쪽 결함이 아니다.
-        weights_lp: Tensor = self.weights_dist.log_prob(  # type: ignore[no-untyped-call]
-            _sanitize_simplex(weights)
-        )
+        valid = self.weight_valid
+        # 유효 칸만으로 다시 정규화한 심플렉스. 패딩 비중은 애초에 0 이라
+        # 합에 영향이 없지만, 샘플이 numpy float32 를 거쳐 오면 1e-38 같은
+        # 값이 남아 있어서 명시적으로 지운다.
+        clean = _sanitize_simplex(torch.where(valid, weights, torch.zeros_like(weights)))
+        weights_lp = _masked_dirichlet_log_prob(self.concentration, clean, valid)
         delay_lp: Tensor = self.delay_dist.log_prob(delay)  # type: ignore[no-untyped-call]
         return weights_lp + (delay_lp * self.mask).sum(dim=-1)
 
     def entropy(self) -> Tensor:
-        """(B,). 지연 엔트로피도 유효 슬롯만 센다 — 이유는 `log_prob` 과 같다."""
-        weights_ent: Tensor = self.weights_dist.entropy()  # type: ignore[no-untyped-call]
+        """(B,). 비중·지연 둘 다 **유효 슬롯만** 센다 — 이유는 `log_prob` 과 같다."""
+        weights_ent = _masked_dirichlet_entropy(self.concentration, self.weight_valid)
         delay_ent: Tensor = self.delay_dist.entropy()  # type: ignore[no-untyped-call]
         return weights_ent + (delay_ent * self.mask).sum(dim=-1)
 
 
-def _sanitize_simplex(weights: Tensor) -> Tensor:
-    """정확한 0 을 지운다. **지지집합을 바꾸는 클리핑이 아니다.**
+def _masked_dirichlet_log_prob(
+    concentration: Tensor, weights: Tensor, valid: Tensor
+) -> Tensor:
+    """유효 칸만으로 세운 Dirichlet 의 log_prob (B,).
 
-    Dirichlet 의 log_prob 은 0 에서 발산한다. torch 의 Dirichlet 샘플러도
-    같은 이유로 표본을 표현 가능한 최소 양수로 올려서 내놓는다 — 여기서
-    하는 것은 그 표본이 numpy float32 를 거쳐 돌아왔을 때 같은 바닥을
-    보장하는 것뿐이다. 규모가 1e-38 이라 정책 그래디언트에 실리지 않는다.
+    `torch.distributions.Dirichlet` 은 차원을 골라 쓸 수 없어서 식을 직접
+    쓴다. 배치마다 유효 칸 수가 다르므로 마스크로 접는 편이 텐서를 쪼개
+    도는 것보다 싸고, 무엇보다 **모양이 고정**이라 컴파일·배치가 깨지지 않는다.
+
+        log p = Σ_valid (a_i - 1)·log x_i + lgamma(Σ_valid a_i)
+                - Σ_valid lgamma(a_i)
     """
-    tiny = torch.finfo(weights.dtype).tiny
-    clamped = weights.clamp_min(tiny)
+    a = torch.where(valid, concentration, torch.ones_like(concentration))
+    x = torch.where(valid, weights, torch.ones_like(weights))
+    # log x 는 유효 칸에서만 살아 있다. 무효 칸은 a=1·x=1 로 두어 항이 0 이 된다.
+    term = ((a - 1.0) * torch.log(x)) * valid
+    log_norm = torch.lgamma((a * valid).sum(dim=-1)) - (torch.lgamma(a) * valid).sum(dim=-1)
+    return term.sum(dim=-1) + log_norm
+
+
+def _masked_dirichlet_entropy(concentration: Tensor, valid: Tensor) -> Tensor:
+    """유효 칸만으로 세운 Dirichlet 의 엔트로피 (B,).
+
+        H = log B(a) + (a0 - K)·ψ(a0) - Σ (a_i - 1)·ψ(a_i)
+
+    K 는 **유효 칸 수**다. 전체 칸 수를 쓰면 패딩이 몇 개냐에 따라 엔트로피
+    보너스의 눈금이 달라져, 후보가 적은 날 정책이 까닭 없이 넓어진다.
+    """
+    a = torch.where(valid, concentration, torch.ones_like(concentration))
+    a0 = (a * valid).sum(dim=-1)
+    k = valid.sum(dim=-1).to(a.dtype)
+    log_beta = (torch.lgamma(a) * valid).sum(dim=-1) - torch.lgamma(a0)
+    digamma_term = ((a - 1.0) * torch.digamma(a) * valid).sum(dim=-1)
+    return log_beta + (a0 - k) * torch.digamma(a0) - digamma_term
+
+
+#: 표본 비중의 바닥. **`finfo.tiny`(1e-38)를 쓰지 않는다.**
+#:
+#: Dirichlet 의 log_prob 에는 `(a-1)·log x` 항이 있고, 이 정책은 concentration
+#: 이 1 보다 작을 수 있다(softplus(0)=0.693). 그러면 `a-1` 이 음수라 **x 가
+#: 작을수록 항이 커진다.** 1e-38 이면 log x = -87 이라 슬롯당 +26 쯤 되고,
+#: 그 값이 PPO 비율 `exp(logp - old_logp)` 에 그대로 실린다.
+#:
+#: 참조 구현(`modelops/canary_policy.SAMPLE_FLOOR`)이 처음부터 1e-9 를 쓴다.
+#: 같은 값으로 맞춘다.
+#:
+#: **이걸 바꿔도 approx KL 은 안 달라졌다**(2026-08-19 실측 172.388 →
+#: 172.388). 즉 지금 관측되는 KL 폭주의 원인은 이것이 아니다 — 실제 표본이
+#: 1e-38 까지 내려가지 않는다. 그래도 되돌리지 않는 이유는, 이 항이 언제
+#: 커지는지가 **concentration 에 달려 있고** 학습이 진행되면 1 보다 훨씬
+#: 작아질 수 있기 때문이다. 안 터진 지뢰를 그대로 두지 않는다.
+#:
+#: **지지집합을 바꾸는 클리핑이 아니다.** 1e-9 아래의 비중은 1주도 못 사는
+#: 값이라 어차피 체결에서 사라진다(`executor.sizing` 최소주문금액).
+SAMPLE_FLOOR = 1e-9
+
+
+def _sanitize_simplex(weights: Tensor) -> Tensor:
+    """정확한 0 과 **극단적으로 작은 값**을 지운다.
+
+    Dirichlet 의 log_prob 은 0 에서 발산한다. 0 만 막으면 충분할 것 같지만,
+    concentration 이 1 보다 작을 때는 0 근처의 값도 로그확률을 지배한다 —
+    `SAMPLE_FLOOR` 주석 참조.
+    """
+    clamped = weights.clamp_min(SAMPLE_FLOOR)
     return clamped / clamped.sum(dim=-1, keepdim=True)
 
 
