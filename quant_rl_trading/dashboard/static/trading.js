@@ -979,22 +979,28 @@ async function loadTrading() {
  */
 const LIVE_REFRESH_MS = 30000;
 let liveTimer = null;
+//: 마지막으로 실제로 읽어 온 시각. 화면이 돌아왔을 때 "얼마나 굶었나" 를
+//: 재는 데 쓴다. 타이머만 믿으면 안 되는 이유는 아래에 있다.
+let lastLoadedAt = 0;
+let visibilityBound = false;
+
+function liveEnabled(body) {
+  if (!body || !body.live) return false;           // 타임머신은 흐르지 않는다
+  const k = (body.data && body.data.kpis) || {};
+  return k.live_session_open !== false;            // 장외에는 안 돈다
+}
 
 function scheduleLiveRefresh(body) {
+  lastLoadedAt = Date.now();
   if (liveTimer) {
     clearTimeout(liveTimer);
     liveTimer = null;
   }
-  // as_of 를 준 화면(타임머신)은 흐르지 않는다.
-  if (!body || !body.live) return;
-  const k = (body.data && body.data.kpis) || {};
-  if (k.live_session_open === false) return;
+  bindVisibilityRefresh(body);
+  if (!liveEnabled(body)) return;
 
   liveTimer = setTimeout(async () => {
-    if (document.hidden) {
-      scheduleLiveRefresh(body); // 숨어 있으면 값만 미루고 예약은 이어 간다
-      return;
-    }
+    if (document.hidden) return;   // 숨은 동안은 쉰다. 복귀는 아래가 맡는다
     try {
       await loadTrading();
     } catch (error) {
@@ -1003,6 +1009,35 @@ function scheduleLiveRefresh(body) {
       scheduleLiveRefresh(body);
     }
   }, LIVE_REFRESH_MS);
+}
+
+/* **화면이 돌아오면 즉시 다시 읽는다.**
+ *
+ * iOS Safari 는 화면이 꺼지거나 다른 앱으로 가면 백그라운드 타이머를 죽이고,
+ * 돌아와도 **자동으로 재개하지 않는다.** setTimeout 하나만 믿으면 그 순간부터
+ * 화면이 영영 얼어붙는다 — 실측 2026-08-19: 아이폰에서 11:24 값이 12:08 까지
+ * 43분간 그대로였다(서버는 멀쩡히 새 값을 주고 있었다).
+ *
+ * 그래서 `visibilitychange` 로 복귀를 잡는다. 한 번만 매단다 — loadTrading 이
+ * 돌 때마다 매달면 핸들러가 쌓여서 복귀 한 번에 여러 번 읽는다.
+ */
+function bindVisibilityRefresh(body) {
+  if (visibilityBound) return;
+  visibilityBound = true;
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden) return;
+    if (!liveEnabled(body)) return;
+    // 방금 읽었으면 다시 읽지 않는다 — 탭을 빠르게 오갈 때 매번 창고를 연다.
+    if (Date.now() - lastLoadedAt < LIVE_REFRESH_MS) {
+      scheduleLiveRefresh(body);   // 예약만 되살린다
+      return;
+    }
+    try {
+      await loadTrading();
+    } catch (error) {
+      console.warn("복귀 갱신 실패:", error);
+    }
+  });
 }
 
 runAll([loadTrading]);
