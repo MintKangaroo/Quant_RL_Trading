@@ -709,6 +709,16 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
     body = _index_rows(brief.prices, volatility=False)
     if any(row.note for row in brief.prices):
         body += _foot("* 그 지수의 종가 세션이 다르거나 미수집")
+    if brief.proxies:
+        # **지수 표 바로 아래, 그러나 다른 묶음이다.** 위는 FRED 지수고 여기는
+        # LS 해외 ETF 다 — 출처도 값의 성격도 다르다. 같은 표에 섞으면
+        # "S&P 500 7,745" 와 "SPY 767" 이 나란히 서서 하나가 틀린 것처럼
+        # 보인다. 다른 것이지 틀린 것이 아니다.
+        body += _index_rows(brief.proxies, volatility=False)
+        body += _foot(
+            "지수 추종 ETF (LS 해외) — 지수가 아니다. 분배락·운용보수·추적오차만큼 "
+            "지수와 어긋난다. 위 지수가 아직 안 들어온 날 방금 끝난 장을 보는 자리다"
+        )
     if brief.volatility:
         body += _index_rows(brief.volatility, volatility=True)
         body += _foot("변동성 지수 — 상승은 수익이 아니라 공포다. 손익 색 없음")
@@ -852,6 +862,18 @@ def render_text(briefing: Briefing) -> str:
                 else f"  {index_row.label} {_num(index_row.close)} "
                 f"{_pct(index_row.change)}{mark}"
             )
+        for proxy in brief.proxies:
+            # 텍스트 대체본도 **ETF 라고 말한다.** HTML 만 정직하면, 이미지·
+            # 스타일이 막힌 메일 앱에서는 대용치가 지수처럼 읽힌다.
+            mark = f"  — {proxy.note}" if proxy.note else ""
+            lines.append(
+                f"  [ETF] {proxy.label}: {proxy.note or '값 없음'}"
+                if proxy.close is None
+                else f"  [ETF] {proxy.label} {_num(proxy.close)} "
+                f"{_pct(proxy.change)}{mark}"
+            )
+        if brief.proxies:
+            lines.append("  (ETF 는 지수가 아니다 — 출처 LS 해외, 추적오차가 있다)")
         for vol_row in brief.volatility:
             lines.append(
                 f"  [변동성] {vol_row.label}: {vol_row.note or '값 없음'}"

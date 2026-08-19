@@ -126,6 +126,7 @@ def _brief(market: str, *, prices: list[IndexRow], **kw: object) -> MarketBrief:
             eligible=300,
         ),
         news=kw.get("news", _news()),  # type: ignore[arg-type]
+        proxies=kw.get("proxies", []),  # type: ignore[arg-type]
     )
 
 
@@ -962,3 +963,71 @@ def test_text_alternative_names_the_mixed_session() -> None:
     )
     assert "(2026-08-11, 등락 2026-08-14, 정렬 market_stats.market_cap)" in text
 
+
+
+# -- 지수 대용 ETF --------------------------------------------------------------
+
+
+PROXIES = [
+    IndexRow("US:SPY", "SPY (S&P 500 추종 ETF)", "price", 767.45, -0.0068, FRIDAY),
+    IndexRow("US:SOXX", "SOXX (ICE 반도체 추종 ETF)", "price", 531.39, -0.0496, FRIDAY),
+]
+
+
+def _proxy_briefing() -> Briefing:
+    """미장 지수는 하루 낡고, 대용 ETF 만 그날 값이 있는 판."""
+    kr = _brief("KR", prices=[
+        IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0356, FRIDAY),
+    ])
+    us = _brief(
+        "US",
+        prices=[
+            IndexRow(
+                "US:IDX:SP500", "S&P 500", "price", 7745.06, -0.0052, THURSDAY,
+                note="2026-08-13 종가 · 2026-08-14 미수집",
+            )
+        ],
+        proxies=PROXIES,
+    )
+    return _briefing(markets={"KR": kr, "US": us})
+
+
+def test_proxy_etf_says_it_is_an_etf() -> None:
+    """**"S&P 500" 이라 쓰고 SPY 를 싣지 않는다.**
+
+    FRED 지수가 하루 늦어서 ETF 로 보완하는 자리다. 여기서 라벨을 지수 이름으로
+    바꾸면 메일이 조용히 거짓말을 시작한다 — SPY 종가 767 은 S&P 500 의 7,745 가
+    아니고, 분배락·운용보수만큼 등락도 어긋난다. HTML 과 텍스트 **둘 다** 확인한다:
+    한쪽만 정직하면 스타일이 막힌 메일 앱에서 대용치가 지수처럼 읽힌다.
+    """
+    briefing = _proxy_briefing()
+    html = render_html(briefing)
+    text = render_text(briefing)
+
+    for body in (html, text):
+        assert "SPY (S&amp;P 500 추종 ETF)" in body or "SPY (S&P 500 추종 ETF)" in body
+        assert "SOXX (ICE 반도체 추종 ETF)" in body
+        # 지수 줄과 ETF 줄이 같은 값으로 보이면 안 된다 — 둘 다 실려 있다.
+        assert "7,745.06" in body and "767.45" in body
+    assert "지수가 아니다" in html
+    assert "ETF 는 지수가 아니다" in text
+
+
+def test_proxy_etf_survives_news_translation() -> None:
+    """**미장 칸을 다시 만드는 자리가 필드를 흘리지 않는다.**
+
+    ``_translate_us_news`` 가 미장 ``MarketBrief`` 를 통째로 새로 짓는다. 필드를
+    손으로 나열하던 시절, 새로 생긴 ``proxies`` 가 거기서만 빠져 **미장에서만**
+    ETF 줄이 사라졌다 — 국장은 그 함수를 안 지나서 멀쩡했고 그래서 더 안 보였다.
+    """
+    from quant_rl_trading.reporting.briefing import _translate_us_news
+
+    class _Translate:
+        def translate(self, headlines, *, as_of):
+            return {}
+
+    briefing = _proxy_briefing()
+    markets = _translate_us_news(
+        dict(briefing.markets), translate=_Translate(), as_of=NOW
+    )
+    assert [row.entity_id for row in markets["US"].proxies] == ["US:SPY", "US:SOXX"]

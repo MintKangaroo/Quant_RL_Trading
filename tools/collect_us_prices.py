@@ -38,8 +38,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.collectors.ls_us_source import (  # noqa: E402
+    INDEX_PROXY_ETFS,
     LsUsSource,
     UsIncrementalCollector,
+    normalize_bars,
 )
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import (  # noqa: E402
@@ -66,6 +68,11 @@ STALE_AFTER_SESSIONS = 1
 #: "할 일 없음" 으로 조용히 끝난다.
 SYMBOL_LOOKBACK_DAYS = 20
 
+
+#: 대용 ETF 수집의 표지. 전체 실행과 run_id 가 갈려야 한다 — 같은 칸을 쓰면
+#: 아침에 도는 4종목 수집이 그 세션을 "적재됨" 으로 잠가 저녁의 6,647종목이
+#: 통째로 건너뛰어진다. (``ls_us_source`` 의 ``incremental_run_id`` 주석)
+ETF_SCOPE = "etf"
 
 #: 심볼 → 거래소 코드 캐시. **이게 없으면 매일 두 배로 든다.**
 #: 거래소를 모르면 나스닥으로 한 번 치고 0행이면 뉴욕으로 다시 친다(1~2호출).
@@ -214,6 +221,122 @@ def fresh_enough(store: Store, clock: Clock) -> bool:
     return True
 
 
+def etf_history(
+    store: Store, source: LsUsSource, clock: Clock, *, years: int, dry_run: bool
+) -> int:
+    """대용 ETF 의 **과거** 일봉. 한 번 돌면 끝나는 물건이다.
+
+    ``UsPriceBackfiller`` 를 못 쓴다. 그쪽 run_id 는 ``bf-prices-US-b000`` 처럼
+    **배치 번호**로만 걸려 있어서, 6,647종목 백필이 이미 b000 을 기록해 둔
+    창고에서는 4종목짜리 명단이 통째로 "적재됨" 으로 건너뛰어진다. 종목 축
+    수집에서 명단이 바뀌면 같은 배치 번호가 다른 종목 묶음을 뜻한다.
+
+    그래서 run_id 를 **종목·구간**으로 건다. 같은 ``--history`` 를 다시 돌리면
+    같은 칸이라 건너뛰고, 구간을 늘리면 새 칸이라 다시 받는다.
+    """
+    now = clock.now()
+    today = now.astimezone(UTC).date()
+    start = today - timedelta(days=365 * years)
+    policy = publication_policy(store, MARKET, clock=clock)
+    archive = RawArchive(root=store.root)
+
+    # **이미 있는 구간은 다시 받지 않는다.** SPY·QQQ·DIA 는 전체 백필이
+    # 이미 넣어 뒀다(2021-08~). 같은 세션을 다시 append 하면 run_id 만 다른
+    # 같은 행이 창고에 두 벌 쌓이고, 거래대금 합계 같은 것이 조용히 두 배가
+    # 된다. 그래서 종목마다 **창고에 없는 앞쪽**만 받는다.
+    have = read_prices(
+        store,
+        as_of=now,
+        market=str(MARKET),
+        entity=[f"{MARKET}:{symbol}" for symbol in INDEX_PROXY_ETFS],
+        lookback=(today - start).days + 5,
+        columns=["entity_id", "valid_from"],
+    )
+    earliest: dict[str, date] = {}
+    if not have.empty:
+        for entity, group in have.groupby("entity_id"):
+            earliest[_ticker(str(entity))] = group["valid_from"].min().date()
+
+    print(f"US 대용 ETF 과거 {start} ~ {today} · {len(INDEX_PROXY_ETFS)}종목")
+    total = 0
+    for symbol, exchange in sorted(INDEX_PROXY_ETFS.items()):
+        first = earliest.get(symbol)
+        end = today if first is None else first - timedelta(days=1)
+        if end < start:
+            print(f"  {symbol} 이미 {first} 부터 창고에 있다 — 받을 것이 없다")
+            continue
+        run_id = f"bf-prices-US-etf-{symbol}-{start.isoformat()}-{end.isoformat()}"
+        if store.ingest_run_recorded("prices", run_id):
+            print(f"  {symbol} 이미 적재 (run_id={run_id})")
+            continue
+        if dry_run:
+            print(f"  {symbol} {start} ~ {end} 받을 예정 (거래소 {exchange})")
+            continue
+
+        bars = source.daily_bars(symbol, exchange=exchange, start=start, end=end)
+        rows, deferred = normalize_bars(
+            bars, symbol=symbol, market=MARKET, observed_at_for=policy
+        )
+        if not rows:
+            # 빈 것을 적재로 기록하면 나중에 데이터가 생겨도 영영 건너뛴다.
+            print(f"  {symbol} 0행 — 거래소({exchange})가 틀렸을 수 있다", file=sys.stderr)
+            continue
+        archive.save(
+            source.name,
+            {symbol: bars},
+            observed_at=now,
+            ingest_run_id=run_id,
+            label=f"ls_us-etf-{symbol}",
+        )
+        written = store.append("prices", rows, ingest_run_id=run_id)
+        total += written
+        print(f"  {symbol} rows={written:,} (미공표 대기 {len(deferred)})", flush=True)
+    print(f"완료 — {total:,}행")
+    return 0
+
+
+def etf_fresh_enough(store: Store, clock: Clock) -> bool:
+    """대용 ETF 가 **네 종목 모두** 최신 세션까지 들어왔나.
+
+    전체 수집의 ``fresh_enough`` 를 못 쓴다. 그쪽은 "세션에 종목이 얼마나
+    찼나" 로 판정해서, 4종목만 받은 실행은 어느 세션도 못 채운다. 여기서는
+    반대로 **명단이 작다는 것을 알고** 한 종목이라도 밀리면 말한다.
+    """
+    now = clock.now()
+    expected = latest_publishable(publication_policy(store, MARKET, clock=clock), now=now)
+    frame = read_prices(
+        store,
+        as_of=now,
+        market=str(MARKET),
+        entity=[f"{MARKET}:{symbol}" for symbol in INDEX_PROXY_ETFS],
+        lookback=SYMBOL_LOOKBACK_DAYS,
+        columns=["entity_id", "valid_from", "close"],
+    )
+    latest: dict[str, date | None] = {symbol: None for symbol in INDEX_PROXY_ETFS}
+    if not frame.empty:
+        live = frame[frame["close"].astype(float) > 0]
+        for entity, group in live.groupby("entity_id"):
+            latest[_ticker(str(entity))] = group["valid_from"].max().date()
+
+    stale = []
+    for symbol in sorted(INDEX_PROXY_ETFS):
+        newest = latest.get(symbol)
+        mark = newest.isoformat() if newest else "없음"
+        print(f"  {MARKET}:{symbol} 최신 {mark}")
+        if expected is not None and (newest is None or newest < expected):
+            stale.append(symbol)
+    if expected is None:
+        return True
+    if stale:
+        print(
+            f"대용 ETF {'·'.join(stale)} 가 {expected} 를 못 받았다. "
+            "브리핑의 미장 보완 줄이 낡은 채로 나간다.",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def _short(delta: timedelta) -> str:
     total = int(delta.total_seconds())
     return f"{total // 3600}시간 {total % 3600 // 60}분" if total >= 3600 else f"{total // 60}분"
@@ -227,9 +350,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--source",
-        choices=["store", "sec"],
+        choices=["store", "sec", "etf"],
         default="store",
-        help="종목 명단 출처. store=창고에 이미 있는 종목(기본), sec=SEC 명단(신규 상장 포함)",
+        help=(
+            "종목 명단 출처. store=창고에 이미 있는 종목(기본), "
+            "sec=SEC 명단(신규 상장 포함), etf=미장 지수 대용 ETF 4종"
+        ),
+    )
+    parser.add_argument(
+        "--history",
+        type=int,
+        metavar="YEARS",
+        help="--source etf 전용. 최근 N년 과거를 채운다(한 번만 돌리면 된다)",
     )
     parser.add_argument(
         "--top",
@@ -263,6 +395,14 @@ def main(argv: list[str] | None = None) -> int:
     window = calendar[-args.sessions :]
     start, end = window[0], today
 
+    if args.history:
+        if args.source != "etf":
+            print("--history 는 --source etf 에서만 쓴다.", file=sys.stderr)
+            return 2
+        return etf_history(
+            store, source, clock, years=args.history, dry_run=args.dry_run
+        )
+
     exchanges = load_exchanges(store)
     scope = ""
     if args.symbols:
@@ -275,6 +415,12 @@ def main(argv: list[str] | None = None) -> int:
         # 작업이다.
         digest = hashlib.sha256(",".join(sorted(symbols)).encode()).hexdigest()[:8]
         scope = f"probe{digest}"
+    elif args.source == "etf":
+        # 지수 대용 ETF 4종. 명단이 코드에 박혀 있으므로 창고를 안 읽는다 —
+        # 브리핑 직전에 도는 자리라 창고 조회 한 번도 아깝다.
+        symbols = sorted(INDEX_PROXY_ETFS)
+        exchanges.update(INDEX_PROXY_ETFS)
+        scope = ETF_SCOPE
     else:
         if args.source == "sec":
             user_agent = os.environ.get(UA_ENV, "")
@@ -368,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # 부분 수집은 창고 신선도를 책임지지 않는다 — 상위 500종목만 받아 놓고
     # "최신" 이라고 말하면 나머지 6,100종목의 결손이 그 판정에 숨는다.
+    if scope == ETF_SCOPE:
+        # 명단이 고정된 4종목이라 **여기서는 판정할 수 있다.** 아침 브리핑이
+        # 이 네 줄을 쓰므로, 밀린 것을 조용히 넘기면 안 된다.
+        return 0 if etf_fresh_enough(store, clock) else 1
     if scope:
         print(f"부분 수집(scope={scope})이라 신선도 판정은 건너뛴다.")
         return 0

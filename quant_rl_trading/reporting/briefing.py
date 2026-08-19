@@ -22,7 +22,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -67,6 +67,34 @@ REPORT_INDICES: dict[str, tuple[tuple[str, str], ...]] = {
         ("US:IDX:SOX", "필라델피아 반도체"),
         ("US:IDX:VIX", "VIX (S&P 변동성)"),
         ("US:IDX:VXN", "VXN (나스닥 변동성)"),
+    ),
+}
+
+#: 지수 **대용 ETF**. FRED 지수를 대체하지 않고 **옆에 세운다.**
+#:
+#: ## 왜 필요한가
+#:
+#: FRED 는 하루 늦다. 실측 2026-08-19 08:55 KST(뉴욕 마감 4시간 뒤) 에
+#: SP500·NASDAQ·NASDAQ100·SOX·VIX·VXN 이 08-17 에 멈춰 있었고 다우 계열
+#: (DJIA·DJTA·DJUA)만 08-18 이었다. 같은 시각 LS 해외는 네 ETF 모두 08-18 을
+#: 줬다. 이 메일은 미장 마감 뒤 새벽에 나가므로, 지수만 실으면 **읽는 사람이
+#: 방금 끝난 장을 못 본다.**
+#:
+#: ## 이름을 바꿔치기하지 않는다
+#:
+#: 라벨에 **ETF 라고 적는다.** "S&P 500" 이라 쓰고 SPY 를 실으면 그 순간
+#: 메일이 거짓말을 시작한다 — SPY 종가 767 은 S&P 500 의 7,745 가 아니고,
+#: 분배락·운용보수·추적오차만큼 등락도 어긋난다. 마켓 탭이 같은 규칙을 쓴다
+#: (``dashboard/services/market.py`` 의 ``US_ETF_PANELS``).
+#:
+#: 창고 위치도 다르다 — 이쪽은 ``indices`` 가 아니라 ``prices`` 다. 그래서
+#: 읽는 함수가 따로 있고, 화면에서도 다른 묶음으로 나간다.
+REPORT_PROXY_ETFS: dict[str, tuple[tuple[str, str], ...]] = {
+    "US": (
+        ("US:SPY", "SPY (S&P 500 추종 ETF)"),
+        ("US:QQQ", "QQQ (나스닥 100 추종 ETF)"),
+        ("US:DIA", "DIA (다우 추종 ETF)"),
+        ("US:SOXX", "SOXX (ICE 반도체 추종 ETF)"),
     ),
 }
 
@@ -160,6 +188,13 @@ class MarketBrief:
     rankings: list[Ranking]
     floor: Floor
     news: NewsSection
+    #: 지수 **대용 ETF**. 지수를 대체하는 것이 아니라 옆에 서는 줄이다 —
+    #: 출처(LS 해외)도 창고 표(``prices``)도 위의 ``prices``(FRED·``indices``)와
+    #: 다르므로 화면이 둘을 갈라서 보여야 한다.
+    #:
+    #: 기본값이 빈 목록인 이유는 국장이다 — 국장은 KRX 가 당일 지수를 주므로
+    #: 대용치가 없고, 그 자리를 억지로 채우지 않는다.
+    proxies: list[IndexRow] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -169,6 +204,7 @@ class MarketBrief:
             "price_session": self.price_session.as_dict(),
             "prices": [row.as_dict() for row in self.prices],
             "volatility": [row.as_dict() for row in self.volatility],
+            "proxies": [row.as_dict() for row in self.proxies],
             "rankings": [rank.as_dict() for rank in self.rankings],
             "floor": self.floor.as_dict(),
             "news": self.news.as_dict(),
@@ -264,6 +300,40 @@ class _Quote:
     prior: date | None
 
 
+def _quotes(frame: pd.DataFrame) -> tuple[dict[str, _Quote], date | None]:
+    """(entity_id → 마지막 두 세션, 그중 가장 최신 세션).
+
+    지수(``indices``)와 대용 ETF(``prices``)가 **같은 규칙을 쓰게** 하려고
+    뽑아 뒀다. 두 곳이 종가 0 을 다르게 다루면 같은 메일 안에서 한쪽만
+    -100% 로 보인다.
+    """
+    latest: dict[str, _Quote] = {}
+    observed: date | None = None
+    if frame.empty:
+        return latest, observed
+    for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
+        # 휴장·미수집 세션은 종가가 0 이나 NaN 으로 들어온다. 섞으면 지수가
+        # 하루 만에 -100% 로 보인다 (market_service.indices 와 같은 규칙).
+        closes = group["close"].astype(float)
+        live = group[closes > 0]
+        if live.empty:
+            continue
+        values = live["close"].astype(float)
+        last = float(values.iloc[-1])
+        previous = float(values.iloc[-2]) if len(values) >= 2 else None
+        session = _session_of(live["valid_from"].iloc[-1])
+        prior = _session_of(live["valid_from"].iloc[-2]) if len(values) >= 2 else None
+        latest[str(entity)] = _Quote(
+            close=last,
+            change=(last / previous - 1.0) if previous else None,
+            session=session,
+            prior=prior,
+        )
+        if session and (observed is None or session > observed):
+            observed = session
+    return latest, observed
+
+
 def _quote_note(quote: _Quote, *, market: str, expected: date | None) -> str | None:
     """이 숫자를 곧이곧대로 읽으면 안 되는 이유. 없으면 ``None``.
 
@@ -313,30 +383,7 @@ def index_rows(
         columns=["entity_id", "close", "valid_from"],
     )
 
-    latest: dict[str, _Quote] = {}
-    observed: date | None = None
-    if not frame.empty:
-        for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
-            # 휴장·미수집 세션은 종가가 0 이나 NaN 으로 들어온다. 섞으면 지수가
-            # 하루 만에 -100% 로 보인다 (market_service.indices 와 같은 규칙).
-            closes = group["close"].astype(float)
-            live = group[closes > 0]
-            if live.empty:
-                continue
-            values = live["close"].astype(float)
-            last = float(values.iloc[-1])
-            previous = float(values.iloc[-2]) if len(values) >= 2 else None
-            session = _session_of(live["valid_from"].iloc[-1])
-            prior = _session_of(live["valid_from"].iloc[-2]) if len(values) >= 2 else None
-            latest[str(entity)] = _Quote(
-                close=last,
-                change=(last / previous - 1.0) if previous else None,
-                session=session,
-                prior=prior,
-            )
-            if session and (observed is None or session > observed):
-                observed = session
-
+    latest, observed = _quotes(frame)
     ref = describe(Market(market), "지수", expected=expected, observed=observed)
 
     prices: list[IndexRow] = []
@@ -370,6 +417,62 @@ def index_rows(
             )
         (volatility if kind == "volatility" else prices).append(row)
     return prices, volatility, ref
+
+
+def proxy_rows(
+    store: Store, *, as_of: datetime, market: str, expected: date | None
+) -> list[IndexRow]:
+    """지수 대용 ETF 줄. **지수 목록에 섞지 않고 따로 돌려준다.**
+
+    창고 위치가 다르다 — ``indices`` 가 아니라 ``prices`` 다(ETF 는 종목이다).
+    화면도 따로 묶어야 한다: 같은 표에 넣으면 "S&P 500 7,745" 와 "SPY 767" 이
+    나란히 서서 둘 중 하나가 틀린 것처럼 보인다. 다른 것이지 틀린 것이 아니다.
+
+    ``REPORT_PROXY_ETFS`` 에 없는 시장(국장)은 빈 목록이다 — 국장은 KRX 가
+    당일 지수를 주므로 대용치가 필요 없다.
+    """
+    wanted = REPORT_PROXY_ETFS.get(market, ())
+    if not wanted:
+        return []
+
+    frame = read_prices(
+        store,
+        as_of=as_of,
+        market=market,
+        entity=[entity for entity, _ in wanted],
+        lookback=INDEX_LOOKBACK_DAYS,
+        columns=["entity_id", "close", "valid_from"],
+    )
+    latest, _ = _quotes(frame)
+
+    rows: list[IndexRow] = []
+    for entity, label in wanted:
+        found = latest.get(entity)
+        if found is None:
+            rows.append(
+                IndexRow(
+                    entity_id=entity,
+                    label=label,
+                    kind="price",
+                    close=None,
+                    change=None,
+                    session=None,
+                    note="창고에 이 ETF 가 없다",
+                )
+            )
+            continue
+        rows.append(
+            IndexRow(
+                entity_id=entity,
+                label=label,
+                kind="price",
+                close=found.close,
+                change=found.change,
+                session=found.session,
+                note=_quote_note(found, market=market, expected=expected),
+            )
+        )
+    return rows
 
 
 #: 순위표 2종. 키는 창고의 컬럼 이름, 값은 (제목, 정렬 기준 설명).
@@ -1077,6 +1180,7 @@ def market_brief(
     prices, volatility, index_ref = index_rows(
         store, as_of=as_of, market=market, headline=headline, expected=expected
     )
+    proxies = proxy_rows(store, as_of=as_of, market=market, expected=expected)
     currency = market_service.CURRENCY.get(market, "")
     suffix = currency.lower()
     floor = Floor(
@@ -1102,6 +1206,7 @@ def market_brief(
         price_session=price_ref,
         prices=prices,
         volatility=volatility,
+        proxies=proxies,
         rankings=ranks,
         floor=filled,
         news=news_section(
@@ -1183,15 +1288,12 @@ def _translate_us_news(
         )
         for row in us.news.rows
     ]
-    new_us = MarketBrief(
-        market=us.market,
-        currency=us.currency,
-        index_session=us.index_session,
-        price_session=us.price_session,
-        prices=us.prices,
-        volatility=us.volatility,
-        rankings=us.rankings,
-        floor=us.floor,
+    # **필드를 손으로 옮겨 적지 않는다.** 여기는 뉴스만 바꾸는 자리인데
+    # 전부 나열해 두면, 나중에 필드가 하나 늘 때 이 함수만 빠뜨린다 —
+    # 실제로 그랬다(대용 ETF 줄이 미장에서만 조용히 사라졌다. 국장은 이
+    # 함수를 안 지나서 멀쩡했고, 그래서 더 안 보였다).
+    new_us = replace(
+        us,
         news=NewsSection(
             rows=new_rows, total=us.news.total, criteria=us.news.criteria, note=us.news.note
         ),
