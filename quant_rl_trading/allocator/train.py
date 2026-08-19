@@ -385,3 +385,73 @@ def update(
         # 현금 비중 — 진단서 ⑦ 이 지목한 값이라 매 업데이트 남긴다.
         cash_weight=float(np.mean([a[:, -1] for a in rollout["actions"]])),
     )
+
+
+def attribution(
+    policy: AllocatorPolicy,
+    rollout: dict[str, Any],
+    *,
+    ppo: PPOConfig,
+    device: torch.device,
+) -> Array:
+    """종목축 피처별 **정책** 그래디언트 기여도. 개정된 §0 이 이걸로 판정한다.
+
+    ## 가치 헤드를 끊는다
+
+    §0 이 요구하는 것은 *정책* 그래디언트 기여도다. 가치까지 섞으면 **"가치
+    함수만 오라클을 보고 정책은 못 보는" 고장이 합격으로 찍힌다.** 그건 실제로
+    일어나는 고장이고(선행 프로젝트), 그때 액션 반영률이 0 이 된다.
+
+    torch 에서는 손실에 가치 항을 안 넣는 것으로 끊는다. `canary_ppo._attribution`
+    이 `d_value=0` 으로 하는 것과 같다.
+
+    ## 절댓값 평균이고 유효 슬롯만 센다
+
+    `modelops.diagnostics.feature_attribution` 을 그대로 쓴다. 부호 있는 평균은
+    **정확히 반대로 읽힐 수 있다** — 종목마다 부호가 갈리는 강한 피처가 0 으로
+    상쇄되어 아무도 안 보는 피처처럼 보인다.
+
+    ## 정규화를 끄고 잰다
+
+    관측 정규화가 아직 없어서(진단서 ⑤) 칸마다 크기 스케일이 다르다. 그래서
+    **크기 그대로** 비교한다 — 정규화한 순위는 "큰 숫자가 든 칸" 을 위로
+    올린다. 실제로 카나리에서 정규화 켠 순위는 2위, 끈 순위는 1위였다.
+    """
+    from quant_rl_trading.modelops.diagnostics import feature_attribution
+
+    advantages, _ = gae(
+        rewards=rollout["rewards"],
+        values=rollout["values"],
+        dones=rollout["dones"],
+        bootstrap=rollout["bootstrap"],
+        last_value=rollout["last_value"],
+        gamma=ppo.gamma,
+        lam=ppo.gae_lambda,
+    )
+    flat = {
+        key: torch.cat(
+            [_to_torch(step, device)[key] for step in rollout["obs"]], dim=0
+        )
+        for key in rollout["obs"][0]
+    }
+    assets = flat["assets"].clone().requires_grad_(True)
+    actions = torch.as_tensor(
+        np.concatenate(rollout["actions"]), dtype=torch.float32, device=device
+    )
+    adv = torch.as_tensor(
+        advantages.reshape(-1), dtype=torch.float32, device=device
+    )
+    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+    out = policy(flat["portfolio"], assets, flat["mask"])
+    delay = torch.zeros(
+        (actions.shape[0], out.delay_logits.shape[1]), dtype=torch.long, device=device
+    )
+    # **정책 항만.** 가치·엔트로피를 넣으면 무엇을 재는지가 흐려진다.
+    loss = -(out.log_prob(actions, delay) * adv).mean()
+    grad = torch.autograd.grad(loss, assets)[0]
+
+    return feature_attribution(
+        grad.detach().cpu().numpy().astype(np.float64),
+        flat["mask"].detach().cpu().numpy().astype(bool),
+    )
