@@ -45,7 +45,7 @@ def seeded(store):  # type: ignore[no-untyped-def]
     store.append(
         "analyst_weights",
         [{
-            "entity_id": "risk", "valid_from": NOW, "observed_at": NOW,
+            "entity_id": "fundamental", "valid_from": NOW, "observed_at": NOW,
             "source": "test", "market": "KR", "ic": 0.077, "weight": 1.0,
         }],
         ingest_run_id="w-seed",
@@ -54,7 +54,7 @@ def seeded(store):  # type: ignore[no-untyped-def]
         "signals",
         [{
             "entity_id": entity, "valid_from": NOW, "observed_at": NOW,
-            "source": "test", "analyst": "risk", "analyst_version": "risk-v0.1.0",
+            "source": "test", "analyst": "fundamental", "analyst_version": "fundamental-v0.1.0",
             "score": score, "confidence": 1.0, "horizon_days": 5,
             "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,
         } for entity, score in zip(entities, [0.9, 0.5, 0.1], strict=True)],
@@ -67,7 +67,7 @@ def test_후보가_점수순으로_나온다(seeded) -> None:
     result = pipeline.run(seeded, as_of=NOW, market="KR", equity=100_000_000.0)
 
     assert [item.entity_id for item in result.candidates][:2] == ["KR:000100", "KR:000200"]
-    assert result.weights == {"risk": 1.0}
+    assert result.weights == {"fundamental": 1.0}
 
 
 def test_측정_결과가_없으면_후보도_없다(store) -> None:
@@ -184,7 +184,7 @@ def _seed_entities(store, entities: list[str], *, tag: str) -> None:
     for offset, entity in enumerate(entities):
         signal_rows.append({
             "entity_id": entity, "valid_from": NOW, "observed_at": NOW,
-            "source": "test", "analyst": "risk", "analyst_version": "risk-v0.1.0",
+            "source": "test", "analyst": "fundamental", "analyst_version": "fundamental-v0.1.0",
             # 기존 3종목(0.9~0.1)보다 낮게 둬 순위를 방해하지 않는다.
             "score": 0.05 - offset * 0.001, "confidence": 1.0, "horizon_days": 5,
             "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,

@@ -122,6 +122,21 @@ execution:
 
 selector:
   n_candidates: 24
+  # **위험 하한 — risk 의 자리다** (태스크 #32). risk 는 알파 합성에서 빠지고
+  # (selector/constraints.py) 대신 그날 점수가 매겨진 종목 중 위험 하위
+  # 이 비율을 잘라낸다. 0 이면 제약을 끈다.
+  #
+  # 왜 알파에서 뺐나: `low_volatility .45 + low_beta .20` 이 급등 대형주를
+  # 65% 의 축에서 벌준다. 2026-01~08 실측으로 펀드 +16.17% / 코스피 +58.10%,
+  # 알파 -41.93%p 였고 주식비중은 81.3% 였다 — 현금을 쥐어서가 아니다.
+  # risk 를 빼면 삼전 676→169위, 하이닉스 1088→533위. 절반으로 줄이면
+  # 933/1356 으로 어중간해서, 문제가 세기가 아니라 자리라는 것이 확인됐다.
+  #
+  # 0.20 인 이유: 거래대금 하한(universe.min_turnover_20d_kr)이 이미 유동성
+  # 축을 거르므로 여기서 노리는 것은 변동성·베타 꼬리다. 더 키우면 제약이
+  # 다시 알파처럼 굴기 시작한다 — 자르는 비율이 커질수록 "안 위험한 것"
+  # 안에서의 줄세우기에 가까워진다.
+  risk_floor_percentile: 0.20
   corr_threshold: 0.7
   corr_penalty: 0.3
   sector_cap: 0.35
@@ -167,6 +182,22 @@ allocator:
   n_max_candidates: 30
   gamma: 0.997
   gae_lambda: 0.95
+  # RL 환경(allocator/env.py) 전용. 학습에서만 읽는다.
+  env:
+    # 에피소드 시작 자본. **실계좌 잔고와 무관하다** — 학습은 같은 구간을
+    # 수천 번 되풀이하므로 자본이 그때그때 다르면 최소 주문금액·라운딩이
+    # 만드는 액션 반영률의 상한도 같이 흔들려, 성적 차이가 정책 때문인지
+    # 자본 때문인지 구분할 수 없다.
+    initial_capital: 100000000.0
+    # 진입 지연 액션의 상한(거래일). 선택지는 0~이 값이라 Categorical(4) 가
+    # 여기서 나온다 (rl-training.md §1). 4 를 코드에 박으면 상한을 바꿀 때
+    # 액션 공간과 설정이 조용히 어긋난다.
+    max_entry_delay_days: 3
+    # 한미 정책금리차 피처가 읽는 macro_releases 의 entity_id.
+    # benchmark.kr_index 와 같은 종류의 값이다 — 창고에 실제로 있는 이름을
+    # 코드가 짐작하지 않게 설정으로 든다.
+    kr_policy_rate_series: "KR:BASE_RATE"
+    us_policy_rate_series: "US:FED_FUNDS"
 
 fx:
   rebalance_deadband: 0.10   # 10%p 넘을 때만 환전
@@ -204,6 +235,18 @@ analyst:
   retrain_ic_floor: 0.01     # 이하로 떨어지면 재학습
   block_ratio_cap: 0.30      # 뉴스·SNS 하루 거부 상한
   verdict_ttl_days: 5
+
+thirteen_f:
+  # 13F 를 종목 축으로 읽을 때(store/holdings.py) 그 분기를 쓸지 판단하는
+  # 하한. CUSIP→티커 매핑은 **스냅샷이라 낡는다** — 새 분기에 편입된 종목의
+  # CUSIP 은 tools/map_cusip_tickers.py 를 다시 돌리기 전까지 매핑이 없고,
+  # 그러면 그 분기가 조용히 반쪽만 들어온다. 행이 0 이 되면 알아채지만
+  # **그럴듯하게 줄어들면 아무도 못 알아챈다.**
+  #
+  # 종목 수가 아니라 **금액 비중**으로 재는 이유: 13F 는 꼬리에 아주 작은
+  # 보유가 길게 붙어 있어서(RenTech 한 분기 3,200종목) 종목 수로 재면 큰
+  # 것 하나가 빠져도 티가 안 난다.
+  min_mapped_value: 0.8
 
 llm:
   monthly_budget_usd: 50

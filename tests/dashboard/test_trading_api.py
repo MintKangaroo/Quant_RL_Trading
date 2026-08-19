@@ -73,14 +73,14 @@ def desk(store):  # type: ignore[no-untyped-def]
 
     store.append(
         "analyst_weights",
-        [_row("risk", YESTERDAY, market="KR", ic=0.077, weight=1.0)],
+        [_row("fundamental", YESTERDAY, market="KR", ic=0.077, weight=1.0)],
         ingest_run_id="weights",
     )
     store.append(
         "signals",
         [
             _row(
-                entity, NOW, analyst="risk", analyst_version="risk-v0.1.0",
+                entity, NOW, analyst="fundamental", analyst_version="fundamental-v0.1.0",
                 score=score, confidence=1.0, horizon_days=5, features_hash="x",
                 evidence_json="[]", latency_ms=1.0,
             )
@@ -225,7 +225,7 @@ def test_rl_이_아닌_것을_rl_처럼_그리지_않는다(client) -> None:
     assert decision["rl_active"] is False
     assert "M4" in decision["engine_note"]
     assert decision["entity_id"] == ENTITY  # 합성 점수 최상위
-    assert [item["analyst"] for item in decision["contributions"]] == ["risk"]
+    assert [item["analyst"] for item in decision["contributions"]] == ["fundamental"]
     # 목표와 실현이 벌어진 사실이 화면까지 온다 (불변식 7).
     assert decision["target_weight"] == pytest.approx(0.15)
     assert decision["realized_weight"] == pytest.approx(0.0102)

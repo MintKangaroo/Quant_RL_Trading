@@ -62,6 +62,13 @@ class FilterResult:
         return len(self.kept)
 
 
+#: 1주 가격이 자본의 상한을 넘어 탈락한 이유. **상수로 두는 이유가 있다** —
+#: RL 피처 캐시(`allocator/cache.py`)가 "이 세션의 캐시가 자본과 무관한가" 를
+#: 이 이유의 개수로 판단한다. 문자열을 두 곳에 적으면 한쪽만 고쳐지고, 그러면
+#: 캐시가 조용히 다른 후보 목록을 내준다.
+PRICE_CAP_REASON = "1주 가격이 자본의 상한 초과"
+
+
 def tradable_universe(
     store: Store, *, as_of: datetime, market: str, params: FilterParams, equity: float
 ) -> FilterResult:
@@ -150,7 +157,7 @@ def tradable_universe(
             dropped[entity] = "종가 없음"
             continue
         if equity > 0 and price > equity * params.max_price_ratio:
-            dropped[entity] = "1주 가격이 자본의 상한 초과"
+            dropped[entity] = PRICE_CAP_REASON
             continue
         kept.append(entity)
 

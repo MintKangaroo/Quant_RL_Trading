@@ -85,8 +85,8 @@ def warehouse(store):  # type: ignore[no-untyped-def]
         [
             {
                 "entity_id": entity, "valid_from": _moment(day),
-                "observed_at": _moment(day), "source": "test", "analyst": "risk",
-                "analyst_version": "risk-v0.1.0",
+                "observed_at": _moment(day), "source": "test", "analyst": "fundamental",
+                "analyst_version": "fundamental-v0.1.0",
                 # 오르는 종목에 높은 점수 — IC 가 양수로 나와야 confidence 가 선다.
                 "score": 0.2 + 0.3 * offset, "confidence": 1.0, "horizon_days": 5,
                 "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,
@@ -103,7 +103,7 @@ def warehouse(store):  # type: ignore[no-untyped-def]
     store.append(
         "analyst_weights",
         [{
-            "entity_id": "risk", "valid_from": measured, "observed_at": measured,
+            "entity_id": "fundamental", "valid_from": measured, "observed_at": measured,
             "source": "test", "market": "KR", "ic": 0.077, "weight": 1.0,
         }],
         ingest_run_id="w-seed",

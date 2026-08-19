@@ -67,7 +67,7 @@ def fund(store):  # type: ignore[no-untyped-def]
     store.append(
         "analyst_weights",
         [{
-            "entity_id": "risk", "valid_from": NOW, "observed_at": NOW,
+            "entity_id": "fundamental", "valid_from": NOW, "observed_at": NOW,
             "source": "test", "market": "KR", "ic": 0.077, "weight": 1.0,
         }],
         ingest_run_id="w-seed",
@@ -76,7 +76,7 @@ def fund(store):  # type: ignore[no-untyped-def]
         "signals",
         [{
             "entity_id": entity, "valid_from": NOW, "observed_at": NOW,
-            "source": "test", "analyst": "risk", "analyst_version": "risk-v0.1.0",
+            "source": "test", "analyst": "fundamental", "analyst_version": "fundamental-v0.1.0",
             "score": score, "confidence": 1.0, "horizon_days": 5,
             "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,
         } for entity, score in zip(ENTITIES, [0.9, 0.5, 0.2], strict=True)],

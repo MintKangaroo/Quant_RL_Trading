@@ -270,8 +270,8 @@ def warehouse(store):  # type: ignore[no-untyped-def]
         [
             {
                 "entity_id": entity, "valid_from": _moment(day),
-                "observed_at": _moment(day), "source": "test", "analyst": "risk",
-                "analyst_version": "risk-v0.1.0",
+                "observed_at": _moment(day), "source": "test", "analyst": "fundamental",
+                "analyst_version": "fundamental-v0.1.0",
                 "score": 0.2 + 0.3 * offset, "confidence": 1.0, "horizon_days": 5,
                 "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,
             }

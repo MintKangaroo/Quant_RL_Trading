@@ -4,6 +4,7 @@
 M3 의 룰 베이스라인이 곧 이것이다.
 
     combine.py     Σ(wᵢ·scoreᵢ·confᵢ) / Σ(wᵢ·confᵢ)
+    constraints.py 알파가 아닌 Analyst — 점수를 안 매기고 꼬리를 자른다
     filters.py     살 수 있는 종목만 남긴다
     candidates.py  6단계 선정 파이프라인
     weights.py     IC 측정 결과에서 온 Analyst 가중치
@@ -23,6 +24,13 @@ from quant_rl_trading.selector.candidates import (
     select,
 )
 from quant_rl_trading.selector.combine import Contribution, combined_scores, contributions
+from quant_rl_trading.selector.constraints import (
+    CONSTRAINT_ANALYSTS,
+    ConstraintParams,
+    alpha_weights,
+    apply_risk_floor,
+    constraint_scores,
+)
 from quant_rl_trading.selector.evolution import (
     EvolutionResult,
     FitnessResult,
@@ -51,10 +59,12 @@ from quant_rl_trading.selector.filters import (
     distressed,
     tradable_universe,
 )
-from quant_rl_trading.selector.weights import analyst_weights
+from quant_rl_trading.selector.weights import analyst_weights, measured_weights
 
 __all__ = [
+    "CONSTRAINT_ANALYSTS",
     "Candidate",
+    "ConstraintParams",
     "Contribution",
     "EvolutionResult",
     "FilterParams",
@@ -67,9 +77,12 @@ __all__ = [
     "SelectionParams",
     "SelectionTrace",
     "StabilityReport",
+    "alpha_weights",
     "analyst_weights",
+    "apply_risk_floor",
     "backtest_fitness",
     "combined_scores",
+    "constraint_scores",
     "contributions",
     "correlation_matrix",
     "distressed",
@@ -79,6 +92,7 @@ __all__ = [
     "holdout_report",
     "initial_population",
     "mean_pairwise_distance",
+    "measured_weights",
     "next_generation",
     "rejected_entities",
     "resample_folds",

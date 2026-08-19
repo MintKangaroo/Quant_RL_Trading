@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from quant_rl_trading.selector import candidates as candidates_module
+from quant_rl_trading.selector import constraints as constraints_module
 from quant_rl_trading.selector import filters as filters_module
 from quant_rl_trading.selector.candidates import Candidate, SelectionParams, SelectionTrace
 from quant_rl_trading.selector.combine import combined_scores
@@ -100,6 +101,24 @@ def run(
             # 이었다(롤링 IC 이력이 그날까지 관측된 적이 없다) — 문구가
             # 가리키지 않아 원인을 찾는 데 시간이 들었다.
             trace.note(_silent_score_reason(signals, weights))
+        return Selection(as_of, market, (), weights, trace)
+
+    # 2-b. 위험 하한 — **제약이지 점수가 아니다** (태스크 #32).
+    #      `risk` 는 위 합성에서 이미 빠져 있다(constraints.CONSTRAINT_ANALYSTS).
+    #      여기서 다시 등장하는 이유는 **자리를 옮긴 것이지 버린 것이 아니기**
+    #      때문이다 — 알파로 쓰면 저변동이 고수익 신호로 둔갑하지만, 꼬리를
+    #      자르는 데는 그대로 쓸모가 있다.
+    #
+    #      거부(3번)보다 먼저다. 거부는 LLM 판정이라 비싸고 상한이 걸려 있는데,
+    #      여기서 잘릴 종목까지 판정 정원을 쓸 이유가 없다.
+    scores = constraints_module.apply_risk_floor(
+        scores,
+        signals=signals,
+        params=constraints_module.ConstraintParams.from_store(store, as_of=as_of),
+        trace=trace,
+    )
+    trace.stage("risk_floor", len(scores))
+    if scores.empty:
         return Selection(as_of, market, (), weights, trace)
 
     # 3. News·SNS 거부 — 상관보다 **먼저**. 상관 계산은 비싸고, 거부될 종목까지
