@@ -227,6 +227,7 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     )
     win_rate = None
     mdd = None
+    peak_nav = None
     if not curve.empty:
         ordered = curve.sort_values(["valid_from", "observed_at"])
         returns = ordered["twr_return"].astype(float)
@@ -236,8 +237,25 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         traded = returns[returns != 0.0]
         win_rate = float((traded > 0).mean()) if len(traded) else None
         mdd = float(ordered["drawdown"].astype(float).min())
+        peak_nav = float(ordered["nav"].astype(float).max())
 
     live = _live_valuation(context, valuation)
+
+    # **장중 낙폭 — 화면용이다. 킬스위치는 이걸 안 본다.**
+    #
+    # 사용자가 MDD 를 장중으로 보고 싶다고 했다(2026-08-19). 화면에서는 맞는
+    # 요구다 — 지금 얼마나 빠져 있는지가 궁금한 것이 자연스럽다.
+    #
+    # **그런데 킬스위치는 이 값으로 판정하면 안 된다.** 하루 안의 출렁임이
+    # 낙폭으로 잡히면 `killswitch.drawdown_trigger`(30%)가 멀쩡한 날 매수를
+    # 막는다. 그리고 M3 완료 기준(OOS MDD ≤20%)은 백테스트 종가 기준이라
+    # 장중 값과 섞으면 비교 자체가 깨진다.
+    #
+    # 그래서 **별도 필드**로 내려보내고, 판정 경로(executor/guards)는 손대지
+    # 않는다. 화면이 어느 쪽인지 배지로 말한다.
+    live_drawdown = None
+    if live["nav"] is not None and peak_nav and peak_nav > 0:
+        live_drawdown = live["nav"] / peak_nav - 1.0
 
     return {
         "nav": nav,
@@ -258,6 +276,13 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 한 번만 정한다.
         "live_today_pnl": (
             None if live["nav"] is None else live["nav"] - nav
+        ),
+        # 장중 낙폭. **킬스위치는 이 값을 안 본다**(위 주석 참고).
+        "live_drawdown": live_drawdown,
+        # 장중을 포함한 최대낙폭 — 둘 중 더 깊은 쪽. 화면 표시용이다.
+        "live_mdd": (
+            mdd if live_drawdown is None or mdd is None
+            else min(mdd, live_drawdown)
         ),
         "live_equity": live["equity"],
         "live_covered": live["covered"],

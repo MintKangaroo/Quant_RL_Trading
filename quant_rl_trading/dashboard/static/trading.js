@@ -93,34 +93,17 @@ const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up
  * 있을 때만 — 장외에는 마지막 체결가가 곧 종가라 0 이 찍히는데, 그 0 은
  * "오늘 안 움직였다" 가 아니라 "아직 안 열렸다" 다.
  */
-function todayPnlNote(k, signed) {
+function todayPnlNote(k, signed, liveOn) {
   // **`signed` 를 인자로 받는다.** 그 포매터는 renderKpis 안의 지역 상수라
   // 최상위 함수에서는 안 보인다 — 그냥 부르면 런타임에 ReferenceError 로
   // 죽고, 그러면 이 아래 KPI 가 통째로 안 그려진다(실제로 그랬다).
   // 여기서 부호 규칙을 다시 만들지 않는 이유는 그것이 두 곳에 생기면
   // 언젠가 한쪽만 고쳐지기 때문이다.
   const base = `지수 ${dec(k.index_value, 2)}`;
-  if (k.live_session_open === false) return base;
-  if (k.live_today_pnl === null || k.live_today_pnl === undefined) return base;
-  return `${base} · 장중 ${signed(k.live_today_pnl)}`;
-}
-
-/* 장중 총자산 카드의 아랫줄. **0.00% 는 두 가지 뜻이라 반드시 갈라 적는다.**
- *
- * 장외에는 t8407 이 마지막 체결가를 주는데 그것이 곧 전일 종가다. 그래서
- * 변화율이 0.00% 로 나오는데, 그건 "장이 열렸는데 안 움직였다" 가 아니라
- * "아직 안 열렸다" 다. 안 가르면 정상 동작이 고장으로 읽힌다 — 실제로
- * 2026-08-19 08:51(개장 9분 전)에 "실시간이 왜 안 움직이냐" 는 물음이 나왔다.
- */
-function liveNavNote(k) {
-  if (k.live_session_open === false) {
-    return "장외 — 마지막 체결가 기준 · 참고값";
-  }
-  // **마지막으로 읽어 온 시각을 적는다.** 안 적으면 값이 안 바뀌었을 때
-  // "갱신이 멈췄다" 와 "시세가 안 움직였다" 를 구분할 수 없다 — 사람은
-  // 앞쪽으로 읽고 고장이라고 판단한다(2026-08-19 실제로 그랬다).
-  const stamp = new Date().toLocaleTimeString("ko-KR", { hour12: false });
-  return `종가 대비 ${pct(k.live_change)} · 참고값 · ${stamp} 기준`;
+  // 큰 숫자가 이미 장중이면 여기서 또 "장중" 이라고 적지 않는다 — 대신
+  // 종가 확정값을 참고로 남긴다. 둘 다 볼 수 있어야 어제와 오늘이 갈린다.
+  if (liveOn) return `${base} · 종가 ${signed(k.today_pnl)}`;
+  return base;
 }
 
 /** 총자산 카드의 아랫줄. **장중 값이 있으면 그것이 몇 종목을 덮는지 적는다.**
@@ -128,10 +111,22 @@ function liveNavNote(k) {
  * 절반만 실시간인 수치를 "지금 총자산" 이라고 말하면 안 된다 — 장외거나
  * 일부 종목만 응답이 오는 경우가 실제로 있고, 그때 숫자는 종가와 장중이
  * 섞인 값이다. 덮은 종목 수를 같이 보여주면 그 사실이 화면에 남는다. */
-function navFoot(k) {
+function navFoot(k, liveOn) {
   const base = `원금 ${num(Math.round(k.principal || 0))}`;
   if (k.live_nav === null || k.live_nav === undefined) return base;
-  return `${base} · 장중 ${k.live_covered}종목 반영`;
+  if (!liveOn) return `${base} · 장외 — 마지막 체결가`;
+  // **마지막으로 읽어 온 시각을 적는다.** 안 적으면 값이 안 바뀌었을 때
+  // "갱신이 멈췄다" 와 "시세가 안 움직였다" 를 구분할 수 없다 — 사람은
+  // 앞쪽으로 읽고 고장이라고 판단한다(2026-08-19 실제로 그랬다).
+  //
+  // 덮은 종목 수도 같이 적는다. 절반만 실시간인 수치를 "지금 총자산" 이라고
+  // 말하면 안 된다 — 일부 종목만 응답이 오는 경우가 실제로 있다.
+  return `${base} · ${k.live_covered}종목 · ${stampNow()} 기준`;
+}
+
+/** 지금 시각 hh:mm:ss. 갱신이 도는지를 사람이 눈으로 확인하는 유일한 수단이다. */
+function stampNow() {
+  return new Date().toLocaleTimeString("ko-KR", { hour12: false });
 }
 
 function renderKpis(body) {
@@ -146,26 +141,47 @@ function renderKpis(body) {
   const ddLine = e && e.drawdown.length > 1 ? e.drawdown : null;
 
   const signed = (v) => (v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
+  // **장중이면 큰 숫자를 장중 값으로 보여준다** (사용자 결정 2026-08-19).
+  //
+  // 예전에는 종가 카드와 장중 카드를 나란히 뒀는데, 화면에 같은 것이 두 개
+  // 있으면 어느 쪽을 봐야 하는지가 매번 질문이 된다. 화면은 **지금**을 보는
+  // 곳이니 지금 값을 크게 둔다.
+  //
+  // **회계 지표는 여전히 종가다** — 아래 MDD·총수익률·승률. 장중 값을 섞으면
+  // 하루 안의 출렁임이 낙폭으로 잡혀 킬스위치(30%)가 오발동하고, 벤치마크와
+  // 기준 시각이 어긋나 그 차이가 통째로 가짜 초과수익이 된다. 그래서 그
+  // 카드들에는 **[종가] 배지**를 붙여 어느 시각 기준인지 화면이 말한다.
+  const liveOn = k.live_session_open !== false
+    && k.live_nav !== null && k.live_nav !== undefined;
+  const navValue = liveOn ? k.live_nav : k.nav;
+  const todayPnl = liveOn && k.live_today_pnl !== null && k.live_today_pnl !== undefined
+    ? k.live_today_pnl : k.today_pnl;
+  const todayReturn = liveOn && k.live_change !== null && k.live_change !== undefined
+    ? k.live_change : k.daily_return;
+  const closeBadge = "종가 기준";
+
   const cards = [
-    kpi("총자산", num(Math.round(k.nav)), navFoot(k), false,
-        { unit: "KRW", spark: navLine }),
-    ...(k.live_nav === null || k.live_nav === undefined
-      ? []
-      : [kpi("장중 총자산", num(Math.round(k.live_nav)),
-             liveNavNote(k), false,
-             { unit: "KRW", tone: k.live_session_open === false ? "" : tone(k.live_change) })]),
+    kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn), false,
+        { unit: "KRW", spark: navLine, tone: liveOn ? tone(k.live_change) : "" }),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
-    kpi("오늘 수익금", signed(k.today_pnl), todayPnlNote(k, signed), false,
-        { unit: "KRW", tone: tone(k.today_pnl) }),
-    kpi("오늘 수익률", pct(k.daily_return), "TWR 기준", false, { tone: tone(k.daily_return) }),
-    kpi("총 수익금", signed(k.total_pnl), "원금 대비", false,
+    kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, liveOn), false,
+        { unit: "KRW", tone: tone(todayPnl) }),
+    kpi("오늘 수익률", pct(todayReturn),
+        liveOn ? `${stampNow()} 기준` : "TWR 기준", false, { tone: tone(todayReturn) }),
+    kpi("총 수익금", signed(k.total_pnl), `원금 대비 · ${closeBadge}`, false,
         { unit: "KRW", tone: tone(k.total_pnl) }),
-    kpi("총 수익률", pct(k.cumulative_return), "TWR 누적", false,
+    kpi("총 수익률", pct(k.cumulative_return), `TWR 누적 · ${closeBadge}`, false,
         { tone: tone(k.cumulative_return), spark: indexLine }),
     kpi("승률", k.win_rate === null ? "—" : pct(k.win_rate, 0),
         // 무엇을 세는지 적는다. 매도 기준 승률과 다른 숫자다.
-        k.win_rate === null ? "표본 없음" : `일간 ${k.win_samples}일 중`),
-    kpi("MDD", pct(k.mdd), `현재 ${pct(k.drawdown)} · ${risk.band_message}`,
+        k.win_rate === null ? "표본 없음" : `일간 ${k.win_samples}일 중 · ${closeBadge}`),
+    // MDD 는 **장중을 포함해 보여주되**(사용자 결정 2026-08-19), 킬스위치는
+    // 여전히 종가로 판정한다. 그 사실을 부제가 말한다 — 안 적으면 화면의
+    // 빨간 숫자를 보고 "왜 킬스위치가 안 걸렸지" 를 묻게 된다.
+    kpi("MDD", pct(liveOn && k.live_mdd !== null ? k.live_mdd : k.mdd),
+        liveOn && k.live_drawdown !== null && k.live_drawdown !== undefined
+          ? `현재 ${pct(k.live_drawdown)} · ${risk.band_message} · 킬스위치는 ${closeBadge}`
+          : `현재 ${pct(k.drawdown)} · ${risk.band_message} · ${closeBadge}`,
         risk.band !== "free", { spark: ddLine, tone: "down" }),
     kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
     kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
@@ -449,6 +465,15 @@ function renderPositions(body) {
  * 읽힌다. 통화가 시장마다 다르므로(원·달러) 기호를 값에 붙여 보여준다. */
 function pnlCells(row) {
   if (row.realized_pnl === null || row.realized_pnl === undefined) {
+    // **왜 비었는지를 말한다.** 빈칸 하나로 세 가지가 같아 보인다:
+    //   매수라 손익이 없다 · 매도인데 아직 체결이 안 됐다 · 계산이 실패했다
+    // 가운데가 특히 헷갈린다 — shadow 는 D+1 체결이라 오늘 낸 매도가 내일
+    // 세션에서 채워진다. 실측 2026-08-19: 매도 주문 14건에 매도 체결 0건이라
+    // 화면이 통째로 빈칸이었고, "매도했는데 왜 수익률이 없냐" 는 물음이 나왔다.
+    if (String(row.side).toLowerCase() === "sell") {
+      const why = row.fill_quantity ? "손익 계산 불가" : "체결 대기";
+      return `<td class="r sub" colspan="2" title="shadow 는 D+1 체결이다 — 다음 세션에서 채워진다">${why}</td>`;
+    }
     return `<td class="r mono">—</td><td class="r mono">—</td>`;
   }
   const won = row.currency !== "USD";
