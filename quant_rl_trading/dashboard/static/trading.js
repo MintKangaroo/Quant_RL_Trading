@@ -225,9 +225,12 @@ function renderWatchlist(body) {
       `<p class="empty">오늘 기록된 신호가 없다. 0 으로 채우지 않는다.</p>`;
     return;
   }
+  // **열마다 class 를 단다.** 좁은 화면에서 PnL 열을 접고 그 값을 포지션 칸
+  // 아래로 내리는데(trading.css), 그러려면 어느 열인지 CSS 가 알아야 한다.
+  // 6열은 390px 화면에 안 들어간다 — 넣으면 오른쪽이 잘려 `-6,81` 처럼 보인다.
   const head = `<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
                 <th class="mid">AI 시그널</th><th class="mid">포지션</th>
-                <th class="r">PnL</th></tr></thead>`;
+                <th class="r c-pnl">PnL</th></tr></thead>`;
   const cells = rows
     .map(
       (row) => `<tr class="click${row.entity_id === selected ? " on" : ""}" data-entity="${row.entity_id}">
@@ -237,8 +240,12 @@ function renderWatchlist(body) {
         <td class="r mono ${signClass(row.change)}">${arrow(row.change)}${pct(row.change)}</td>
         <td class="mid"><span class="sig ${row.signal.toLowerCase()}">${row.signal}</span></td>
         <td class="mid mono ${row.position ? "up" : ""}">${row.position ? "LONG" : "FLAT"}
-            <span class="code">${row.position ? num(row.position) : ""}</span></td>
-        <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}
+            <span class="code">${row.position ? num(row.position) : ""}</span>
+            <span class="code pnl-inline ${signClass(row.pnl)}">${
+              row.pnl === null ? "" :
+                `${num(Math.round(row.pnl))}${row.pnl_pct === null ? "" : " " + pct(row.pnl_pct)}`
+            }</span></td>
+        <td class="r mono c-pnl ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}
             <span class="code">${row.pnl_pct === null ? "" : pct(row.pnl_pct)}</span></td>
       </tr>`
     )

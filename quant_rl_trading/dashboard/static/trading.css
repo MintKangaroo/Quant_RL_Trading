@@ -42,3 +42,21 @@
      해지면 260px 높이가 화면의 반을 먹으므로 더 줄인다 — 지우지는 않는다. */
   .positions-pie { height: 180px; min-width: 0; }
 }
+
+/* -- WATCHLIST: 좁은 화면 -------------------------------------------------- */
+
+/* 데스크톱에서는 PnL 이 자기 열에 있고, 포지션 칸의 인라인 사본은 숨는다.
+   두 벌을 그리는 이유는 **한 벌을 옮기면 표가 흔들리기** 때문이다 — 열을
+   지웠다 살렸다 하면 나머지 열 폭이 매번 다시 계산된다. */
+.pnl-inline { display: none; }
+
+@media (max-width: 768px) {
+  /* 6열은 390px 에 안 들어간다. PnL 열을 접고 그 값을 포지션 칸 아래로
+     내린다 — 실측 2026-08-19(아이폰): `-6,81` 처럼 잘려 보였다.
+     포지션이 FLAT 인 행은 어차피 PnL 이 없어 영향이 없다. */
+  #watchlist th.c-pnl, #watchlist td.c-pnl { display: none; }
+  #watchlist .pnl-inline { display: block; }
+  #watchlist table { table-layout: fixed; width: 100%; }
+  #watchlist td, #watchlist th { white-space: nowrap; }
+  #watchlist .name { overflow: hidden; text-overflow: ellipsis; }
+}
