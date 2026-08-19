@@ -474,6 +474,15 @@ function liveBadge(panel) {
   </span>`;
 }
 
+/* 순위표 열 폭. **colgroup 으로 고정한다** — 안 주면 종목명이 긴 행이 숫자
+ * 칸을 밀어내고, 실시간 줄까지 들어간 가격 칸에서 숫자가 잘린다(아이폰
+ * 실측 2026-08-19: `1,662,00` 처럼 보였다). 좁은 화면에서 시총 열을 접는
+ * 것도 이 class 를 잡고 한다(market.css).
+ */
+function rankCols() {
+  return `<colgroup><col class="name"><col class="metric"><col class="price"><col class="cap"></colgroup>`;
+}
+
 function renderRankings(body, code, suffix) {
   const panel = body.data.markets[code];
   const data = panel.rankings;
@@ -500,7 +509,7 @@ function renderRankings(body, code, suffix) {
     const head = `<tr class="section"><td colspan="4">${esc(table.label)}
       <span class="sub">${table.session ? esc(table.session) : "세션 없음"}</span></td></tr>
       <tr class="sub-head"><td>종목</td><td class="r">${rankUnit(table)}</td>
-      <td class="r">가격</td><td class="r">시총</td></tr>`;
+      <td class="r">가격</td><td class="r cap">시총</td></tr>`;
     if (!table.rows.length) {
       return `${head}<tr><td colspan="4" class="empty">${
         table.key === "market_cap"
@@ -517,7 +526,7 @@ function renderRankings(body, code, suffix) {
           <td class="r mono">${num(row.close)}
               <span class="sub ${signClass(row.change)}">${signed(row.change)}</span>
               ${liveCell(row)}</td>
-          <td class="r mono">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
+          <td class="r mono cap">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
         </tr>`
       )
       .join("");
@@ -526,7 +535,7 @@ function renderRankings(body, code, suffix) {
 
   target.innerHTML =
     `<div class="rank-grid">${data.tables
-      .map((table) => `<table class="rank-table"><tbody>${block(table)}</tbody></table>`)
+      .map((table) => `<table class="rank-table">${rankCols()}<tbody>${block(table)}</tbody></table>`)
       .join("")}</div>` + floorNote(data);
 }
 
