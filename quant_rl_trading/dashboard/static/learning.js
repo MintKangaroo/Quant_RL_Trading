@@ -106,23 +106,69 @@ async function renderIcHistory() {
   }
 
   const stamps = [...new Set(data.series.flatMap((s) => s.points.map((p) => p.at)))].sort();
+
+  // **애널리스트마다 다른 색.** 예전에는 색 넷을 `% 4` 로 돌려써서 여섯 중
+  // 둘씩 같은 색이었다(chart↔regime 빨강, event↔risk 초록) — 범례를 짚어
+  // 가며 봐야 어느 선인지 알 수 있었다. 색은 구분하라고 있는 것이다.
+  //
+  // 손익 색(up/down)은 **쓰지 않는다.** 이 차트에서 초록·빨강은 "올랐다/
+  // 내렸다" 가 아니라 그냥 계열 구분인데, 같은 화면의 다른 패널에서는 손익을
+  // 뜻해서 한 색이 두 가지를 말하게 된다.
+  const SERIES_COLORS = [
+    "#4C9AFF", // 파랑
+    "#F5A623", // 주황
+    "#9B7BF7", // 보라
+    "#22C7A9", // 청록
+    "#E06C9F", // 분홍
+    "#8FA3B8", // 회청
+  ];
+  const colorOf = (index) => SERIES_COLORS[index % SERIES_COLORS.length];
+
+  // 통과·관찰을 이름에 붙인다. 점선(합격선) 위아래를 눈으로 재지 않아도
+  // 지금 무엇이 매매에 쓰이는지 범례만 보면 안다.
+  const label = (series) => {
+    const last = series.points.length
+      ? series.points[series.points.length - 1].ic : null;
+    if (last === null || last === undefined) return series.analyst;
+    return `${series.analyst} ${last >= data.threshold ? "✓" : "·"}`;
+  };
+
   const line = (series, index) => ({
-    name: series.analyst,
+    name: label(series),
     type: "line",
     // 점이 하나면 선이 안 보인다. 심볼을 항상 그린다.
     showSymbol: true,
-    symbolSize: 7,
+    symbolSize: 6,
+    // 측정이 드문드문이라 점 사이가 비는 날이 많다. 이어 그리지 않으면
+    // 선이 조각나 어느 계열인지 못 쫓아간다.
+    connectNulls: true,
+    // **마지막 값을 선 끝에 적는다.** 범례에서 색을 찾아 되짚는 수고가 없어진다.
+    endLabel: {
+      show: true,
+      formatter: (item) => (item.value === null ? "" : item.value.toFixed(3)),
+      color: colorOf(index),
+      fontFamily: "IBM Plex Mono",
+      fontSize: 10,
+    },
     data: stamps.map((at) => {
       const hit = series.points.find((p) => p.at === at);
       return hit ? hit.ic : null;
     }),
-    lineStyle: { width: 1.6, color: [COLOR.down, COLOR.up, COLOR.text, COLOR.warn][index % 4] },
-    itemStyle: { color: [COLOR.down, COLOR.up, COLOR.text, COLOR.warn][index % 4] },
+    lineStyle: { width: 1.8, color: colorOf(index) },
+    itemStyle: { color: colorOf(index) },
   });
 
   instance.setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: data.series.map((s) => s.analyst) },
+    // 범례를 **아래로** 내린다. 위에 두면 계열 여섯이 두 줄을 먹어 차트가
+    // 그만큼 납작해진다(모바일에서 특히).
+    legend: {
+      ...BASE.legend,
+      data: data.series.map(label),
+      top: "auto", bottom: 0, itemGap: 10, itemWidth: 14,
+      textStyle: { ...(BASE.legend && BASE.legend.textStyle), fontSize: 10.5 },
+    },
+    grid: { left: 44, right: 52, top: 14, bottom: 52 },
     xAxis: { type: "category", data: stamps.map((at) => at.slice(0, 16).replace("T", " ")), ...AXIS },
     yAxis: { type: "value", scale: true, ...AXIS },
     series: [
@@ -130,8 +176,16 @@ async function renderIcHistory() {
       {
         // 합격선을 배경에 깐다. store.config 에서 읽은 값이지 코드에 적은
         // 숫자가 아니다 (services/learning.py 가 매 요청 다시 읽는다).
-        name: "합격선(0.03)", type: "line", data: stamps.map(() => data.threshold),
+        name: `합격선(${data.threshold})`, type: "line",
+        data: stamps.map(() => data.threshold),
         showSymbol: false, lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
+        // **합격선 위를 옅게 칠한다.** 선 하나보다 면이 먼저 읽힌다 — 어느
+        // 계열이 "쓰이는 쪽" 에 있는지가 한눈에 들어온다.
+        markArea: {
+          silent: true,
+          itemStyle: { color: COLOR.up, opacity: 0.06 },
+          data: [[{ yAxis: data.threshold }, { yAxis: "max" }]],
+        },
       },
     ],
   }, true);
