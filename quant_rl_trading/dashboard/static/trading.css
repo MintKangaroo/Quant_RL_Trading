@@ -54,9 +54,25 @@
   /* 6열은 390px 에 안 들어간다. PnL 열을 접고 그 값을 포지션 칸 아래로
      내린다 — 실측 2026-08-19(아이폰): `-6,81` 처럼 잘려 보였다.
      포지션이 FLAT 인 행은 어차피 PnL 이 없어 영향이 없다. */
-  #watchlist th.c-pnl, #watchlist td.c-pnl { display: none; }
+  #watchlist th.c-pnl, #watchlist td.c-pnl,
+  #watchlist col.c-pnl { display: none; }
   #watchlist .pnl-inline { display: block; }
+
   #watchlist table { table-layout: fixed; width: 100%; }
-  #watchlist td, #watchlist th { white-space: nowrap; }
-  #watchlist .name { overflow: hidden; text-overflow: ellipsis; }
+  /* **폭을 준다.** fixed 만 켜고 폭을 안 주면 열이 균등 분배되어 종목명 칸이
+     좁아지고 이름이 옆 칸 숫자와 겹친다 — 그게 실제로 났다. */
+  #watchlist col.c-name { width: 34%; }
+  #watchlist col.c-price { width: 20%; }
+  #watchlist col.c-chg { width: 20%; }
+  #watchlist col.c-sig { width: 13%; }
+  #watchlist col.c-pos { width: 13%; }
+
+  /* 숫자만 안 접는다. 종목명까지 nowrap 을 걸면 칸을 넘어 흘러나온다. */
+  #watchlist td.mono, #watchlist td.r { white-space: nowrap; }
+  #watchlist .name, #watchlist .code {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 포지션 칸 아래 PnL 은 작게. 여기가 넘치면 다시 겹친다. */
+  #watchlist .pnl-inline { font-size: 10px; line-height: 1.25; white-space: nowrap; }
+  #watchlist .sig { padding: 1px 4px; font-size: 10px; }
 }

@@ -182,56 +182,134 @@ function panelMissingReason(panel, lookback) {
     이 자리가 저절로 찬다. <strong>다른 종목으로 바꿔치기하지 않는다.</strong></p>`;
 }
 
-/* 캔들. **넷이 다 있을 때만 봉이다** — 없는 시가·고가·저가를 종가로 채우면
- * 모든 봉이 십자가가 되는데, 그건 "그날 변동이 없었다" 는 다른 사실이다.
- * 못 그리면 선으로 긋고 화면이 이유를 적는다.
+/* 캔들. **그리는 일은 candles.js 가 한다** — 트레이딩 탭의 큰 차트와 같은
+ * 함수다(``compact`` 만 다르다). 두 벌로 만들면 한쪽만 고쳐진 채로 남는다:
+ * 이 저장소가 수익률 캘린더에서 이미 겪고 calendar.js 로 합친 그 문제다.
  *
- * 상승 초록 · 하락 빨강. ECharts 의 color 가 양봉, color0 이 음봉이다 —
- * 뒤집으면 이 대시보드의 다른 화면과 색이 갈린다(§10). */
+ * 넷이 다 있을 때만 봉이라는 규칙, 색, OHLC 순서, 분봉 x축 라벨 — 전부
+ * 거기 있다. 여기서 정하는 것은 "못 그릴 때 선을 무슨 색으로 긋나"(창 등락의
+ * 부호)와 툴팁에 적을 이름뿐이다. */
 function panelChart(elId, panel) {
   const tone = panel.total === null || panel.total === undefined
     ? COLOR.muted
     : panel.total > 0 ? COLOR.up : panel.total < 0 ? COLOR.down : COLOR.muted;
-  const axis = {
-    xAxis: { type: "category", data: panel.sessions, boundaryGap: panel.has_ohlc, ...AXIS },
-    // scale:true 가 필수다. 0 부터 그리면 봉이 위쪽 몇 %에 눌린다.
-    yAxis: { type: "value", scale: true, ...AXIS },
-    grid: { left: 46, right: 8, top: 8, bottom: 18 },
-  };
-  const series = panel.has_ohlc
-    ? [{
-        type: "candlestick",
-        data: panel.ohlc,
-        itemStyle: {
-          color: COLOR.up, color0: COLOR.down,
-          borderColor: COLOR.up, borderColor0: COLOR.down, borderWidth: 1,
-        },
-      }]
-    : [{
-        type: "line", data: panel.closes, showSymbol: false,
-        lineStyle: { color: tone, width: 1.6 },
-        areaStyle: { color: tone, opacity: 0.08 },
-      }];
+  chart(elId).setOption(
+    candleOption(panel, {
+      compact: true,
+      interval: panel.interval || "1D",
+      tone,
+      label: panel.label,
+    }),
+    // 봉을 갈아 끼울 때 **옛 series 를 남기지 않는다.** 일봉(캔들)에서
+    // 5분봉으로 갔다가 종가만 있는 구간으로 가면 series 종류가 바뀌는데,
+    // 합치기(merge)로 얹으면 옛 캔들이 밑에 그대로 남는다.
+    true
+  );
+}
 
-  chart(elId).setOption({
-    ...BASE, ...axis,
-    legend: { show: false },
-    tooltip: {
-      ...BASE.tooltip,
-      formatter: (rows) => {
-        if (!rows || !rows.length) return "";
-        const row = rows[0];
-        if (!panel.has_ohlc) {
-          return `${esc(row.axisValue)}<br>${esc(panel.label)} <b>${dec(row.value, 2)}</b>`;
-        }
-        // 캔들의 value 는 [index, 시가, 종가, 저가, 고가] 다.
-        const v = row.value;
-        return `${esc(row.axisValue)} <b>${esc(panel.label)}</b><br>`
-          + `시 ${dec(v[1], 2)} · 고 ${dec(v[4], 2)}<br>`
-          + `저 ${dec(v[3], 2)} · 종 ${dec(v[2], 2)}`;
-      },
-    },
-    series,
+/* -- 봉 전환 버튼 -------------------------------------------------------------
+ *
+ * 패널마다 자기 세그먼트를 갖는다. 한 줄에 여섯 패널이 서로 다른 종목이라
+ * 공용 버튼 하나로는 어느 패널을 바꾸는 것인지 말할 수 없다.
+ *
+ * **없는 구간은 끈다.** 지수·ETF 에는 분봉이 한 봉도 없다 — 분봉 수집이
+ * 보유·워치리스트·shadow 보유 종목만 받기 때문이다. 켜 두면 눌렀을 때 빈
+ * 화면이 뜨고, 그게 고장인지 수집 범위 밖인지 사용자가 구분 못 한다.
+ * 꺼진 버튼의 title 이 그 이유를 든다(candles.js 의 timeframeOffReason).
+ */
+
+/* 패널이 지금 무슨 봉을 보고 있나. **entity 로 기억한다** — 60초 폴링이 이
+ * 줄의 HTML 을 통째로 다시 만들기 때문에, 요소에 기억을 두면 새로고침마다
+ * 일봉으로 되돌아간다. */
+const panelInterval = {};
+
+function panelSeg(panel, elId) {
+  const have = new Set(panel.intervals || ["1D"]);
+  const current = panelInterval[panel.entity_id] || "1D";
+  const buttons = CANDLE_TIMEFRAMES.map((interval) => {
+    const on = have.has(interval);
+    const title = on ? `${timeframeLabel(interval)}으로 보기` : timeframeOffReason(interval);
+    return `<button type="button" data-interval="${esc(interval)}"
+      class="${interval === current ? "on" : ""}" ${on ? "" : "disabled"}
+      title="${esc(title)}">${esc(interval)}</button>`;
+  }).join("");
+  return `<div class="seg index-panel-seg" id="${elId}-seg"
+    data-entity="${esc(panel.entity_id)}" data-market="${esc(panel.market)}"
+    data-el="${esc(elId)}">${buttons}</div>`;
+}
+
+/* 패널 아래 한 줄 — 무슨 봉을 몇 개, 언제부터 언제까지 보고 있나.
+ *
+ * **미완성 주를 여기서 말한다.** 오늘이 수요일이면 이번 주 봉은 세션
+ * 세 개짜리고, 그걸 지우면 화면에서 최신이 사라진다. 지우지 않는 대신
+ * 마지막 봉이 아직 진행 중이라는 사실을 적는다 — 안 적으면 "완성된 주봉" 과
+ * 구분이 안 되고, 그 주의 종가가 확정값처럼 읽힌다. */
+function panelFoot(panel) {
+  const interval = panel.interval || "1D";
+  const bars = (panel.sessions || []).length;
+  if (!bars) {
+    return `<span class="warn-text">${esc(panel.reason || "그릴 봉이 없다")}</span>`;
+  }
+  const partial = panel.partial;
+  return `${num(bars)}봉 · ${esc(timeframeLabel(interval))} ·
+    ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
+    창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
+    ${panel.has_ohlc ? "" : ` · <span class="warn-text">종가만 — 봉을 못 그린다</span>`}
+    ${partial
+      ? ` · <span class="warn-text" title="이번 주는 아직 안 끝났다 — 지우지 않고 그대로 그린다">진행 중 · ${num(partial.sessions)}/${num(partial.expected)}세션</span>`
+      : ""}`;
+}
+
+/* 버튼을 눌렀을 때. **일봉은 이미 손에 있어도 다시 받는다** — 그래야 장중에
+ * 들어온 새 봉이 화면에 따라온다. 60초 폴링이 다시 그릴 때도 이 길로 온다. */
+async function loadPanelInterval(entityId, market, elId, interval) {
+  panelInterval[entityId] = interval;
+  const body = await fetchJson(
+    `market/chart?entity=${encodeURIComponent(entityId)}`
+    + `&market=${encodeURIComponent(market)}&interval=${encodeURIComponent(interval)}`
+  );
+  const panel = body.data;
+  // 늦게 온 응답이 그 사이 바뀐 선택을 덮지 않게 한다. 버튼을 빠르게 두 번
+  // 누르면 먼저 보낸 요청이 나중에 도착할 수 있다.
+  if ((panelInterval[entityId] || "1D") !== interval) return;
+
+  const seg = document.getElementById(`${elId}-seg`);
+  syncTimeframeSeg(seg, panel.intervals, interval);
+
+  const foot = document.getElementById(`${elId}-foot`);
+  if (foot) foot.innerHTML = panelFoot(panel);
+  const nums = document.getElementById(`${elId}-nums`);
+  if (nums) nums.innerHTML = panelNums(panel);
+
+  const target = document.getElementById(elId);
+  if (!(panel.sessions || []).length) {
+    // 빈 채로 두고 **이유를 적는다.** 지어내지 않는다.
+    if (target) target.innerHTML = `<p class="empty">${esc(panel.reason || "그릴 봉이 없다")}</p>`;
+    return;
+  }
+  if (target) target.innerHTML = "";
+  panelChart(elId, panel);
+}
+
+function bindIndexStrip() {
+  const strip = document.getElementById("index-strip");
+  // 한 번만 매단다 — 매 렌더마다 다시 매달면 클릭 하나에 요청이 여러 번 나간다.
+  // 위임으로 매다는 이유: 버튼은 폴링 때마다 새로 만들어져 사라진다.
+  if (!strip || !strip.addEventListener || strip.dataset.bound) return;
+  strip.dataset.bound = "1";
+  strip.addEventListener("click", (event) => {
+    const button = event.target && event.target.closest
+      ? event.target.closest("button[data-interval]")
+      : null;
+    if (!button || button.disabled) return;  // 꺼진 버튼 = 창고에 그 봉이 없다
+    const seg = button.closest(".index-panel-seg");
+    if (!seg) return;
+    seg.querySelectorAll("button[data-interval]").forEach((other) =>
+      other.classList.toggle("on", other === button)
+    );
+    loadPanelInterval(
+      seg.dataset.entity, seg.dataset.market, seg.dataset.el, button.dataset.interval
+    );
   });
 }
 
@@ -250,22 +328,23 @@ function marketGroupHead(code, data) {
 /* 패널 카드 하나. ``spec`` 은 값이 있든 없든 오는 명세이고, ``panel`` 은
  * 값이 있을 때만이다 — 없는 것도 자리를 지켜야 "수집이 안 된 것" 과 "애초에
  * 안 그리는 것" 이 화면에서 갈린다. */
+function panelNums(panel) {
+  return `<span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
+    <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>`;
+}
+
 function panelCard(body, spec, panel, elId, lookback) {
   const head = `<div class="index-panel-head">
     <span class="index-panel-name">${esc(spec.label)}</span>
     ${roleBadge(spec)}${kindBadge(spec)}${prBadge(body, spec)}
-    <span class="index-panel-nums">
-      <span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
-      <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
-    </span>
+    <span class="index-panel-nums" id="${elId}-nums">${panelNums(panel)}</span>
   </div>`;
+  // 봉 전환은 **값이 있는 패널에만** 붙인다. 미수집 패널에 버튼을 달면 무엇을
+  // 눌러도 같은 빈 자리이고, 그때 버튼은 "고칠 수 있는 것" 처럼 보인다.
   const inner = panel
-    ? `<div class="chart mini" id="${elId}"></div>
-       <div class="index-panel-foot sub tiny">
-         ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
-         창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
-         ${panel.has_ohlc ? "" : ` · <span class="warn-text">종가만 — 봉을 못 그린다</span>`}
-       </div>`
+    ? `${panelSeg(panel, elId)}
+       <div class="chart mini" id="${elId}"></div>
+       <div class="index-panel-foot sub tiny" id="${elId}-foot">${panelFoot(panel)}</div>`
     : panelMissingReason(spec, lookback);
   return `<div class="index-panel">${head}${inner}</div>`;
 }
@@ -309,6 +388,20 @@ function renderIndexStrip(body) {
   // innerHTML 을 먼저 넣어야 컨테이너가 생긴다 — 순서를 바꾸면 ECharts 가
   // 크기 0 인 요소에 붙어 아무것도 안 그린다.
   for (const [elId, panel] of jobs) panelChart(elId, panel);
+  bindIndexStrip();
+
+  // 일봉이 아닌 봉을 보고 있던 패널은 **다시 받아 온다.**
+  //
+  // 이 줄은 60초마다 통째로 다시 그려진다. 그때 응답에 실려 오는 것은 일봉뿐
+  // 이므로(분봉·주봉은 버튼을 눌러야 여는 문이다) 그대로 두면 보고 있던 5분봉이
+  // 새로고침마다 일봉으로 되돌아간다. 그리고 **캐시로 때우지 않는다** — 장중에
+  // 새 분봉이 들어오는데 화면이 아까 받은 것을 계속 들고 있으면 안 된다.
+  for (const [elId, panel] of jobs) {
+    const chosen = panelInterval[panel.entity_id];
+    if (chosen && chosen !== "1D") {
+      loadPanelInterval(panel.entity_id, panel.market, elId, chosen);
+    }
+  }
 }
 
 /* -- 나머지 지수 목록 --------------------------------------------------------- */
@@ -459,12 +552,18 @@ function treemapEmptyText(code, t) {
  * 값이 없으면 **아무것도 그리지 않는다.** 빈 자리가 "지금은 장외" 를 뜻한다 —
  * 종가로 때우면 화면이 실시간인 척하게 되고, 그건 조용히 틀리는 거짓이다.
  */
-function liveCell(row) {
-  if (row.live_price === null || row.live_price === undefined) return "";
-  return `<div class="live-line" title="장중 체결가 (t8407)">
-    <span class="live-dot"></span>${num(row.live_price)}
-    <span class="${signClass(row.live_change)}">${signed(row.live_change)}</span>
-  </div>`;
+function priceCell(row) {
+  // **장중 값이 있으면 그것만 보여준다** (사용자 요청 2026-08-19).
+  //
+  // 종가와 장중을 두 줄로 쌓았더니 칸이 넘쳐 옆 열과 겹쳤다. 그리고 장중에
+  // 보는 화면에서 확정 종가가 위에 크게 있는 것도 이상하다 — 지금 값이
+  // 궁금해서 보는 자리다. 종가는 `title` 로 남긴다(사라지지는 않는다).
+  const live = row.live_price !== null && row.live_price !== undefined;
+  if (!live) {
+    return `${num(row.close)} <span class="sub ${signClass(row.change)}">${signed(row.change)}</span>`;
+  }
+  return `<span class="live-dot" title="장중 체결가 · 종가 ${num(row.close)}"></span>${num(row.live_price)}
+    <span class="sub ${signClass(row.live_change)}">${signed(row.live_change)}</span>`;
 }
 
 /* 그 시장이 장중 값을 몇 개나 받았는지. **0 건과 "안 물어본다" 는 다른
@@ -533,9 +632,7 @@ function renderRankings(body, code, suffix) {
           <td><span class="name trunc" title="${esc(row.name)} (${esc(row.entity_id)})">${esc(row.name)}</span>
               ${codeCell(row.entity_id, row.name)}</td>
           <td class="r mono ${table.key === "gainers" ? signClass(row.change) : ""}">${rankMetric(table, row, panel.currency)}</td>
-          <td class="r mono">${num(row.close)}
-              <span class="sub ${signClass(row.change)}">${signed(row.change)}</span>
-              ${liveCell(row)}</td>
+          <td class="r mono">${priceCell(row)}</td>
           <td class="r mono cap">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
         </tr>`
       )

@@ -1066,18 +1066,40 @@ def available_intraday_intervals(
     없는데 켜 두면 눌렀을 때 빈 화면이 뜨고, 그게 "고장" 인지 "원래
     수집 범위 밖" 인지 사용자가 구분 못 한다.
     """
+    return available_intraday_intervals_by_entity(
+        store, as_of=as_of, entities=[entity_id], market=market
+    ).get(entity_id, [])
+
+
+def available_intraday_intervals_by_entity(
+    store: Store, *, as_of: datetime, entities: list[str], market: str
+) -> dict[str, list[str]]:
+    """여러 종목의 분봉 보유 현황을 **한 번 읽어서** 나눠 준다.
+
+    마켓 탭은 한 화면에 패널이 여섯이다(지수 둘 + ETF 넷). 패널마다
+    :func:`available_intraday_intervals` 를 부르면 같은 파티션을 여섯 번
+    연다 — 이 저장소가 반복해서 데인 지점이라(같은 표를 패널 수만큼 읽기)
+    묶어서 읽는다. 판단 규칙 자체는 한 곳이다: 위 함수가 이걸 부른다.
+    """
+    if not entities:
+        return {}
     frame = store.get(
         INTRADAY_TABLE,
         as_of=as_of,
-        entity=entity_id,
+        entity=entities,
         market=market,
         lookback=INTRADAY_LOOKBACK_DAYS,
-        columns=["interval"],
+        columns=["entity_id", "interval"],
     )
     if frame.empty:
-        return []
-    have = set(frame["interval"])
-    return [interval for interval in INTRADAY_INTERVALS if interval in have]
+        return {entity: [] for entity in entities}
+    have: dict[str, set[str]] = {}
+    for row in frame.itertuples(index=False):
+        have.setdefault(str(row.entity_id), set()).add(str(row.interval))
+    return {
+        entity: [i for i in INTRADAY_INTERVALS if i in have.get(entity, set())]
+        for entity in entities
+    }
 
 
 def intraday_candles(

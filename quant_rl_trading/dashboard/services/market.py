@@ -95,11 +95,13 @@ KOSDAQ 만 우량기업부·벤처기업부 등으로 갈리고, **KOSPI 942 종
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
+from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.dashboard.services import trading as trading_service
 from quant_rl_trading.store import Store
 from quant_rl_trading.store.prices import read_prices
 
@@ -153,6 +155,26 @@ MACRO_ROWS = 5
 #: FRED 에서 오고 **종가만 있다** — open/high/low/volume 이 전부 NULL 이라
 #: 캔들을 그릴 수 없다. 미장 ETF(LS 해외)는 OHLC 가 완전하다.
 PANEL_KIND = {"KR": "index", "US": "etf"}
+
+#: 패널이 그릴 수 있는 봉. **분봉 다섯은 트레이딩 탭의 상수를 그대로 쓴다** —
+#: 여기서 이름을 다시 지으면 두 화면의 버튼이 언젠가 갈라진다.
+#:
+#: 순서가 곧 화면 버튼의 순서다(짧은 것 → 긴 것).
+DAILY_INTERVAL = "1D"
+WEEKLY_INTERVAL = "1W"
+PANEL_INTERVALS = trading_service.INTRADAY_INTERVALS + (DAILY_INTERVAL, WEEKLY_INTERVAL)
+
+#: 주봉을 만들려고 읽는 **일봉**의 창(일).
+#:
+#: 주봉은 별도 수집이 아니다 — 창고의 일봉을 주 단위로 접은 것이다. 그래서
+#: 이 값은 "몇 주를 보여줄까" 를 일 단위로 적은 것뿐이고(730일 ≈ 104주),
+#: 화면의 lookback(타임머신 창, 기본 90일)과는 다른 축이다. lookback 을 그대로
+#: 쓰면 주봉이 13개짜리 토막이 되어 주봉을 켜는 뜻이 없어진다.
+#:
+#: 여기 있는 이유는 이 값이 **화면의 창**이지 매매 임계치가 아니기 때문이다 —
+#: 같은 이유로 위의 RECENT_DAYS·CAP_RECENT_DAYS 도 config 가 아니라 여기 있다.
+#: 학습·Executor·리포트 중 이 숫자를 읽는 곳은 없다.
+WEEKLY_LOOKBACK_DAYS = 730
 
 #: 국장 패널의 곁 지수. 대표는 `config.benchmark.kr_index` 가 정하고 여기
 #: 없다 — 화면이 대표를 고르지 않는다.
@@ -467,6 +489,13 @@ def instrument_panels(
         store, as_of=as_of, lookback=lookback, market=market, kind=kind,
         entities=[entity for entity, _, _ in wanted],
     )
+    # 봉 전환 버튼이 무엇을 켤지. **패널 수만큼 창고를 열지 않는다** — 한 번
+    # 읽어 나눈다(`panel_intervals`). 첫 그림에 같이 실어 보내는 이유는,
+    # 화면이 버튼을 그리려고 패널마다 따로 물어보면 첫 로드에 요청이 여섯 개
+    # 더 나가기 때문이다.
+    intervals = panel_intervals(
+        store, as_of=as_of, market=market, entities=[entity for entity, _, _ in wanted]
+    )
 
     panels: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
@@ -489,6 +518,12 @@ def instrument_panels(
         panels.append(
             {
                 **stub,
+                # 지금 그린 것은 일봉이다. 화면의 봉 전환 버튼이 이 값으로
+                # 어느 버튼에 불을 켤지 정한다.
+                "interval": DAILY_INTERVAL,
+                "intervals": intervals.get(entity, [DAILY_INTERVAL, WEEKLY_INTERVAL]),
+                "partial": None,
+                "reason": None,
                 "sessions": [str(s) for s in rows.index],
                 # ECharts 캔들 순서 [시가, 종가, 저가, 고가]. 캔들을 못 그리면
                 # 빈 목록이고 화면은 ``closes`` 로 선을 긋는다.
@@ -511,6 +546,296 @@ def instrument_panels(
         )
 
     return {"panels": panels, "missing": missing, "lookback": lookback, "kind": kind}
+
+
+# -- 패널의 봉 전환: 분봉 · 일봉 · 주봉 ---------------------------------------------
+#
+# 마켓 탭 패널은 오래 **일봉 한 종류**였다. 트레이딩 탭에는 이미 분봉 전환이
+# 있었고(1m/5m/15m/1H/4H/1D), 같은 질문 — "지금 이게 어떻게 움직이고 있나" —
+# 을 마켓 탭에서 물으면 답이 하루 한 점씩밖에 없었다.
+#
+# 여기서 새로 만드는 것은 **주봉 하나뿐**이다. 분봉은 트레이딩 탭의 서비스를
+# 그대로 부른다 — 같은 표(`prices_intraday`)를 읽는 코드가 두 벌이 되면
+# 한쪽만 고쳐진 채로 남는다.
+
+
+def panel_intervals(
+    store: Store, *, as_of: datetime, market: str, entities: list[str]
+) -> dict[str, list[str]]:
+    """패널마다 **실제로 그릴 수 있는** 봉 목록.
+
+    일봉·주봉은 항상 있다 — 패널로 세워졌다는 것 자체가 일봉이 있다는 뜻이고,
+    주봉은 그 일봉을 접은 것이라 따로 물어볼 창고가 없다.
+
+    분봉은 다르다. 수집기가 **보유·워치리스트·shadow 보유 종목만** 받으므로
+    (`collectors/intraday_collector.py`) 지수(`KR:IDX:*`)와 미장 ETF 에는
+    한 봉도 없다. 없는 것을 켜 두면 눌렀을 때 빈 화면이 뜨고, 그게 고장인지
+    수집 범위 밖인지 사용자가 구분 못 한다 — 그래서 창고에 물어보고 끈다.
+    """
+    have = trading_service.available_intraday_intervals_by_entity(
+        store, as_of=as_of, entities=entities, market=market
+    )
+    return {
+        entity: [*have.get(entity, []), DAILY_INTERVAL, WEEKLY_INTERVAL]
+        for entity in entities
+    }
+
+
+def weekly_bars(
+    rows: pd.DataFrame, *, market: str, as_of: datetime
+) -> list[dict[str, Any]]:
+    """일봉을 **그 시장의 거래일 달력**으로 주 단위로 접는다.
+
+    ## 집계 규칙
+
+    시가 = 그 주 **첫 세션**의 open · 고가 = max(high) · 저가 = min(low) ·
+    종가 = **마지막 세션**의 close · 거래량 = 합.
+
+    시가·종가를 pandas 의 ``first``/``last`` 로 접지 않는다 — 그 둘은 NaN 을
+    건너뛰므로, 첫 세션의 open 이 비어 있으면 **둘째 세션의 open** 이 그 주의
+    시가로 올라앉는다. 없는 값이 조용히 다른 값으로 바뀌는 종류의 거짓이다.
+
+    ## 주의 경계를 왜 달력에 물어보나
+
+    묶는 단위 자체는 ISO 주(월~일)다. 달력이 필요한 곳은 **그 주가 끝났는지**
+    를 가르는 자리다. "금요일이 지났으면 끝난 주" 로 재면 금요일이 휴장인 주가
+    영원히 미완성으로 남고, 연휴가 낀 주는 세션이 둘뿐인데도 고장처럼 보인다.
+    그래서 그 주의 거래일을 달력에서 받아 **마지막 거래일이 지났는가**로
+    가른다.
+
+    ## 미완성 주를 버리지 않는다
+
+    오늘이 수요일이면 이번 주 봉은 세션 세 개짜리다. 그게 맞는 모습이고,
+    지우면 화면에서 최신이 사라진다 — 대신 ``complete=False`` 와
+    ``sessions``/``expected`` 를 실어 **미완성이라는 사실이 화면에 남게** 한다.
+    """
+    if rows.empty:
+        return []
+
+    days = [date.fromisoformat(str(session)) for session in rows.index]
+    weeks = [day - timedelta(days=day.weekday()) for day in days]
+    frame = rows.copy()
+    frame["_day"] = days
+    frame["_week"] = weeks
+    frame = frame.sort_values("_day")
+
+    starts = sorted(set(weeks))
+    # 달력은 **한 번만** 연다. 주마다 부르면 같은 달력을 백 번 훑는다.
+    # 끝을 마지막 주의 일요일까지 잡는 이유: 진행 중인 주는 남은 거래일이
+    # 아직 미래라, 오늘까지만 물어보면 "이번 주는 3거래일짜리" 가 된다.
+    span = trading_days(Market(market), starts[0], starts[-1] + timedelta(days=6))
+    expected: dict[date, list[date]] = {}
+    for day in span:
+        expected.setdefault(day - timedelta(days=day.weekday()), []).append(day)
+
+    today = as_of.date()
+    bars: list[dict[str, Any]] = []
+    for start in starts:
+        group = frame[frame["_week"] == start]
+        opens = pd.to_numeric(group["open"], errors="coerce")
+        highs = pd.to_numeric(group["high"], errors="coerce")
+        lows = pd.to_numeric(group["low"], errors="coerce")
+        closes = pd.to_numeric(group["close"], errors="coerce")
+        volumes = pd.to_numeric(group["volume"], errors="coerce").fillna(0.0)
+        week_days = expected.get(start, [])
+        bars.append(
+            {
+                # x 축에 찍히는 값은 **그 주의 월요일**이다. 마지막 세션으로
+                # 찍으면 진행 중인 주의 라벨이 하루마다 바뀌어, 새로고침할
+                # 때마다 마지막 봉이 옮겨 다니는 것처럼 보인다.
+                "week": start.isoformat(),
+                "open": None if pd.isna(opens.iloc[0]) else float(opens.iloc[0]),
+                "high": None if highs.isna().all() else float(highs.max()),
+                "low": None if lows.isna().all() else float(lows.min()),
+                "close": float(closes.iloc[-1]),
+                "volume": float(volumes.sum()),
+                "sessions": int(len(group)),
+                # 그 주에 원래 몇 거래일이 있(었)나. 세션 수와 어긋나면
+                # 수집이 빈 것이고, 그 차이를 화면이 볼 수 있어야 한다.
+                "expected": len(week_days),
+                # 마지막 거래일이 지났는가 = 그 주가 끝났는가.
+                "complete": bool(week_days) and week_days[-1] <= today,
+                "first_session": group["_day"].iloc[0].isoformat(),
+                "last_session": group["_day"].iloc[-1].isoformat(),
+            }
+        )
+    return bars
+
+
+def _ma(closes: list[float]) -> dict[str, list[float | None]]:
+    """이동평균 셋. 트레이딩 탭 ``candles()`` 와 같은 창(5·20·60)이다."""
+    series = pd.Series(closes, dtype="float64")
+    return {
+        f"ma{window}": [
+            None if pd.isna(value) else float(value)
+            for value in series.rolling(window).mean()
+        ]
+        for window in (5, 20, 60)
+    }
+
+
+def panel_candles(
+    store: Store,
+    *,
+    as_of: datetime,
+    lookback: int,
+    market: str,
+    entity_id: str,
+    interval: str,
+) -> dict[str, Any]:
+    """패널 하나를 그 구간으로 다시 그린 것. **패널 dict 와 같은 모양이다.**
+
+    ``instrument_panels`` 이 내놓는 패널과 키가 같다(``sessions``·``ohlc``·
+    ``closes``·``has_ohlc``·``close``·``change``·``total``…). 화면의 그리는
+    코드가 "처음 그릴 때" 와 "버튼을 눌렀을 때" 를 분기 없이 같이 쓰기
+    위해서다 — 두 벌이 되면 한쪽만 고쳐진 채로 남는다.
+
+    없으면 **빈 채로 두고 ``reason`` 에 이유를 적는다.** 분봉이 없는 종목이
+    흔하고(수집 대상이 32종목뿐이다), 그때 화면이 "왜 비었나" 를 말하지
+    못하면 사용자는 고장으로 읽는다.
+    """
+    if interval not in PANEL_INTERVALS:
+        raise ValueError(f"모르는 interval: {interval!r} ({PANEL_INTERVALS} 중 하나여야 한다)")
+
+    kind = PANEL_KIND[market]
+    available = panel_intervals(
+        store, as_of=as_of, market=market, entities=[entity_id]
+    )[entity_id]
+    base: dict[str, Any] = {
+        "entity_id": entity_id,
+        "market": market,
+        "kind": kind,
+        "label": _panel_label(entity_id, kind),
+        "interval": interval,
+        "intervals": available,
+        "sessions": [],
+        "ohlc": [],
+        "closes": [],
+        "volume": [],
+        "ma": {},
+        "has_ohlc": False,
+        "close": None,
+        "change": None,
+        "total": None,
+        "session": None,
+        "first_session": None,
+        "partial": None,
+        "reason": None,
+    }
+
+    if interval in trading_service.INTRADAY_INTERVALS:
+        if interval not in available:
+            base["reason"] = (
+                f"{entity_id} 의 {interval} 봉이 창고에 없다 — 분봉 수집은 "
+                "보유·워치리스트·shadow 보유 종목만 받는다(전 종목이 아니다)."
+            )
+            return base
+        # **분봉은 트레이딩 탭의 서비스를 그대로 부른다.** 같은 표를 읽는
+        # 코드를 두 벌 두지 않는다 — 당일만 보여주는 규칙(INTRADAY_TODAY_ONLY)
+        # 도 저쪽에 있고, 여기서 다시 적으면 두 화면이 갈라진다.
+        data = trading_service.intraday_candles(
+            store, as_of=as_of, entity_id=entity_id, market=market, interval=interval
+        )
+        closes = [row[1] for row in data["ohlc"]]
+        base.update(
+            {
+                "sessions": data["sessions"],
+                "ohlc": data["ohlc"],
+                "closes": closes,
+                "volume": data["volume"],
+                "ma": data["ma"],
+                "has_ohlc": bool(data["ohlc"]),
+            }
+        )
+        if not closes:
+            base["reason"] = (
+                f"{entity_id} 의 {interval} 봉이 오늘 아직 없다 — 분봉은 "
+                "당일 것만 보여준다(장 시작 전이거나 수집이 아직 안 돌았다)."
+            )
+            return base
+        base.update(
+            {
+                "close": closes[-1],
+                "change": (closes[-1] / closes[-2] - 1.0) if len(closes) >= 2 else None,
+                "total": (closes[-1] / closes[0] - 1.0) if closes[0] else None,
+                "session": data["sessions"][-1],
+                "first_session": data["sessions"][0],
+            }
+        )
+        return base
+
+    # 일봉·주봉. **주봉은 그 일봉을 접은 것**이라 읽는 표가 같다.
+    window = WEEKLY_LOOKBACK_DAYS if interval == WEEKLY_INTERVAL else lookback
+    history = _panel_frame(
+        store, as_of=as_of, lookback=window, market=market, kind=kind,
+        entities=[entity_id],
+    )
+    rows = history.get(entity_id)
+    if rows is None or rows.empty:
+        base["reason"] = f"{entity_id} 의 시세가 창({window}일) 안에 없다 — 아직 수집되지 않았다."
+        return base
+
+    # 넷이 다 있을 때만 봉이다 — 주봉도 같은 규칙을 물려받는다. 일봉의
+    # 시가·고가·저가가 없으면(FRED 미장 지수) 그것을 접은 주봉에도 없다.
+    candles = _has_ohlc(rows)
+
+    if interval == WEEKLY_INTERVAL:
+        bars = weekly_bars(rows, market=market, as_of=as_of)
+        sessions = [bar["week"] for bar in bars]
+        closes = [bar["close"] for bar in bars]
+        ohlc = (
+            [[bar["open"], bar["close"], bar["low"], bar["high"]] for bar in bars]
+            if candles
+            else []
+        )
+        volume = [bar["volume"] for bar in bars]
+        last = bars[-1]
+        # **미완성 주를 지우지 않는다.** 대신 그 사실을 실어 보낸다 —
+        # 화면이 마지막 봉에 "진행 중" 을 적을 수 있게.
+        base["partial"] = (
+            None
+            if last["complete"]
+            else {
+                "week": last["week"],
+                "sessions": last["sessions"],
+                "expected": last["expected"],
+                "last_session": last["last_session"],
+            }
+        )
+        first_session, last_session = bars[0]["week"], last["week"]
+    else:
+        sessions = [str(session) for session in rows.index]
+        closes = [float(value) for value in rows["close"].astype(float)]
+        ohlc = (
+            [
+                [float(r["open"]), float(r["close"]), float(r["low"]), float(r["high"])]
+                for _, r in rows.iterrows()
+            ]
+            if candles
+            else []
+        )
+        volume = [
+            float(value)
+            for value in pd.to_numeric(rows["volume"], errors="coerce").fillna(0.0)
+        ]
+        first_session, last_session = sessions[0], sessions[-1]
+
+    base.update(
+        {
+            "sessions": sessions,
+            "ohlc": ohlc,
+            "closes": closes,
+            "volume": volume,
+            "ma": _ma(closes),
+            "has_ohlc": candles,
+            "close": closes[-1],
+            "change": (closes[-1] / closes[-2] - 1.0) if len(closes) >= 2 else None,
+            "total": (closes[-1] / closes[0] - 1.0) if closes[0] else None,
+            "session": last_session,
+            "first_session": first_session,
+        }
+    )
+    return base
 
 
 # -- 시세로 만드는 것 — 시장 폭 · 많이 움직인 종목 ---------------------------------
@@ -922,7 +1247,13 @@ def market_panel(
     # 그 옆 칸에만 앉는다 — 순서를 바꾸면 새로고침할 때마다 순위가 흔들린다.
     # 순위표는 ``tables`` 안에 표 넷이 있고 종목 행은 그 안의 ``rows`` 다.
     # 바깥 dict 를 그대로 훑으면 하한·집계 같은 종목 아닌 값이 섞인다.
-    live_rows = list(top)
+    #
+    # **리더(트리맵 60종목)에는 장중 값을 안 붙인다.** 트리맵은 종가 시총으로
+    # 칸 크기를 정하는 그림이라 장중 시세가 필요 없다. 그런데 그 60종목까지
+    # 물으면 t8407 이 두 콜이 되고, LS 는 콜당 2.5초쯤 걸린다 — 실측
+    # 2026-08-19: /api/market 첫 호출이 **20초**였다(캐시가 더워지면 1.1초).
+    # 순위표 20종목만 물으면 한 콜로 끝난다.
+    live_rows: list[dict[str, Any]] = []
     for table in ranked.get("tables") or []:
         live_rows.extend(table.get("rows") or [])
     filled = attach_live(live_rows, live_quotes)
@@ -931,12 +1262,22 @@ def market_panel(
     # 읽는다 — 안 붙이면 그 카드가 전일 종가를 오늘 값으로 보여준다.
     # 실측 2026-08-19 12:31: 화면 코스피 6,869.83(-1.55%)은 **전일 종가**였고
     # 그때 실시간은 6,488.37(-5.55%) 이었다.
-    index_rows: list[dict[str, Any]] = []
-    for block in (panels.get("panels") or []):
-        index_rows.append(block)
     idx_list = indices(store, as_of=as_of, market=market, exclude=paneled)
-    for block in (idx_list.get("others") or []):
-        index_rows.append(block)
+
+    # **대표 하나만 실시간으로 묻는다.**
+    #
+    # 지수·ETF 는 종목처럼 묶어 받는 TR 이 없어 **하나씩 따로** 쳐야 한다
+    # (국장 t1511 은 업종코드 단건, 미장 g3104 도 심볼 단건). LS 콜이 2.5초쯤
+    # 걸리므로 패널 전부를 물으면 여섯 콜 = 15초다 — 실측 2026-08-19:
+    # /api/market 첫 호출 **20초**. 캐시가 더워지면 1초지만, 처음 여는 사람은
+    # 매번 그 20초를 낸다.
+    #
+    # 화면에서 장중 값이 실제로 필요한 자리는 **칸 머리의 대표 카드** 하나다.
+    # 나머지 패널은 종가로 둔다 — 그 사실을 화면이 `· 종가` 로 말한다.
+    index_rows = [
+        block for block in (panels.get("panels") or [])
+        if block.get("role") == "primary"
+    ]
     index_filled = attach_live(index_rows, live_index)
 
     return {

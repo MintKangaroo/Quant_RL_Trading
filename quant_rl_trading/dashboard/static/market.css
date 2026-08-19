@@ -152,6 +152,16 @@
 
 .index-panel-foot { margin: 0; padding-top: 1px; color: var(--dim); }
 
+/* 패널 안의 봉 전환. 280px 폭에 버튼이 일곱이라(1m…1W) 공용 .seg 크기로는
+   줄이 넘친다 — 여기서만 좁힌다. **지우지 않고 좁힌다**: 꺼진 버튼도 화면에
+   남아야 "이 종목엔 분봉이 없다" 를 말할 수 있다. */
+.index-panel-seg {
+  justify-content: flex-start;
+  gap: 1px;
+  padding: 2px 0 1px;
+}
+.index-panel-seg button { font-size: 9.5px; padding: 1px 4px; }
+
 /* 패널이 좁으니 차트도 낮다. 추세의 모양을 보는 자리이지 눈금을 읽는
    자리가 아니다 — 정확한 값은 바로 위 머리에 있다. */
 .chart.mini { height: 108px; }
@@ -236,6 +246,10 @@
   .index-group + .index-group { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 12px; }
   .index-group-panels { flex-direction: column; }
   .index-panel { min-width: 0; flex: 1 1 auto; }
+  /* 좁은 화면에서 공용 .seg 는 버튼을 44px 짜리 터치 표적으로 키운다(app.css).
+     일곱 개를 그 크기로 깔면 패널 하나가 버튼 두 줄이 된다 — 세로로 접힌
+     화면에서는 패널이 폭을 다 쓰므로 원래 크기로도 손가락이 닿는다. */
+  .index-panel-seg button { padding: 4px 8px; font-size: 10.5px; min-height: 0; }
   /* 트리맵 400px 은 세로로 접힌 화면에서 한 패널이 화면을 통째로 먹는다.
      타일 60개가 390px 폭에 들어가면 어차피 글자가 안 보이므로 낮춘다. */
   .market-col .chart.tall { height: 300px; }

@@ -124,13 +124,19 @@ async function renderIcHistory() {
   ];
   const colorOf = (index) => SERIES_COLORS[index % SERIES_COLORS.length];
 
-  // 통과·관찰을 이름에 붙인다. 점선(합격선) 위아래를 눈으로 재지 않아도
-  // 지금 무엇이 매매에 쓰이는지 범례만 보면 안다.
+  // **최신값을 범례에 넣는다.** 선 끝에 라벨을 달았더니 값이 가까운 계열끼리
+  // 겹쳐서 `0.074`·`0.072` 가 한 덩어리로 뭉갰다(2026-08-19 아이폰 실측).
+  // ECharts 는 endLabel 겹침을 피해 주지 않는다 — 자리를 옮기는 대신 값을
+  // 겹칠 수 없는 곳으로 옮긴다.
+  //
+  // 통과(✓)·관찰(·)도 같이 붙인다. 점선 위아래를 눈으로 재지 않아도 지금
+  // 무엇이 매매에 쓰이는지 범례만 보면 안다.
   const label = (series) => {
     const last = series.points.length
       ? series.points[series.points.length - 1].ic : null;
     if (last === null || last === undefined) return series.analyst;
-    return `${series.analyst} ${last >= data.threshold ? "✓" : "·"}`;
+    const mark = last >= data.threshold ? "✓" : "·";
+    return `${series.analyst} ${last.toFixed(3)} ${mark}`;
   };
 
   const line = (series, index) => ({
@@ -142,14 +148,6 @@ async function renderIcHistory() {
     // 측정이 드문드문이라 점 사이가 비는 날이 많다. 이어 그리지 않으면
     // 선이 조각나 어느 계열인지 못 쫓아간다.
     connectNulls: true,
-    // **마지막 값을 선 끝에 적는다.** 범례에서 색을 찾아 되짚는 수고가 없어진다.
-    endLabel: {
-      show: true,
-      formatter: (item) => (item.value === null ? "" : item.value.toFixed(3)),
-      color: colorOf(index),
-      fontFamily: "IBM Plex Mono",
-      fontSize: 10,
-    },
     data: stamps.map((at) => {
       const hit = series.points.find((p) => p.at === at);
       return hit ? hit.ic : null;
@@ -165,10 +163,14 @@ async function renderIcHistory() {
     legend: {
       ...BASE.legend,
       data: data.series.map(label),
-      top: "auto", bottom: 0, itemGap: 10, itemWidth: 14,
-      textStyle: { ...(BASE.legend && BASE.legend.textStyle), fontSize: 10.5 },
+      top: "auto", bottom: 0, itemGap: 8, itemWidth: 12,
+      // 이름+값이라 항목이 길다. 줄바꿈을 허용하고 그만큼 아래를 비워 둔다 —
+      // 안 그러면 범례가 x축 라벨 위에 얹힌다.
+      type: "scroll", width: "96%",
+      textStyle: { ...(BASE.legend && BASE.legend.textStyle), fontSize: 10 },
     },
-    grid: { left: 44, right: 52, top: 14, bottom: 52 },
+    // 오른쪽 여백을 줄였다(끝 라벨을 없앴으므로). 아래는 범례 두 줄 + x축.
+    grid: { left: 46, right: 16, top: 14, bottom: 74 },
     xAxis: { type: "category", data: stamps.map((at) => at.slice(0, 16).replace("T", " ")), ...AXIS },
     yAxis: { type: "value", scale: true, ...AXIS },
     series: [

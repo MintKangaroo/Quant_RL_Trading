@@ -42,6 +42,18 @@ for spec in "${TARGETS[@]}"; do
 done
 sleep 7
 
+# **토큰을 미리 데운다.** LS OAuth 발급이 4.8초쯤 걸려서, 안 하면 그 값을
+# **처음 화면을 여는 사람이 낸다**(실측 2026-08-19: /api/trading 첫 호출
+# 5.2초 → 이후 0.9초). 백그라운드로 던지고 기다리지 않는다 — 실패해도
+# 화면은 종가로 그려지므로 여기서 막을 이유가 없다.
+# 두 탭을 다 데운다 — **캐시가 다르다.** 트레이딩은 종목(t8407), 마켓은
+# 지수·ETF(t1511·g3104)라 한쪽을 데워도 다른 쪽은 여전히 첫 콜을 낸다.
+for spec in "${TARGETS[@]}"; do
+    port="${spec%%:*}"
+    curl -s -o /dev/null --max-time 40 "localhost:${port}/api/trading" &
+    curl -s -o /dev/null --max-time 40 "localhost:${port}/api/market" &
+done
+
 # **올라왔는지 확인한다.** 띄우고 안 보면 죽은 것을 모른다.
 fail=0
 for spec in "${TARGETS[@]}"; do

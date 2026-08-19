@@ -228,7 +228,12 @@ function renderWatchlist(body) {
   // **열마다 class 를 단다.** 좁은 화면에서 PnL 열을 접고 그 값을 포지션 칸
   // 아래로 내리는데(trading.css), 그러려면 어느 열인지 CSS 가 알아야 한다.
   // 6열은 390px 화면에 안 들어간다 — 넣으면 오른쪽이 잘려 `-6,81` 처럼 보인다.
-  const head = `<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
+  // **열 폭을 colgroup 으로 준다.** `table-layout: fixed` 만 켜고 폭을 안 주면
+  // 열이 균등 분배되어 종목명 칸이 좁아지고, 그 안의 이름이 옆 칸 숫자와
+  // 겹친다(2026-08-19 아이폰 실측).
+  const cols = `<colgroup><col class="c-name"><col class="c-price"><col class="c-chg">
+                <col class="c-sig"><col class="c-pos"><col class="c-pnl"></colgroup>`;
+  const head = `${cols}<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
                 <th class="mid">AI 시그널</th><th class="mid">포지션</th>
                 <th class="r c-pnl">PnL</th></tr></thead>`;
   const cells = rows
@@ -655,26 +660,17 @@ let chartInterval = "1D";
 let chartEntityId = null;
 let chartPositions = [];
 
-function timeframeLabel(interval) {
-  if (interval === "1D") return "일봉";
-  if (interval === "1H") return "1시간봉";
-  if (interval === "4H") return "4시간봉";
-  return `${interval}봉`; // "1m"·"5m"·"15m"
-}
-
-/* 버튼 disabled 상태를 서버가 방금 알려준 사실로 맞춘다. **여기서 추측하지
- * 않는다** — 있다고 짐작하고 켰다가 눌렀을 때 빈 화면이 뜨면, 그게 고장인지
- * 원래 수집 범위 밖인지 사용자가 구분 못 한다. */
+/* 이름·버튼 상태·봉 그리기는 **candles.js** 가 한다 — 마켓 탭 패널과 같은
+ * 코드다. 여기서 두 번째 벌을 두면 한쪽만 고쳐진 채로 남는다.
+ *
+ * 일봉은 창고에 항상 있으므로 available 에 없어도 켜 둔다. 서버는
+ * 분봉 목록만 실어 보낸다(``/api/trading/chart`` 의 available_intervals). */
 function applyAvailableIntervals(available) {
-  const seg = document.getElementById("chart-timeframe");
-  if (!seg) return;
-  const have = new Set(available || []);
-  seg.querySelectorAll("button[data-interval]").forEach((button) => {
-    const interval = button.dataset.interval;
-    if (interval === "1D") return; // 일봉은 항상 있다 — 건드리지 않는다.
-    button.disabled = !have.has(interval);
-    if (have.has(interval)) button.title = `${timeframeLabel(interval)}으로 보기`;
-  });
+  syncTimeframeSeg(
+    document.getElementById("chart-timeframe"),
+    [...(available || []), "1D"],
+    chartInterval
+  );
 }
 
 function bindChartTimeframe() {
@@ -745,91 +741,11 @@ async function renderCandles(entityId, positions) {
          label: { color: COLOR.warn, formatter: "평균단가", position: "insideEndTop" } }]
     : [];
 
-  // 처음에는 최근 120세션만 보여준다. 5년을 한 화면에 밀어 넣으면 봉이
-  // 선이 되어 아무것도 안 보인다. 나머지는 스크롤로 간다.
-  const span = c.sessions.length;
-  const startPct = span > 120 ? Math.max(0, (1 - 120 / span) * 100) : 0;
-
-  chart("chart-candle").setOption({
-    ...BASE,
-    legend: { ...BASE.legend, data: ["봉", "MA5", "MA20", "MA60"] },
-    // 높이를 비율로 주면 봉 영역이 패널 높이에 따라 접힌다 — 실제로 봉이
-    // 세로로 눌려 보였다. 거래량(56px)과 손잡이(24px)는 고정 크기이므로
-    // 픽셀로 잡고, 남는 세로는 전부 봉이 가져간다.
-    grid: [
-      { left: 56, right: 62, top: 26, bottom: 108 },
-      { left: 56, right: 62, height: 56, bottom: 46 },
-    ],
-    // 좌우 스크롤·확대축소. 두 grid 를 함께 움직여야 봉과 거래량이 어긋나지
-    // 않는다. inside 는 휠·드래그, slider 는 아래 손잡이다.
-    dataZoom: [
-      {
-        type: "inside", xAxisIndex: [0, 1], start: startPct, end: 100,
-        zoomOnMouseWheel: true, moveOnMouseMove: true,
-        // filterMode "filter" 라야 보이는 구간만 남아 Y축이 그 구간으로
-        // 다시 잡힌다. "none" 이면 5년 최고가에 눌려 최근 봉이 납작해진다.
-        filterMode: "filter",
-      },
-      {
-        type: "slider", xAxisIndex: [0, 1], start: startPct, end: 100,
-        filterMode: "filter",
-        bottom: 6, height: 18,
-        backgroundColor: "transparent",
-        borderColor: COLOR.border,
-        fillerColor: token("--chart-ma20-fill"),
-        handleStyle: { color: COLOR.muted, borderColor: COLOR.border },
-        moveHandleStyle: { color: COLOR.border },
-        textStyle: { color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono" },
-        dataBackground: {
-          lineStyle: { color: COLOR.dim, opacity: 0.5 },
-          areaStyle: { color: COLOR.dim, opacity: 0.15 },
-        },
-      },
-    ],
-    xAxis: [
-      // 분봉의 session 문자열은 날짜만이 아니라 시각까지 든 ISO 다
-      // (candles() 는 "YYYY-MM-DD", intraday_candles() 는 전체 타임스탬프 —
-      // dashboard/services/trading.py 참고). 그대로 축에 찍으면 라벨이
-      // 너무 길어 서로 겹친다. "HH:MM" 만 자른다 — 어느 날짜인지는 툴팁
-      // (원문 그대로)이 말한다.
-      {
-        type: "category", data: c.sessions, gridIndex: 0,
-        ...AXIS,
-        axisLabel: intraday
-          ? { ...AXIS.axisLabel, formatter: (value) => value.slice(11, 16) }
-          : AXIS.axisLabel,
-      },
-      { type: "category", data: c.sessions, gridIndex: 1, axisLabel: { show: false },
-        axisLine: AXIS.axisLine, splitLine: { show: false } },
-    ],
-    yAxis: [
-      // scale + 확대 구간 기준 재계산. 없으면 5년 최고가에 눌려 최근 봉이
-      // 납작해진다.
-      { type: "value", scale: true, ...AXIS, gridIndex: 0 },
-      { type: "value", gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false },
-        axisLine: AXIS.axisLine },
-    ],
-    series: [
-      {
-        name: "봉", type: "candlestick", data: c.ohlc,
-        itemStyle: { color: COLOR.up, color0: COLOR.down,
-                     borderColor: COLOR.up, borderColor0: COLOR.down },
-        markPoint: { data: marks },
-        markLine: { symbol: "none", data: guides, silent: true },
-      },
-      { name: "MA5", type: "line", data: c.ma.ma5, showSymbol: false,
-        lineStyle: { width: 1, color: COLOR.warn } },
-      // MA20 은 토큰에 없는 색이라 trading.css 에 --chart-ma20 로 따로 선언했다
-      // (다른 이동평균과 헷갈리지 않게 하려면 warn/up/down 재사용이 아니라
-      // 전용 색이 있어야 한다).
-      { name: "MA20", type: "line", data: c.ma.ma20, showSymbol: false,
-        lineStyle: { width: 1, color: token("--chart-ma20") } },
-      { name: "MA60", type: "line", data: c.ma.ma60, showSymbol: false,
-        lineStyle: { width: 1, color: COLOR.muted } },
-      { name: "거래량", type: "bar", data: c.volume, xAxisIndex: 1, yAxisIndex: 1,
-        itemStyle: { color: COLOR.border } },
-    ],
-  });
+  // 그리는 일은 **candles.js** 가 한다 — 마켓 탭 패널과 같은 함수다.
+  // 여기 남는 것은 이 화면에만 있는 것들뿐이다: 체결 흔적과 평균단가 선.
+  chart("chart-candle").setOption(
+    candleOption(c, { interval: chartInterval, marks, guides })
+  );
 }
 
 /* -- 수익률 캘린더 --------------------------------------------------------- */
