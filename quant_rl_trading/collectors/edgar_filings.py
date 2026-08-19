@@ -313,3 +313,168 @@ class EdgarSource:
 
 class CollectorLimit(RuntimeError):
     """조회 상한에 닿았다. 조용히 자르는 것보다 멈추는 편이 낫다."""
+
+
+# -- 적재 -----------------------------------------------------------------------
+
+from collections.abc import Iterator  # noqa: E402
+from dataclasses import field  # noqa: E402
+from datetime import UTC, date, datetime  # noqa: E402
+from typing import Any  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
+
+DOCUMENTS = "documents"
+EASTERN = ZoneInfo("America/New_York")
+
+#: 관측 시각(ET). EDGAR 는 **17:30 ET 이후 접수분을 다음 영업일자로 넘긴다.**
+#: 따라서 D 로 찍힌 공시는 D 의 17:30 ET 까지는 접수된 것이고, 18:00 으로
+#: 잡으면 절대 낙관적이지 않다.
+#:
+#: 자정으로 잡으면 그날 아침부터 공시를 알던 것이 되어 하루를 앞당겨 본다 —
+#: DART 쪽(`dart_source.FilingPolicy`)과 같은 이유다.
+#:
+#: 미장 종가는 16:00 ET 다. 18:00 은 그 뒤라 **그날 종가 결정에는 못 쓰고
+#: 다음 날부터 쓴다.** 그게 맞다 — 장중에 나온 공시를 그날 종가 기준 피처에
+#: 넣으면 미래를 보는 것이 된다.
+FILING_HOUR_ET = 18
+
+
+@dataclass(frozen=True)
+class EdgarPolicy:
+    """접수일 → 관측시각. 아직 알 수 없는 날짜는 거부한다."""
+
+    clock: Any
+    hour_et: int = FILING_HOUR_ET
+
+    def for_filing(self, filed_on: date) -> datetime:
+        local = datetime(
+            filed_on.year, filed_on.month, filed_on.day, self.hour_et, tzinfo=EASTERN
+        )
+        moment = local.astimezone(UTC)
+        now = self.clock.now()
+        if moment > now:
+            raise NotYetKnown(
+                f"공시 {filed_on.isoformat()} 는 {moment.isoformat()} 에 알 수 있다. "
+                f"현재 {now.isoformat()}"
+            )
+        return moment
+
+
+class NotYetKnown(RuntimeError):
+    """그 시점에 알 수 없는 사실을 적재하려 했다 (불변식 3)."""
+
+
+def edgar_run_id(day: date, forms: str) -> str:
+    """적재 이력 키. **폼별로 나눈다** — 8-K 만 받은 날과 전부 받은 날이
+    같은 키를 쓰면, 나중에 폼을 늘려도 "이미 받았다" 로 건너뛴다."""
+    return f"edgar-{day.isoformat()}-{forms.replace(' ', '').replace(',', '_')}"
+
+
+def filing_rows(
+    filings: tuple[Filing, ...], *, observed_at: datetime
+) -> list[dict[str, Any]]:
+    """`Filing` → `documents` 행. 국장(`dart_filings`)과 같은 컬럼을 채운다.
+
+    **같은 공시가 같은 종목에 두 번 오면 하나만 남긴다.** 공동 제출에서
+    같은 CIK 가 반복되는 경우가 있고, 자연키가 (entity_id, valid_from, doc_id)
+    라 창고가 거부하기 전에 여기서 접는다.
+    """
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in filings:
+        key = (item.entity_id, item.doc_id)
+        if key in seen or not item.doc_id or not item.filed_on:
+            continue
+        seen.add(key)
+        filed = date.fromisoformat(item.filed_on)
+        out.append({
+            "entity_id": item.entity_id,
+            "valid_from": datetime(filed.year, filed.month, filed.day, tzinfo=UTC),
+            "observed_at": observed_at,
+            "source": SOURCE,
+            "doc_id": item.doc_id,
+            "doc_type": item.doc_type,
+            "title": item.title,
+            "filer": item.filer,
+            "url": item.url,
+            "raw_path": "",
+        })
+    return out
+
+
+@dataclass
+class EdgarResult:
+    day: date
+    rows: int
+    unmapped: int
+    skipped: bool = False
+    deferred: bool = False
+    error: str = ""
+
+
+@dataclass
+class EdgarBackfiller:
+    """날짜 축으로 도는 미장 공시 수집.
+
+    회사 축으로 받으면 종목 수 × 5년이라 콜이 폭발한다. 날짜 축이면 하루에
+    폼 묶음 하나 × 페이지 몇 개다 — 실측으로 8-K 하루가 3페이지(287건)였다.
+    """
+
+    store: Any
+    source: EdgarSource
+    policy: EdgarPolicy
+    forms: str = "8-K"
+    _tickers: dict[str, str] = field(default_factory=dict)
+
+    def tickers(self) -> dict[str, str]:
+        """한 번만 받아 재사용한다. 하루마다 받으면 5년 백필에 1,800콜이 는다."""
+        if not self._tickers:
+            self._tickers = self.source.tickers()
+        return self._tickers
+
+    def plan(self, start: date, end: date) -> list[date]:
+        """달력일 전부. **휴장일에도 공시는 접수된다** — 거래일로 자르면 놓친다."""
+        days: list[date] = []
+        cursor = start
+        while cursor <= end:
+            days.append(cursor)
+            cursor = date.fromordinal(cursor.toordinal() + 1)
+        return days
+
+    def run_day(self, day: date) -> EdgarResult:
+        run_id = edgar_run_id(day, self.forms)
+        if self.store.ingest_run_recorded(DOCUMENTS, run_id):
+            return EdgarResult(day, 0, 0, skipped=True)
+
+        try:
+            observed_at = self.policy.for_filing(day)
+        except NotYetKnown:
+            # **당일치다.** 관측시각이 18:00 ET 인데 지금은 그 전이다. 아직
+            # 알 수 있었다고 말할 수 없는 사실이라 적재하지 않는다.
+            #
+            # 실패가 아니므로 이력에 남기지 않는다 — 다음 실행이 다시 받는다.
+            # 이걸 예외로 흘리면 일일 수집이 매일 트레이스백으로 죽는다.
+            # 창을 오늘까지 잡는 한 이건 **정상 경로**다 (dart_filings 와 같다).
+            return EdgarResult(day, 0, 0, deferred=True)
+
+        try:
+            hits = self.source.search_day(day.isoformat(), forms=self.forms)
+        except CollectorLimit as error:
+            # 상한 초과는 조용히 자르면 안 된다 — 그날만 폼을 쪼개 다시 받아야
+            # 한다. 이력에 안 남기므로 다음 실행이 다시 시도한다.
+            return EdgarResult(day, 0, 0, error=str(error))
+
+        batch = normalize(hits, tickers=self.tickers())
+        rows = filing_rows(batch.filings, observed_at=observed_at)
+        if not rows:
+            # 공시가 없는 날(주말·휴일)이다. 창고는 빈 배치를 이력에 남기지
+            # 않으므로 여기서 끝낸다 — `dart_filings` 와 같은 규약이다.
+            return EdgarResult(day, 0, batch.unmapped)
+        written = self.store.append(
+            DOCUMENTS, rows, ingest_run_id=run_id, source=SOURCE
+        )
+        return EdgarResult(day, written, batch.unmapped)
+
+    def run(self, days: list[date]) -> "Iterator[EdgarResult]":
+        for day in days:
+            yield self.run_day(day)
