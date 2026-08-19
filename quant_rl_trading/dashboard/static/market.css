@@ -300,7 +300,36 @@
   gap: 4px 14px;
 }
 
-.rank-table { width: 100%; table-layout: fixed; }
+/* **그리드 칸은 스스로 줄어들지 못한다.** grid item 의 기본 `min-width:auto`
+   는 내용의 min-content 아래로 안 내려가고, 표는 셀 하나하나가 그 바닥을
+   올린다. 그러면 `table-layout: fixed` 와 `width: 100%` 를 줘도 표가 칸보다
+   넓어지고, 넓어진 칸이 그리드를 밀고, 그리드가 페이지를 밀어 **화면 전체가
+   가로로 스크롤된다.**
+
+   실측 2026-08-19(아이폰): 순위표가 세로로 접혔는데도 페이지가 오른쪽으로
+   밀려 왼쪽 표가 잘리고 두 표의 글자가 겹쳐 보였다. 시스템 탭에서 났던 것과
+   같은 결함이다 — 그때도 원인은 긴 내용이 아니라 `min-width` 였다. */
+.rank-grid > * { min-width: 0; }
+
+.rank-table { width: 100%; table-layout: fixed; min-width: 0; }
+
+/* 종목명은 길이가 제각각이라 열 폭을 정해 줘도 넘칠 수 있다. 넘치면 줄이고
+   말줄임표를 단다 — 이름은 잘려도 읽히지만, 옆 칸 숫자를 밀면 숫자가
+   틀려 보인다.
+
+   **첫 칸(td)을 잡는다.** 이름은 `<td>` 가 아니라 그 안의 `<span class="name">`
+   에 있어서 `td.name` 으로는 안 걸린다. 셀 자체가 안 줄어들면 안쪽 span 에
+   말줄임을 걸어도 표가 넓어지는 것은 그대로다. */
+.rank-table td:first-child {
+  overflow: hidden;
+  min-width: 0;
+}
+.rank-table td:first-child .name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* **숫자를 자르지 않는다.** 표가 `table-layout: fixed` 라 열 폭이 내용에
    안 밀리는데, 그 상태에서 긴 숫자가 들어오면 칸 안에서 줄바꿈되어 한 줄이
