@@ -34,6 +34,41 @@ _SPECS: dict[str, TableSpec] = {
         observation_lag_days=3,
         doc="일봉. 원주가 기준.",
     ),
+    "security_ids": TableSpec(
+        name="security_ids",
+        columns={
+            "market": pa.string(),
+            # "CUSIP" 또는 "CINS". 외국 발행사는 CINS(G1151C101)를 쓰고
+            # 13F 는 그것도 cusip 칸에 담아 보낸다 — 물어보는 쪽이 두 종류를
+            # 구분하지 않으면 8.7% 가 "없는 종목" 이 된다
+            # (collectors/security_ids.py 실측 1).
+            "id_type": pa.string(),
+            "id_value": pa.string(),
+            "figi": pa.string(),
+            "composite_figi": pa.string(),
+            # "Common Stock"·"ETP"·"REIT" 등. 13F 에는 ETF 도 섞여 들어오므로
+            # 읽는 쪽이 종목만 고를 수 있어야 한다.
+            "security_type": pa.string(),
+            "name": pa.string(),
+            # **우리가 실제로 물어본 시각.** valid_from·observed_at 은 아래
+            # 이유로 기준시점(2015-01-01)에 박혀 있어서, 이 열이 없으면
+            # "이 매핑은 언제 찍은 스냅샷인가" 를 창고에 물을 수 없다.
+            "mapped_at": pa.timestamp("us", tz="UTC"),
+        },
+        # 한 티커에 여러 식별자가 붙는다(옛 CUSIP·재편 전 CINS). 식별자를
+        # 키에서 빼면 그것들이 서로를 덮어 마지막 하나만 남는다.
+        natural_key=("entity_id", "valid_from", "id_type", "id_value"),
+        # valid_from == observed_at 이라 지연이 0 이지만, **선언 자체를
+        # 빠뜨리면 하한 프루닝이 통째로 꺼진다.** 다른 테이블과 같은 3일.
+        observation_lag_days=3,
+        doc=(
+            "식별자 매핑. entity_id = US:AAPL, id_value = 037833100. "
+            "출처는 OpenFIGI. valid_from·observed_at 이 둘 다 2015-01-01 인 "
+            "것은 실수가 아니다 — 식별자는 그 시점에도 공개된 사실이었고, "
+            "조회한 날로 찍으면 과거 as_of 조회가 이 표를 한 행도 못 본다. "
+            "근거와 남는 위험은 collectors/security_ids.py 모듈 docstring."
+        ),
+    ),
     "filings_13f": TableSpec(
         name="filings_13f",
         columns={
