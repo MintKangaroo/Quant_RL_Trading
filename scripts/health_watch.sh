@@ -16,6 +16,7 @@ WATCH=(
   "IC백필:logs/ic-history-full.log:1800:backfill_ic_history\.py"
   "RL캐시:logs/rl-cache.log:1800:build_rl_cache\.py"
   "RL학습:logs/rl-train.log:1800:train_rl\.py"
+  "카나리:logs/canary.log:1800:verify_oracle_canary\.py"
 )
 
 # -- 램 한계 ------------------------------------------------------------------
@@ -34,7 +35,7 @@ WARN_AVAIL_MB=700
 # 멈춰도 되는 작업. **전부 이어받기가 되는 것들이다** — build_rl_cache 는 구운
 # 세션을 건너뛰고 이어받고, 백필은 ingest_run 으로 막힌다. 대시보드·수집은
 # 여기 없다. 그건 멈추면 화면이 낡거나 그날 데이터가 빈다.
-STOPPABLE='build_rl_cache\.py|backfill_ic_history\.py|backfill_signals\.py|train_rl\.py|run_grid\.py'
+STOPPABLE='build_rl_cache\.py|backfill_ic_history\.py|backfill_signals\.py|train_rl\.py|run_grid\.py|verify_oracle_canary\.py'
 
 used_mb() { awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print int((t-a)/1024)}' /proc/meminfo; }
 avail_mb() { awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo; }
