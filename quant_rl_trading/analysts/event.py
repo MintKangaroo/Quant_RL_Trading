@@ -134,18 +134,27 @@ class EventAnalyst(Analyst):
     version = "event-v0.1.0"
 
     def features(self, as_of: datetime) -> pd.DataFrame:
-        universe = self.store.get(UNIVERSE, as_of=as_of, lookback=LOOKBACK_DAYS)
+        # **시장은 SQL 에서 거른다.** 예전에는 전부 퍼온 뒤 pandas 로 걸렀는데,
+        # 미장이 창고에 들어온 순간 그것만으로 죽었다 — 실측 2026-08-18~20 에
+        # 세 세션 연속 MemoryError 였다(`universe` 248만행 중 68%, `prices`
+        # 248만행 중 69%가 안 쓸 미장이었다). ``price_panel`` 이 이미 같은
+        # 주석을 달고 있었는데 이 자리만 규칙 밖에 있었다.
+        universe = self.store.get(
+            UNIVERSE, as_of=as_of, lookback=LOOKBACK_DAYS, market=str(self.market)
+        )
         if universe.empty:
             return pd.DataFrame()
-        universe = universe[universe["market"] == str(self.market)].copy()
+        universe = universe.copy()
         universe["session"] = universe["valid_from"].dt.date
 
         # ``price_panel`` 을 안 타는 자리다. 그래서 여기만 따로 오염됐다 —
         # 시세를 읽는 곳은 예외 없이 ``read_prices`` 를 거친다.
-        prices = read_prices(self.store, as_of=as_of, lookback=LOOKBACK_DAYS)
+        prices = read_prices(
+            self.store, as_of=as_of, lookback=LOOKBACK_DAYS, market=str(self.market)
+        )
         if prices.empty:
             return pd.DataFrame()
-        prices = prices[prices["market"] == str(self.market)].copy()
+        prices = prices.copy()
         prices["session"] = prices["valid_from"].dt.date
 
         latest_session = max(universe["session"])

@@ -220,6 +220,12 @@ class Analyst(ABC):
             as_of=as_of,
             lookback=lookback,
             columns=["is_listed", "is_tradable"],
+            # **시장을 SQL 에서 거른다** — ``price_panel`` 과 같은 이유다.
+            # 여기는 결과가 집합이라 미장이 섞여도 눈에 안 띄었다(국장 종목만
+            # 필터에 걸리므로 답은 맞는다). 그래서 창고가 커지는 동안 조용히
+            # 있다가 메모리로 터졌다 — 실측 lookback=1150 에서 656만행 중
+            # 67%가 안 쓸 미장이었고, `fundamental` 이 거기서 죽었다.
+            market=str(self.market),
         )
         if universe.empty:
             return None
