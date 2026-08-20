@@ -9,10 +9,15 @@ cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
 MARKET="${1:-KR}"
 LOG="logs/daily-$(date +%Y%m).log"
+# **rc 를 밖으로 내보낸다.** 예전에는 블록의 마지막이 `echo` 라 파이썬이
+# 무엇으로 끝나든 스크립트는 0 이었다. 크론이 보는 것은 이 값 하나다.
+RC=0
 {
     echo "=== $(date '+%F %T') market=${MARKET} ==="
     ulimit -v 8388608
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/run_daily.py --market "${MARKET}"
-    echo "rc=$?"
+    RC=$?
+    echo "rc=${RC}"
 } >>"${LOG}" 2>&1
+exit "${RC}"

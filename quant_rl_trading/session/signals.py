@@ -60,6 +60,14 @@ class ScoringResult:
     counts: dict[str, int] = field(default_factory=dict)
     confidence: dict[str, float] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    #: **예외로 죽은 Analyst 만.** ``warnings`` 와 갈라 둔 이유가 있다 —
+    #: "신호 0건" 과 "MemoryError 로 죽음" 은 성격이 다른데 한 목록에 있으면
+    #: 호출부가 문자열을 뜯어봐야 가를 수 있고, 그러면 아무도 안 가른다.
+    #:
+    #: 실측 2026-08-18~20: event·fundamental·regime 이 세 세션 연속 죽었는데
+    #: `run_daily.sh` 는 rc=0 으로 끝났다. 6종 중 3종이 빠진 신호로 후보를
+    #: 고르는 동안 크론도 브리핑도 아무 말을 안 했다.
+    failures: list[str] = field(default_factory=list)
     #: 창고 조회를 몇 번 아꼈나. 0 이면 캐시가 안 걸린 것이다 — 조용히
     #: 느려지는 것을 알아채는 유일한 표시다.
     cache_hits: int = 0
@@ -119,7 +127,11 @@ def produce(
             signals = analyst.run(as_of, confidence=confidence)
         except Exception as error:
             # 하나가 죽어도 나머지는 남긴다. 조용히 넘어가지 않고 경고로 올린다.
-            result.warnings.append(f"{name}: {type(error).__name__}: {error}")
+            message = f"{name}: {type(error).__name__}: {error}"
+            result.warnings.append(message)
+            # **실패는 따로도 센다.** 화면에 찍히는 것과 rc 로 나가는 것은
+            # 다른 일이다 — 사람이 로그를 안 볼 때 크론이 대신 알아야 한다.
+            result.failures.append(message)
             continue
 
         if not signals:
