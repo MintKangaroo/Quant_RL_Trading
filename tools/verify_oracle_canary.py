@@ -60,7 +60,8 @@ CANARY_LR = 3e-5
 
 
 def run_one(
-    *, store: Store, oracle: bool, updates: int, envs: int, seed: int, market: str
+    *, store: Store, oracle: bool, updates: int, envs: int, seed: int, market: str,
+    ent_coef: float | None = None
 ) -> tuple[float, np.ndarray]:
     """한 판 돌리고 (오라클 칸 기여도, 전체 기여도) 를 돌려준다."""
     device = torch.device("cpu")
@@ -78,7 +79,8 @@ def run_one(
     # 3e-5 를 쓴다 — 1스텝 배분 L1 0.039, 3스텝 0.032 로 안정이다.
     ppo = replace(train_module.train_config(), num_envs=envs, n_steps=128,
                   minibatch_size=512, n_epochs=4,
-                  lr_policy=CANARY_LR, lr_value=CANARY_LR * 3)
+                  lr_policy=CANARY_LR, lr_value=CANARY_LR * 3,
+                  **({} if ent_coef is None else {"ent_coef": ent_coef}))
     env = VecLatticeEnv(
         store=store, train_start=date(2025, 1, 2), train_end=date(2026, 6, 30),
         market=market, n_envs=envs, oracle_leak=oracle, seed=seed,
@@ -126,18 +128,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--market", default="KR")
     parser.add_argument("--root", default="data")
+    # **진단용이다.** 엔트로피 보너스가 배분을 균등에 붙들어 두는지 보려면
+    # 그것만 빼고 같은 판을 돌려 봐야 한다. 본 학습 설정은 안 건드린다.
+    parser.add_argument("--ent-coef", type=float, default=None)
     args = parser.parse_args(argv)
 
     store = Store(root=Path(args.root))
     print("오라클 켠 판 — **이 판의 성과는 전부 가짜다**", flush=True)
     on, on_all, on_nav = run_one(
         store=store, oracle=True, updates=args.updates, envs=args.envs,
-        seed=args.seed, market=args.market,
+        seed=args.seed, market=args.market, ent_coef=args.ent_coef,
     )
     print("대조군 (오라클 끔)", flush=True)
     off, off_all, off_nav = run_one(
         store=store, oracle=False, updates=args.updates, envs=args.envs,
-        seed=args.seed, market=args.market,
+        seed=args.seed, market=args.market, ent_coef=args.ent_coef,
     )
 
     # 대조군에서 그 칸은 **섹터 원핫 자리**다(FEATURE_ORACLE = FEATURE_SECTOR_BASE).
