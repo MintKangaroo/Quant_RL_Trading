@@ -91,6 +91,25 @@ SHADOW_RESTART_DATE = date(2026, 8, 14)
 REQUIRED_SHADOW_DAYS = 10
 SHADOW_SANDBOX = REPO_ROOT / "data" / "_shadow"
 
+#: **판단이 반쪽이었던 날.** 파이프라인은 끝까지 돌았고 킬스위치도 안 울렸지만,
+#: 그날 세션이 설계된 Analyst 를 다 못 쓰고 결정을 냈다. 사고가 아니라고 하기엔
+#: 그 결정의 근거가 절반이다.
+#:
+#: 2026-08-20 — event · fundamental · regime 이 MemoryError 로 죽어 6종 중
+#: 3종(chart · flow_kr · risk)으로 후보를 골랐다. 18:51 shadow 세션이 그
+#: 상태로 돌았다(원인·수정: 커밋 39fd493).
+#:
+#: **왜 창고를 읽어 자동으로 판정하지 않는가.** 그럴 수 없기 때문이다.
+#: 같은 날 19:03 에 세 Analyst 를 되살려 신호를 채웠고, 그 뒤로 `signals` 는
+#: 그날을 6종으로 보여준다 — **정정본이 사고의 흔적을 지웠다.** 창고를 읽는
+#: 판정기는 이 날을 영영 못 잡는다.
+#:
+#: 그래서 여기 손으로 적는다. 다음 사고를 손으로 적지 않으려면 실패를
+#: **일어난 순간 데이터로 남겨야** 한다 — 지금은 rc 와 로그에만 있다.
+DEGRADED_SESSIONS: dict[date, str] = {
+    date(2026, 8, 20): "Analyst 3종(event·fundamental·regime)이 죽어 6종 중 3종으로 판단",
+}
+
 #: 세션 하나가 정상적으로 끝까지 돈 것으로 보려면 이 네 단계가 다 있어야
 #: 한다(backtest/loop.py 가 매 세션 이 순서로 기록한다). 하나라도 빠지면
 #: 파이프라인이 도중에 죽은 것이다 — 그 자체가 사고다.
@@ -230,7 +249,8 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
     except Exception as exc:
         stale_days, nav_notes = set(filled_days), [f"nav_daily 를 못 읽었다: {exc}"]
 
-    incidents = incomplete_days | engaged_days
+    degraded_days = {day for day in DEGRADED_SESSIONS if day in filled_days}
+    incidents = incomplete_days | engaged_days | degraded_days
     verified_days = filled_days - incidents - stale_days
 
     evidence = [
@@ -241,6 +261,10 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
         + (f": {_days(incomplete_days)}" if incomplete_days else ""),
         f"킬스위치 발동 {len(engaged_days)}일"
         + (f": {_days(engaged_days)}" if engaged_days else ""),
+        *[
+            f"판단 반쪽 {day.isoformat()}: {DEGRADED_SESSIONS[day]}"
+            for day in sorted(degraded_days)
+        ],
         *nav_notes,
         f"→ 검증된 무사고 체결일 {len(verified_days)}/{REQUIRED_SHADOW_DAYS}"
         + (f": {_days(verified_days)}" if verified_days else ""),
