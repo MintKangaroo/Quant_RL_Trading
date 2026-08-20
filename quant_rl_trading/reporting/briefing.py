@@ -128,6 +128,11 @@ class IndexRow:
     change: float | None
     session: date | None
     note: str | None = None
+    #: RSI(기본 14). 표본이 모자라면 ``None`` — **0 으로 채우지 않는다.**
+    #: 0 은 극단적 과매도라는 뜻이고, "못 쟀다" 와 정반대의 말이다.
+    rsi: float | None = None
+    #: ``"overbought"`` | ``"oversold"`` | ``None``. 임계는 store.config.
+    rsi_zone: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -138,6 +143,8 @@ class IndexRow:
             "change": self.change,
             "session": self.session.isoformat() if self.session else None,
             "note": self.note,
+            "rsi": self.rsi,
+            "rsi_zone": self.rsi_zone,
         }
 
 
@@ -386,6 +393,20 @@ def index_rows(
     latest, observed = _quotes(frame)
     ref = describe(Market(market), "지수", expected=expected, observed=observed)
 
+    # RSI 는 창이 달라 따로 읽는다 — 지수 조회는 10일이라 RSI(14)에 모자란다.
+    # **가격지수만 잰다.** VIX 의 RSI 는 "변동성의 과매수" 라는 뜻이 되는데
+    # 그게 무엇인지 우리는 답할 수 없고, 답할 수 없는 숫자는 안 적는다.
+    period = int(store.config("reporting.rsi_period", as_of=as_of))
+    over = float(store.config("reporting.rsi_overbought", as_of=as_of))
+    under = float(store.config("reporting.rsi_oversold", as_of=as_of))
+    price_entities = [
+        entity for entity, _ in wanted
+        if entity not in market_service.VOLATILITY_INDICES
+    ]
+    rsi_by_entity = index_rsi(
+        store, as_of=as_of, market=market, entities=price_entities, period=period
+    )
+
     prices: list[IndexRow] = []
     volatility: list[IndexRow] = []
     for entity, label in wanted:
@@ -406,6 +427,14 @@ def index_rows(
                 note="창고에 이 지수가 없다",
             )
         else:
+            value = rsi_by_entity.get(entity)
+            zone = None
+            if value is not None:
+                zone = (
+                    "overbought" if value >= over
+                    else "oversold" if value <= under
+                    else None
+                )
             row = IndexRow(
                 entity_id=entity,
                 label=label,
@@ -414,9 +443,65 @@ def index_rows(
                 change=found.change,
                 session=found.session,
                 note=_quote_note(found, market=market, expected=expected),
+                rsi=value,
+                rsi_zone=zone,
             )
         (volatility if kind == "volatility" else prices).append(row)
     return prices, volatility, ref
+
+
+#: RSI 를 재려면 기간보다 넉넉한 표본이 있어야 한다. Wilder 평활은 앞쪽
+#: 값의 영향이 오래 남아서, 기간 딱 맞게 주면 첫 구간이 단순평균과 다를
+#: 바 없어진다. 휴장·연휴까지 감안해 달력일로 넉넉히 잡는다.
+RSI_LOOKBACK_DAYS = 150
+
+
+def wilder_rsi(closes: "pd.Series", period: int) -> float | None:
+    """RSI. 표본이 모자라면 **None** — 지어내지 않는다.
+
+    Wilder 원식이다(지수평활, alpha=1/period). 단순이동평균으로 내는 변형이
+    돌아다니는데 값이 다르게 나오므로, 화면과 다른 곳이 각자 고르면 같은
+    지수의 RSI 가 두 개가 된다. 여기 한 벌만 둔다.
+
+    **하락이 하나도 없는 구간은 100 이다.** 0 으로 나누는 자리라 그냥 두면
+    inf 가 나오고, inf 하나가 조용히 퍼지는 사고를 이 저장소는 이미 겪었다
+    (`lattice-zero-close-bug`).
+    """
+    values = closes.dropna()
+    if len(values) < period + 1:
+        return None
+    delta = values.diff().dropna()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean().iloc[-1]
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean().iloc[-1]
+    if avg_loss <= 0:
+        return 100.0 if avg_gain > 0 else 50.0
+    rs = avg_gain / avg_loss
+    return float(100.0 - 100.0 / (1.0 + rs))
+
+
+def index_rsi(
+    store: Store, *, as_of: datetime, market: str, entities: list[str], period: int
+) -> dict[str, float]:
+    """지수별 RSI. 못 잰 것은 **키 자체가 없다** (0 으로 채우지 않는다)."""
+    frame = store.get(
+        market_service.INDICES,
+        as_of=as_of,
+        lookback=RSI_LOOKBACK_DAYS,
+        market=market,
+        entity=entities,
+        columns=["entity_id", "close", "valid_from"],
+    )
+    if frame.empty:
+        return {}
+    out: dict[str, float] = {}
+    for entity, group in frame.groupby("entity_id"):
+        ordered = group.sort_values("valid_from")
+        value = wilder_rsi(ordered["close"], period)
+        if value is not None:
+            out[str(entity)] = value
+    return out
 
 
 def proxy_rows(

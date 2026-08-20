@@ -388,6 +388,20 @@ def _index_rows(rows: list[IndexRow], *, volatility: bool) -> str:
             f'<span style="color:{_color(row.change, kind)};font-weight:700"> '
             f"{_moved(row.change)}</span>"
         )
+        # **RSI 는 손익 색을 쓰지 않는다.** 70 이 이익이고 30 이 손실인 것이
+        # 아니다 — 변동성 지수에 색을 안 쓰는 것과 같은 이유다. 과매수·과매도
+        # 구간에서만 눈에 띄게 하고, 그 밖에서는 조용한 회색으로 둔다.
+        if row.rsi is not None:
+            tint = WARN_INK if row.rsi_zone else SOFT
+            tag = (
+                " 과매수" if row.rsi_zone == "overbought"
+                else " 과매도" if row.rsi_zone == "oversold"
+                else ""
+            )
+            value += (
+                f'<br><span style="color:{tint};font-size:{SMALL}px;'
+                f'font-weight:400">RSI {row.rsi:.0f}{tag}</span>'
+            )
         body += (
             "<tr>"
             + _cell(f"{row.label}{mark}", color=SOFT)

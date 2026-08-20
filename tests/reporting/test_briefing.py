@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pandas as pd
 import pytest
 
 from quant_rl_trading.collectors.market_hours import Market, is_trading_day
@@ -485,3 +486,55 @@ def test_briefing_carries_no_performance_section(seeded: Store) -> None:
     for banned in ("pnl", "nav", "positions", "holdings", "return_pct"):
         assert banned not in flat
 
+
+
+# -- RSI ----------------------------------------------------------------------
+
+
+def test_wilder_rsi_boundaries() -> None:
+    """경계에서 손으로 검산한다. **0 으로 나누는 자리가 있다.**
+
+    하락이 하나도 없는 구간은 평균손실이 0 이라 그냥 두면 inf 가 나온다.
+    inf 하나가 조용히 퍼지는 사고를 이 저장소는 이미 겪었다
+    (analysts 를 침묵시킨 종가 0 세션).
+    """
+    from quant_rl_trading.reporting.briefing import wilder_rsi
+
+    assert wilder_rsi(pd.Series(range(1, 40), dtype=float), 14) == 100.0
+    assert wilder_rsi(pd.Series(range(40, 1, -1), dtype=float), 14) == 0.0
+    # 움직임이 아예 없으면 상승도 하락도 0 이다. 100 이 아니라 50 이다 —
+    # "쉼 없이 오르는 중" 과 "안 움직임" 은 정반대다.
+    assert wilder_rsi(pd.Series([100.0] * 40), 14) == 50.0
+
+
+def test_wilder_rsi_returns_none_when_short() -> None:
+    """표본이 모자라면 **None**. 0 으로 채우지 않는다 — 0 은 극단적
+    과매도라는 뜻이고 "못 쟀다" 와 정반대의 말이다."""
+    from quant_rl_trading.reporting.briefing import wilder_rsi
+
+    assert wilder_rsi(pd.Series([1.0, 2.0, 3.0]), 14) is None
+    # 기간과 딱 같아도 차분이 하나 모자라다.
+    assert wilder_rsi(pd.Series(range(14), dtype=float), 14) is None
+    assert wilder_rsi(pd.Series(range(15), dtype=float), 14) is not None
+
+
+def test_index_row_carries_rsi() -> None:
+    """as_dict 가 RSI 를 싣는다 — 화면·API 가 같은 값을 본다."""
+    from quant_rl_trading.reporting.briefing import IndexRow
+
+    row = IndexRow(
+        entity_id="US:IDX:NASDAQ", label="나스닥", kind="price",
+        close=26331.1, change=0.0016, session=date(2026, 8, 19),
+        rsi=53.3, rsi_zone=None,
+    )
+    payload = row.as_dict()
+    assert payload["rsi"] == 53.3
+    assert payload["rsi_zone"] is None
+
+    # 값이 없으면 키는 있고 값이 None 이다. 키가 사라지면 화면이 옛 메일과
+    # 새 메일에서 다른 모양을 그린다.
+    bare = IndexRow(
+        entity_id="US:IDX:DOW", label="다우", kind="price",
+        close=None, change=None, session=None,
+    )
+    assert bare.as_dict()["rsi"] is None
