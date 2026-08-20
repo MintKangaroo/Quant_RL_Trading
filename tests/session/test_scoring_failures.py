@@ -64,6 +64,39 @@ def scorers(monkeypatch):  # type: ignore[no-untyped-def]
     )
 
 
+def test_crash_is_written_to_the_warehouse(store, scorers):  # type: ignore[no-untyped-def]
+    """**죽었다는 사실이 창고에 남는다.** 로그로는 부족하다.
+
+    2026-08-20 실측: Analyst 3종이 죽었지만 같은 날 정정본을 넣자 `signals`
+    는 그날을 6종으로 보여줬다 — 정정본이 흔적을 지웠다. `verify_m3` 가
+    그 날을 잡을 방법이 없어 상수에 손으로 적어야 했다.
+    """
+    from datetime import timedelta
+
+    store.seed_config_defaults()
+    signals_module.produce(store, market=Market.KR, as_of=AS_OF)
+
+    rows = store.get("analyst_failures", as_of=AS_OF + timedelta(days=1), lookback=7)
+    assert len(rows) == 1
+    row = rows.iloc[0]
+    assert row["entity_id"] == "boom"
+    assert row["error_type"] == "MemoryError"
+    # 원문을 자른다면 배열 크기가 사라진다 — 그 숫자가 원인을 특정했다.
+    assert "94.7 MiB" in row["detail"]
+    # 안 죽은 Analyst 는 행이 없다. 없는 것을 0으로 채우지 않는다.
+    assert "silent" not in set(rows["entity_id"].astype(str))
+
+
+def test_dry_run_writes_nothing(store, scorers):  # type: ignore[no-untyped-def]
+    """예행에서는 창고를 안 건드린다."""
+    from datetime import timedelta
+
+    store.seed_config_defaults()
+    signals_module.produce(store, market=Market.KR, as_of=AS_OF, dry_run=True)
+    rows = store.get("analyst_failures", as_of=AS_OF + timedelta(days=1), lookback=7)
+    assert rows.empty
+
+
 def test_crash_lands_in_failures_not_only_warnings(store, scorers):  # type: ignore[no-untyped-def]
     """죽은 것은 ``failures`` 에, 빈 것은 ``warnings`` 에만."""
     store.seed_config_defaults()

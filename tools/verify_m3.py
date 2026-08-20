@@ -95,20 +95,35 @@ SHADOW_SANDBOX = REPO_ROOT / "data" / "_shadow"
 #: 그날 세션이 설계된 Analyst 를 다 못 쓰고 결정을 냈다. 사고가 아니라고 하기엔
 #: 그 결정의 근거가 절반이다.
 #:
-#: 2026-08-20 — event · fundamental · regime 이 MemoryError 로 죽어 6종 중
-#: 3종(chart · flow_kr · risk)으로 후보를 골랐다. 18:51 shadow 세션이 그
-#: 상태로 돌았다(원인·수정: 커밋 39fd493).
+#: **이제는 창고가 답한다.** `analyst_failures` 에 Analyst 가 죽은 순간의
+#: 행이 남는다(`session/signals.py`). 아래 상수는 그 표가 생기기 전에 일어난
+#: 일만 든다 — 소급해 지어낼 수 없으니 그때 로그에서 읽어 손으로 적었다.
 #:
-#: **왜 창고를 읽어 자동으로 판정하지 않는가.** 그럴 수 없기 때문이다.
-#: 같은 날 19:03 에 세 Analyst 를 되살려 신호를 채웠고, 그 뒤로 `signals` 는
-#: 그날을 6종으로 보여준다 — **정정본이 사고의 흔적을 지웠다.** 창고를 읽는
-#: 판정기는 이 날을 영영 못 잡는다.
-#:
-#: 그래서 여기 손으로 적는다. 다음 사고를 손으로 적지 않으려면 실패를
-#: **일어난 순간 데이터로 남겨야** 한다 — 지금은 rc 와 로그에만 있다.
+#: 왜 창고를 읽는 쪽으로 옮겼나: 같은 날 정정본을 넣자 `signals` 는 그날을
+#: 6종으로 보여줬다. **정정본이 사고의 흔적을 지웠다.** 다른 표에서 추론하는
+#: 판정은 정정 한 번에 무너진다.
+FAILURES_TABLE = "analyst_failures"
+
 DEGRADED_SESSIONS: dict[date, str] = {
+    # analyst_failures 표가 생기기 전(커밋 dc60283 이전)에 일어난 일.
     date(2026, 8, 20): "Analyst 3종(event·fundamental·regime)이 죽어 6종 중 3종으로 판단",
 }
+
+
+def _degraded_from_store(store: Store, as_of: datetime, lookback: int) -> dict[date, str]:
+    """창고가 아는 반쪽 세션. 표가 비어 있으면 빈 dict — 실패가 아니다."""
+    try:
+        rows = store.get(FAILURES_TABLE, as_of=as_of, lookback=lookback)
+    except Exception:  # noqa: BLE001
+        return {}
+    if rows.empty:
+        return {}
+    out: dict[date, str] = {}
+    for day, group in rows.groupby(rows["valid_from"].dt.date):
+        names = ", ".join(sorted(group["entity_id"].astype(str).unique()))
+        out[day] = f"Analyst {group['entity_id'].nunique()}종({names})이 죽었다"
+    return out
+
 
 #: 세션 하나가 정상적으로 끝까지 돈 것으로 보려면 이 네 단계가 다 있어야
 #: 한다(backtest/loop.py 가 매 세션 이 순서로 기록한다). 하나라도 빠지면
@@ -249,7 +264,9 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
     except Exception as exc:
         stale_days, nav_notes = set(filled_days), [f"nav_daily 를 못 읽었다: {exc}"]
 
-    degraded_days = {day for day in DEGRADED_SESSIONS if day in filled_days}
+    # 창고가 먼저다. 상수는 표가 생기기 전 구간만 채운다.
+    degraded = {**DEGRADED_SESSIONS, **_degraded_from_store(shadow, as_of, lookback)}
+    degraded_days = {day for day in degraded if day in filled_days}
     incidents = incomplete_days | engaged_days | degraded_days
     verified_days = filled_days - incidents - stale_days
 
@@ -262,7 +279,7 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
         f"킬스위치 발동 {len(engaged_days)}일"
         + (f": {_days(engaged_days)}" if engaged_days else ""),
         *[
-            f"판단 반쪽 {day.isoformat()}: {DEGRADED_SESSIONS[day]}"
+            f"판단 반쪽 {day.isoformat()}: {degraded[day]}"
             for day in sorted(degraded_days)
         ],
         *nav_notes,

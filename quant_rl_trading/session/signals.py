@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -32,7 +33,10 @@ from quant_rl_trading.store.memo import MemoStore
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
+logger = logging.getLogger(__name__)
+
 SIGNALS = "signals"
+FAILURES = "analyst_failures"
 
 #: 점수를 내는 Analyst. **시장별로 돌릴 수 있는 것이 다르다** — 미장은 재무·
 #: 이벤트·수급 데이터가 없어서, 돌려봤자 나오는 것은 신호가 아니라 빈 프레임이다.
@@ -77,6 +81,62 @@ class ScoringResult:
 def run_id_for(table: str, market: Market, moment: datetime, name: str) -> str:
     """결정론적 run id. 같은 세션을 두 번 넣으려 하면 창고가 거부한다."""
     return f"daily-{table}-{market}-{moment:%Y%m%d}-{name}"
+
+
+def _record_failure(
+    store: Store,
+    *,
+    market: Market,
+    as_of: datetime,
+    name: str,
+    error: BaseException,
+    revision: int,
+) -> None:
+    """Analyst 가 죽었다는 사실을 **창고에** 남긴다.
+
+    ## 왜 로그로 부족한가
+
+    2026-08-20 에 event·fundamental·regime 이 죽었다. 로그에는 남았지만
+    창고에는 안 남았고, 같은 날 정정본을 넣자 `signals` 는 그날을 6종으로
+    보여줬다 — **정정본이 사고의 흔적을 지웠다.** `verify_m3` 가 그 날을
+    잡을 방법이 없어 상수에 손으로 적어야 했다.
+
+    실패는 **일어난 순간** 데이터가 되어야 한다. 나중에 다른 표에서
+    추론하면 늦고, 그 추론은 정정 한 번에 무너진다.
+
+    ## 나중에 고쳐도 이 행은 안 지운다
+
+    그날 세션이 반쪽 판단으로 돌았다는 것은 나중에 고쳐도 달라지지 않는
+    사실이다. 되살아난 Analyst 는 새 `signals` 행을 쓸 뿐 이 행을 건드리지
+    않는다.
+
+    ## 여기서 죽지 않는다
+
+    기록에 실패해도 세션은 계속 간다. 사고를 적다가 사고를 키우면 안 된다 —
+    남은 Analyst 들은 여전히 돌아야 하고, 그게 이 함수를 부른 이유다.
+    """
+    run_id = f"analyst-failure-{market}-{as_of.date().isoformat()}-{name}"
+    if revision:
+        run_id = f"{run_id}-rev{revision}"
+    row = {
+        "entity_id": name,
+        "valid_from": as_of,
+        # 우리가 안 시각도 그 세션이다. 세션이 끝난 뒤에 알게 된 것이 아니라
+        # 세션을 돌리다가 겪은 일이다.
+        "observed_at": as_of,
+        "source": "daily",
+        "market": str(market),
+        "stage": "score",
+        "error_type": type(error).__name__,
+        # 원문을 자르지 않는다. MemoryError 의 배열 크기처럼 **숫자 하나가
+        # 원인을 특정**하는 경우가 있다 (2026-08-20 에 그랬다).
+        "detail": str(error),
+    }
+    try:
+        with contextlib.suppress(DuplicateIngestRun):
+            store.append(FAILURES, [row], ingest_run_id=run_id)
+    except Exception as write_error:  # noqa: BLE001
+        logger.warning("Analyst 실패를 창고에 못 적었다: %s", write_error)
 
 
 def produce(
@@ -132,6 +192,11 @@ def produce(
             # **실패는 따로도 센다.** 화면에 찍히는 것과 rc 로 나가는 것은
             # 다른 일이다 — 사람이 로그를 안 볼 때 크론이 대신 알아야 한다.
             result.failures.append(message)
+            if not dry_run:
+                _record_failure(
+                    store, market=market, as_of=as_of, name=name,
+                    error=error, revision=revision,
+                )
             continue
 
         if not signals:

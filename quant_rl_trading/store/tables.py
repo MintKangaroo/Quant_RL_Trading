@@ -467,6 +467,28 @@ _SPECS: dict[str, TableSpec] = {
             "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
         ),
     ),
+    "analyst_failures": TableSpec(
+        name="analyst_failures",
+        columns={
+            "market": pa.string(),
+            "stage": pa.string(),
+            "error_type": pa.string(),
+            "detail": pa.string(),
+        },
+        # entity_id 가 종목이 아니라 **Analyst 이름**이다. rl_updates 와 같은
+        # 사정이라 시장 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
+        natural_key=("entity_id", "valid_from", "stage"),
+        market_prefixed_entity=False,
+        doc=(
+            "Analyst 가 그 세션에 예외로 죽었다는 기록. 1행 = 한 Analyst · 한 세션. "
+            "**나중에 창고를 읽어 추론할 수 없어서 만든 표다.** 2026-08-20 에 "
+            "event·fundamental·regime 이 죽었는데, 같은 날 정정본을 넣자 "
+            "signals 는 그날을 6종으로 보여줬다 — 정정본이 사고의 흔적을 지웠다. "
+            "verify_m3 가 그 날을 잡을 방법이 없어 상수에 손으로 적어야 했다. "
+            "**고쳐도 이 행은 지우지 않는다.** 그날 세션이 반쪽 판단으로 돈 것은 "
+            "나중에 고쳐도 달라지지 않는 사실이다."
+        ),
+    ),
     "analyst_weights": TableSpec(
         name="analyst_weights",
         columns={
