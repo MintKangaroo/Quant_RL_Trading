@@ -174,24 +174,62 @@ class EnvParams:
     rates: Rates
 
     @classmethod
-    def from_store(cls, store: Store, *, as_of: datetime) -> EnvParams:
+    def from_store(
+        cls, store: Store, *, as_of: datetime, hyper_as_of: datetime | None = None
+    ) -> EnvParams:
+        """설정을 읽어 환경 인자를 만든다. **두 시점을 쓴다.**
+
+        ## 왜 시점이 둘인가
+
+        이 표에는 성격이 다른 둘이 섞여 있다.
+
+            세상이 어땠나   결제주기 · 호가단위 · 수수료 · 환율
+            우리가 어떻게 하나  슬롯 수 · 에피소드 길이 · 보상 계수 · 비중 상한
+
+        앞은 과거 조회에서 **그때 값**이어야 한다. 2024년 백테스트가 오늘
+        수수료로 돌면 그건 백테스트가 아니다.
+
+        뒤는 반대다. **오늘 우리가 고른 설계**여야 한다. 불변식 5 가 "백테스트와
+        라이브는 같은 코드를 쓴다" 고 못 박은 이유가 이것이다 — 백테스트가
+        2025년의 슬롯 수로 돌고 실전이 오늘 슬롯 수로 돌면 둘은 같은 시스템이
+        아니고, 백테스트 성적은 실전을 예측하지 못한다.
+
+        ## 실제로 겪은 일 (2026-08-20)
+
+        `n_max_candidates` 를 30 → 15 로 바꾸고 학습을 돌렸는데 **마지막
+        자리까지 똑같은 숫자**가 나왔다. 환경이 이 값을 학습 구간 첫날
+        (2025-01-02) 기준으로 읽어서, 그날 발효한 정정본이 그 시점에는
+        존재하지 않았던 것이다. 오류가 아니라 **조용히 옛 값**이었다.
+
+        발효일을 앞당기는 길은 막혀 있다 — 그러면 과거 백테스트가 소급해
+        바뀌고, M3 를 통과 중인 OOS 결과가 소리 없이 다른 값이 된다.
+
+        ## hyper_as_of 를 안 주면
+
+        ``as_of`` 와 같아진다. 옛 동작 그대로다 — 백테스트처럼 "그때 설계로
+        재현" 이 목적인 자리는 그대로 두면 된다. **학습·진단은 반드시 준다.**
+        """
+        hyper = hyper_as_of or as_of
         return cls(
-            episode_days=int(store.config("allocator.episode_days", as_of=as_of)),
-            n_max=int(store.config("allocator.n_max_candidates", as_of=as_of)),
+            episode_days=int(store.config("allocator.episode_days", as_of=hyper)),
+            n_max=int(store.config("allocator.n_max_candidates", as_of=hyper)),
             # 액션은 0~max 일 지연이므로 선택지는 max+1 개다. `rl-training.md`
             # 의 Categorical(4) 가 이 값에서 나온다 — 4 를 코드에 박으면
             # 지연 상한을 바꾸는 순간 액션 공간과 설정이 조용히 어긋난다.
             delay_choices=int(
-                store.config("allocator.env.max_entry_delay_days", as_of=as_of)
+                store.config("allocator.env.max_entry_delay_days", as_of=hyper)
             )
             + 1,
             max_position_weight=float(
-                store.config("allocator.max_position_weight", as_of=as_of)
+                store.config("allocator.max_position_weight", as_of=hyper)
             ),
-            cash_buffer=float(store.config("allocator.cash_buffer", as_of=as_of)),
+            cash_buffer=float(store.config("allocator.cash_buffer", as_of=hyper)),
             initial_capital=float(
-                store.config("allocator.env.initial_capital", as_of=as_of)
+                store.config("allocator.env.initial_capital", as_of=hyper)
             ),
+            # **결제주기는 세상 쪽이다.** T+2 가 T+1 로 바뀌면 그것은 우리가
+            # 고른 것이 아니라 시장이 바뀐 것이고, 과거 구간은 그때 규칙으로
+            # 굴러야 한다.
             settlement_days=int(store.config("execution.settlement_days", as_of=as_of)),
             kr_policy_rate=str(
                 store.config("allocator.env.kr_policy_rate_series", as_of=as_of)
@@ -199,7 +237,11 @@ class EnvParams:
             us_policy_rate=str(
                 store.config("allocator.env.us_policy_rate_series", as_of=as_of)
             ),
-            reward=RewardParams.from_store(store, as_of=as_of),
+            # 보상은 **우리 설계**다. 오늘 고른 보상으로 과거를 평가하는 것이
+            # 맞다 — 2025년의 보상 계수로 학습해 놓고 오늘 다른 계수로 실전을
+            # 돌리면 학습이 무엇을 위한 것이었는지 알 수 없다.
+            reward=RewardParams.from_store(store, as_of=hyper),
+            # 체결·호가·환율은 세상 쪽이다. 그때 값으로 재현해야 한다.
             fill=FillParams.from_store(store, as_of=as_of),
             sizing=sizing_module.SizingParams.from_store(store, as_of=as_of),
             rates=Rates.from_store(store, as_of=as_of),
@@ -280,6 +322,10 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         oracle_leak: bool = False,
         use_cache: bool = True,
         cache_root: Path | None = None,
+        #: 학습 설계값(슬롯 수·보상 계수 등)을 읽을 시점. 안 주면 학습 구간
+        #: 첫날이 되어 **오늘 바꾼 설정을 못 본다** — `EnvParams.from_store`
+        #: 독스트링 참고. 학습·진단은 반드시 준다.
+        hyper_as_of: datetime | None = None,
     ) -> None:
         """``train_start``~``train_end`` 는 **학습 구간**이다.
 
@@ -318,7 +364,9 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
 
         self._sessions = trading_days(self.market, train_start, train_end)
         self.params = params or EnvParams.from_store(
-            store, as_of=self._moment(self._sessions[0])
+            store,
+            as_of=self._moment(self._sessions[0]),
+            hyper_as_of=hyper_as_of,
         )
         if len(self._sessions) <= self.params.episode_days:
             raise ValueError(

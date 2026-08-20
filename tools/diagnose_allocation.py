@@ -98,32 +98,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     store = Store(root=Path(args.root))
     train_start, train_end = date(2025, 1, 2), date(2026, 6, 30)
+    # **학습 설계값은 "지금" 으로 읽는다.** 학습 구간 첫날로 읽으면 오늘 바꾼
+    # 설정을 못 본다 (`EnvParams.from_store` 독스트링). 시장 쪽 값(체결·호가·
+    # 환율)은 여전히 그때 값이다.
+    run_moment = datetime.now(UTC)  # invariant-allow: wallclock
 
-    # **슬롯 수는 창고가 아니라 여기서 덮어쓴다.**
+    # **설정은 오늘 시점으로 읽는다** (`hyper_as_of`). 안 그러면 학습 구간
+    # 첫날 기준이라 오늘 바꾼 값을 못 본다 — `EnvParams.from_store` 독스트링.
     #
-    # `config/quant_rl_trading.yaml` 을 고치는 길은 막혀 있다. `env` 는 이
-    # 값을 **학습 구간 첫날 기준으로** 읽어서(`EnvParams.from_store(store,
-    # as_of=첫 세션)`), 오늘 넣은 정정본은 2025-01-02 시점에 존재하지 않는다.
-    # 실측 2026-08-20: 30 → 15 로 바꾸고 돌렸더니 **마지막 자리까지 똑같은
-    # 숫자**가 나왔다 — 그게 안 먹혔다는 증거였다.
-    #
-    # 발효일을 앞당기면 학습은 보지만 **과거 백테스트도 같이 바뀐다.** 지금
-    # M3 를 통과 중인 OOS 백테스트(MDD -11.6%)가 소리 없이 다른 값이 된다.
-    # 임계치의 과거 불변성은 그러라고 있는 것이다(불변식 10).
-    #
-    # 그래서 실험은 창고 밖에서 한다. 이 값으로 학습을 돌리기로 정하면
-    # 그때 설정을 어떻게 옮길지는 따로 판단할 문제다.
+    # `--n-max` 는 그 위에 얹는 **한 판짜리 덮어쓰기**다. 창고에 남길 값인지
+    # 아직 모르는 것을 재 볼 때 쓴다. 정하고 나면 config 를 고친다.
     params = None
     if args.n_max is not None:
         base = EnvParams.from_store(
-            store, as_of=datetime.combine(train_start, time(0, 0), tzinfo=UTC)
+            store,
+            as_of=datetime.combine(train_start, time(0, 0), tzinfo=UTC),
+            hyper_as_of=run_moment,
         )
         params = replace(base, n_max=args.n_max)
 
     env = VecLatticeEnv(
         store=store, train_start=train_start, train_end=train_end,
         market=args.market, n_envs=args.envs, oracle_leak=args.oracle,
-        seed=args.seed, params=params,
+        seed=args.seed, params=params, hyper_as_of=run_moment,
     )
     obs = env.reset()
     policy = AllocatorPolicy(PolicyConfig(

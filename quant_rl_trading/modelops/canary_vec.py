@@ -33,7 +33,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -94,6 +94,9 @@ class VecLatticeEnv:
         params: EnvParams | None = None,
         cache_pool: int = 512,
         seed: int = 0,
+        #: 학습 설계값을 읽을 시점. 안 주면 학습 구간 첫날이라 오늘 바꾼
+        #: 설정을 못 본다 (`EnvParams.from_store` 독스트링).
+        hyper_as_of: datetime | None = None,
     ) -> None:
         def build(shared: EnvParams | None) -> LatticeEnv:
             return LatticeEnv(
@@ -105,6 +108,7 @@ class VecLatticeEnv:
                 oracle_leak=oracle_leak,
                 use_cache=use_cache,
                 cache_root=cache_root,
+                hyper_as_of=hyper_as_of,
             )
 
         # 설정은 **한 번만** 읽어 전 환경이 나눠 쓴다. 16번 읽으면 같은 답을
