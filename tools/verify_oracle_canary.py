@@ -33,7 +33,8 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime
+from datetime import time as dt_time
 from pathlib import Path
 
 import numpy as np
@@ -44,7 +45,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
-from quant_rl_trading.allocator.env import FEATURE_ORACLE  # noqa: E402
+from quant_rl_trading.allocator.env import FEATURE_ORACLE, EnvParams  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
 from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
 from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
@@ -61,7 +62,7 @@ CANARY_LR = 3e-5
 
 def run_one(
     *, store: Store, oracle: bool, updates: int, envs: int, seed: int, market: str,
-    ent_coef: float | None = None
+    ent_coef: float | None = None, n_max: int | None = None
 ) -> tuple[float, np.ndarray]:
     """한 판 돌리고 (오라클 칸 기여도, 전체 기여도) 를 돌려준다."""
     device = torch.device("cpu")
@@ -81,9 +82,19 @@ def run_one(
                   minibatch_size=512, n_epochs=4,
                   lr_policy=CANARY_LR, lr_value=CANARY_LR * 3,
                   **({} if ent_coef is None else {"ent_coef": ent_coef}))
+    # 슬롯 수는 **창고가 아니라 여기서** 덮어쓴다. `env` 는 설정을 학습 구간
+    # 첫날 기준으로 읽어서 오늘 넣은 정정본을 못 본다 — 자세한 사정은
+    # `tools/diagnose_allocation.py` 의 같은 자리에 적어 뒀다.
+    train_start, train_end = date(2025, 1, 2), date(2026, 6, 30)
+    params = None
+    if n_max is not None:
+        base = EnvParams.from_store(
+            store, as_of=datetime.combine(train_start, dt_time(0, 0), tzinfo=UTC)
+        )
+        params = replace(base, n_max=n_max)
     env = VecLatticeEnv(
-        store=store, train_start=date(2025, 1, 2), train_end=date(2026, 6, 30),
-        market=market, n_envs=envs, oracle_leak=oracle, seed=seed,
+        store=store, train_start=train_start, train_end=train_end,
+        market=market, n_envs=envs, oracle_leak=oracle, seed=seed, params=params,
     )
     obs = env.reset()
     policy = AllocatorPolicy(PolicyConfig(
@@ -131,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
     # **진단용이다.** 엔트로피 보너스가 배분을 균등에 붙들어 두는지 보려면
     # 그것만 빼고 같은 판을 돌려 봐야 한다. 본 학습 설정은 안 건드린다.
     parser.add_argument("--ent-coef", type=float, default=None)
+    parser.add_argument("--n-max", type=int, default=None,
+                        help="후보 슬롯 수를 덮어쓴다. 창고를 안 건드린다.")
     args = parser.parse_args(argv)
 
     store = Store(root=Path(args.root))
@@ -138,11 +151,13 @@ def main(argv: list[str] | None = None) -> int:
     on, on_all, on_nav = run_one(
         store=store, oracle=True, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market, ent_coef=args.ent_coef,
+        n_max=args.n_max,
     )
     print("대조군 (오라클 끔)", flush=True)
     off, off_all, off_nav = run_one(
         store=store, oracle=False, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market, ent_coef=args.ent_coef,
+        n_max=args.n_max,
     )
 
     # 대조군에서 그 칸은 **섹터 원핫 자리**다(FEATURE_ORACLE = FEATURE_SECTOR_BASE).

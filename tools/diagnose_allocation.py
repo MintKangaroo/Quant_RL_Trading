@@ -31,7 +31,7 @@ from __future__ import annotations
 import argparse
 import sys
 from dataclasses import replace
-from datetime import date
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,6 +43,7 @@ import torch  # noqa: E402
 
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
 from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
+from quant_rl_trading.allocator.env import EnvParams  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
 from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
@@ -80,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--market", default="KR")
     parser.add_argument("--root", default="data")
     parser.add_argument(
+        "--n-max", type=int, default=None,
+        help="후보 슬롯 수를 덮어쓴다. **창고를 안 건드린다** — 아래 주석 참조.",
+    )
+    parser.add_argument(
         "--oracle", action="store_true",
         help="관측에 정답을 꽂는다. **성과는 전부 가짜다** — 배선 점검 전용.",
     )
@@ -92,10 +97,33 @@ def main(argv: list[str] | None = None) -> int:
         minibatch_size=512, n_epochs=4, lr_policy=3e-5, lr_value=9e-5,
     )
     store = Store(root=Path(args.root))
+    train_start, train_end = date(2025, 1, 2), date(2026, 6, 30)
+
+    # **슬롯 수는 창고가 아니라 여기서 덮어쓴다.**
+    #
+    # `config/quant_rl_trading.yaml` 을 고치는 길은 막혀 있다. `env` 는 이
+    # 값을 **학습 구간 첫날 기준으로** 읽어서(`EnvParams.from_store(store,
+    # as_of=첫 세션)`), 오늘 넣은 정정본은 2025-01-02 시점에 존재하지 않는다.
+    # 실측 2026-08-20: 30 → 15 로 바꾸고 돌렸더니 **마지막 자리까지 똑같은
+    # 숫자**가 나왔다 — 그게 안 먹혔다는 증거였다.
+    #
+    # 발효일을 앞당기면 학습은 보지만 **과거 백테스트도 같이 바뀐다.** 지금
+    # M3 를 통과 중인 OOS 백테스트(MDD -11.6%)가 소리 없이 다른 값이 된다.
+    # 임계치의 과거 불변성은 그러라고 있는 것이다(불변식 10).
+    #
+    # 그래서 실험은 창고 밖에서 한다. 이 값으로 학습을 돌리기로 정하면
+    # 그때 설정을 어떻게 옮길지는 따로 판단할 문제다.
+    params = None
+    if args.n_max is not None:
+        base = EnvParams.from_store(
+            store, as_of=datetime.combine(train_start, time(0, 0), tzinfo=UTC)
+        )
+        params = replace(base, n_max=args.n_max)
+
     env = VecLatticeEnv(
-        store=store, train_start=date(2025, 1, 2), train_end=date(2026, 6, 30),
+        store=store, train_start=train_start, train_end=train_end,
         market=args.market, n_envs=args.envs, oracle_leak=args.oracle,
-        seed=args.seed,
+        seed=args.seed, params=params,
     )
     obs = env.reset()
     policy = AllocatorPolicy(PolicyConfig(
@@ -164,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  [{index}/{args.updates}]", flush=True)
 
     print()
-    print(f"오라클 {'켬 — 성과는 가짜다' if args.oracle else '끔'}")
+    print(f"오라클 {'켬 — 성과는 가짜다' if args.oracle else '끔'} · 슬롯 {env.config.n_assets}칸")
     print(describe("α 변동계수", alpha_spread))
     print(describe("목표 유효종목수", target_n))
     print(describe("실현 유효종목수", realized_n))
