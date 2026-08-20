@@ -55,6 +55,9 @@ from tools.train_rl import build_optimizer  # noqa: E402
 #: 선을 그으면 어느 쪽이 맞는지 아무도 모르게 된다.
 CONTRIBUTION_RATIO = 10.0
 
+#: 카나리 전용 학습률. 본 학습(1e-5)보다 높다 — 위 `run_one` 주석 참고.
+CANARY_LR = 3e-5
+
 
 def run_one(
     *, store: Store, oracle: bool, updates: int, envs: int, seed: int, market: str
@@ -62,8 +65,20 @@ def run_one(
     """한 판 돌리고 (오라클 칸 기여도, 전체 기여도) 를 돌려준다."""
     device = torch.device("cpu")
     torch.manual_seed(seed)
+    # **카나리는 본 학습보다 높은 학습률을 쓴다.** `PPOConfig` 독스트링이
+    # 적어 둔 그대로다: "카나리는 20만 스텝 안에 답을 내야 한다 — 여기서
+    # 학습률이 모자라 못 배우면 배선이 아니라 예산을 재는 시험이 된다."
+    #
+    # 실측 2026-08-19에 그 함정을 그대로 밟았다. 본 학습 설정(1e-5)으로
+    # 돌렸더니 예산을 4배 늘려도 배수가 1.8x → 4.4x 로 오르다 말았다.
+    # numpy 카나리는 같은 스텝 수에서 68x 였고, 남은 차이는 학습률뿐이다
+    # (3e-3 vs 1e-5).
+    #
+    # 1e-4 는 이 정책망에서 진동·발산한다(한 스텝에 배분 13%). 그 사이인
+    # 3e-5 를 쓴다 — 1스텝 배분 L1 0.039, 3스텝 0.032 로 안정이다.
     ppo = replace(train_module.train_config(), num_envs=envs, n_steps=128,
-                  minibatch_size=512, n_epochs=4)
+                  minibatch_size=512, n_epochs=4,
+                  lr_policy=CANARY_LR, lr_value=CANARY_LR * 3)
     env = VecLatticeEnv(
         store=store, train_start=date(2025, 1, 2), train_end=date(2026, 6, 30),
         market=market, n_envs=envs, oracle_leak=oracle, seed=seed,
@@ -97,7 +112,11 @@ def run_one(
                 flush=True,
             )
     scores = train_module.attribution(policy, rollout, ppo=ppo, device=device)
-    return float(scores[FEATURE_ORACLE]), scores
+    # **행동으로도 잰다.** 기여도는 대리 지표다 — 진짜 질문은 "정답을 준
+    # 판이 실제로 더 버는가" 이고, 그건 NAV 로 답한다. 정답을 쓰면 성과가
+    # 갈라져야 하고, 안 쓰면 안 갈라진다.
+    navs = [float(np.mean(info["nav"])) for info in rollout["infos"]]
+    return float(scores[FEATURE_ORACLE]), scores, float(np.mean(navs))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -111,12 +130,12 @@ def main(argv: list[str] | None = None) -> int:
 
     store = Store(root=Path(args.root))
     print("오라클 켠 판 — **이 판의 성과는 전부 가짜다**", flush=True)
-    on, on_all = run_one(
+    on, on_all, on_nav = run_one(
         store=store, oracle=True, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market,
     )
     print("대조군 (오라클 끔)", flush=True)
-    off, off_all = run_one(
+    off, off_all, off_nav = run_one(
         store=store, oracle=False, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market,
     )
@@ -130,6 +149,32 @@ def main(argv: list[str] | None = None) -> int:
     print(f"오라클 칸 기여도  켬 {on:.3e} · 끔 {off:.3e} · 배수 {ratio:.1f}x")
     print(f"켠 판에서의 순위  {rank_on}위 / {len(on_all)}")
     print(f"합격선            {CONTRIBUTION_RATIO:.0f}x")
+
+    # -- 판별용 진단 -------------------------------------------------------
+    #
+    # 배수만으로는 "기준이 이 구조에 안 맞는 것" 과 "정말 정답을 안 쓰는 것"
+    # 을 못 가른다. 둘을 가르는 값을 같이 낸다.
+
+    # 1) 분포상 위치. 4x 가 낮은지 높은지는 **다른 칸들과 비교해야** 뜻이 있다.
+    others = np.delete(on_all, FEATURE_ORACLE)
+    z = (on - others.mean()) / (others.std() + 1e-12)
+    print()
+    print(f"[분포] 켠 판 다른 27칸  중앙값 {np.median(others):.3e} · "
+          f"최대 {others.max():.3e}")
+    print(f"[분포] 오라클의 z      {z:+.2f} (다른 칸 평균 대비 표준편차 배수)")
+
+    # 2) **행동.** 정답을 쓰면 성과가 갈라져야 한다. 이게 안 갈라지면 기여도가
+    #    무슨 값이든 정책은 정답을 안 쓰는 것이다.
+    lift = (on_nav / off_nav - 1.0) if off_nav > 0 else float("nan")
+    print(f"[행동] 평균 NAV       켬 {on_nav:,.0f} · 끔 {off_nav:,.0f} · "
+          f"차이 {lift:+.2%}")
+    print()
+    if lift > 0.02:
+        print("→ 성과가 갈렸다. 정책은 정답을 **쓰고 있다** — 배수 기준이 이")
+        print("  구조에서 판정력이 약한 쪽으로 읽힌다.")
+    else:
+        print("→ 성과가 안 갈렸다. 정답을 꽂아도 **행동이 안 바뀐다** —")
+        print("  기준 문제가 아니라 배선 문제다. §5 원인 목록으로.")
 
     passed = ratio >= CONTRIBUTION_RATIO
     print(f"\n판정: {'합격' if passed else '불합격'}")
