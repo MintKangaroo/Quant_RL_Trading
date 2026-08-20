@@ -44,6 +44,7 @@ import torch  # noqa: E402
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
 from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
 from quant_rl_trading.allocator.env import EnvParams  # noqa: E402
+from quant_rl_trading.allocator.env import FEATURE_ORACLE  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
 from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
@@ -80,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--market", default="KR")
     parser.add_argument("--root", default="data")
+    parser.add_argument("--concentration-mode", default="softplus",
+                        choices=["softplus", "simplex"])
     parser.add_argument(
         "--n-max", type=int, default=None,
         help="후보 슬롯 수를 덮어쓴다. **창고를 안 건드린다** — 아래 주석 참조.",
@@ -128,12 +131,20 @@ def main(argv: list[str] | None = None) -> int:
         n_asset_features=int(obs["assets"].shape[-1]),
         n_portfolio_features=int(obs["portfolio"].shape[-1]),
         n_delay_choices=3,
+        concentration_mode=args.concentration_mode,
     )).to(device)
     optimizer = build_optimizer(policy, ppo)
     normalizer = ReturnNormalizer(gamma=ppo.gamma, num_envs=args.envs)
     generator = torch.Generator(device=device)
     generator.manual_seed(args.seed)
 
+    #: **정답과 배분의 상관.** NAV 보다 날카롭다 — NAV 는 종목 선택 말고도
+    #: 비용·타이밍·잡음이 다 섞여 있어서, 정책이 정답을 조금 쓰는지 전혀
+    #: 안 쓰는지를 못 가른다. 이 값은 그 한 가지만 묻는다.
+    #:
+    #: 스텝마다 "그 판의 오라클 값" 과 "그 판이 준 목표 비중" 의 순위상관을
+    #: 낸다. 정책이 정답대로 배분하면 +1 에 가깝고, 무시하면 0 근처다.
+    oracle_corr: list[float] = []
     alpha_spread: list[float] = []
     target_n: list[float] = []
     realized_n: list[float] = []
@@ -144,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
             env, policy, obs, ppo=ppo, normalizer=normalizer, device=device
         )
         obs = rollout["obs_after"]
-        for info in rollout["infos"]:
+        for step_obs, info in zip(rollout["obs"], rollout["infos"], strict=False):
             # **환경마다 따로 센다.** VecEnv 의 info 는 (n_envs, n_max+1) 로
             # 쌓여 오는데, 그걸 한 줄로 펴서 HHI 를 내면 8개 포트폴리오가
             # 한 포트폴리오처럼 세어진다 — 실측으로 슬롯이 30칸인데 유효
@@ -154,6 +165,23 @@ def main(argv: list[str] | None = None) -> int:
             # `target_weights` 의 마지막 칸은 현금이라 빼고 센다 — 안 빼면
             # 현금이 한 종목처럼 세어진다.
             targets = np.atleast_2d(np.asarray(info["target_weights"]))
+            # 오라클 칸과 목표 비중의 순위상관. 살아 있는 칸만 본다 —
+            # 죽은 칸은 비중이 늘 0 이라 상관을 0 쪽으로 끌어내린다.
+            obs_assets = np.atleast_3d(np.asarray(step_obs["assets"]))
+            obs_mask = np.atleast_2d(np.asarray(step_obs["mask"])) > 0.5
+            for env_i in range(targets.shape[0]):
+                live = obs_mask[env_i]
+                if live.sum() < 3:
+                    continue
+                truth = obs_assets[env_i][live, FEATURE_ORACLE]
+                got = targets[env_i][: live.shape[0]][live]
+                if np.std(truth) <= 0 or np.std(got) <= 0:
+                    continue
+                r = np.corrcoef(
+                    np.argsort(np.argsort(truth)), np.argsort(np.argsort(got))
+                )[0, 1]
+                if np.isfinite(r):
+                    oracle_corr.append(float(r))
             realized = np.atleast_2d(np.asarray(info["realized_weights"]))
             target_n.append(float(np.mean([effective_n(row[:-1]) for row in targets])))
             realized_n.append(float(np.mean([effective_n(row) for row in realized])))
@@ -190,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print(f"오라클 {'켬 — 성과는 가짜다' if args.oracle else '끔'} · 슬롯 {env.config.n_assets}칸")
+    if oracle_corr:
+        print(describe("정답↔배분 상관", oracle_corr))
     print(describe("α 변동계수", alpha_spread))
     print(describe("목표 유효종목수", target_n))
     print(describe("실현 유효종목수", realized_n))
@@ -200,6 +230,16 @@ def main(argv: list[str] | None = None) -> int:
     r_end = float(np.mean(realized_n[-5:]))
     a0, a1 = float(np.mean(alpha_spread[:5])), float(np.mean(alpha_spread[-5:]))
     print("판정:")
+    if oracle_corr:
+        c0, c1 = float(np.mean(oracle_corr[:20])), float(np.mean(oracle_corr[-20:]))
+        if c1 >= 0.30:
+            print(f"  · 정답↔배분 상관 {c0:+.3f} → {c1:+.3f}. **정책이 정답대로 배분한다.**")
+            print("    그런데 NAV 가 안 갈리면 남은 것은 비용·타이밍이다.")
+        elif c1 > c0 + 0.05:
+            print(f"  · 상관이 {c0:+.3f} → {c1:+.3f} 로 오르는 중이다 — 방향은 맞고 **크기가 모자라다.**")
+        else:
+            print(f"  · 상관이 {c0:+.3f} → {c1:+.3f}. **정책이 정답을 배분에 안 쓴다.**")
+            print("    기여도가 높은데 여기가 0 이면 그래디언트가 행동으로 안 간다.")
     if a1 <= a0 * 1.1:
         print("  · α 흩어짐이 안 커졌다 — 정책이 종목을 **가리지 않는다**.")
         print("    고칠 곳은 정책망·학습률 쪽이다.")

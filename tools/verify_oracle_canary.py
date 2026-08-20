@@ -62,7 +62,8 @@ CANARY_LR = 3e-5
 
 def run_one(
     *, store: Store, oracle: bool, updates: int, envs: int, seed: int, market: str,
-    ent_coef: float | None = None, n_max: int | None = None
+    ent_coef: float | None = None, n_max: int | None = None,
+    concentration_mode: str = "softplus"
 ) -> tuple[float, np.ndarray]:
     """한 판 돌리고 (오라클 칸 기여도, 전체 기여도) 를 돌려준다."""
     device = torch.device("cpu")
@@ -82,19 +83,24 @@ def run_one(
                   minibatch_size=512, n_epochs=4,
                   lr_policy=CANARY_LR, lr_value=CANARY_LR * 3,
                   **({} if ent_coef is None else {"ent_coef": ent_coef}))
-    # 슬롯 수는 **창고가 아니라 여기서** 덮어쓴다. `env` 는 설정을 학습 구간
-    # 첫날 기준으로 읽어서 오늘 넣은 정정본을 못 본다 — 자세한 사정은
-    # `tools/diagnose_allocation.py` 의 같은 자리에 적어 뒀다.
+    # 설정은 오늘 시점으로 읽는다(`hyper_as_of`). `--n-max` 는 그 위에 얹는
+    # 한 판짜리 덮어쓰기다 — 창고에 남길 값인지 아직 모르는 것을 재 볼 때 쓴다.
     train_start, train_end = date(2025, 1, 2), date(2026, 6, 30)
+    # 학습 설계값은 "지금" 으로 읽는다 — 학습 구간 첫날로 읽으면 오늘 바꾼
+    # 설정을 못 본다 (`EnvParams.from_store` 독스트링).
+    run_moment = datetime.now(UTC)  # invariant-allow: wallclock
     params = None
     if n_max is not None:
         base = EnvParams.from_store(
-            store, as_of=datetime.combine(train_start, dt_time(0, 0), tzinfo=UTC)
+            store,
+            as_of=datetime.combine(train_start, dt_time(0, 0), tzinfo=UTC),
+            hyper_as_of=run_moment,
         )
         params = replace(base, n_max=n_max)
     env = VecLatticeEnv(
         store=store, train_start=train_start, train_end=train_end,
         market=market, n_envs=envs, oracle_leak=oracle, seed=seed, params=params,
+        hyper_as_of=run_moment,
     )
     obs = env.reset()
     policy = AllocatorPolicy(PolicyConfig(
@@ -102,6 +108,7 @@ def run_one(
         n_asset_features=int(obs["assets"].shape[-1]),
         n_portfolio_features=int(obs["portfolio"].shape[-1]),
         n_delay_choices=3,
+        concentration_mode=concentration_mode,
     )).to(device)
     optimizer = build_optimizer(policy, ppo)
     generator = torch.Generator(device=device)
@@ -144,6 +151,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ent-coef", type=float, default=None)
     parser.add_argument("--n-max", type=int, default=None,
                         help="후보 슬롯 수를 덮어쓴다. 창고를 안 건드린다.")
+    parser.add_argument("--concentration-mode", default="softplus",
+                        choices=["softplus", "simplex"],
+                        help="α 만드는 방식. simplex 는 선호와 탐색을 가른다.")
     args = parser.parse_args(argv)
 
     store = Store(root=Path(args.root))
@@ -151,13 +161,13 @@ def main(argv: list[str] | None = None) -> int:
     on, on_all, on_nav = run_one(
         store=store, oracle=True, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market, ent_coef=args.ent_coef,
-        n_max=args.n_max,
+        n_max=args.n_max, concentration_mode=args.concentration_mode,
     )
     print("대조군 (오라클 끔)", flush=True)
     off, off_all, off_nav = run_one(
         store=store, oracle=False, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market, ent_coef=args.ent_coef,
-        n_max=args.n_max,
+        n_max=args.n_max, concentration_mode=args.concentration_mode,
     )
 
     # 대조군에서 그 칸은 **섹터 원핫 자리**다(FEATURE_ORACLE = FEATURE_SECTOR_BASE).

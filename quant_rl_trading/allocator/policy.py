@@ -94,6 +94,24 @@ class PolicyConfig:
     feedforward: int = FEEDFORWARD
     n_layers: int = N_LAYERS
     seed: int | None = None
+    #: α 를 만드는 방식. ``"softplus"``(기존) | ``"simplex"``.
+    #:
+    #: **왜 갈랐는가.** softplus 는 "어느 종목을 좋아하나" 와 "얼마나
+    #: 확신하나" 를 한 숫자에 얹는다. 한 종목의 비중을 키우려면 그 칸의 α 를
+    #: 올려야 하는데, 그러면 Σα 도 같이 올라가 표본의 흩어짐이 줄어든다.
+    #: 둘이 엉켜 있어서 **선호를 크게 말하려면 탐색을 포기해야 한다.**
+    #:
+    #: 실측 2026-08-20: 오라클을 관측에 꽂아 기여도 1위(z +4.29)를 만들어도
+    #: NAV 는 +1.47% 였다(정답대로 따르면 2.9배인 환경에서). α 변동계수는
+    #: 0.095 에 머물렀다 — 정책은 무엇이 좋은지 알면서 그것을 10% 어치로만
+    #: 말했다.
+    #:
+    #: ``simplex`` 는 α = softmax(logits) · κ 다. softmax 라 상대 비중이
+    #: 지수적으로 벌어지고, Σα 는 κ 로 고정돼 탐색량이 따로 논다.
+    concentration_mode: str = "softplus"
+    #: ``simplex`` 의 총 집중도 κ. ``None`` 이면 살아 있는 칸 수 — 그러면
+    #: 평균 α 가 1 이라 기존 규모(softplus(0)≈0.69)와 크게 다르지 않다.
+    concentration_total: float | None = None
 
     @classmethod
     def from_spaces(
@@ -391,12 +409,38 @@ class AllocatorPolicy(nn.Module):
         cash_logit = self.cash_head(cls_out)  # (B,1)
         logits = torch.cat([asset_logits, cash_logit], dim=-1)  # (B,N+1)
 
-        concentration = (F.softplus(logits) + CONCENTRATION_FLOOR).clamp(max=CONCENTRATION_MAX)
+        cash_valid = torch.ones_like(valid[:, :1])
+        weight_valid = torch.cat([mask, cash_valid], dim=-1)
+
+        if self.config.concentration_mode == "simplex":
+            # α = softmax(logits) · κ. **"무엇을" 과 "얼마나 확신하나" 를
+            # 가른다** — PolicyConfig.concentration_mode 주석 참고.
+            #
+            # 죽은 칸은 softmax 전에 -inf 로 눌러 확률을 0 으로 만든다.
+            # 나중에 바닥값으로 덮긴 하지만, 여기서 안 빼면 그 칸이 살아
+            # 있는 칸들의 몫을 나눠 가져 κ 가 조용히 새어 나간다.
+            masked_logits = logits.masked_fill(~weight_valid, float("-inf"))
+            share = torch.softmax(masked_logits, dim=-1)
+            if self.config.concentration_total is not None:
+                kappa = float(self.config.concentration_total)
+            else:
+                # 살아 있는 칸 수. 평균 α 가 1 이 되어 기존 규모와 맞는다.
+                kappa = 0.0  # 아래에서 배치별로 센다
+            total = (
+                torch.full_like(share[:, :1], kappa)
+                if kappa
+                else weight_valid.sum(dim=-1, keepdim=True).to(share.dtype)
+            )
+            concentration = (share * total + CONCENTRATION_FLOOR).clamp(
+                max=CONCENTRATION_MAX
+            )
+        else:
+            concentration = (F.softplus(logits) + CONCENTRATION_FLOOR).clamp(
+                max=CONCENTRATION_MAX
+            )
         # 패딩 슬롯은 로짓과 무관하게 바닥값으로 눌러 앉힌다. softplus 의
         # 언더플로에 기대지 않는 이유는, 기댈 경우 로짓이 커지는 방향으로
         # 그래디언트가 흘러 언젠가 바닥을 뚫고 올라오기 때문이다.
-        cash_valid = torch.ones_like(valid[:, :1])
-        weight_valid = torch.cat([mask, cash_valid], dim=-1)
         concentration = torch.where(
             weight_valid,
             concentration,
