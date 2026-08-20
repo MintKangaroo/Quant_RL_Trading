@@ -70,6 +70,9 @@ EIGHT_K_ITEMS: dict[str, str] = {
 }
 
 #: 폼 종류 → doc_type. 8-K 는 항목으로 다시 나뉘므로 여기 없다.
+#: 분류가 안 되는 것. **FORM_TYPES 가 참조하므로 그 위에 둔다.**
+OTHER = "other"
+
 FORM_TYPES: dict[str, str] = {
     "10-K": "earnings",
     "10-Q": "earnings",
@@ -78,7 +81,20 @@ FORM_TYPES: dict[str, str] = {
     "NT 10-Q": "distress",
     # 실제 발행. S-3(선반등록)는 여기 없다 — 등록과 발행은 다른 사건이다.
     "424B1": "dilution",
-    "424B2": "dilution",
+    # **424B2 는 희석이 아니다.** 선반등록 하의 정형 발행 — 대개 은행이
+    # 구조화 노트·MTN 을 찍을 때 낸다. 보통주 주주는 희석되지 않는다.
+    #
+    # 실측 2026-08-20(최근 400일 미장 문서 202,786행):
+    #   dilution 135,987행 중 424B2 가 125,246행(92%)
+    #   424B2 의 97%가 12종목 — JPM-PM · MS-PQ · GS-PD · C-PR · BML-PJ …
+    #   전부 은행 우선주·ETN 이고 9/12 는 매매 대상도 아니다
+    #
+    # 매매 대상에 떨어지는 비율이 이것만 유별나다:
+    #   424B2 19.3% · 424B3 48.0% · 424B5 82.4% · 나머지 doc_type 79.7%
+    #
+    # 424B5(선반 인출 = 실제 증자)는 다른 공시와 똑같이 행동한다. 424B2 만
+    # 다르다. **성적이 나쁜 게 아니라 애초에 다른 사건이다.**
+    "424B2": OTHER,
     "424B3": "dilution",
     "424B4": "dilution",
     "424B5": "dilution",
@@ -88,7 +104,6 @@ FORM_TYPES: dict[str, str] = {
     "SC 13G": "ownership",
 }
 
-OTHER = "other"
 SOURCE = "edgar"
 
 #: SEC 가 요구하는 것은 **연락 가능한 신원**뿐이다. 키도 등록도 없다.
