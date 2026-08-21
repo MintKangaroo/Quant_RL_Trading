@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import Any
 from dataclasses import replace
 from datetime import UTC, date, datetime, time
 from pathlib import Path
@@ -44,6 +45,7 @@ import torch  # noqa: E402
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
 from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
 from quant_rl_trading.allocator.env import EnvParams  # noqa: E402
+from quant_rl_trading.allocator import policy as policy_mod  # noqa: E402
 from quant_rl_trading.allocator.env import FEATURE_ORACLE  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
 from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
@@ -72,6 +74,152 @@ def describe(label: str, values: list[float]) -> str:
         f"  {label:16s} 처음 {arr[:5].mean():7.2f} → 끝 {arr[-5:].mean():7.2f} "
         f"(전체 평균 {arr.mean():7.2f} · 최소 {arr.min():6.2f} · 최대 {arr.max():6.2f})"
     )
+
+
+def attribution_split(
+    policy: AllocatorPolicy, rollout: dict, *, ppo, device: torch.device
+) -> dict[str, Any]:
+    """기여도를 **비중 항만 / 지연 항만** 으로 갈라서 잰다.
+
+    `train.attribution` 은 `log_prob(비중, 지연)` 의 그래디언트를 잰다. 그런데
+    그 함수는 두 항의 **합**이다(`policy.log_prob`: `weights_lp + delay_lp`).
+    합쳐서 재면 어느 머리로 그래디언트가 갔는지 말할 수 없다.
+
+    이걸 가르는 이유가 있다. 실측 2026-08-21 에 정답 칸을 밀었더니 비중은
+    2e-5 만 움직이는데 지연은 7e-4 로 **35배** 움직였다. 그리고 지연은 NAV 에
+    거의 영향이 없다. 기여도 1위가 지연 항에서 온 것이라면, 그 게이트는
+    "정책이 정답으로 돈을 번다" 를 전혀 보장하지 않는다.
+    """
+    from quant_rl_trading.allocator.train import _to_torch, gae
+    from quant_rl_trading.modelops.diagnostics import feature_attribution
+
+    advantages, _ = gae(
+        rewards=rollout["rewards"], values=rollout["values"], dones=rollout["dones"],
+        bootstrap=rollout["bootstrap"], last_value=rollout["last_value"],
+        gamma=ppo.gamma, lam=ppo.gae_lambda,
+    )
+    flat = {
+        key: torch.cat([_to_torch(step, device)[key] for step in rollout["obs"]], dim=0)
+        for key in rollout["obs"][0]
+    }
+    actions = torch.as_tensor(
+        np.concatenate(rollout["actions"]), dtype=torch.float32, device=device
+    )
+    adv = torch.as_tensor(advantages.reshape(-1), dtype=torch.float32, device=device)
+    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+    mask_np = flat["mask"].detach().cpu().numpy().astype(bool)
+
+    out: dict[str, Any] = {}
+    for part in ("weights", "delay"):
+        assets = flat["assets"].clone().requires_grad_(True)
+        res = policy(flat["portfolio"], assets, flat["mask"])
+        delay = torch.zeros(
+            (actions.shape[0], res.delay_logits.shape[1]), dtype=torch.long, device=device
+        )
+        if part == "weights":
+            valid = res.weight_valid
+            clean = policy_mod._sanitize_simplex(
+                torch.where(valid, actions, torch.zeros_like(actions))
+            )
+            lp = policy_mod._masked_dirichlet_log_prob(res.concentration, clean, valid)
+        else:
+            lp = (res.delay_dist.log_prob(delay) * res.mask).sum(dim=-1)
+        loss = -(lp * adv).mean()
+        grad = torch.autograd.grad(loss, assets)[0]
+        scores = feature_attribution(
+            grad.detach().cpu().numpy().astype(np.float64), mask_np
+        )
+        rank = int(np.argsort(-scores).tolist().index(FEATURE_ORACLE)) + 1
+        others = np.delete(scores, FEATURE_ORACLE)
+        out[part] = {
+            "score": float(scores[FEATURE_ORACLE]),
+            "rank": rank,
+            "n": int(scores.shape[0]),
+            "z": float((scores[FEATURE_ORACLE] - others.mean()) / (others.std() + 1e-12)),
+        }
+    return out
+
+
+def gradient_snr(
+    policy: AllocatorPolicy, rollout: dict, *, ppo, device: torch.device, chunks: int = 8
+) -> dict[str, dict[str, float]]:
+    """두 머리의 **그래디언트 신호 대 잡음비**.
+
+    ## 왜 이걸 재는가
+
+    같은 관측·같은 손실인데 지연 머리는 정답을 배우고(기여도 3위) 비중 머리는
+    안 배운다(26위). 초기화 gain 은 둘 다 0.01 로 같으니 남은 것은 구조다.
+
+    지연은 Categorical 이라 점수 함수가 유계다. 비중은 Dirichlet 이고,
+    `∂logp/∂α = log x - ψ(α) + ψ(Σα)` 에 **`log x` 가 들어 있다.** α 가 1
+    근처면 표본이 심플렉스 위에 거의 균등하게 퍼져서 `x_i` 가 1e-6 까지
+    내려가고, 그러면 `log x_i` 가 -14 를 찍는다. 한 표본이 그래디언트를
+    통째로 흔든다.
+
+    **없는 신호가 아니라 묻힌 신호일 수 있다.** 그러면 고칠 곳은 관측도
+    보상도 아니고 분포의 뾰족함(κ)이다.
+
+    ## 재는 방법
+
+    배치를 조각으로 나눠 조각마다 그래디언트를 낸 뒤,
+    `SNR = ||조각 평균|| / 조각들의 표준편차` 를 본다. 표본을 늘리면 잡음은
+    √n 으로 줄고 신호는 남으므로, 이 값이 작다는 것은 **그 머리의 업데이트가
+    표본 잡음에 지배된다**는 뜻이다.
+    """
+    from quant_rl_trading.allocator.train import _to_torch, gae
+
+    advantages, _ = gae(
+        rewards=rollout["rewards"], values=rollout["values"], dones=rollout["dones"],
+        bootstrap=rollout["bootstrap"], last_value=rollout["last_value"],
+        gamma=ppo.gamma, lam=ppo.gae_lambda,
+    )
+    flat = {
+        key: torch.cat([_to_torch(step, device)[key] for step in rollout["obs"]], dim=0)
+        for key in rollout["obs"][0]
+    }
+    actions = torch.as_tensor(
+        np.concatenate(rollout["actions"]), dtype=torch.float32, device=device
+    )
+    adv = torch.as_tensor(advantages.reshape(-1), dtype=torch.float32, device=device)
+    adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+    total = int(adv.shape[0])
+    size = max(1, total // chunks)
+    out: dict[str, dict[str, float]] = {}
+    for part, head in (("weights", policy.weight_head), ("delay", policy.delay_head)):
+        grads = []
+        for start in range(0, total, size):
+            sl = slice(start, min(start + size, total))
+            if sl.stop - sl.start < 2:
+                continue
+            res = policy(flat["portfolio"][sl], flat["assets"][sl], flat["mask"][sl])
+            delay = torch.zeros(
+                (sl.stop - sl.start, res.delay_logits.shape[1]),
+                dtype=torch.long, device=device,
+            )
+            if part == "weights":
+                valid = res.weight_valid
+                clean = policy_mod._sanitize_simplex(
+                    torch.where(valid, actions[sl], torch.zeros_like(actions[sl]))
+                )
+                lp = policy_mod._masked_dirichlet_log_prob(res.concentration, clean, valid)
+            else:
+                lp = (res.delay_dist.log_prob(delay) * res.mask).sum(dim=-1)
+            loss = -(lp * adv[sl]).mean()
+            g = torch.autograd.grad(loss, head.weight, retain_graph=False)[0]
+            grads.append(g.detach().flatten().cpu().numpy())
+        if len(grads) < 2:
+            continue
+        arr = np.stack(grads)
+        mean = arr.mean(axis=0)
+        signal = float(np.linalg.norm(mean))
+        noise = float(np.mean(np.linalg.norm(arr - mean, axis=1)))
+        out[part] = {
+            "signal": signal,
+            "noise": noise,
+            "snr": signal / (noise + 1e-30),
+        }
+    return out
 
 
 def probe_response(
@@ -302,6 +450,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  [{index}/{args.updates}]", flush=True)
 
     probe = probe_response(policy, rollout, device) if args.oracle else {}
+    split = (
+        attribution_split(policy, rollout, ppo=ppo, device=device)
+        if args.oracle else {}
+    )
+    snr = gradient_snr(policy, rollout, ppo=ppo, device=device)
 
     print()
     print(f"오라클 {'켬 — 성과는 가짜다' if args.oracle else '끔'} · 슬롯 {env.config.n_assets}칸")
@@ -323,7 +476,36 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  단조증가 비율 {probe['monotonic']:.2f} (0.50 이면 동전던지기)")
         print(f"  지연 머리     {probe['delay_slope']:+.5f} · |기울기| {probe['delay_abs']:.5f}")
 
+    if split:
+        print()
+        print("[기여도] 두 머리를 갈라서 — 합쳐 재면 어디로 갔는지 알 수 없다")
+        for part, label in (("weights", "비중 항만"), ("delay", "지연 항만")):
+            d = split[part]
+            print(f"  {label}  순위 {d['rank']}위/{d['n']} · z {d['z']:+.2f} · 값 {d['score']:.3e}")
+
+    if snr:
+        print()
+        print("[잡음] 머리별 그래디언트 신호 대 잡음비 — 없는 신호인가 묻힌 신호인가")
+        for part, label in (("weights", "비중 머리"), ("delay", "지연 머리")):
+            d = snr.get(part)
+            if d:
+                print(f"  {label}  SNR {d['snr']:.4f} · 신호 {d['signal']:.3e} · 잡음 {d['noise']:.3e}")
+        w, dl = snr.get("weights"), snr.get("delay")
+        if w and dl and dl["snr"] > w["snr"] * 3:
+            print(f"  → 지연 쪽 SNR 이 {dl['snr'] / max(w['snr'], 1e-30):.1f}배다.")
+            print("    비중 머리의 업데이트가 **표본 잡음에 지배된다** — 신호가")
+            print("    없는 것이 아니라 묻혀 있다. 고칠 곳은 분포의 뾰족함(κ)이다.")
+        elif w and dl:
+            print("  → 두 머리의 SNR 이 비슷하다. 잡음 가설은 아니다.")
+
     print("판정:")
+    if split:
+        w, dl = split["weights"], split["delay"]
+        if dl["rank"] <= 3 < w["rank"]:
+            print("  · 기여도가 **지연 머리에서 온다**. 비중 쪽은 순위 밖이다.")
+            print("    지연은 NAV 를 거의 안 바꾸므로 그 게이트는 아무것도 보장하지 않는다.")
+        elif w["rank"] <= 3:
+            print("  · 기여도가 비중 항에서도 높다 — 지연 탓으로 돌릴 수 없다.")
     if probe:
         if probe["monotonic"] >= 0.7 and probe["slope"] > 0:
             print("  · 정답을 밀면 비중이 따라 온다 — 정책은 **방향을 안다**.")
