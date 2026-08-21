@@ -70,10 +70,24 @@ def main(argv: list[str] | None = None) -> int:
     return 0 if _fresh_enough(store, clock) else 1
 
 
-#: 창고가 이보다 오래되면 실패로 본다. 회계 조회 창(``ledger.fx_rate`` 의
-#: lookback=10일)보다 짧게 잡는다 — 회계가 죽고 나서 아는 것은 늦다.
-#: 환율은 주말·공휴일에 안 나오므로 연휴를 견딜 만큼은 둔다.
-STALE_AFTER_DAYS = 6
+#: **회계가 죽는 선.** `ledger.fx_rate` 의 조회 창이 10일이라 그것을 넘기면
+#: 해외분 평가가 거부되고 NAV 가 통째로 멈춘다. 원본이 늦든 우리가 못 받았든
+#: 여기까지 오면 비상이다 — 그래서 이 한계는 발행 일정과 무관하게 건다.
+NAV_BREAKS_AFTER_DAYS = 9
+
+#: **날짜 수로 재던 것이 틀렸다** (2026-08-21 에 걷어냈다).
+#:
+#: FRED H.10 은 **월요일 주간 발행**이고 그 발행분이 담는 마지막 관측은 직전
+#: 금요일이다. 그러면 금요일에는 창고 최신값이 정상적으로 7일 전이 된다 —
+#: 6일 임계로는 **매주 금요일마다 경보가 뜬다.** 실측 2026-08-21(금)에 그랬다.
+#:
+#: 매주 우는 경보는 곧 아무도 안 보는 경보가 되고, 그러면 진짜 10일 사고가
+#: 왔을 때 그 화면은 이미 빨간 채로 방치돼 있다.
+#:
+#: 그래서 날짜 수가 아니라 **원본이 냈어야 할 값**과 견준다.
+#: `reporting.sessions.fx_source_latest` 가 그 계산을 이미 갖고 있다 —
+#: 브리핑이 "우리가 못 받은 것" 과 "원본이 아직 안 낸 것" 을 가르는 데 쓰는
+#: 함수다. 판정을 두 곳에 두면 화면과 수집기가 다른 말을 한다.
 
 
 def _fresh_enough(store, clock) -> bool:
@@ -89,17 +103,35 @@ def _fresh_enough(store, clock) -> bool:
         )
         return False
 
+    from quant_rl_trading.reporting.sessions import fx_source_latest
+
     newest = frame["valid_from"].max()
     age = (now - newest.to_pydatetime()).days
-    print(f"창고 최신 환율 {newest.date()} · {age}일 전")
-    if age > STALE_AFTER_DAYS:
+    expected = fx_source_latest(now)
+    have = newest.date()
+    print(f"창고 최신 환율 {have} · {age}일 전 · 원본이 냈어야 할 값 {expected}")
+
+    # 1) 회계가 죽는 선. 원본이 늦든 우리 탓이든 여기까지 오면 비상이다.
+    if age > NAV_BREAKS_AFTER_DAYS:
         print(
-            f"환율이 {age}일 낡았다(허용 {STALE_AFTER_DAYS}일). "
-            "FRED 발표 지연인지 수집 경로 고장인지 확인할 것 — "
-            "10일을 넘기면 회계가 해외분 평가를 거부하고 NAV 가 통째로 멈춘다.",
+            f"환율이 {age}일 낡았다 — {NAV_BREAKS_AFTER_DAYS}일을 넘겼다. "
+            "회계가 해외분 평가를 거부하고 NAV 가 통째로 멈춘다. "
+            f"원본(FRED H.10)이 냈어야 할 마지막 값은 {expected} 다.",
             file=sys.stderr,
         )
         return False
+
+    # 2) 원본은 냈는데 우리가 못 받았나. **이것만 우리 잘못이다.**
+    if have < expected:
+        print(
+            f"환율이 {have} 까지인데 FRED 는 {expected} 까지 냈다 — "
+            "원본 지연이 아니라 **수집이 밀린 것**이다.",
+            file=sys.stderr,
+        )
+        return False
+
+    # 원본이 아직 안 낸 것은 실패가 아니다. H.10 은 월요일 주간 발행이라
+    # 금요일에는 최신값이 정상적으로 7일 전이다.
     return True
 
 
