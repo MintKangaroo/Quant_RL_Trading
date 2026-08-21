@@ -50,6 +50,7 @@ from quant_rl_trading.settings import load_env  # noqa: E402
 from tools.backfill import build_store  # noqa: E402
 from tools.verify_live_order import (  # noqa: E402
     PROFILES,
+    resolve_profile,
     canonical_entity,
     fetch_balance,
     fetch_holdings_us,
@@ -89,16 +90,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     load_env()
-    profile = PROFILES[args.market]
     store = build_store(args.data_root)
     clock = LiveClock()
+    # **모드에 맞는 키를 집는다.** 실전 프로파일을 그대로 쓰면 "모의를
+    # 정리한다" 고 생각하며 실전 계좌를 청산한다 (`resolve_profile` 독스트링).
+    profile = resolve_profile(store, market=args.market, as_of=clock.now())
+    credentials = LSCredentials.from_env(prefix=profile.env_prefix)
+    print(
+        f"계좌 — 모드 키 {profile.env_prefix} · 지문 {credentials.fingerprint or '(없음)'} "
+        f"· 선언 {credentials.kind or '(미선언)'}"
+    )
     # **조회는 언제나 실전으로 연다.** ``live_trading=False`` 면 t0424·COSOQ00201
     # 이 아예 안 나가고(PAPER_ALLOWED_TR 밖), 빈 응답이 "보유 없음" 으로 보인다 —
     # "안 물어봤다" 와 "없다" 가 같은 문구가 된다. ``--live`` 는 **전송**을
     # 가르는 스위치이지 조회를 가르는 스위치가 아니다(preflight_live_order 와
     # 같은 규약). 실제 전송은 아래에서 ``--live`` 없이는 도달하지 않는다.
     client = LSClient(
-        credentials=LSCredentials.from_env(prefix=profile.env_prefix),
+        credentials=credentials,
         live_trading=True,
         min_interval_sec=profile.min_interval_sec,
     )

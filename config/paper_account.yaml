@@ -7,5 +7,7 @@
 # **본 파일(`quant_rl_trading.yaml`)에도 같은 값이 적혀 있다** — 거기가 단일
 # 소스이고 이건 심기용 조각이다. 두 곳이 갈라지면 본 파일이 옳다.
 execution:
+  # 전송 스위치. 모의 계좌로 켠다 — 본 파일의 주석 참조.
+  live_trading: true
   account_mode: paper
   live_account_fingerprint_paper: "164cccf81af0"

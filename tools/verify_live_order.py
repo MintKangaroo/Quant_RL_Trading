@@ -95,7 +95,7 @@ import argparse
 import math
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace, field
 from pathlib import Path
 from typing import Any
 
@@ -645,6 +645,37 @@ PROFILES: dict[str, MarketProfile] = {
         supports_lifecycle=False,
     ),
 }
+
+
+def resolve_profile(store: Any, *, market: str, as_of: datetime) -> MarketProfile:
+    """``execution.account_mode`` 에 맞는 프로파일. **모의면 모의 키를 집는다.**
+
+    이 함수가 없으면 도구들이 언제나 ``LS_``(실전)를 집는다. 2026-08-22 에
+    모의투자 배선을 넣으면서 ``broker/factory.py`` 는 모드를 보게 됐는데
+    도구 쪽은 그대로였다 — 그러면 "모의로 돌린다" 고 생각하며 **실전 계좌를
+    청산하는** 경로가 남는다. 그게 이 분야에서 가장 흔한 사고다
+    (``docs/design/ls-api.md`` §모의/실전 구분).
+
+    모드별 (env_prefix, fingerprint_key) 는 ``broker_factory.PROFILES`` 하나가
+    쥔다. 여기서 따로 적으면 한쪽만 고쳐지는 날이 온다.
+    """
+    base = PROFILES[market]
+    try:
+        raw = store.config(broker_factory.ACCOUNT_MODE_KEY, as_of=as_of)
+        mode = str(raw or broker_factory.MODE_PAPER).strip().lower()
+    except Exception:  # ConfigNotFound 포함 — 모르면 모의다(factory 와 같은 규약)
+        mode = broker_factory.MODE_PAPER
+    live = broker_factory.PROFILES.get((market.upper(), mode))
+    if live is None:
+        # 그 시장에 그 모드의 배선이 없다. 실전 프로파일로 **떨어뜨리지 않는다** —
+        # 키를 못 찾아 아래에서 멈추는 편이 낫다.
+        return replace(base, env_prefix=f"__NO_WIRING_{mode.upper()}_", allow_unpinned=False)
+    return replace(
+        base,
+        env_prefix=live.env_prefix,
+        fingerprint_key=live.fingerprint_key,
+        allow_unpinned=live.allow_unpinned,
+    )
 
 
 @dataclass
