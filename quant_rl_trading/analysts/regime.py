@@ -57,23 +57,38 @@ MARKET_PROXIES = ("KR:IDX:KRX 300", "KR:IDX:KRX 100", "KR:IDX:KRX TMI")
 #: 상태 판정용 분위수. 60일 변동성이 자기 과거 분포의 이 위면 '높음'이다.
 HIGH_VOL_QUANTILE = 0.75
 
+#: 금리 민감도를 재는 기준. **미국 10년물이다** — 국장 종목도 글로벌 할인율에
+#: 붙어 움직인다. 국고채가 아닌 이유는 창고에 아직 없어서다.
+#:
+#: `observed_at` 이 `valid_from + 21시간`(다음날 06:00 KST)으로 찍혀 있어서
+#: 국장 16:00 세션은 **전날 금리까지만** 본다. 게이트가 알아서 막는다.
+RATE_SERIES = "US:RATE:UST10Y"
+
 State = Literal["bull", "bear", "volatile", "crisis", "unknown"]
 
 #: 상태별 종목 축 가중치. 부호가 통째로 뒤집히는 것이 이 Analyst 의 전부다.
 #: 위험 회피 국면에서는 저베타·저변동·지수와 덜 붙는 종목을 산다.
+#: ``rate_steadiness`` 의 가중치는 **사전에 정한다.** 측정 결과를 보고 고르면
+#: 그 표본에 맞춘 값이 되고 다음 구간에서 사라진다 (event.py 의 같은 판단).
+#:
+#: 부호를 이렇게 고른 이유: 이 Analyst 의 나머지 넷이 전부 "위험 회피 국면에는
+#: 덜 흔들리는 종목" 을 고른다. 금리도 같은 줄에 세운다 — 상승장에서는 금리
+#: 민감도로 종목을 가릴 이유가 없어서 0 이고, 불안한 국면일수록 크게 준다.
+#: **방향을 예측하지 않는다**(금리가 오를지 내릴지 우리는 모른다). 흔들림의
+#: 크기만 본다.
 REGIME_WEIGHTS: dict[str, dict[str, float]] = {
-    "bull": {"beta": 0.45, "idio_volatility": 0.20, "index_correlation": 0.15, "downside_beta": -0.20},
-    "bear": {"beta": -0.45, "idio_volatility": -0.20, "index_correlation": -0.15, "downside_beta": -0.20},
-    "volatile": {"beta": 0.10, "idio_volatility": -0.35, "index_correlation": -0.20, "downside_beta": -0.35},
-    "crisis": {"beta": -0.50, "idio_volatility": -0.25, "index_correlation": -0.10, "downside_beta": -0.15},
+    "bull": {"beta": 0.45, "idio_volatility": 0.20, "index_correlation": 0.15, "downside_beta": -0.20, "rate_steadiness": 0.00},
+    "bear": {"beta": -0.45, "idio_volatility": -0.20, "index_correlation": -0.15, "downside_beta": -0.20, "rate_steadiness": 0.15},
+    "volatile": {"beta": 0.10, "idio_volatility": -0.35, "index_correlation": -0.20, "downside_beta": -0.35, "rate_steadiness": 0.20},
+    "crisis": {"beta": -0.50, "idio_volatility": -0.25, "index_correlation": -0.10, "downside_beta": -0.15, "rate_steadiness": 0.20},
     # 지수를 못 찾았을 때. 방향을 찍지 않고 변동성만 낮춘다.
-    "unknown": {"beta": 0.0, "idio_volatility": -0.5, "index_correlation": 0.0, "downside_beta": -0.5},
+    "unknown": {"beta": 0.0, "idio_volatility": -0.5, "index_correlation": 0.0, "downside_beta": -0.5, "rate_steadiness": 0.15},
 }
 
 
 class RegimeAnalyst(Analyst):
     name = "regime"
-    version = "regime-v0.1.0"
+    version = "regime-v0.2.0"
 
     def features(self, as_of: datetime) -> pd.DataFrame:
         prices = self.price_panel(as_of, lookback=LOOKBACK_DAYS)
@@ -107,6 +122,16 @@ class RegimeAnalyst(Analyst):
                 if len(down) >= 10
                 else np.nan
             )
+
+        # **금리에 덜 흔들리는 종목.** 방향이 아니라 크기다 — 금리가 오를지
+        # 내릴지 우리는 모르고, 안다고 가정하면 그것은 예측이지 상태가 아니다.
+        # 부호를 뒤집어 "높을수록 좋다" 로 맞춘다(나머지 넷과 같은 규약).
+        rate_changes = self._rate_changes(as_of)
+        if rate_changes is None:
+            raw["rate_steadiness"] = np.nan
+        else:
+            aligned_rate = rate_changes.reindex(returns.index, method="ffill")
+            raw["rate_steadiness"] = -self._beta(returns, aligned_rate).abs()
 
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if raw.empty:
@@ -147,6 +172,32 @@ class RegimeAnalyst(Analyst):
         return "bull" if momentum >= 0.0 else "bear"
 
     # -- 관측 -------------------------------------------------------------------
+
+    def _rate_changes(self, as_of: datetime) -> pd.Series | None:
+        """미국 10년물의 **일별 변화**(%p). 수준이 아니다.
+
+        수준으로 베타를 재면 두 시계열이 같이 추세를 타는 것만으로 상관이
+        생긴다 — `flow_us` 에서 "수준이 아니라 편차다" 로 배운 것과 같다.
+
+        미장 휴장일에는 값이 없다. `ffill` 로 잇는 것은 **직전에 알려진 값**을
+        쓰는 것이라 미래를 안 본다.
+        """
+        frame = self.store.get(
+            INDICES, as_of=as_of, lookback=LOOKBACK_DAYS,
+            entity=[RATE_SERIES], market="US", columns=["close", "revision"],
+        )
+        if frame.empty:
+            return None
+        series = (
+            frame.sort_values(["valid_from", "revision"])
+            .assign(session=lambda f: f["valid_from"].dt.date)
+            .groupby("session")["close"]
+            .last()
+            .astype(float)
+        )
+        if len(series) < BETA_WINDOW + 1:
+            return None
+        return series.diff().dropna()
 
     def _index_close(self, as_of: datetime) -> pd.Series | None:
         frame = self.store.get(
