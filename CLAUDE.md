@@ -95,6 +95,7 @@ Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 | `docs/design/agents.md` | 에이전트 명세, Signal 스키마 |
 | `docs/design/accounting.md` | NAV·TWR·배당·세금 — 보상 함수의 r_port 정의 |
 | `docs/design/selector.md` | Analyst 가중치 진화, 후보 선정 |
+| `docs/design/portfolio-construction.md` | 비중 산출 — 섹터 하방베타, 팩터 공분산, 리스크 기여 균등, RL 과의 충돌 처리 |
 | `docs/runbook.md` | 배포, 장애 등급, 킬스위치, 복구 |
 | `docs/design/rl-training.md` | RL 학습 절차, 진단, 하이퍼파라미터 |
 | `docs/design/reporting.md` | 리포트 3종, 이메일 제약 |
