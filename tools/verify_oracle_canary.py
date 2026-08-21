@@ -48,7 +48,7 @@ from quant_rl_trading.allocator import train as train_module  # noqa: E402
 from quant_rl_trading.allocator.env import FEATURE_ORACLE, EnvParams  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
 from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
-from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
+from quant_rl_trading.modelops.canary_vec import OnlyOracleEnv, VecLatticeEnv  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from tools.train_rl import build_optimizer  # noqa: E402
 
@@ -63,7 +63,7 @@ CANARY_LR = 3e-5
 def run_one(
     *, store: Store, oracle: bool, updates: int, envs: int, seed: int, market: str,
     ent_coef: float | None = None, n_max: int | None = None,
-    concentration_mode: str = "softplus"
+    concentration_mode: str = "softplus", only_oracle: bool = False
 ) -> tuple[float, np.ndarray]:
     """한 판 돌리고 (오라클 칸 기여도, 전체 기여도) 를 돌려준다."""
     device = torch.device("cpu")
@@ -102,6 +102,8 @@ def run_one(
         market=market, n_envs=envs, oracle_leak=oracle, seed=seed, params=params,
         hyper_as_of=run_moment,
     )
+    if only_oracle and oracle:
+        env = OnlyOracleEnv(env, FEATURE_ORACLE)
     obs = env.reset()
     policy = AllocatorPolicy(PolicyConfig(
         n_max=int(obs["mask"].shape[1]),
@@ -151,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ent-coef", type=float, default=None)
     parser.add_argument("--n-max", type=int, default=None,
                         help="후보 슬롯 수를 덮어쓴다. 창고를 안 건드린다.")
+    parser.add_argument("--only-oracle", action="store_true",
+                        help="정답 칸만 남긴다(오라클 판에만). 희석 가설 검증용.")
     parser.add_argument("--concentration-mode", default="softplus",
                         choices=["softplus", "simplex"],
                         help="α 만드는 방식. simplex 는 선호와 탐색을 가른다.")
@@ -162,12 +166,14 @@ def main(argv: list[str] | None = None) -> int:
         store=store, oracle=True, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market, ent_coef=args.ent_coef,
         n_max=args.n_max, concentration_mode=args.concentration_mode,
+        only_oracle=args.only_oracle,
     )
     print("대조군 (오라클 끔)", flush=True)
     off, off_all, off_nav = run_one(
         store=store, oracle=False, updates=args.updates, envs=args.envs,
         seed=args.seed, market=args.market, ent_coef=args.ent_coef,
         n_max=args.n_max, concentration_mode=args.concentration_mode,
+        only_oracle=args.only_oracle,
     )
 
     # 대조군에서 그 칸은 **섹터 원핫 자리**다(FEATURE_ORACLE = FEATURE_SECTOR_BASE).

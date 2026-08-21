@@ -43,7 +43,7 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
-from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
+from quant_rl_trading.modelops.canary_vec import OnlyOracleEnv, VecLatticeEnv  # noqa: E402
 from quant_rl_trading.allocator.env import EnvParams  # noqa: E402
 from quant_rl_trading.allocator import policy as policy_mod  # noqa: E402
 from quant_rl_trading.allocator.env import FEATURE_ORACLE  # noqa: E402
@@ -316,6 +316,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default="data")
     parser.add_argument("--concentration-mode", default="softplus",
                         choices=["softplus", "simplex"])
+    parser.add_argument("--only-oracle", action="store_true",
+                        help="정답 칸만 남기고 종목 피처를 0 으로. 희석 가설 검증용.")
     parser.add_argument(
         "--n-max", type=int, default=None,
         help="후보 슬롯 수를 덮어쓴다. **창고를 안 건드린다** — 아래 주석 참조.",
@@ -358,6 +360,8 @@ def main(argv: list[str] | None = None) -> int:
         market=args.market, n_envs=args.envs, oracle_leak=args.oracle,
         seed=args.seed, params=params, hyper_as_of=run_moment,
     )
+    if args.only_oracle:
+        env = OnlyOracleEnv(env, FEATURE_ORACLE)
     obs = env.reset()
     policy = AllocatorPolicy(PolicyConfig(
         n_max=int(obs["mask"].shape[1]),

@@ -230,3 +230,50 @@ class VecLatticeEnv:
             "final_obs": self._stack(final_list),
         }
         return self._stack(next_list), rewards, terminated, truncated, info
+
+class OnlyOracleEnv:
+    """**정답 칸만 남기고 종목 피처를 전부 0 으로 만든다.** 배선 점검 전용.
+
+    ## 무엇을 가르는가
+
+    오라클이 관측에 들어 있는데 비중 머리에 안 닿는다면(실측 2026-08-21:
+    비중 항 기여도 23위/28, 정답↔배분 상관 ≈ 0), 그 사이에 있는 것은
+    트랜스포머다. 종목 토큰이 어텐션을 거치며 섞이는데 그 과정에서 정답
+    칸이 다른 27칸에 희석될 수 있다.
+
+    다른 칸을 지우면 그 가능성이 사라진다. 그래도 못 배우면 **희석이 아니라
+    경로 자체**의 문제이고, 배우면 다른 피처가 정답을 가리고 있던 것이다.
+    둘은 고치는 곳이 완전히 다르다.
+
+    ## 이 판의 성과는 전부 가짜다
+
+    `oracle_leak` 위에 얹어 쓰는 물건이라 원래 가짜인데, 여기서는 관측까지
+    잘라내므로 **더 가짜다.** 학습·백테스트·실전 경로에 절대 들어가지 않는다.
+    """
+
+    def __init__(self, inner: "VecLatticeEnv", oracle_index: int) -> None:
+        if not inner.config.oracle_leak:
+            raise ValueError(
+                "OnlyOracleEnv 는 oracle_leak 위에서만 뜻이 있다 — "
+                "정답이 없는데 정답 칸만 남기면 관측이 통째로 0 이 된다"
+            )
+        self._inner = inner
+        self._index = oracle_index
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def _filter(self, obs: dict[str, Any]) -> dict[str, Any]:
+        assets = np.array(obs["assets"], copy=True)
+        keep = assets[..., self._index].copy()
+        assets[...] = 0.0
+        assets[..., self._index] = keep
+        return {**obs, "assets": assets}
+
+    def reset(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._filter(self._inner.reset(*args, **kwargs))
+
+    def step(self, action: Any) -> Any:
+        obs, reward, terminated, truncated, info = self._inner.step(action)
+        return self._filter(obs), reward, terminated, truncated, info
+

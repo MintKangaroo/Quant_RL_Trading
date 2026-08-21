@@ -212,6 +212,23 @@ class PolicyOutput:
         delay_lp: Tensor = self.delay_dist.log_prob(delay)  # type: ignore[no-untyped-call]
         return weights_lp + (delay_lp * self.mask).sum(dim=-1)
 
+    def weights_log_prob(self, weights: Tensor) -> Tensor:
+        """**비중 항만.** 지연을 안 뽑는 커리큘럼에서 쓴다.
+
+        고정한 행동의 로그확률을 손실에 넣으면, 정책이 그 확률만 밀어서
+        손실을 줄일 수 있다 — 행동은 하나도 안 바뀌는데. `train.DELAY_FIXED`
+        주석에 실측이 있다.
+        """
+        valid = self.weight_valid
+        clean = _sanitize_simplex(
+            torch.where(valid, weights, torch.zeros_like(weights))
+        )
+        return _masked_dirichlet_log_prob(self.concentration, clean, valid)
+
+    def weights_entropy(self) -> Tensor:
+        """비중 항만의 엔트로피. `weights_log_prob` 과 짝이다."""
+        return _masked_dirichlet_entropy(self.concentration, self.weight_valid)
+
     def entropy(self) -> Tensor:
         """(B,). 비중·지연 둘 다 **유효 슬롯만** 센다 — 이유는 `log_prob` 과 같다."""
         weights_ent = _masked_dirichlet_entropy(self.concentration, self.weight_valid)

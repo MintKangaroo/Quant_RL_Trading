@@ -178,6 +178,52 @@ def gae(
     return advantages, advantages + values
 
 
+#: **지연 행동을 뽑지 않는다** — 커리큘럼 C1~C2 는 지연을 0 으로 고정한다(§6).
+#:
+#: 고정한 항은 **로그확률에서도 빼야 한다.** 안 빼면 정책이 `delay=0` 의
+#: 확률을 올리는 것만으로 손실을 움직일 수 있는데, 지연은 어차피 항상 0 이라
+#: **행동은 하나도 안 바뀐다.** PPO 입장에서는 공짜 지렛대다 — 비중을 바꾸려면
+#: 실제로 다른 종목을 사야 하지만 지연 확률을 미는 데는 대가가 없다.
+#:
+#: 실측 2026-08-21 에 최적화기가 그 쉬운 길을 찾아갔다:
+#:
+#:     지연 머리 그래디언트   비중의 55배 (6.1e+02 vs 1.1e+01)
+#:     정답 기여도(지연)      3위 / 28
+#:     정답 기여도(비중)     26위 / 28
+#:     정답을 밀었을 때 비중  반응 없음 (-2e-05)
+#:     NAV                    네 판 모두 부호가 뒤집히는 잡음
+#:
+#: 배선이 아니라 손실 함수가 정책에게 **행동을 안 바꿔도 되는 출구**를 열어
+#: 준 것이었다.
+DELAY_FIXED = True
+
+
+def _fixed_delay(out: Any, rows: int, device: torch.device) -> torch.Tensor:
+    """고정 지연 행동. 실제로 뽑지 않으므로 0 이다."""
+    return torch.zeros(
+        (rows, out.delay_logits.shape[1]), dtype=torch.long, device=device
+    )
+
+
+def _log_prob(out: Any, weights: torch.Tensor, delay: torch.Tensor) -> torch.Tensor:
+    """정책 로그확률. **세 곳(collect·update·attribution)이 같은 규칙을 쓴다.**
+
+    하나만 어긋나면 PPO 비율 `exp(logp - old_logp)` 가 서로 다른 정의를
+    비교하게 되어 조용히 망가진다 — 그래서 헬퍼 하나로 묶는다.
+    """
+    if DELAY_FIXED:
+        return out.weights_log_prob(weights)
+    return out.log_prob(weights, delay)
+
+
+def _entropy(out: Any) -> torch.Tensor:
+    """정책 엔트로피. 고정된 머리의 엔트로피는 세지 않는다 — 그 보너스도
+    행동을 안 바꾸면서 손실만 움직인다."""
+    if DELAY_FIXED:
+        return out.weights_entropy()
+    return out.entropy()
+
+
 def collect(
     env: Any,
     policy: AllocatorPolicy,
@@ -205,12 +251,10 @@ def collect(
             batch = _to_torch(obs, device)
             out = policy(batch["portfolio"], batch["assets"], batch["mask"])
             weights = out.weights_dist.sample()
-            # 지연은 0 으로 고정한다 — 커리큘럼 C1~C2 다(§6). 카나리와 같은
-            # 설정이라야 기여도를 비교할 수 있다.
-            delay = torch.zeros(
-                (n_envs, out.delay_logits.shape[1]), dtype=torch.long, device=device
-            )
-            logp = out.log_prob(weights, delay)
+            # 지연은 0 으로 고정한다 — 커리큘럼 C1~C2 다(§6). **고정한 항은
+            # 로그확률에서도 뺀다** (`DELAY_FIXED` 주석 참조).
+            delay = _fixed_delay(out, n_envs, device)
+            logp = _log_prob(out, weights, delay)
 
         obs_list.append(obs)
         actions.append(weights.cpu().numpy().astype(np.float64))
@@ -323,7 +367,7 @@ def update(
                 dtype=torch.long,
                 device=device,
             )
-            logp = out.log_prob(actions[index], delay)
+            logp = _log_prob(out, actions[index], delay)
 
             adv = adv_all[index]
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
@@ -342,7 +386,7 @@ def update(
             clipped_loss = (value_clipped - ret_all[index]) ** 2
             value_loss = torch.max(plain, clipped_loss).mean()
 
-            entropy = out.entropy().mean()
+            entropy = _entropy(out).mean()
             loss = policy_loss + ppo.vf_coef * value_loss - ent_coef * entropy
 
             optimizer.zero_grad(set_to_none=True)
@@ -448,7 +492,7 @@ def attribution(
         (actions.shape[0], out.delay_logits.shape[1]), dtype=torch.long, device=device
     )
     # **정책 항만.** 가치·엔트로피를 넣으면 무엇을 재는지가 흐려진다.
-    loss = -(out.log_prob(actions, delay) * adv).mean()
+    loss = -(_log_prob(out, actions, delay) * adv).mean()
     grad = torch.autograd.grad(loss, assets)[0]
 
     return feature_attribution(
