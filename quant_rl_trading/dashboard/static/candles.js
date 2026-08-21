@@ -102,16 +102,23 @@ function candleAxisLabel(interval) {
 function candleTooltipFormatter(c, label) {
   return (rows) => {
     if (!rows || !rows.length) return "";
-    const row = rows[0];
-    const head = `${String(row.axisValue)}`;
+    // **봉 줄을 골라서 읽는다.** RSI 칸이 생기면서 rows 에 두 줄이 온다.
+    // 예전처럼 rows[0] 을 봉으로 단정하면, RSI 쪽에 마우스를 대는 순간
+    // 시·고·저·종이 전부 "—" 로 뜬다 (실측 2026-08-21 화면).
+    const bar = rows.find((r) => r.seriesName !== "RSI") || rows[0];
+    const rsiRow = rows.find((r) => r.seriesName === "RSI");
+    const head = `${String(bar.axisValue)}`;
+    const rsiLine = rsiRow && rsiRow.value !== null && rsiRow.value !== undefined
+      ? `<br>RSI <b>${dec(rsiRow.value, 1)}</b>`
+      : "";
     if (c.has_ohlc === false || !(c.ohlc || []).length) {
-      return `${head}<br>${label} <b>${dec(row.value, 2)}</b>`;
+      return `${head}<br>${label} <b>${dec(bar.value, 2)}</b>${rsiLine}`;
     }
     // 캔들의 value 는 [index, 시가, 종가, 저가, 고가] 다.
-    const v = row.value;
+    const v = bar.value;
     return `${head} <b>${label}</b><br>`
       + `시 ${dec(v[1], 2)} · 고 ${dec(v[4], 2)}<br>`
-      + `저 ${dec(v[3], 2)} · 종 ${dec(v[2], 2)}`;
+      + `저 ${dec(v[3], 2)} · 종 ${dec(v[2], 2)}${rsiLine}`;
   };
 }
 
@@ -132,21 +139,92 @@ function candleOption(c, opts) {
   const bars = candleSeries(c, o);
 
   if (o.compact) {
+    // **RSI 칸은 값이 있을 때만 만든다.** 창(14봉)이 안 차면 줄이 통째로
+    // null 인데, 그 빈 칸을 그리면 화면이 "재려다 실패한 것" 처럼 보인다.
+    // 잴 수 없는 구간은 칸 자체를 안 만드는 편이 정직하다.
+    const rsi = (c.rsi || []).filter((v) => v !== null && v !== undefined);
+    const hasRsi = rsi.length >= 2;
+    const bottomPad = 18;
+    // 봉이 세로를 다 먹고 RSI 는 아래 32px 만 쓴다. 비율로 나누면 패널이
+    // 낮을 때 봉이 먼저 눌린다 — 봉을 보러 온 화면이다.
+    const rsiH = 32;
+    const grid = hasRsi
+      ? [
+          { left: 46, right: 8, top: 8, bottom: bottomPad + rsiH + 12 },
+          { left: 46, right: 8, height: rsiH, bottom: bottomPad },
+        ]
+      : { left: 46, right: 8, top: 8, bottom: bottomPad };
+    const xAxisBase = {
+      type: "category", data: c.sessions,
+      // 캔들은 눈금 사이에 서고 선은 눈금 위에 선다. 섞으면 봉이 축
+      // 바깥으로 반쯤 밀린다.
+      boundaryGap: bars.type === "candlestick",
+      ...AXIS,
+    };
+    if (!hasRsi) {
+      return {
+        ...BASE,
+        legend: { show: false },
+        grid,
+        xAxis: { ...xAxisBase, axisLabel },
+        // scale:true 가 필수다. 0 부터 그리면 봉이 위쪽 몇 %에 눌린다.
+        yAxis: { type: "value", scale: true, ...AXIS },
+        tooltip: { ...BASE.tooltip, formatter: candleTooltipFormatter(c, o.label || "") },
+        series: [bars],
+      };
+    }
     return {
       ...BASE,
       legend: { show: false },
-      grid: { left: 46, right: 8, top: 8, bottom: 18 },
-      xAxis: {
-        type: "category", data: c.sessions,
-        // 캔들은 눈금 사이에 서고 선은 눈금 위에 선다. 섞으면 봉이 축
-        // 바깥으로 반쯤 밀린다.
-        boundaryGap: bars.type === "candlestick",
-        ...AXIS, axisLabel,
-      },
-      // scale:true 가 필수다. 0 부터 그리면 봉이 위쪽 몇 %에 눌린다.
-      yAxis: { type: "value", scale: true, ...AXIS },
+      grid,
+      // 봉 쪽 축은 눈금을 감춘다 — 날짜는 아래 RSI 칸에서 한 번만 적는다.
+      xAxis: [
+        { ...xAxisBase, gridIndex: 0, axisLabel: { show: false } },
+        { ...xAxisBase, gridIndex: 1, axisLabel },
+      ],
+      yAxis: [
+        { type: "value", scale: true, ...AXIS, gridIndex: 0 },
+        {
+          type: "value", gridIndex: 1, min: 0, max: 100,
+          // **축 눈금을 끄고 선에 직접 적는다.** `splitNumber: 2` 는 0·50·100
+          // 에 눈금을 놓기 때문에 30·70 을 걸러내는 formatter 를 달면 라벨이
+          // 통째로 사라진다 — 실측으로 화면에 숫자가 하나도 안 떴다.
+          // 30·70 은 아래 markLine 이 그 위치에 정확히 적는다.
+          ...AXIS,
+          axisLabel: { show: false },
+          splitLine: { show: false },
+        },
+      ],
       tooltip: { ...BASE.tooltip, formatter: candleTooltipFormatter(c, o.label || "") },
-      series: [bars],
+      series: [
+        bars,
+        {
+          name: "RSI", type: "line", xAxisIndex: 1, yAxisIndex: 1,
+          data: c.rsi, showSymbol: false, smooth: false,
+          // **손익 색을 안 쓴다.** RSI 70 이 이익이고 30 이 손실인 것이
+          // 아니다 — 변동성 지수에 색을 안 쓰는 것과 같은 이유다.
+          lineStyle: { width: 1, color: COLOR.muted },
+          // 못 잰 앞머리는 잇지 않는다. 이으면 없는 값이 있는 것처럼 보인다.
+          connectNulls: false,
+          markLine: {
+            silent: true, symbol: "none",
+            lineStyle: { color: COLOR.muted, opacity: 0.35, type: "dashed", width: 1 },
+            label: {
+              show: true, position: "start", formatter: "{c}",
+              color: COLOR.muted, fontSize: 9,
+            },
+            data: [{ yAxis: 30 }, { yAxis: 70 }],
+          },
+          // **지금 값을 선 끝에 적는다.** 그래프만 있고 숫자가 없으면
+          // "지금 몇인가" 를 눈대중으로 읽어야 한다 — 그러라고 만든 칸이
+          // 아니다.
+          endLabel: {
+            show: true, color: COLOR.muted, fontSize: 10,
+            formatter: (p) => (p.value === null || p.value === undefined
+              ? "" : `RSI ${dec(p.value, 1)}`),
+          },
+        },
+      ],
     };
   }
 

@@ -102,6 +102,7 @@ import pandas as pd
 
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.dashboard.services import trading as trading_service
+from quant_rl_trading.indicators import wilder_rsi_series
 from quant_rl_trading.store import Store
 from quant_rl_trading.store.prices import read_prices
 
@@ -200,6 +201,13 @@ US_ETF_PANELS = (
     ("US:QQQ", "나스닥 100"),
     ("US:DIA", "다우존스 산업평균"),
     ("US:SOXX", "ICE 반도체"),
+    # **국채는 캔들이 아니라 선이다.** FRED H.15 고정만기 수익률이라 하루에
+    # 값 하나뿐이고 시가·고가·저가가 없다. 패널이 `has_ohlc=False` 를 보고
+    # 알아서 선을 긋는다 — 없는 OHLC 를 지어내면 그럴듯한 거짓말이 된다.
+    #
+    # 단위가 **%** 라 위 넷과 다르다. 등락도 "가격이 몇 % 올랐다" 가 아니라
+    # "금리가 몇 %p 움직였다" 는 뜻이다. 이름에 (%) 를 달아 그 차이를 적는다.
+    ("US:RATE:UST10Y", "미국 국채 10년 (%)"),
 )
 
 #: **변동성 지수는 가격지수가 아니다.** VIX 는 옵션 내재변동성이라 "20 → 24"
@@ -376,6 +384,11 @@ def _panel_label(entity_id: str, kind: str) -> str:
     (`KR:IDX:KOSPI` → `KOSPI`). ETF 자리에 추종 지수 이름을 넣지 않는다 —
     그게 대용치 바꿔치기다.
     """
+    # 금리는 티커가 아니다. `US:RATE:UST10Y` 를 `:` 로 자르면 `RATE:UST10Y`
+    # 라는 읽을 수 없는 이름이 나온다 — 실측 2026-08-21 화면.
+    _, rate_marker, rate_name = entity_id.partition("RATE:")
+    if rate_marker:
+        return rate_name
     if kind == "etf":
         _, _, ticker = entity_id.partition(":")
         return ticker or entity_id
@@ -396,16 +409,35 @@ def _panel_frame(
     아니라 여기서 같은 규칙(종가 0 제외)을 직접 적용한다.
     """
     columns = ["entity_id", "open", "high", "low", "close", "volume", "valid_from"]
+
+    # **한 무리 안에 두 표가 섞인다.** 미장 패널은 대부분 ETF(=`prices`)인데
+    # 국채 금리는 `indices` 에 산다. 예전에는 무리 전체를 한 표에서만 읽어서,
+    # 국채 패널이 조용히 "미수집" 으로 빠졌다 (실측 2026-08-21).
+    #
+    # 티커가 아니라 **접두어로 가른다** — `US:RATE:` · `KR:IDX:` 처럼 축이
+    # 이름에 적혀 있다.
+    def _from_indices(entity: str) -> bool:
+        return ":IDX:" in entity or ":RATE:" in entity
+
     if kind == "etf":
-        frame = read_prices(
-            store, as_of=as_of, entity=entities, lookback=lookback,
-            market=market, columns=columns,
-        )
+        price_ids = [e for e in entities if not _from_indices(e)]
+        index_ids = [e for e in entities if _from_indices(e)]
     else:
-        frame = store.get(
-            INDICES, as_of=as_of, entity=entities, lookback=lookback,
+        price_ids, index_ids = [], list(entities)
+
+    frames = []
+    if price_ids:
+        frames.append(read_prices(
+            store, as_of=as_of, entity=price_ids, lookback=lookback,
             market=market, columns=columns,
-        )
+        ))
+    if index_ids:
+        frames.append(store.get(
+            INDICES, as_of=as_of, entity=index_ids, lookback=lookback,
+            market=market, columns=columns,
+        ))
+    frames = [f for f in frames if not f.empty]
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
     out: dict[str, pd.DataFrame] = {}
     if frame.empty:
@@ -503,8 +535,13 @@ def instrument_panels(
         label = _panel_label(entity, kind)
         # 벤치마크는 config 가 정한 그 이름일 때만이다. 미장 ETF 는 절대 아니다.
         is_benchmark = kind == "index" and entity == benchmark_id
+        # **금리는 ETF 가 아니다.** 무리(kind)는 "etf" 지만 국채 금리는 대용치가
+        # 아니라 원래 값이다. 무리 이름을 그대로 물려주면 화면이 "ETF · S&P 500
+        # 추종" 같은 배지를 금리에 달고, 벤치마크 후보 검사도 ETF 규칙으로
+        # 돈다. 칸마다 자기 종류를 든다.
+        row_kind = "rate" if ":RATE:" in entity else kind
         stub = {
-            "entity_id": entity, "market": market, "kind": kind, "label": label,
+            "entity_id": entity, "market": market, "kind": row_kind, "label": label,
             "tracks": tracks, "role": role, "benchmark": is_benchmark,
         }
         rows = history.get(entity)
@@ -515,6 +552,11 @@ def instrument_panels(
         closes = rows["close"].astype(float)
         first, last = float(closes.iloc[0]), float(closes.iloc[-1])
         candles = _has_ohlc(rows)
+        # **RSI 는 여기서 한 번만 낸다.** 화면이 JS 로 다시 구하면 평활 방식이
+        # 갈릴 수 있고, 그러면 메일의 RSI 와 화면의 RSI 가 달라진다.
+        rsi_period = int(store.config("reporting.rsi_period", as_of=as_of))
+        rsi_series = wilder_rsi_series(closes, rsi_period)
+
         panels.append(
             {
                 **stub,
@@ -536,6 +578,11 @@ def instrument_panels(
                     else []
                 ),
                 "closes": [float(v) for v in closes],
+                # RSI 줄. 계산은 `quant_rl_trading.indicators` 한 벌만 쓴다 —
+                # 화면과 메일이 각자 구하면 같은 지수의 RSI 가 두 개가 된다.
+                # 창이 모자라는 앞머리는 None 이라 화면이 그 구간을 안 긋는다.
+                "rsi": rsi_series,
+                "rsi_period": rsi_period,
                 "has_ohlc": candles,
                 "close": last,
                 "session": str(rows.index[-1]),

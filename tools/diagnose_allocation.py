@@ -74,6 +74,91 @@ def describe(label: str, values: list[float]) -> str:
     )
 
 
+def probe_response(
+    policy: AllocatorPolicy, rollout: dict, device: torch.device, n_steps: int = 9
+) -> dict[str, float]:
+    """**정답을 손으로 밀어 보고 비중이 따라 오는지 본다.**
+
+    기여도(`attribution`)는 |∂손실/∂피처| 를 잰다. 그건 **민감도**지
+    **정렬**이 아니다 — 정책이 그 칸에 크게 반응하면서도 반응 방향이
+    제멋대로일 수 있다. 실측 2026-08-21 에 정확히 그랬다: 기여도 순위 1위
+    (z +4.71) 인데 정답↔배분 상관은 −0.015 였다.
+
+    상관은 관측된 값들 사이의 관계라 "정답이 높은 종목이 원래 다른 이유로도
+    좋았다" 같은 교란이 섞인다. 여기서는 **다른 칸을 전부 고정한 채 정답
+    칸만** 낮은 값에서 높은 값으로 밀고, 그 종목의 목표 비중이 어떻게
+    변하는지 본다. 인과가 한 방향뿐이라 해석이 갈릴 자리가 없다.
+
+    돌려주는 값:
+      slope       정답을 1 표준편차 올렸을 때 그 종목 비중의 평균 변화(비율)
+      monotonic   비중이 정답을 따라 단조증가한 표본의 비율 (0.5 면 동전던지기)
+    """
+    obs = rollout["obs"][0]
+    port = torch.as_tensor(np.asarray(obs["portfolio"]), dtype=torch.float32, device=device)
+    assets = torch.as_tensor(np.asarray(obs["assets"]), dtype=torch.float32, device=device)
+    mask = torch.as_tensor(np.asarray(obs["mask"]), dtype=torch.float32, device=device)
+    if port.ndim == 1:
+        port, assets, mask = port[None], assets[None], mask[None]
+
+    live = mask[0] > 0.5
+    if int(live.sum()) < 3:
+        return {}
+    # 밀어 볼 폭은 그 배치의 정답 분포에서 뽑는다. 임의의 절대값을 쓰면
+    # 관측에 실제로 오지 않는 구간을 재게 된다.
+    truth = assets[..., FEATURE_ORACLE][mask > 0.5]
+    lo, hi = float(truth.min()), float(truth.max())
+    if not np.isfinite(lo) or hi <= lo:
+        return {}
+    grid = torch.linspace(lo, hi, n_steps, device=device)
+
+    slopes: list[float] = []
+    monotone: list[float] = []
+    delay_slopes: list[float] = []
+    idxs = torch.nonzero(live).flatten().tolist()[:8]
+    with torch.no_grad():
+        for slot in idxs:
+            weights = []
+            for value in grid:
+                probe = assets.clone()
+                probe[:, slot, FEATURE_ORACLE] = value
+                out = policy(port, probe, mask)
+                alpha = out.concentration
+                share = alpha / alpha.sum(dim=-1, keepdim=True)
+                weights.append(float(share[:, slot].mean()))
+            arr = np.asarray(weights)
+            span = float(grid[-1] - grid[0])
+            if span > 0:
+                # 표준편차 1 단위로 환산 — 칸마다 폭이 달라도 비교된다.
+                slopes.append(float((arr[-1] - arr[0]) / span * float(truth.std())))
+            monotone.append(float(np.mean(np.diff(arr) > 0)))
+
+            # **지연 머리도 본다.** 행동 공간은 비중 하나가 아니다 —
+            # `attribution` 은 `log_prob(actions, delay)` 의 그래디언트라
+            # 지연 쪽으로 흐르는 것도 같이 센다. 비중만 재고 "반응 없음" 이라
+            # 하면, 정답을 지연에만 쓰는 정책을 놓친다.
+            dl = []
+            for value in grid:
+                probe = assets.clone()
+                probe[:, slot, FEATURE_ORACLE] = value
+                out = policy(port, probe, mask)
+                logits = out.delay_logits[:, slot]
+                dl.append(float(torch.softmax(logits, dim=-1)[:, 0].mean()))
+            darr = np.asarray(dl)
+            if span > 0:
+                delay_slopes.append(
+                    float((darr[-1] - darr[0]) / span * float(truth.std()))
+                )
+    if not slopes:
+        return {}
+    return {
+        "slope": float(np.mean(slopes)),
+        "slope_std": float(np.std(slopes)),
+        "monotonic": float(np.mean(monotone)),
+        "delay_slope": float(np.mean(delay_slopes)) if delay_slopes else 0.0,
+        "delay_abs": float(np.mean(np.abs(delay_slopes))) if delay_slopes else 0.0,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--updates", type=int, default=40)
@@ -216,6 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         if index % 10 == 0 or index == 1:
             print(f"  [{index}/{args.updates}]", flush=True)
 
+    probe = probe_response(policy, rollout, device) if args.oracle else {}
+
     print()
     print(f"오라클 {'켬 — 성과는 가짜다' if args.oracle else '끔'} · 슬롯 {env.config.n_assets}칸")
     if oracle_corr:
@@ -229,7 +316,28 @@ def main(argv: list[str] | None = None) -> int:
     t_end = float(np.mean(target_n[-5:]))
     r_end = float(np.mean(realized_n[-5:]))
     a0, a1 = float(np.mean(alpha_spread[:5])), float(np.mean(alpha_spread[-5:]))
+    if probe:
+        print()
+        print("[인과] 다른 칸을 고정하고 **정답 칸만** 밀어 봤다")
+        print(f"  기울기      {probe['slope']:+.5f} (정답 +1σ 당 비중 변화 · 흩어짐 {probe['slope_std']:.5f})")
+        print(f"  단조증가 비율 {probe['monotonic']:.2f} (0.50 이면 동전던지기)")
+        print(f"  지연 머리     {probe['delay_slope']:+.5f} · |기울기| {probe['delay_abs']:.5f}")
+
     print("판정:")
+    if probe:
+        if probe["monotonic"] >= 0.7 and probe["slope"] > 0:
+            print("  · 정답을 밀면 비중이 따라 온다 — 정책은 **방향을 안다**.")
+        elif abs(probe["slope"]) < 1e-4:
+            print("  · 정답을 밀어도 **비중이** 안 움직인다.")
+            if probe["delay_abs"] > 1e-3:
+                print(f"    그런데 지연 머리는 움직인다(|{probe['delay_abs']:.4f}|) — 정책이")
+                print("    정답을 **비중이 아니라 지연 결정에** 쓰고 있다.")
+            else:
+                print("    지연 머리도 안 움직인다 — 출력 전체가 이 칸에 무감각하다.")
+                print("    그러면 기여도 1위는 **기여도 함수 쪽을 의심**해야 한다.")
+        else:
+            print("  · 비중이 움직이긴 하는데 방향이 제멋대로다 "
+                  f"(단조 {probe['monotonic']:.2f}) — **정렬이 안 됐다**.")
     if oracle_corr:
         c0, c1 = float(np.mean(oracle_corr[:20])), float(np.mean(oracle_corr[-20:]))
         if c1 >= 0.30:

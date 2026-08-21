@@ -218,8 +218,14 @@ def test_미장_패널은_ETF_이고_벤치마크가_아니다(client) -> None:
     assert us["instrument_panels"]["kind"] == "etf"
     assert _primary(us)["entity_id"] == "US:SPY"
     for row in _cards(us):
-        assert row["kind"] == "etf"
         assert row["benchmark"] is False, "ETF 가 벤치마크로 찍혔다"
+        if row["kind"] == "rate":
+            # **금리는 대용치가 아니라 원래 값이다.** ETF 규칙(티커 제목·
+            # 추종 대상)을 그대로 걸면 `US:RATE:UST10Y` 의 제목이
+            # "RATE:UST10Y" 가 된다 — 읽을 수 없는 이름이다.
+            assert row["label"] == row["entity_id"].split("RATE:", 1)[1]
+            continue
+        assert row["kind"] == "etf"
         # 제목은 티커다 — 지수 이름을 달고 ETF 를 그리면 대용치 바꿔치기다.
         assert row["label"] == row["entity_id"].split(":", 1)[1]
         assert row["tracks"]

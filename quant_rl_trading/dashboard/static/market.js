@@ -329,8 +329,18 @@ function marketGroupHead(code, data) {
  * 값이 있을 때만이다 — 없는 것도 자리를 지켜야 "수집이 안 된 것" 과 "애초에
  * 안 그리는 것" 이 화면에서 갈린다. */
 function panelNums(panel) {
+  // **지금 RSI 를 머리에도 적는다.** 차트 안 숫자는 봉을 가릴까 봐 작게
+  // 두었는데, 그러면 "지금 몇인가" 를 보려고 눈을 차트로 옮겨야 한다.
+  // 종가·등락과 같은 줄에 있으면 한 번에 읽힌다.
+  const rsi = panel && Array.isArray(panel.rsi)
+    ? [...panel.rsi].reverse().find((v) => v !== null && v !== undefined)
+    : null;
+  const rsiTag = rsi === null || rsi === undefined
+    ? ""
+    : `<span class="mono sub tiny index-panel-rsi">RSI ${dec(rsi, 1)}</span>`;
   return `<span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
-    <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>`;
+    <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
+    ${rsiTag}`;
 }
 
 function panelCard(body, spec, panel, elId, lookback) {

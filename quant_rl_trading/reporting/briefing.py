@@ -28,6 +28,8 @@ from typing import Any
 
 import pandas as pd
 
+from quant_rl_trading.indicators import wilder_rsi
+
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.dashboard.services import market as market_service
 from quant_rl_trading.replay.clock import Clock
@@ -454,31 +456,6 @@ def index_rows(
 #: 값의 영향이 오래 남아서, 기간 딱 맞게 주면 첫 구간이 단순평균과 다를
 #: 바 없어진다. 휴장·연휴까지 감안해 달력일로 넉넉히 잡는다.
 RSI_LOOKBACK_DAYS = 150
-
-
-def wilder_rsi(closes: "pd.Series", period: int) -> float | None:
-    """RSI. 표본이 모자라면 **None** — 지어내지 않는다.
-
-    Wilder 원식이다(지수평활, alpha=1/period). 단순이동평균으로 내는 변형이
-    돌아다니는데 값이 다르게 나오므로, 화면과 다른 곳이 각자 고르면 같은
-    지수의 RSI 가 두 개가 된다. 여기 한 벌만 둔다.
-
-    **하락이 하나도 없는 구간은 100 이다.** 0 으로 나누는 자리라 그냥 두면
-    inf 가 나오고, inf 하나가 조용히 퍼지는 사고를 이 저장소는 이미 겪었다
-    (`lattice-zero-close-bug`).
-    """
-    values = closes.dropna()
-    if len(values) < period + 1:
-        return None
-    delta = values.diff().dropna()
-    gain = delta.clip(lower=0.0)
-    loss = (-delta).clip(lower=0.0)
-    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False).mean().iloc[-1]
-    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False).mean().iloc[-1]
-    if avg_loss <= 0:
-        return 100.0 if avg_gain > 0 else 50.0
-    rs = avg_gain / avg_loss
-    return float(100.0 - 100.0 / (1.0 + rs))
 
 
 def index_rsi(
