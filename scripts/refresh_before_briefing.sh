@@ -51,4 +51,35 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     # 아니다).
     .venv/bin/python tools/collect_us_prices.py --source etf --sessions 3
     echo "  미장 대용 ETF rc=$?"
+
+    # FRED 지수가 아직이면 **브리핑 직전까지 몇 분 간격으로 다시 묻는다.**
+    #
+    # 2026-08-22 06:30 발송분이 머리말에 `미장 2026-08-21` 을 달고 8/20 종가를
+    # 실었다. ETF 는 05:20 에 8/21 이 들어와 있었고 FRED 지수만 없었다 —
+    # 06:00 KST 는 17:00 ET, 마감 한 시간 뒤라 **FRED 공표 경계에 정확히
+    # 걸쳐 있다.** 그 전까지 세션 D 가 D+1 06:00 관측으로 들어오던 것은 FRED
+    # 가 06:00 에 낸다는 뜻이 아니라 **우리가 06:00 에 물었다는 뜻**이다
+    # (`observed_at` 은 내가 알 수 있었던 시각이다 — 불변식 3).
+    #
+    # 브리핑을 늦추는 쪽은 안 골랐다. 늦춰도 공표 시각의 흔들림은 그대로라
+    # 언젠가 또 걸리고, 그 대가로 매일 메일이 늦는다. 재시도는 걸린 날에만
+    # 값을 치른다. 한 번 더 부르는 비용도 싸다 — FRED 호출 몇 초다.
+    #
+    # **마감을 둔다.** 브리핑이 06:30 이라 06:25 까지만 기다린다. 그때까지도
+    # 안 들어오면 그건 그날의 사실이고, 브리핑이 "2026-08-21 지수가 아직 안
+    # 들어왔다" 를 표에 적는다 — 조용히 8/20 을 오늘 것처럼 싣던 자리다.
+    RETRY_DEADLINE=625   # HHMM. 브리핑(06:30) 5분 전.
+    RETRY_SLEEP=240
+    for attempt in 1 2 3 4 5; do
+        if .venv/bin/python tools/us_index_ready.py; then
+            break
+        fi
+        if [ "$((10#$(date +%H%M)))" -ge "${RETRY_DEADLINE}" ]; then
+            echo "  06:25 넘김 — 재시도 중단. 브리핑이 안 들어왔다고 적는다"
+            break
+        fi
+        sleep "${RETRY_SLEEP}"
+        .venv/bin/python tools/collect_macro.py
+        echo "  미장 지수 재시도 ${attempt} rc=$?"
+    done
 } >>"${LOG}" 2>&1

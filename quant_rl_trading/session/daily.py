@@ -58,6 +58,14 @@ class DailySession:
     orders: tuple = ()
     notes: list[str] = field(default_factory=list)
     blocked_by: str = ""
+    #: 선정이 시작조차 못 한 사유(`selector.weights` 의 상수). 빈 문자열이면
+    #: 정상이다. **후보 0개와 다른 사건이다** — 후보 0개는 "오늘 살 게 없다"
+    #: 일 수 있지만 이 값이 차 있으면 설비가 고장 나 있다. 세션 실행기가
+    #: 종료코드로 내보낸다(tools/run_session.py).
+    #:
+    #: `blocked_by` 와도 다르다. 그쪽은 안전장치가 **일한** 것이고 이쪽은
+    #: 알파 합성이 **못 돈** 것이다.
+    fault: str = ""
 
     def digest(self) -> str:
         """주문의 지문. **같은 as_of 는 같은 지문이어야 한다.**
@@ -216,6 +224,7 @@ def run(
     )
     result.candidates = tuple(item.entity_id for item in selection.candidates)
     result.notes.extend(selection.trace.notes)
+    result.fault = selection.fault
     log.record(
         "select",
         "selector",

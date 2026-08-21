@@ -272,6 +272,82 @@ def _is_closed(market: str, report_day: date | None) -> bool:
     return not is_trading_day(Market(market), report_day)
 
 
+def _stale_stamp(session: date | None, expected: date | None) -> str:
+    """헤드라인 조각 뒤에 붙는 ``(08-20 종가)``. 최신이면 빈 문자열.
+
+    **이 줄은 사람이 유일하게 반드시 읽는 줄이다.** 2026-08-22 06:30 에 나간
+    메일이 머리말에 ``미장 2026-08-21`` 을 달고 8/20 종가를 실었다 — 표
+    안쪽에는 각주가 있었지만 헤드라인에는 아무 표시도 없어서, 그 줄만 읽고
+    닫은 사람에게는 그냥 어제 숫자였다. 여기가 거짓이면 아래쪽 정직함은
+    쓸모가 없다.
+
+    ``종가`` 를 같이 적는다 — 날짜만 괄호에 넣으면 등락을 잰 구간으로 읽힌다.
+    """
+    if session is None or expected is None or session >= expected:
+        return ""
+    return f" ({session.strftime('%m-%d')} 종가)"
+
+
+def _rows_session(*groups: list[IndexRow]) -> date | None:
+    """이 묶음이 실제로 실은 종가 세션. 여러 날이 섞였으면 가장 최신.
+
+    ``SessionRef`` 를 안 쓰고 줄에서 직접 캔다 — 대용 ETF 는 ``SessionRef``
+    가 아예 없고(``prices`` 표에서 온다), 있는 쪽도 "이 시장" 단위라 묶음
+    단위와 어긋난다.
+    """
+    days = [row.session for group in groups for row in group if row.session is not None]
+    return max(days) if days else None
+
+
+def _session_tokens(brief: MarketBrief) -> list[str]:
+    """머리말에 적을 세션 조각들. **한 날짜로 뭉치지 않는다.**
+
+    이 시장 한 칸 안에 출처가 셋이고 **지연이 셋 다 다르다** — FRED 지수,
+    LS 해외 ETF, 그리고 순위표가 쓰는 시세. 2026-08-22 발송분이 그 사고였다:
+    ETF 는 05:20 에 8/21 이 들어왔는데 FRED 지수는 아직 8/20 이었고, 머리말은
+    ``price_session.observed or index_session.observed`` 로 **둘 중 하나를
+    골라** ``미장 2026-08-21`` 을 적었다. 그 아래 지수 표는 8/20 이었다.
+    같은 메일 안에서 ``SPY +0.30%`` 와 ``S&P 500 -0.87%`` 가 모순돼 보인
+    이유가 이것이다 — 다른 날의 같은 지수였다.
+
+    그래서 셋이 같은 날이면 날짜 하나로 적고, **하나라도 어긋나면 셋을 다
+    적는다.** 대표를 세우고 나머지를 덮는 자리가 아니다.
+    """
+    pairs = [
+        ("지수", _rows_session(brief.prices, brief.volatility)),
+        ("ETF", _rows_session(brief.proxies)),
+        ("시세", brief.price_session.observed),
+    ]
+    known = [(name, day) for name, day in pairs if day is not None]
+    if not known:
+        return ["세션 미확인"]
+    days = {day for _, day in known}
+    if len(days) == 1:
+        return [known[0][1].isoformat()]
+    return [f"{name} {day.strftime('%m-%d')}" for name, day in known]
+
+
+def _mark_foot(rows: list[IndexRow], *, explained: date | None = None) -> str:
+    """숫자 아래 날짜가 무슨 뜻인지. 설명이 필요 없으면 빈 문자열.
+
+    전에는 ``* 그 지수의 종가 세션이 다르거나 미수집`` 이었다. **"다르다"
+    로 끝나면 어느 날인지는 끝내 안 알려준다** — 읽는 사람이 알아야 하는
+    것이 정확히 그 날짜다. 그래서 별표를 날짜로 바꿨고, 각주는 그 날짜를
+    어떻게 읽어야 하는지만 말한다.
+
+    ``explained`` 는 **표 각주가 이미 밝힌 세션**이다. 표 전체가 하루 밀린
+    날에는 줄마다 붙은 날짜가 전부 그 날이라, 여기까지 한 번 더 적으면 같은
+    사실이 세 겹으로 쌓인다. 그런 줄은 세지 않는다.
+    """
+    noted = [
+        row for row in rows
+        if row.close is not None and row.note and row.session != explained
+    ]
+    if not noted:
+        return ""
+    return "숫자 아래 날짜 = 그 숫자의 실제 종가 세션 · 최신이 아니거나 하루치 등락이 아닌 줄에만 붙는다"
+
+
 def _headline_parts(briefing: Briefing) -> list[tuple[str, float | None]]:
     """헤드라인 조각들. ``(문장, 색을 정하는 등락)``.
 
@@ -300,10 +376,19 @@ def _headline_parts(briefing: Briefing) -> list[tuple[str, float | None]]:
         if head.close is None:
             parts.append((f"{head.label} 미수집", None))
         else:
-            parts.append((f"{head.label} {_moved(head.change)}", head.change))
+            stamp = _stale_stamp(head.session, brief.index_session.expected)
+            parts.append((f"{head.label} {_moved(head.change)}{stamp}", head.change))
     rate = briefing.fx
     if rate.get("rate") is not None:
-        parts.append((f"환율 {rate['rate']:,.0f} {_moved(rate['change'])}", None))
+        # **환율은 주간 발행이라 늘 며칠 낡다** — 그걸 매일 찍으면 제목 줄이
+        # 매일 같은 말을 반복하고, 정작 진짜 지연이 왔을 때 눈에 안 띈다.
+        # 그래서 **우리가 못 받은 경우(MISSING)에만** 찍는다. 원본이 아직 안
+        # 낸 것(UNPUBLISHED)은 맨 아래 목록이 이미 성격까지 갈라서 적는다.
+        stamp = ""
+        last = (rate.get("sessions") or [None])[-1]
+        if briefing.fx_gap_kind == MISSING and last:
+            stamp = f" ({date.fromisoformat(last).strftime('%m-%d')} 관측)"
+        parts.append((f"환율 {rate['rate']:,.0f} {_moved(rate['change'])}{stamp}", None))
     return parts
 
 
@@ -378,11 +463,15 @@ def _index_rows(rows: list[IndexRow], *, volatility: bool) -> str:
                 + "</tr>"
             )
             continue
-        mark = (
-            f'<span style="color:{WARN_INK};font-size:{SMALL}px"> *</span>'
-            if row.note
-            else ""
-        )
+        # **별표가 아니라 날짜다.** 별표는 "이 숫자를 곧이곧대로 읽지 마라"
+        # 까지만 말하고 정작 어느 날 것인지는 안 말한다 — 2026-08-22 발송분에서
+        # 지수 넷이 전부 별표를 달고 8/20 종가로 나갔는데, 각주는 "세션이 다르다"
+        # 로 끝나 있었다. 숫자 바로 아래 그 숫자의 날짜를 적으면 각주까지 안
+        # 내려가도 된다.
+        #
+        # **이름 칸이 아니라 값 칸에 붙인다.** 이름 옆에 두면 "필라델피아
+        # 반도체 08-20" 이 한 덩어리 이름처럼 읽힌다. 줄을 갈아 끼우므로
+        # ``nowrap`` 인 값 칸에서도 폭을 안 먹는다 (RSI 줄과 같은 수법).
         value = (
             f'<span style="color:{INK};font-weight:700">{_num(row.close)}</span>'
             f'<span style="color:{_color(row.change, kind)};font-weight:700"> '
@@ -402,9 +491,15 @@ def _index_rows(rows: list[IndexRow], *, volatility: bool) -> str:
                 f'<br><span style="color:{tint};font-size:{SMALL}px;'
                 f'font-weight:400">RSI {row.rsi:.0f}{tag}</span>'
             )
+        if row.note:
+            stamp = row.session.strftime("%m-%d 종가") if row.session else "세션 미상"
+            value += (
+                f'<br><span style="color:{WARN_INK};font-size:{SMALL}px;'
+                f'font-weight:400">{stamp}</span>'
+            )
         body += (
             "<tr>"
-            + _cell(f"{row.label}{mark}", color=SOFT)
+            + _cell(row.label, color=SOFT)
             + _cell(value, align="right", size=17, wrap=False)
             + "</tr>"
         )
@@ -713,29 +808,58 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
         since = f" 직전 거래일은 {prior.isoformat()} 다." if prior else ""
         return _rule() + head + _foot(f"이 날은 장이 서지 않았다 — 실을 세션이 없다.{since}")
 
-    session = brief.price_session.observed or brief.index_session.observed
-    when = session.isoformat() if session else "세션 미확인"
+    # 세션 조각은 낱개로 안 접히게 묶는다 — "지수 / 08-20" 으로 쪼개지면
+    # 둘을 다시 붙여 읽어야 날짜가 된다 (``_macro_block`` 과 같은 이유).
+    when = " · ".join(
+        f'<span style="white-space:nowrap">{token}</span>'
+        for token in _session_tokens(brief)
+    )
     head = (
         f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
         f'font-weight:800;padding:14px 0 6px">{label}'
         f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> {when}</span></div>'
     )
     body = _index_rows(brief.prices, volatility=False)
-    if any(row.note for row in brief.prices):
-        body += _foot("* 그 지수의 종가 세션이 다르거나 미수집")
+    index_day = _rows_session(brief.prices, brief.volatility)
+    expected = brief.index_session.expected
+    stale_table = bool(index_day and expected and index_day < expected)
+    if stale_table:
+        assert index_day is not None and expected is not None
+        # 표 전체가 하루 밀린 날은 **줄마다 날짜가 붙어도 그게 왜 어제인지는
+        # 안 보인다.** 표 단위로 한 번 말한다 — 8/22 사고가 정확히 이 모양이라
+        # 지수 넷이 전부 같은 날 뒤에 서 있었다.
+        body += _foot(
+            f"이 표는 {index_day.isoformat()} 종가다 — "
+            f"{expected.isoformat()} 지수가 아직 안 들어왔다"
+        )
+    if legend := _mark_foot(brief.prices, explained=index_day if stale_table else None):
+        body += _foot(legend)
     if brief.proxies:
         # **지수 표 바로 아래, 그러나 다른 묶음이다.** 위는 FRED 지수고 여기는
         # LS 해외 ETF 다 — 출처도 값의 성격도 다르다. 같은 표에 섞으면
         # "S&P 500 7,745" 와 "SPY 767" 이 나란히 서서 하나가 틀린 것처럼
         # 보인다. 다른 것이지 틀린 것이 아니다.
         body += _index_rows(brief.proxies, volatility=False)
+        proxy_day = _rows_session(brief.proxies)
+        # **어느 날 것인지 여기서 못 박는다.** 위 지수와 다른 날일 때 그 말을
+        # 안 하면 두 표가 같은 날의 서로 다른 값처럼 보인다 — 실제로 8/22
+        # 발송분에서 지수는 전부 하락, ETF 는 전부 상승으로 나가 모순돼 보였다.
+        gap = (
+            f" 이 표는 {proxy_day.isoformat()} 종가다."
+            if proxy_day and index_day and proxy_day != index_day
+            else ""
+        )
         body += _foot(
             "지수 추종 ETF (LS 해외) — 지수가 아니다. 분배락·운용보수·추적오차만큼 "
-            "지수와 어긋난다. 위 지수가 아직 안 들어온 날 방금 끝난 장을 보는 자리다"
+            f"지수와 어긋난다. 위 지수가 아직 안 들어온 날 방금 끝난 장을 보는 자리다.{gap}"
         )
+        if legend := _mark_foot(brief.proxies, explained=proxy_day if gap else None):
+            body += _foot(legend)
     if brief.volatility:
         body += _index_rows(brief.volatility, volatility=True)
         body += _foot("변동성 지수 — 상승은 수익이 아니라 공포다. 손익 색 없음")
+        if legend := _mark_foot(brief.volatility, explained=index_day if stale_table else None):
+            body += _foot(legend)
     for rank in brief.rankings:
         body += _ranking_block(rank, brief)
     body += _news_block(brief.news)
@@ -867,7 +991,9 @@ def render_text(briefing: Briefing) -> str:
             lines.append(f"  장이 서지 않았다 — 실을 세션이 없다.{since}")
             lines.append("")
             continue
-        lines.append(f"== {label} ==")
+        # HTML 머리말과 **같은 목록**을 읽는다. 두 벌로 두면 한쪽만 세션이
+        # 갈린 사실을 말하게 되고, 그때 어느 쪽이 맞는지 알 길이 없다.
+        lines.append(f"== {label} · {' · '.join(_session_tokens(brief))} ==")
         for index_row in brief.prices:
             mark = f"  — {index_row.note}" if index_row.note else ""
             lines.append(

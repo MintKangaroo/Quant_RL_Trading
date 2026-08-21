@@ -25,7 +25,11 @@ from quant_rl_trading.collectors.errors import CollectorError
 from quant_rl_trading.collectors.krx_source import PanelSource
 from quant_rl_trading.collectors.latency import LatencyRecorder
 from quant_rl_trading.collectors.market_hours import Market, trading_days
-from quant_rl_trading.collectors.publication import NotYetPublished, ObservedAtPolicy
+from quant_rl_trading.collectors.publication import (
+    NotYetPublished,
+    ObservedAtPolicy,
+    UnverifiedSchedulePolicy,
+)
 from quant_rl_trading.collectors.raw import RawArchive
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.store import DuplicateIngestRun, Store
@@ -76,6 +80,11 @@ class Panel:
     expand: Expand | None = None
     #: 공표 지연(거래일). 공매도처럼 T+N 에 나오는 것에 쓴다.
     lag_days: int = 0
+    #: 원본의 **발행 일정을 확인했나.** False 면 관측시각에
+    #: ``UnverifiedSchedulePolicy`` 의 하한이 걸린다 — 수집 시각보다 이르게
+    #: 찍지 않는다. 마감 + lag 는 일봉의 일정이고, 그것을 확인 없이 다른
+    #: 데이터셋에 물려 쓰면 그 데이터셋이 통째로 미래를 본다.
+    schedule_verified: bool = True
     #: 매니페스트(run_id)에 쓸 이름. 기본은 테이블 이름이다. **한 테이블을
     #: 두 패널이 서로 다른 소스에서 채울 때** 이걸 갈라 줘야 한다 — 안 그러면
     #: 한쪽이 이미 적재한 세션을 다른 쪽이 완료로 보고 영영 건너뛴다.
@@ -114,8 +123,16 @@ def normalize_flow(
         "investor": str(row.get("investor") or ""),
         "net_value": number(row.get("net_value")),
         "net_volume": number(row.get("net_volume")),
-        # 백필은 마감 후 확정치다. 장중 잠정치는 라이브 경로에서 들어온다.
-        "is_final": True,
+        # **잠정치인지 확정치인지 모른다.** KRX 투자자별 순매수 응답에는 그
+        # 구분이 없다. 예전에는 여기서 ``True`` 를 박았는데 그건 확인한 사실이
+        # 아니라 희망이었고, 그 결과 창고의 flows 는 한 행도 빠짐없이
+        # "확정치" 다(실측 131,200행 전부 True). 모르는 것은 null 로 둔다 —
+        # 거짓으로 아는 것보다 모른다고 적는 쪽이 낫다.
+        #
+        # 정정이 오면 ``revision`` 을 올린 새 행으로 들어오고(불변식 4),
+        # 읽기가 자연키(entity_id·valid_from·investor)마다 최신 revision 을
+        # 고른다. 확정치 대체는 그 경로로 성립하지 이 칸으로 성립하지 않는다.
+        "is_final": None,
     }
 
 
@@ -220,6 +237,12 @@ class PanelBackfiller:
     only_codes: frozenset[str] | None = None
     _fanout: dict[str, Any] = field(default_factory=dict, repr=False)
 
+    def _policy(self) -> ObservedAtPolicy:
+        """발행 일정을 확인하지 못한 패널은 하한을 씌워 쓴다."""
+        if self.panel.schedule_verified:
+            return self.policy
+        return UnverifiedSchedulePolicy(inner=self.policy, clock=self.clock)
+
     def plan(self, start: date, end: date) -> list[date]:
         return trading_days(self.market, start, end)
 
@@ -244,7 +267,9 @@ class PanelBackfiller:
         try:
             # 관측시각을 가장 먼저 정한다. 아직 공표되지 않은 세션이면 여기서
             # 끝나고 네트워크를 건드리지도 않는다.
-            observed_at = self.policy.for_session(day, extra_lag_days=self.panel.lag_days)
+            observed_at = self._policy().for_session(
+                day, extra_lag_days=self.panel.lag_days
+            )
             valid_from = session_timestamp(day)
 
             with latency.stage("fetch", detail):
@@ -352,6 +377,10 @@ PANELS: dict[str, Panel] = {
         table="flows",
         fetch=lambda source, day: source.flows_on(day),  # type: ignore[attr-defined]
         normalize=normalize_flow,
+        # KRX 가 투자자별 순매수를 하루 중 언제 내는지 확인하지 못했다. 일봉의
+        # 마감+30분을 물려 쓴 결과 전 행이 16:00 KST 정각으로 찍혔는데, 실제
+        # 수집은 22:40 에 돈다 — 6시간 40분어치를 미리 아는 것으로 적혔다.
+        schedule_verified=False,
     ),
     "shorting": Panel(
         table="shorting",

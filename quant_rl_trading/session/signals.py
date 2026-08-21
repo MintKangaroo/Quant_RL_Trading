@@ -25,6 +25,7 @@ from quant_rl_trading.analysts.flow_us import FlowUsAnalyst
 from quant_rl_trading.analysts.fundamental import FundamentalAnalyst
 from quant_rl_trading.analysts.regime import RegimeAnalyst
 from quant_rl_trading.analysts.risk import RiskAnalyst
+from quant_rl_trading.analysts.volume import VolumeAnalyst
 from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.store import DuplicateIngestRun
@@ -48,12 +49,14 @@ SCORERS: dict[Market, dict[str, type[Analyst]]] = {
         "fundamental": FundamentalAnalyst,
         "regime": RegimeAnalyst,
         "risk": RiskAnalyst,
+        "volume": VolumeAnalyst,
     },
     Market.US: {
         "chart": ChartAnalyst,
         "regime": RegimeAnalyst,
         "risk": RiskAnalyst,
         "flow_us": FlowUsAnalyst,
+        "volume": VolumeAnalyst,
     },
 }
 

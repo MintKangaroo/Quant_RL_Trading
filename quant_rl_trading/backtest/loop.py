@@ -68,6 +68,10 @@ class DayResult:
     filled: int
     traded_value: float
     blocked_by: str
+    #: 알파 Analyst 가 0종이라 선정이 못 돈 사유. 빈 문자열이면 정상이다.
+    #: `blocked_by`(안전장치가 일했다)와 구분해서 들고 있어야 실행기가 둘을
+    #: 다른 종료코드로 내보낼 수 있다.
+    fault: str
     notes: tuple[str, ...]
     #: 성적 집계에서 빠지는 날. 신호 이력을 쌓기 위해 돌린 구간이다.
     warmup: bool = False
@@ -350,6 +354,7 @@ def run(
             traded_value=executed.traded_value,
             elapsed=elapsed,
             blocked_by=session.blocked_by,
+            fault=session.fault,
             notes=tuple(notes),
             warmup=day in warmup_set,
         )

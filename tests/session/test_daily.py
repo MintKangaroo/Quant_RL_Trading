@@ -13,6 +13,7 @@ import pytest
 
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.schemas.order import Side
+from quant_rl_trading.selector import weights as weights_module
 from quant_rl_trading.session import daily
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)      # 한국시간 10:00
@@ -265,3 +266,27 @@ def test_전_단계가_이벤트_로그에_남는다(fund) -> None:
     # 만든다. 앞으로 옮기면 노출을 줄인 만큼을 다시 종목에 나눠 담게 되어
     # 줄인 것이 사라진다 (selector/exposure.py `apply` 참고).
     assert stages == ["observe", "select", "allocate", "exposure", "execute"]
+
+
+def test_알파가_0종이면_세션이_사유를_들고_나온다(fund) -> None:
+    """**선정이 못 돈 것과 살 게 없는 것을 세션이 구분해 들고 나온다.**
+
+    이 사유가 여기서 끊기면 ``backtest/loop.py`` 도 ``tools/run_session.py``
+    도 그날을 정상으로 본다 — US 세션이 2026-08 내내 rc=0 을 낸 경로다
+    (태스크 #12). 미장은 통과한 것이 제약 Analyst 하나뿐이었다.
+    """
+    fund.append(
+        "analyst_weights",
+        [{
+            "entity_id": "risk", "valid_from": NOW, "observed_at": NOW,
+            "source": "test", "market": "US", "ic": 0.0585, "weight": 0.0585,
+        }],
+        ingest_run_id="w-us",
+    )
+
+    result = daily.run(fund, ReplayClock(NOW), as_of=NOW, market="US")
+
+    assert result.fault == weights_module.CONSTRAINT_ONLY
+    assert result.candidates == ()
+    # 국장은 멀쩡하다. 사유가 시장을 넘어 새면 정상인 쪽까지 경보가 뜬다.
+    assert daily.run(fund, ReplayClock(NOW), as_of=NOW, market="KR").fault == ""

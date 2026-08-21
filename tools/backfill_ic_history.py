@@ -86,7 +86,9 @@ from tools.measure_ic import ANALYSTS, score_sessions, target_span  # noqa: E402
 #: 알파가 아닌(제약으로 옮긴) Analyst 도 계속 잰다. 측정과 사용은 다른 일이다 —
 #: risk 의 IC 는 알파 가중치가 아니라 **제약 임계치를 판단할 때** 쓴다
 #: (selector/constraints.py). 안 재면 그 판단의 근거가 사라진다.
-DEFAULT_ANALYSTS = ("chart", "event", "flow_kr", "fundamental", "regime", "risk")
+DEFAULT_ANALYSTS = (
+    "chart", "event", "flow_kr", "fundamental", "regime", "risk", "volume",
+)
 
 
 def month_ends(start: str, end: str) -> list[date]:

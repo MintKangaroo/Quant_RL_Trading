@@ -48,16 +48,20 @@ def test_설정이_아예_없으면_안_나간다() -> None:
 
 
 def test_모르는_시장은_안_나간다() -> None:
-    store = FakeStore({broker_factory.LIVE_TRADING_KEY: True})
+    store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
+        broker_factory.LIVE_TRADING_KEY: True,
+    })
     broker, reason = broker_factory.build_broker(store, market="JP", as_of=NOW)
     assert isinstance(broker, PaperBroker)
-    assert "실전 배선이 없는" in reason
+    assert "전송 배선이 없다" in reason
 
 
 def test_자격증명이_없으면_안_나간다(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in ("LS_APPKEY", "LS_APPSECRET"):
         monkeypatch.delenv(key, raising=False)
     store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
         broker_factory.LIVE_TRADING_KEY: True,
         broker_factory.FINGERPRINT_KEY_KR: "",
     })
@@ -71,7 +75,9 @@ def test_지문이_다르면_안_나간다(monkeypatch: pytest.MonkeyPatch) -> N
     코드는 모의·실전을 알아낼 수 없다(모의 appkey 로도 t0424 가 응답한다)."""
     monkeypatch.setenv("LS_APPKEY", "some-real-looking-key")
     monkeypatch.setenv("LS_APPSECRET", "secret")
+    monkeypatch.setenv("LS_ACCOUNT_KIND", "real")
     store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
         broker_factory.LIVE_TRADING_KEY: True,
         broker_factory.FINGERPRINT_KEY_KR: "다른지문입니다",
     })
@@ -87,10 +93,12 @@ def test_미장은_지문을_선언해도_아직_안_나간다(monkeypatch: pyte
     """
     monkeypatch.setenv("LS_US_APPKEY", "us-key")
     monkeypatch.setenv("LS_US_APPSECRET", "us-secret")
+    monkeypatch.setenv("LS_US_ACCOUNT_KIND", "real")
     from quant_rl_trading.collectors.ls_client import LSCredentials
 
     fingerprint = LSCredentials.from_env(prefix="LS_US_").fingerprint
     store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
         broker_factory.LIVE_TRADING_KEY: True,
         broker_factory.FINGERPRINT_KEY_US: fingerprint,
     })
@@ -104,7 +112,9 @@ def test_미장은_지문_미선언이면_안_나간다(monkeypatch: pytest.Monk
     처음부터 조인다."""
     monkeypatch.setenv("LS_US_APPKEY", "us-key")
     monkeypatch.setenv("LS_US_APPSECRET", "us-secret")
+    monkeypatch.setenv("LS_US_ACCOUNT_KIND", "real")
     store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
         broker_factory.LIVE_TRADING_KEY: True,
         broker_factory.FINGERPRINT_KEY_US: "",
     })
@@ -116,11 +126,13 @@ def test_미장은_지문_미선언이면_안_나간다(monkeypatch: pytest.Monk
 def test_국장은_지문이_맞으면_실브로커다(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LS_APPKEY", "kr-key")
     monkeypatch.setenv("LS_APPSECRET", "kr-secret")
+    monkeypatch.setenv("LS_ACCOUNT_KIND", "real")
     from quant_rl_trading.broker.ls_order import LSBroker
     from quant_rl_trading.collectors.ls_client import LSCredentials
 
     fingerprint = LSCredentials.from_env(prefix="LS_").fingerprint
     store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
         broker_factory.LIVE_TRADING_KEY: True,
         broker_factory.FINGERPRINT_KEY_KR: fingerprint,
     })
@@ -129,3 +141,88 @@ def test_국장은_지문이_맞으면_실브로커다(monkeypatch: pytest.Monke
     assert "실전 전송" in reason
     # 전송 계층 게이트도 같이 열려야 한다 — 하나만 켜지면 안 나간다.
     assert broker.client.live_trading is True
+
+
+# -----------------------------------------------------------------------------
+# 계좌 모드 — 모의와 실전을 **설정으로** 가른다 (2026-08-22)
+#
+# LS 증권은 모의·실전을 엔드포인트가 아니라 appkey 로 가른다(같은 호스트).
+# 그래서 ``.env`` 에 두 키를 나란히 두고 ``execution.account_mode`` 로 고른다.
+# 여기서 지키는 것은 "모드와 사람의 선언이 어긋나면 멈춘다" 이다.
+# -----------------------------------------------------------------------------
+
+
+def _paper_env(monkeypatch: pytest.MonkeyPatch, *, kind: str = "paper") -> str:
+    monkeypatch.setenv("LS_PAPER_APPKEY", "paper-looking-key")
+    monkeypatch.setenv("LS_PAPER_APPSECRET", "paper-secret")
+    monkeypatch.setenv("LS_PAPER_ACCOUNT_KIND", kind)
+    from quant_rl_trading.collectors.ls_client import LSCredentials
+
+    return LSCredentials.from_env(prefix="LS_PAPER_").fingerprint
+
+
+def test_모드가_없으면_모의로_본다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """**모르면 안전한 쪽이다.** 설정이 없다고 실전 키를 집지 않는다."""
+    fingerprint = _paper_env(monkeypatch)
+    store = FakeStore({
+        broker_factory.LIVE_TRADING_KEY: True,
+        broker_factory.FINGERPRINT_KEY_KR_PAPER: fingerprint,
+    })
+    broker, reason = broker_factory.build_broker(store, market="KR", as_of=NOW)
+    assert "모의투자 전송" in reason
+    assert "모드 paper" in reason
+    assert not isinstance(broker, PaperBroker)
+
+
+def test_모드가_모의인데_실전이라_선언했으면_안_나간다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """지문이 맞아도 막는다 — 지문과 선언은 **다른 질문**이다."""
+    fingerprint = _paper_env(monkeypatch, kind="real")
+    store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_PAPER,
+        broker_factory.LIVE_TRADING_KEY: True,
+        broker_factory.FINGERPRINT_KEY_KR_PAPER: fingerprint,
+    })
+    broker, reason = broker_factory.build_broker(store, market="KR", as_of=NOW)
+    assert isinstance(broker, PaperBroker)
+    assert "어긋난다" in reason
+
+
+def test_모의는_지문_미선언이면_안_나간다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """모의 경로는 새로 만든 것이라 처음부터 조인다 (미장과 같은 규칙)."""
+    _paper_env(monkeypatch)
+    store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_PAPER,
+        broker_factory.LIVE_TRADING_KEY: True,
+        broker_factory.FINGERPRINT_KEY_KR_PAPER: "",
+    })
+    broker, reason = broker_factory.build_broker(store, market="KR", as_of=NOW)
+    assert isinstance(broker, PaperBroker)
+    assert "선언되지 않았다" in reason
+
+
+def test_모르는_모드는_안_나간다(monkeypatch: pytest.MonkeyPatch) -> None:
+    _paper_env(monkeypatch)
+    store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: "실전비슷한무언가",
+        broker_factory.LIVE_TRADING_KEY: True,
+    })
+    broker, reason = broker_factory.build_broker(store, market="KR", as_of=NOW)
+    assert isinstance(broker, PaperBroker)
+    assert "모르겠다" in reason
+
+
+def test_실전_모드는_모의_키를_안_집는다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """모드가 real 이면 LS_PAPER_* 는 쳐다보지도 않는다."""
+    _paper_env(monkeypatch)
+    for key in ("LS_APPKEY", "LS_APPSECRET"):
+        monkeypatch.delenv(key, raising=False)
+    store = FakeStore({
+        broker_factory.ACCOUNT_MODE_KEY: broker_factory.MODE_REAL,
+        broker_factory.LIVE_TRADING_KEY: True,
+        broker_factory.FINGERPRINT_KEY_KR: "",
+    })
+    broker, reason = broker_factory.build_broker(store, market="KR", as_of=NOW)
+    assert isinstance(broker, PaperBroker)
+    assert "자격증명이 없다" in reason

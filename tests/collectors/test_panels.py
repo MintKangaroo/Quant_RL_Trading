@@ -137,8 +137,12 @@ def test_lag_counts_trading_days_not_calendar_days(store, tmp_path) -> None:
     assert friday.astimezone(UTC).date() == date(2024, 3, 12)
 
 
-def test_flows_have_no_lag(store, tmp_path) -> None:
-    """수급 확정치는 마감 직후에 나온다. 공매도와 같은 지연을 주면 안 된다."""
+def test_flows_have_no_day_lag(store, tmp_path) -> None:
+    """수급은 그날 안에 나온다. 공매도의 T+1~2 지연을 물려 주면 안 된다.
+
+    **하루 중 몇 시에 나오는지는 다른 문제이고, 우리는 그것을 모른다** —
+    아래 두 테스트가 그 하한을 고정한다.
+    """
     store.seed_config_defaults()
     backfiller = make(store, tmp_path, "flows")
 
@@ -148,7 +152,64 @@ def test_flows_have_no_lag(store, tmp_path) -> None:
     assert len(visible) == 3
 
 
+def test_flows_observed_at_is_not_earlier_than_collection(store, tmp_path) -> None:
+    """**그날 것을 그날 받으면 받은 시각이 하한이다.**
+
+    KRX 가 투자자별 순매수를 하루 중 언제 내는지 우리는 확인하지 못했다.
+    일봉의 마감+30분(16:00 KST)을 그대로 물려 쓴 결과 창고의 flows 는
+    131,200행 전부가 16:00 KST 정각으로 찍혔는데, 실제 수집은 22:40 에 돈다.
+    Analyst 의 세션 as_of 가 정확히 16:00 이라 그 6시간 40분어치를 경계에서
+    그대로 읽었다 — 불변식 3 이 막으려던 구멍이다.
+    """
+    store.seed_config_defaults()
+    collected = _utc(published(MON)) + timedelta(hours=6, minutes=40)  # 22:40 KST
+    clock = ReplayClock(collected)
+    backfiller = PanelBackfiller(
+        store=store,
+        source=FakePanelSource(),
+        clock=clock,
+        archive=RawArchive(root=tmp_path / "raw"),
+        policy=PublicationPolicy(market=Market.KR, lag_seconds=LAG, clock=clock),
+        panel=PANELS["flows"],
+        market=Market.KR,
+    )
+
+    assert backfiller.run_session(MON).ok
+
+    # 16:00 시점에는 아직 안 보인다. 22:40 에야 보인다.
+    assert store.get("flows", as_of=_utc(published(MON)) + timedelta(minutes=1)).empty
+    assert len(store.get("flows", as_of=collected)) == 3
+
+
+def test_old_flow_sessions_keep_the_publication_estimate(store, tmp_path) -> None:
+    """**5년치를 오늘 받았다고 5년치를 오늘 알았다고 적지 않는다.**
+
+    하한을 무조건 걸면 과거 백필이 통째로 "오늘 관측" 이 되고, 게이트가
+    정직하게 동작해서 리플레이가 빈 시장 위에서 돈다.
+    """
+    store.seed_config_defaults()
+    make(store, tmp_path, "flows").run_session(MON)  # NOW 는 세션에서 석 달 뒤다
+
+    frame = store.get("flows", as_of=_utc(published(MON)) + timedelta(minutes=1))
+    assert len(frame) == 3
+
+
 # -- 정규화 -------------------------------------------------------------------
+
+
+def test_is_final_is_unknown_not_true(store, tmp_path) -> None:
+    """**모르는 것을 True 로 적지 않는다.** KRX 응답에 잠정/확정 구분이 없다.
+
+    예전에는 여기서 True 를 박았고, 그 결과 창고의 flows 는 한 행도 빠짐없이
+    "확정치" 가 됐다. flow_kr 은 그 칸으로 확정치를 우선하려 했는데 정렬 키가
+    상수라 한 번도 발화하지 않았다. 확정치 대체는 revision 으로 성립한다.
+    """
+    store.seed_config_defaults()
+    make(store, tmp_path, "flows").run_session(MON)
+
+    frame = store.get("flows", as_of=_utc(published(MON)) + timedelta(minutes=1))
+    assert frame["is_final"].isna().all()
+
 
 
 def test_investor_is_part_of_the_natural_key(store, tmp_path) -> None:

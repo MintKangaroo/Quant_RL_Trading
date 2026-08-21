@@ -41,7 +41,7 @@ from tools.diagnose_ic import (  # noqa: E402
 )
 
 MARKET = "KR"
-ANALYSTS = ("chart", "event", "flow_kr", "fundamental", "regime", "risk")
+ANALYSTS = ("chart", "event", "flow_kr", "fundamental", "regime", "risk", "volume")
 
 
 def load(name: str) -> pd.DataFrame:

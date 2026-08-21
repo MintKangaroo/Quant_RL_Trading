@@ -3,6 +3,13 @@
     uv run python tools/run_session.py                    # 마지막 거래일
     uv run python tools/run_session.py --day 2026-08-13
 
+## 종료코드
+
+    0  정상 (후보 0개도 정상일 수 있다 — 살 게 없는 날이 있다)
+    1  세션이 돌지 않았다 (거래일이 아니거나 창고가 비었다)
+    2  안전장치가 주문을 차단했다 (`blocked_by`) — 사고가 아니라 일한 것이다
+    3  알파 Analyst 가 0종이라 선정이 시작조차 못 했다 (`fault`)
+
 ## 백테스트 루프를 그대로 쓴다
 
 하루를 굴리는 코드는 이미 있다(`backtest/loop.py`). shadow 를 위해 두 번째
@@ -77,6 +84,32 @@ def last_settled_day(store: Store, market: Market, now: datetime) -> date | None
         if loop.snapshot_moment(store, day, as_of=probe) <= now:
             return day
     return None
+
+
+def exit_code(entry: loop.DayResult) -> int:
+    """하루 결과를 종료코드로. **조용한 실패를 rc 로 내보내는 자리다.**
+
+    차단은 사고가 아니다 — 안전장치가 일한 것이다. 그래도 rc 로 알린다:
+    shadow 10거래일 무사고를 사람이 로그를 뒤져 판정하게 두지 않는다.
+
+    **설비 고장은 차단과 다른 코드로 나간다.** 알파 Analyst 가 0종이면 그날은
+    "살 게 없어서" 후보가 빈 것이 아니라 선정이 시작조차 못 한 것이다. US
+    세션이 2026-08 내내 이 상태로 rc=0 을 내며 "후보 0" 만 찍었고, 정상 운용과
+    로그에서 구별되지 않아 몇 주를 갔다(태스크 #12). 커밋 7ad5680 이 Analyst
+    사망에 대해 세운 규칙과 같다 — **조용한 실패는 rc 로 내보낸다.**
+
+    둘이 겹치면 차단이 먼저다. 주문이 막힌 날은 그 사실이 더 급하다.
+    """
+    if entry.blocked_by:
+        return 2
+    if entry.fault:
+        print(
+            f"알파 Analyst 가 0종이다 ({entry.fault}). 후보가 빈 것이 아니라 "
+            "선정이 못 돈 것이다.",
+            file=sys.stderr,
+        )
+        return 3
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -174,9 +207,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     for note in entry.notes:
         print(f"    · {note}")
-    # 차단은 사고가 아니다(안전장치가 일한 것이다). 그래도 종료코드로 알린다 —
-    # shadow 10거래일 무사고를 사람이 로그를 뒤져 판정하게 두지 않는다.
-    return 2 if entry.blocked_by else 0
+    return exit_code(entry)
 
 
 if __name__ == "__main__":

@@ -136,7 +136,10 @@ _SPECS: dict[str, TableSpec] = {
             "investor": pa.string(),
             "net_value": pa.float64(),
             "net_volume": pa.float64(),
-            # 장중 잠정치와 마감 후 확정치는 별도 행으로 들어온다.
+            # 잠정치/확정치 구분. **우리 소스는 이것을 주지 않는다** —
+            # KRX 투자자별 순매수 응답에도 LS t1717 응답에도 없다. 수집기는
+            # null 을 쓴다(모르는 것을 True 로 적어 두었던 것을 2026-08-22 에
+            # 걷어냈다). 확정치 대체는 이 칸이 아니라 revision 으로 성립한다.
             "is_final": pa.bool_(),
         },
         natural_key=("entity_id", "valid_from", "investor"),
@@ -351,8 +354,11 @@ _SPECS: dict[str, TableSpec] = {
             "``SECT_TP_NM`` 뿐). 대신 DART ``company.json`` 의 ``induty_code``"
             "(표준산업분류)로 받았다 — ``source=dart_company`` 로 KR "
             "2,761/2,874종목(96.1%) 적재 완료 (``collectors/dart_sectors.py``). "
-            "**다만 섹터 상한은 아직 켜지 않았다** — 커버리지를 본 뒤 별도로 "
-            "판단한다(selector.md §5-5, ``selector/pipeline.py`` 의 훅 참고)."
+            "\n\n**2026-08-22 갱신:** 섹터 상한을 켰다. ``selector/pipeline.py`` 가 "
+            "``source=dart_company`` 만 골라 읽고 ``selector/ksic.py`` 로 접는다 — "
+            "KSIC 세세분류 그대로면 2,761종목이 535개 코드로 갈려 상한이 영원히 "
+            "안 걸린다(중분류군으로 접으면 24개, 최대 군집 19%). ``krx_openapi`` "
+            "행은 여전히 상한에 쓰지 않는다."
         ),
     ),
     "signals": TableSpec(

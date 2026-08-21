@@ -22,6 +22,7 @@ import pytest
 from quant_rl_trading.analysts.flow_kr import (
     FOREIGN,
     INSTITUTION,
+    LOOKBACK_DAYS,
     RETAIL,
     FlowKrAnalyst,
 )
@@ -55,12 +56,21 @@ def flow_rows(day: datetime, entities: list[str]) -> list[dict[str, object]]:
                 "investor": investor,
                 "net_value": float(index + 1) * (1.0 if investor == FOREIGN else -1.0),
                 "net_volume": float(index + 1),
-                "is_final": True,
+                # 수집기가 잠정/확정을 가를 방법이 없다. 모르는 것은 null 이다.
+                "is_final": None,
             })
     return rows
 
 
-def price_rows(day: datetime, entities: list[str]) -> list[dict[str, object]]:
+def price_rows(
+    day: datetime, entities: list[str], *, splits: dict[str, float] | None = None
+) -> list[dict[str, object]]:
+    """일봉. ``value``(거래대금)를 함께 깐다 — flow_kr 의 분모가 그 컬럼이다.
+
+    ``splits`` 는 그날 발효한 기업행위 배율이다. 원주가·원거래량·거래대금은
+    건드리지 않는다. 창고가 저장하는 것이 원본이고, 보정은 읽을 때 걸린다.
+    """
+    splits = splits or {}
     return [{
         "entity_id": entity,
         "valid_from": day,
@@ -69,6 +79,8 @@ def price_rows(day: datetime, entities: list[str]) -> list[dict[str, object]]:
         "market": "KR",
         "open": 1000.0, "high": 1000.0, "low": 1000.0, "close": 1000.0,
         "volume": 10_000.0 * (index + 1),
+        "value": 1000.0 * 10_000.0 * (index + 1),
+        "adj_factor": splits.get(entity, 1.0),
     } for index, entity in enumerate(entities)]
 
 
@@ -86,18 +98,22 @@ def universe_rows(day: datetime, entities: list[str]) -> list[dict[str, object]]
     } for entity in entities]
 
 
-def seed(store, *, tail: list[int]):  # type: ignore[no-untyped-def]
+def seed(store, *, tail: list[int], splits: dict[datetime, dict[str, float]] | None = None):  # type: ignore[no-untyped-def]
     """완결 세션을 깔고, 마지막 며칠만 ``tail`` 만큼의 종목으로 좁힌다.
 
     ``tail=[]`` 이면 전부 완결이다. ``tail=[2]`` 면 마지막 하루만 2종목.
+    ``splits`` 는 세션 → {종목: 배율} 의 기업행위다.
     """
+    splits = splits or {}
     full = [f"KR:{i:06d}" for i in range(20)]
     days = sessions()
     widths = [len(full)] * (len(days) - len(tail)) + tail
 
     for index, (day, width) in enumerate(zip(days, widths, strict=True)):
         # 가격과 유니버스는 늘 전 종목이다. 좁아지는 것은 수급뿐이다.
-        store.append("prices", price_rows(day, full), ingest_run_id=f"p-{index}")
+        store.append(
+            "prices", price_rows(day, full, splits=splits.get(day)), ingest_run_id=f"p-{index}"
+        )
         store.append("universe", universe_rows(day, full), ingest_run_id=f"u-{index}")
         store.append("flows", flow_rows(day, full[:width]), ingest_run_id=f"f-{index}")
 
@@ -125,6 +141,38 @@ def test_partial_last_session_is_trimmed_not_fatal(store) -> None:  # type: igno
     assert not features.empty
     # 잘린 세션의 2종목이 아니라, 완결 세션의 전 종목이 대상이다.
     assert len(features) == 20
+
+
+def test_turnover_denominator_ignores_corporate_actions(store, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """분모는 **원본 거래대금**이다. 보정가 × 원거래량이 아니다.
+
+    ``price_panel`` 은 보정가를 준다. 보정은 가격에만 곱하고 거래량에는 안
+    곱하므로(store/prices.py 의 ADJUSTED_COLUMNS), 둘을 곱하면 기업행위가
+    있었던 종목의 분모만 배율만큼 어긋난다. 실측으로 45일 창 2,881종목 중
+    65종목(2.3%)이 그랬고 배율은 0.50~5.31 이었다 — 그 종목들은 수급 비율이
+    배율만큼 튀어 횡단면 순위의 끝으로 밀렸다.
+
+    수급은 하나도 안 바뀌었는데 분할 하나로 점수가 바뀌면 그것은 신호가
+    아니라 사고다. 그래서 두 창고의 피처가 **글자 하나까지 같아야** 한다.
+    """
+    from quant_rl_trading.store import Store
+
+    target = "KR:000005"
+    # 창 안쪽에 둔다. 프레임의 마지막 세션은 누적곱이 비어 배율이 안 먹는다.
+    split_on = sessions()[-3]
+
+    seed(store, tail=[])
+    plain = analyst(store).features(NOW)
+
+    split = Store(root=tmp_path / "split")
+    seed(split, tail=[], splits={split_on: {target: 0.5}})
+
+    # 보정이 실제로 걸리는지부터 확인한다. 안 걸리면 이 테스트는 아무것도
+    # 재지 않으면서 통과한다.
+    panel = analyst(split).price_panel(NOW, lookback=LOOKBACK_DAYS)
+    assert analyst(split).wide(panel, "close")[target].nunique() > 1
+
+    pd.testing.assert_frame_equal(plain, analyst(split).features(NOW))
 
 
 def test_collection_stopped_for_days_is_refused(store) -> None:  # type: ignore[no-untyped-def]

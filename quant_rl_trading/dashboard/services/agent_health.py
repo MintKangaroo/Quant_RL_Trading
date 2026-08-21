@@ -32,7 +32,7 @@ VERDICTS = "verdicts"
 #: 아직 구현되지 않았거나 데이터가 없어 관찰 모드인 Analyst.
 #: 명단에서 빼지 않는다 — 빠지면 "왜 없지" 를 아무도 묻지 않게 된다.
 PLANNED = {
-    "chart": "가격·거래량",
+    "chart": "가격 추세",
     "flow_kr": "투자자별 수급 (LS t1717)",
     "flow_us": "미장 수급 — 데이터 없음",
     "fundamental": "DART 재무",
@@ -41,6 +41,7 @@ PLANNED = {
     "regime": "지수·변동성",
     "event": "달력",
     "risk": "상관·변동성·유동성",
+    "volume": "거래량 급증 (chart 에서 분리)",
 }
 
 
@@ -57,7 +58,7 @@ def latest_weights(store: Store, *, as_of: datetime, lookback: int) -> pd.DataFr
 
 
 def roster(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
-    """Analyst 9명 전원의 상태. 측정 안 된 것도 명단에 남긴다."""
+    """Analyst 전원의 상태. 측정 안 된 것도 명단에 남긴다."""
     measured = latest_weights(store, as_of=as_of, lookback=lookback)
     by_name: dict[str, dict[str, Any]] = {}
     if not measured.empty:

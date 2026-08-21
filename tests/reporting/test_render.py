@@ -1031,3 +1031,144 @@ def test_proxy_etf_survives_news_translation() -> None:
         dict(briefing.markets), translate=_Translate(), as_of=NOW
     )
     assert [row.entity_id for row in markets["US"].proxies] == ["US:SPY", "US:SOXX"]
+
+
+# -- 세션이 갈리는 날 ------------------------------------------------------------
+#
+# 2026-08-22 06:30 에 실제로 나간 메일이다. 머리말은 ``미장 2026-08-21`` 인데
+# 실린 지수는 **8/20 종가**였다 — 출처 두 개의 지연이 다르다:
+#
+#   LS 해외 ETF (SPY·QQQ)  8/21 세션이 8/22 05:20 에 창고에 들어왔다
+#   FRED 지수 (SP500 등)   8/21 세션은 아직 없다 (보통 D+1 06:00 관측)
+#
+# 그래서 한 메일 안에 ``SPY +0.30%`` 와 ``S&P 500 -0.87%`` 가 나란히 서서
+# 모순돼 보였다. 모순이 아니라 **같은 지수의 다른 날**이었다. 시스템은 그
+# 사실을 알고 있었고(``IndexRow.note`` 가 채워져 있었다) 표현만 못 했다.
+
+STALE_SESSION, FRESH_SESSION = date(2026, 8, 20), date(2026, 8, 21)
+STALE_NOTE = "2026-08-20 종가 · 2026-08-21 미수집"
+
+
+def _split_session_briefing() -> Briefing:
+    """지수는 8/20, ETF·시세는 8/21 인 미장 칸."""
+    kr = _brief("KR", prices=[
+        IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0589, FRIDAY),
+    ])
+    us = _brief(
+        "US",
+        prices=[
+            IndexRow("US:IDX:SP500", "S&P 500", "price", 7641.16, -0.0087,
+                     STALE_SESSION, STALE_NOTE),
+            IndexRow("US:IDX:NASDAQ", "나스닥", "price", 26067.17, -0.0043,
+                     STALE_SESSION, STALE_NOTE),
+        ],
+        proxies=[
+            IndexRow("US:SPY", "SPY (S&P 500 추종 ETF)", "price", 767.31, 0.0030,
+                     FRESH_SESSION),
+        ],
+    )
+    us = MarketBrief(
+        market="US",
+        currency=us.currency,
+        index_session=SessionRef(
+            "US", "지수", FRESH_SESSION, STALE_SESSION,
+            "US 지수: 창고가 2026-08-20 까지다. 2026-08-21 까지 1개 세션이 안 들어왔다",
+        ),
+        price_session=SessionRef("US", "시세", FRESH_SESSION, FRESH_SESSION, None),
+        prices=us.prices,
+        volatility=us.volatility,
+        rankings=us.rankings,
+        floor=us.floor,
+        news=us.news,
+        proxies=us.proxies,
+    )
+    return _briefing(markets={"KR": kr, "US": us})
+
+
+def test_header_does_not_pick_one_session_and_hide_the_other() -> None:
+    """**머리말이 대표 하나를 세우고 나머지를 덮지 않는다.**
+
+    전에는 ``price_session.observed or index_session.observed`` 로 한 날짜만
+    골랐다. 그날 시세(8/21)를 골라 ``미장 2026-08-21`` 을 적었고, 바로 아래
+    지수 표는 8/20 이었다. 머리말이 표를 거짓으로 라벨링한 것이다.
+    """
+    for body in (render_html(_split_session_briefing()),
+                 render_text(_split_session_briefing())):
+        assert "지수 08-20" in body
+        assert "ETF 08-21" in body
+        assert "시세 08-21" in body
+        # 한 날짜로 뭉뚱그린 옛 머리말이 남아 있으면 안 된다.
+        assert "미장 2026-08-21" not in body and "미장</span> 2026-08-21" not in body
+
+
+def test_one_session_day_still_prints_a_bare_date() -> None:
+    """**셋이 같은 날이면 셋을 다 적지 않는다.**
+
+    갈린 날을 드러내려고 평소 날까지 ``지수 08-14 · 시세 08-14`` 로 적으면
+    머리말이 매일 길어지고, 정작 갈린 날이 눈에 안 띈다.
+    """
+    kr = _brief("KR", prices=[
+        IndexRow("KR:IDX:KOSPI", "코스피", "price", 6813.34, 0.0356, FRIDAY),
+    ])
+    html = render_html(_briefing(markets={"KR": kr, "US": _briefing().markets["US"]}))
+    assert "2026-08-14</span>" in html
+    assert "지수 08-14" not in html
+
+
+def test_stale_index_carries_its_own_date_next_to_the_number() -> None:
+    """**각주가 "다르다" 로 끝나면 어느 날인지는 끝내 안 알려준다.**
+
+    옛 각주는 ``* 그 지수의 종가 세션이 다르거나 미수집`` 이었다. 별표는
+    "곧이곧대로 읽지 마라" 까지만 말한다. 읽는 사람이 알아야 하는 것은
+    그 날짜다.
+    """
+    html = render_html(_split_session_briefing())
+    assert "08-20 종가" in html
+    assert "그 지수의 종가 세션이 다르거나 미수집" not in html
+    # 표 전체가 밀린 날은 표 단위로도 한 번 말한다.
+    assert "이 표는 2026-08-20 종가다 — 2026-08-21 지수가 아직 안 들어왔다" in html
+
+
+def test_proxy_table_says_which_day_it_is_when_it_differs() -> None:
+    """지수와 ETF 가 다른 날이면 **ETF 표도 자기 날짜를 적는다.**
+
+    안 적으면 두 표가 같은 날의 서로 다른 값처럼 보인다 — 8/22 발송분에서
+    지수는 전부 하락, ETF 는 전부 상승으로 나가 모순돼 보인 이유가 이것이다.
+    """
+    assert "이 표는 2026-08-21 종가다." in render_html(_split_session_briefing())
+
+
+def test_headline_stamps_the_stale_session() -> None:
+    """**헤드라인은 사람이 유일하게 반드시 읽는 줄이다.**
+
+    표 안쪽에 각주를 아무리 달아도, 이 줄만 읽고 닫은 사람에게는 그냥 어제
+    숫자다. 여기가 거짓이면 아래쪽 정직함은 쓸모가 없다. 제목 줄에도 같은
+    도장이 찍힌다 — ``subject`` 가 같은 목록을 읽는다.
+    """
+    briefing = _split_session_briefing()
+    assert "S&P 500 ▼0.87% (08-20 종가)" in headline(briefing)
+    assert "(08-20 종가)" in subject(briefing)
+    # 최신인 조각에는 안 붙는다.
+    assert "코스피 ▲5.89%" in headline(briefing)
+    assert "코스피 ▲5.89% (" not in headline(briefing)
+
+
+def test_headline_does_not_stamp_the_weekly_fx_lag() -> None:
+    """**환율은 주간 발행이라 늘 며칠 낡다** (reporting.md — H.10 은 월요일 발행).
+
+    그걸 매일 찍으면 제목 줄이 매일 같은 말을 반복하고, 정작 진짜 지연이
+    왔을 때 눈에 안 띈다. 원본이 아직 안 낸 것(``UNPUBLISHED``)은 맨 아래
+    목록이 이미 성격까지 갈라서 적는다.
+    """
+    lagging = _briefing(
+        fx_note="환율: FRED 가 2026-08-07 까지 냈다 — 우리도 거기까지다",
+        fx_gap_kind=UNPUBLISHED,
+    )
+    assert "환율 1,410 ▼0.96%" in headline(lagging)
+    assert "관측)" not in headline(lagging)
+
+    ours = _briefing(
+        fx_note="환율: 창고가 2026-08-01 까지다 — FRED 는 2026-08-07 까지 냈다",
+        fx_gap_kind=MISSING,
+    )
+    assert "(08-07 관측)" in headline(ours)

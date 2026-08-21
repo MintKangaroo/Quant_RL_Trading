@@ -38,6 +38,7 @@ from quant_rl_trading.analysts.flow_us import FlowUsAnalyst  # noqa: E402
 from quant_rl_trading.analysts.fundamental import FundamentalAnalyst  # noqa: E402
 from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
 from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
+from quant_rl_trading.analysts.volume import VolumeAnalyst  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
 from quant_rl_trading.replay.clock import Clock, LiveClock, ReplayClock  # noqa: E402
@@ -52,6 +53,7 @@ ANALYSTS: dict[str, type[Analyst]] = {
     "fundamental": FundamentalAnalyst,
     "regime": RegimeAnalyst,
     "risk": RiskAnalyst,
+    "volume": VolumeAnalyst,
 }
 
 #: 라벨을 만들 때 훑는 구간의 여유분(달력일). 측정 구간보다 넉넉해야 앞뒤가

@@ -26,6 +26,14 @@
 # 로그를 안 본다. **창고를 본다.** `tools/plan_recovery.py` 가 기대 세션과
 # 창고의 마지막 세션을 견줘 `NEED <작업>` 을 찍는다. 로그로 세면 하루 두 번
 # 도는 수집(15:55·22:40)을 못 가르고, rc=0 으로 끝난 0행도 못 가른다.
+#
+# ## 빠졌다고 다 따라잡지는 않는다
+#
+# 세션을 돌리는 것은 창고에 쓰는 일이고, 창고는 append-only 라 **먼저 쓴 쪽이
+# 이긴다**(불변식 4). 그래서 "돌릴 수 있나" 가 아니라 **"지금 돌리면 정규
+# 크론이 낼 답과 같은 답이 나오나"** 를 묻는다(`--gate`). 아니면 안 돌리고
+# 미룬다 — 미룬 것은 `logs/recovery-deferrals.log` 에 남고 다음 복구가
+# `--follow-up` 으로 채워졌는지 다시 묻는다.
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 mkdir -p logs
@@ -80,13 +88,48 @@ if need collect; then
     echo "  수집 rc=$?"
 fi
 
+# -- 5. 세션은 **입력이 다 들어온 뒤에만** 따라잡는다 ---------------------------
+#
+# 크론이 22:40 수집 → 22:55 run_daily → 23:05 run_shadow 순인 데는 이유가
+# 있다(파이프라인은 데이터 뒤에 돈다). **복구 경로에는 그 규칙이 안 걸려
+# 있었다.** 2026-08-20 18:51 복구가 shadow 를 먼저 돌렸고, 그때는 8/19 주문이
+# 아직 없어서 그날 결정을 지금 창고 내용으로 지어냈다. 그 체결 26행/562주가
+# `backtest-trades-KR-2026-08-19` 로 박혔고, 23:05 정규 실행이 30행/632주를
+# 얻었지만 같은 run_id 라 막혔다 — 경고만 남고 회계는 낡은 26행을 쓴다.
+#
+# 체결은 되돌릴 수 없다(append-only, 불변식 4). 그러니 **낡은 답을 쓰고 고치는
+# 대신 아예 안 쓴다.** 못 돌린 세션은 정규 크론이 가져간다.
+#
+# 관문을 두 번 묻는 이유: 시세는 수집이 고칠 수 있지만, 오늘 Analyst 가
+# 살았는지는 `run_daily.sh` 가 돌아야 알 수 있다.
+gate() {
+    .venv/bin/python tools/plan_recovery.py --market KR --gate "$1" 2>&1
+}
+
 if need session; then
     echo "  -- 세션 따라잡기"
-    bash scripts/run_daily.sh KR
-    echo "  세션 rc=$?"
-    bash scripts/run_shadow.sh KR
-    echo "  shadow rc=$?"
+    G=$(gate prices); RC=$?
+    echo "  ${G}"
+    if [ "${RC}" -ne 0 ]; then
+        echo "  세션을 건너뛴다 — 정규 크론(22:55·23:05)이 가져간다"
+    else
+        bash scripts/run_daily.sh KR
+        echo "  세션 rc=$?"
+
+        G=$(gate session); RC=$?
+        echo "  ${G}"
+        if [ "${RC}" -ne 0 ]; then
+            echo "  shadow 를 건너뛴다 — 정규 크론(23:05)이 가져간다"
+        else
+            bash scripts/run_shadow.sh KR
+            echo "  shadow rc=$?"
+        fi
+    fi
 fi
+
+# 지난번에 미룬 세션이 그 뒤에 채워졌는지 **같은 관문으로** 다시 묻는다.
+# 미룬 것을 로그에만 적어 두면 아무도 안 읽는다.
+.venv/bin/python tools/plan_recovery.py --follow-up 2>&1 | sed 's/^/  /'
 
 # 회계는 늘 다시 찍는다. **값이 달라졌을 때만 정정본이 쌓이므로**(불변식 4)
 # 헛돌아도 행이 안 는다. 반대로 빠뜨리면 NAV 가 하루 밀린 채로 굳는다.

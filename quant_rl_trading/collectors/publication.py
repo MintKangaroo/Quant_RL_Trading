@@ -136,3 +136,53 @@ def resolve(policy: ObservedAtPolicy | datetime, day: date) -> datetime:
     if isinstance(policy, datetime):
         return policy
     return policy.for_session(day)
+
+
+#: 발행 일정을 **확인하지 못한** 데이터셋에서, 공표 추정치를 수집 시각까지
+#: 끌어올릴 창. 이 안에서 수집됐다면 "그날 것을 그날 받았다" 이므로 하한을
+#: 건다. 이보다 오래된 세션은 추정치를 그대로 둔다 — 5년치를 오늘 내려받았다고
+#: 5년치 전부를 "오늘 알았다" 로 찍으면 게이트가 정직하게 동작해서 리플레이가
+#: 빈 시장 위에서 돈다(모듈 서두).
+SCHEDULE_UNKNOWN_WINDOW = timedelta(days=1)
+
+
+def not_before_collection(published: datetime, collected_at: datetime) -> datetime:
+    """공표 추정치와 수집 시각 중 **늦은 쪽**. 단, 최근 세션에만.
+
+    ``published`` 가 ``SCHEDULE_UNKNOWN_WINDOW`` 보다 오래됐으면 그대로 둔다.
+    """
+    if collected_at <= published:
+        return published
+    if collected_at - published > SCHEDULE_UNKNOWN_WINDOW:
+        return published
+    return collected_at
+
+
+@dataclass(frozen=True)
+class UnverifiedSchedulePolicy:
+    """**발행 일정을 확인하지 못한** 데이터셋 — 수집 시각보다 이르게 찍지 않는다.
+
+    ``PublicationPolicy`` 의 지연은 일봉 기준이다(세션 마감 + lag). 마감 직후에
+    나오지 않는 데이터셋에 그 값을 그대로 쓰면 통째로 미래를 본다. 실측
+    (2026-08-21, 최근 20일 131,200행): ``flows`` 의 observed_at 이 예외 없이
+    ``valid_from + 7.00시간``(= 16:00 KST 정각, 표준편차 0.00)인데 실제 수집은
+    22:40 에 돈다. 22:40 에 받은 수급이 "16:00 에 알 수 있었다" 로 적히고,
+    Analyst 의 세션 as_of 가 정확히 16:00 이라 경계에서 그대로 읽힌다.
+    불변식 3 이 막으려던 바로 그 구멍이다.
+
+    **KRX 투자자별 순매수도 LS ``t1717`` 도 언제 값을 내는지 우리는 확인하지
+    못했다.** 확인하지 못한 것을 상수로 박으면 그 상수가 다시 같은 거짓말이
+    된다. 그래서 반박할 수 없는 하한 하나만 건다 — 우리가 받아 온 시각보다
+    이르게 찍지 않는다. 늦게 찍는 쪽은 안전하다(못 보는 것뿐이다). 이르게
+    찍는 쪽만 미래를 본다.
+
+    발행 일정을 실제로 확인하면 이 감싸개를 벗기고 데이터셋별 lag 를 주는
+    것이 맞다. 그때까지 이 클래스의 존재 자체가 "아직 모른다" 는 표시다.
+    """
+
+    inner: ObservedAtPolicy
+    clock: Clock
+
+    def for_session(self, day: date, *, extra_lag_days: int = 0) -> datetime:
+        published = self.inner.for_session(day, extra_lag_days=extra_lag_days)
+        return not_before_collection(published, self.clock.now())

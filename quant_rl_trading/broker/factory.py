@@ -53,30 +53,58 @@ LIVE_TRADING_KEY = "execution.live_trading"
 #: 계좌 지문 고정 키. **``tools/verify_live_order.py`` 가 이 상수를 쓴다** —
 #: 문자열을 양쪽에 따로 적으면 한쪽만 조여진다.
 FINGERPRINT_KEY_KR = "execution.live_account_fingerprint"
+FINGERPRINT_KEY_KR_PAPER = "execution.live_account_fingerprint_paper"
 FINGERPRINT_KEY_US = "execution.live_account_fingerprint_us"
+
+#: 어느 계좌로 나갈지. ``paper`` | ``real``.
+#:
+#: **기본값은 ``paper`` 다.** 설정이 없거나 못 읽으면 모의로 간다 — 모르는
+#: 상태에서 실전으로 흐르는 경로를 만들지 않는다. `live_trading` 이 꺼져
+#: 있으면 어차피 아무것도 안 나가지만, 두 관문의 기본값이 **둘 다 안전한
+#: 쪽**이어야 한 관문이 실수로 열려도 사고가 안 난다.
+ACCOUNT_MODE_KEY = "execution.account_mode"
+MODE_PAPER = "paper"
+MODE_REAL = "real"
 
 
 @dataclass(frozen=True)
 class LiveProfile:
-    """시장별 실전 배선 규칙."""
+    """(시장, 계좌모드)별 전송 배선 규칙."""
 
     env_prefix: str
     fingerprint_key: str
-    #: 지문이 **비어 있어도** 진행할지. 국장은 기존 규약(빈 값 = 고정 안 함)을
-    #: 그대로 둔다. 미장은 새 경로라 미선언이면 진행하지 않는다.
+    #: 지문이 **비어 있어도** 진행할지. 국장 실전은 기존 규약(빈 값 = 고정
+    #: 안 함)을 그대로 둔다 — 2026-08-18 검증이 그 규약 위에 있다. 미장과
+    #: 모의 경로는 새로 만든 것이라 처음부터 조인다.
     allow_unpinned: bool
+    #: ``.env`` 의 ``*_ACCOUNT_KIND`` 가 이 값이어야 한다.
+    #:
+    #: **코드는 모의·실전을 판별할 수 없다** — 같은 호스트를 쓰고, 모의
+    #: appkey 로도 ``t0424`` 가 정상 응답한다 (``LSCredentials.declared_kind``
+    #: 실측 기록). 그래서 사람의 선언과 설정의 모드가 **어긋나면 멈춘다.**
+    #: 지문 고정만으로도 막히지만, 지문은 "이 키가 맞나" 를 묻고 이 검사는
+    #: "이 키가 어느 쪽이라고 선언됐나" 를 묻는다. 둘은 다른 질문이다.
+    expected_kind: str
 
 
-PROFILES: dict[str, LiveProfile] = {
-    "KR": LiveProfile(
+PROFILES: dict[tuple[str, str], LiveProfile] = {
+    ("KR", MODE_REAL): LiveProfile(
         env_prefix="LS_",
         fingerprint_key=FINGERPRINT_KEY_KR,
         allow_unpinned=True,
+        expected_kind=MODE_REAL,
     ),
-    "US": LiveProfile(
+    ("KR", MODE_PAPER): LiveProfile(
+        env_prefix="LS_PAPER_",
+        fingerprint_key=FINGERPRINT_KEY_KR_PAPER,
+        allow_unpinned=False,
+        expected_kind=MODE_PAPER,
+    ),
+    ("US", MODE_REAL): LiveProfile(
         env_prefix="LS_US_",
         fingerprint_key=FINGERPRINT_KEY_US,
         allow_unpinned=False,
+        expected_kind=MODE_REAL,
     ),
 }
 
@@ -93,9 +121,21 @@ def build_broker(
     "실전 전송" 이 안 보이면 안 나간 것이고, 그 판정을 사람이 로그 부재로
     추론하게 두지 않는다.
     """
-    profile = PROFILES.get(market.upper())
+    # **모드를 먼저 정한다.** 어느 계좌로 갈지가 정해져야 어느 키를 볼지도
+    # 정해진다. 못 읽으면 모의다 — 모르는 상태에서 실전으로 흐르지 않는다.
+    try:
+        raw_mode = store.config(ACCOUNT_MODE_KEY, as_of=as_of)
+        mode = str(raw_mode or MODE_PAPER).strip().lower()
+    except Exception:  # ConfigNotFound 포함 — 없으면 모의로 본다
+        mode = MODE_PAPER
+    if mode not in (MODE_PAPER, MODE_REAL):
+        return PaperBroker(), (
+            f"{ACCOUNT_MODE_KEY} 값을 모르겠다({mode!r}) — paper|real 만 안다. 보내지 않는다"
+        )
+
+    profile = PROFILES.get((market.upper(), mode))
     if profile is None:
-        return PaperBroker(), f"{market} 은 실전 배선이 없는 시장이다"
+        return PaperBroker(), f"{market} · {mode} 는 전송 배선이 없다"
 
     try:
         enabled = bool(store.config(LIVE_TRADING_KEY, as_of=as_of))
@@ -112,6 +152,19 @@ def build_broker(
     if not credentials.usable():
         return PaperBroker(), (
             f"{profile.env_prefix}* 자격증명이 없다 — 보내지 않는다"
+        )
+
+    # **선언과 모드가 맞는지 본다.** 지문 고정과 다른 질문이다 — 지문은
+    # "이 키가 맞나", 이쪽은 "이 키가 어느 쪽이라고 선언됐나" 를 묻는다.
+    # 코드는 모의·실전을 판별할 수 없으므로(같은 호스트·모의 키로도 t0424
+    # 응답) 사람의 선언이 유일한 정보이고, 그 선언이 설정과 어긋나면 둘 중
+    # 하나가 틀린 것이다. 어느 쪽이 틀렸는지 모르므로 멈춘다.
+    declared = credentials.declared_kind
+    if declared != profile.expected_kind:
+        return PaperBroker(), (
+            f"{profile.env_prefix}ACCOUNT_KIND 가 "
+            f"{declared or '미선언'!r} 인데 {ACCOUNT_MODE_KEY} 는 {mode!r} 다 — "
+            "선언과 모드가 어긋난다. 보내지 않는다"
         )
 
     fingerprint = credentials.fingerprint
@@ -150,7 +203,8 @@ def build_broker(
 
     from quant_rl_trading.broker.ls_order import LSBroker
 
+    label = "모의투자 전송" if mode == MODE_PAPER else "실전 전송"
     return LSBroker(client=client, store=store), (
-        f"실전 전송 — 국장 계좌 {fingerprint}"
-        + ("" if pinned else " (지문 미고정)")
+        f"{label} — 국장 계좌 {fingerprint} (모드 {mode})"
+        + ("" if pinned else " · 지문 미고정")
     )

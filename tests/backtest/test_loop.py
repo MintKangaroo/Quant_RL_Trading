@@ -21,6 +21,7 @@ import pytest
 from quant_rl_trading.backtest import execution as execution_module
 from quant_rl_trading.backtest import loop
 from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.selector import weights as weights_module
 from quant_rl_trading.session import daily as daily_module
 
 SEOUL = ZoneInfo("Asia/Seoul")
@@ -273,3 +274,20 @@ def test_워밍업_날에는_브로커를_주지_않는다(warehouse) -> None:
     assert seen[-1][1] is broker
     # 그 앞은 전부 워밍업이다 — 하나도 브로커를 받으면 안 된다.
     assert all(item is None for _, item in seen[:-1]), seen
+
+
+def test_선정_사유가_하루_결과까지_올라온다(warehouse) -> None:
+    """**한 줄이 빠지면 실행기가 그날을 정상으로 본다.**
+
+    ``DailySession.fault`` 를 ``DayResult`` 로 옮기는 것은 대입 한 줄인데,
+    끊기면 ``run_session.py`` 의 rc 가 도로 0 이 된다 — 고치기 전 US 세션이
+    몇 주 동안 그랬다 (태스크 #12).
+    """
+    # 미장은 이 창고에 가중치가 한 줄도 없다. 측정 자체가 없는 경우다.
+    result = loop.run(warehouse, start=END, end=END, market="US", capital=1.0)
+
+    assert result.days
+    assert result.days[-1].fault == weights_module.NO_MEASUREMENT
+    # 국장은 가중치가 있으므로 사유가 붙지 않는다.
+    healthy = loop.run(warehouse, start=END, end=END, market="KR", capital=100_000_000.0)
+    assert healthy.days[-1].fault == ""

@@ -62,17 +62,18 @@ WEIGHTS = {
 #: 피처를 만들지 않는다. 수급이 일부 종목에만 들어온 날 횡단면 z 를 재면 그
 #: z 는 시장이 아니라 표본을 재는 것이 된다.
 #:
-#: 기준이 가격 유니버스가 아니라 창의 중앙값인 이유: ``flows`` 는 국장 전
-#: 종목을 담지 않는다. 2,800종목 중 991종목 — 투자자별 순매수가 공표되는
-#: 종목만 들어온다. 유니버스 대비로 재면 **정상인 날도 전부 미달**이라
+#: 기준이 가격 유니버스가 아니라 창의 중앙값인 이유: ``flows`` 의 커버리지는
+#: 우리가 정하는 것이 아니라 그날 들어온 만큼이다. 2026-08-11 까지는 2,800종목
+#: 중 991종목이었고 2026-08-12 부터 2,7xx 종목으로 세 배가 됐다 — 수집이 바뀌면
+#: 또 바뀐다. 고정된 유니버스 대비로 재면 **정상인 날도 전부 미달**이라
 #: Analyst 가 영원히 침묵하고, 그건 "수급이 안 먹혔다" 가 아니라 "잰 적이
 #: 없다" 다. 잡아야 할 것은 낮은 커버리지가 아니라 **커버리지의 붕괴**다.
 MIN_COVERAGE = 0.5
 
 #: 뒤에서 잘라낼 수 있는 부분 세션의 최대 개수.
 #:
-#: 수급은 종목 축으로 들어와서 (`ls_flow`) 991종목을 다 받기 전에 실행이 끊기면
-#: 마지막 하루가 168종목짜리로 남는다. 그 하루 때문에 창 전체를 버리면
+#: 수급은 그날 커버리지를 다 받기 전에 실행이 끊기면 마지막 하루가 몇백
+#: 종목짜리로 남는다. 그 하루 때문에 창 전체를 버리면
 #: Analyst 가 **영구히** 침묵한다 — 실제로 그렇게 매일 "신호 0건" 이었다.
 #: 덜 찬 꼬리는 잘라내고 완결된 창으로 잰다. 과거만 쓰는 것이라 미래를 보지
 #: 않는다.
@@ -92,10 +93,18 @@ class FlowKrAnalyst(Analyst):
         if prices.empty:
             return pd.DataFrame()
 
-        # 분모. 종가×거래량 의 20일 평균이 그 종목의 '평소 규모'다.
-        close = self.wide(prices, "close")
-        volume = self.wide(prices, "volume")
-        turnover = (close * volume).tail(LONG_WINDOW).mean()
+        # 분모. 20일 평균 **거래대금**이 그 종목의 '평소 규모'다.
+        #
+        # 종가×거래량으로 만들지 않는다. ``price_panel`` 은 보정가를 주는데
+        # (adjusted=True) 보정은 **가격에만** 곱한다 — 분할하면 거래량은 반대로
+        # 움직이고 거래대금은 애초에 안 변하기 때문이다(store/prices.py 의
+        # ADJUSTED_COLUMNS). 그래서 보정가×원거래량은 기업행위가 있었던 종목에서
+        # 배율만큼 어긋난다: 45일 창 2,881종목 중 65종목(2.3%), 배율 0.50~5.31.
+        # 분모가 5배 작아지면 그 종목의 수급 비율이 5배로 튀어 횡단면 순위의
+        # 꼭대기나 바닥으로 밀린다 — 매일 몇 종목씩 극단값이 섞였다.
+        #
+        # ``value`` 는 원본 거래대금이라 보정을 타지 않는다. risk.py 도 이것을 쓴다.
+        turnover = self.wide(prices, "value").tail(LONG_WINDOW).mean()
         turnover = turnover.replace(0.0, np.nan).dropna()
         if turnover.empty:
             return pd.DataFrame()
@@ -131,9 +140,16 @@ class FlowKrAnalyst(Analyst):
     def _flow_panel(self, as_of: datetime, *, universe: set[str]) -> pd.DataFrame | None:
         """(session, entity_id, investor) → net_value. 커버리지 미달이면 None.
 
-        같은 세션·주체에 잠정치와 확정치가 따로 들어오므로(``is_final``)
-        확정치를 우선한다. 마지막 행을 그냥 집으면 도착 순서에 따라 잠정치가
-        이길 수 있다.
+        **정정본을 여기서 고르지 않는다.** ``flows`` 의 자연키가
+        (entity_id, valid_from, investor) 라서 ``store.get`` 이 이미 자연키마다
+        최신 ``revision`` 하나만 돌려준다(store/reader.py).
+
+        예전에는 여기서 ``sort_values(["session", "is_final", "revision"])`` 로
+        확정치를 우선했는데, 그 코드는 **한 번도 발화한 적이 없다.** 정렬 키가
+        둘 다 상수였기 때문이다 — 수집기가 ``is_final=True`` 를 하드코딩했고
+        (KRX 응답에도 t1717 응답에도 잠정/확정 구분이 없다) revision 은 전부 0
+        이다. 게다가 읽기가 이미 자연키당 한 행만 주므로 groupby 도 무의미했다.
+        죽은 코드를 남겨 두면 다음 사람이 그게 도는 줄 안다.
         """
         # 컬럼을 좁힌다. flows 는 하루 3.6MB × 45일이고, 무게의 대부분이
         # 안 쓰는 문자열 컬럼이다. 시장은 질의에서 거른다 — pandas 로 거르면
@@ -143,7 +159,7 @@ class FlowKrAnalyst(Analyst):
             as_of=as_of,
             lookback=LOOKBACK_DAYS,
             market=str(self.market),
-            columns=["market", "net_value", "is_final", "revision"],
+            columns=["market", "net_value"],
         )
         if frame.empty:
             return None
@@ -157,11 +173,7 @@ class FlowKrAnalyst(Analyst):
         cutoff = self._last_complete_session(frame)
         if cutoff is None:
             return None
-        frame = frame[frame["session"] <= cutoff]
-
-        # 확정치가 뒤에 오도록 정렬한 뒤 마지막을 남긴다.
-        frame = frame.sort_values(["session", "is_final", "revision"])
-        return frame.groupby(["session", "entity_id", "investor"], as_index=False).last()
+        return frame[frame["session"] <= cutoff]
 
     @staticmethod
     def _last_complete_session(frame: pd.DataFrame) -> date | None:
