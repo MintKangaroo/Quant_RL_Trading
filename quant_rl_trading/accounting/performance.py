@@ -36,7 +36,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting import ledger
 from quant_rl_trading.accounting import snapshot as snapshot_module
-from quant_rl_trading.accounting.book import Book, Side, Trade
+from quant_rl_trading.accounting.book import KRW, Book, Side, Trade
 from quant_rl_trading.accounting.nav import BASE_INDEX
 from quant_rl_trading.store import names as names_module
 
@@ -136,8 +136,11 @@ class Performance:
     #: 자르기 전 전수. 목록이 잘려도 이 숫자는 안 변한다.
     buy_count: int = 0
     sell_count: int = 0
-    #: 그날 매도로 실현한 손익 합(원화 아님 — 통화별로 섞이지 않게 KRW 체결만
-    #: 센다). 매도가 없으면 ``None`` — **0 이 아니다.**
+    #: 그날 매도로 실현한 손익 합. **원화 체결만 센다** — 달러 실현손익을
+    #: 여기 더하려면 체결 시점 환율이 필요한데(accounting.md §3), 평가일
+    #: 환율로 소급하면 과거 스냅샷이 오늘 환율에 흔들린다. 미장 매도가 섞인
+    #: 날의 정확한 합은 체결별 ``Fill.realized_pnl`` 에 통화와 함께 있다.
+    #: 매도가 없으면 ``None`` — **0 이 아니다.**
     realized_pnl: float | None = None
     #: 성과를 못 잰 이유. **``None`` 이면 잰 것이다** — 매매 0건은 잰 결과이지
     #: 못 잰 것이 아니다.
@@ -400,7 +403,9 @@ def daily(
 
     all_fills = [] if session is None else fills(store, as_of=as_of, session=session)
     realized = [
-        fill.realized_pnl for fill in all_fills if fill.realized_pnl is not None
+        fill.realized_pnl
+        for fill in all_fills
+        if fill.realized_pnl is not None and fill.currency == KRW
     ]
     shown = all_fills if fill_limit is None else all_fills[:fill_limit]
 
