@@ -37,9 +37,14 @@ DISTRESS_WINDOW_DAYS = 120
 
 @dataclass(frozen=True)
 class FilterParams:
+    #: **절대 하한.** 자본과 무관하게 이보다 안 거래되는 종목은 안 산다.
     min_turnover: float
     min_listed_days: int
     max_price_ratio: float
+    #: 자본에서 유도하는 유동성 하한의 배수. 실효 하한은
+    #: ``max(min_turnover, capacity_multiple × 자본)`` 이다 (KR 만).
+    #: 0 이면 배수를 끄고 절대 하한만 쓴다.
+    capacity_multiple: float
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime, market: str) -> FilterParams:
@@ -48,7 +53,21 @@ class FilterParams:
             min_turnover=float(store.config(f"universe.{key}", as_of=as_of)),
             min_listed_days=int(store.config("universe.min_listed_days", as_of=as_of)),
             max_price_ratio=float(store.config("universe.max_price_ratio", as_of=as_of)),
+            capacity_multiple=float(
+                store.config("universe.turnover_capacity_multiple", as_of=as_of)
+            ),
         )
+
+    def effective_floor(self, *, market: str, equity: float) -> float:
+        """자본을 반영한 실효 거래대금 하한.
+
+        **KR 에만 배수를 건다.** 자본(NAV)은 원화이고 KR 거래대금도 원화라 바로
+        비교되지만, US 거래대금은 달러라 환산 없이는 못 건다 — 미장 자본·환율
+        처리가 설계되기 전까지 US 는 절대 하한만 쓴다 (config 주석 참고).
+        """
+        if market != "KR" or equity <= 0 or self.capacity_multiple <= 0:
+            return self.min_turnover
+        return max(self.min_turnover, self.capacity_multiple * equity)
 
 
 @dataclass(frozen=True)
@@ -77,6 +96,11 @@ def tradable_universe(
     ``equity`` 는 자본(NAV)이다. **1주 가격이 자본의 15% 를 넘는 종목은 뺀다** —
     한 주도 제대로 못 담는 종목을 후보에 두면 목표 비중이 라운딩에서 통째로
     사라지고, 그 자리는 현금으로 남는다.
+
+    거래대금 하한도 자본에서 유도한다. 상수 하한을 통과해도 **목표금액이
+    ``max_adv_ratio`` 상한에 잘리는** 종목은 실효적으로 못 담는다 — 자본이
+    커지면 상수 하한은 "못 파는 종목" 이 아니라 "못 사는 종목" 을 걸러야 한다
+    (portfolio-construction.md §부록). ``FilterParams.effective_floor`` 참고.
     """
     lookback = max(params.min_listed_days + 30, 400)
     # **창은 400일이지만 쓰는 것은 종목당 두 값뿐이다** — 마지막 상태와 창 안
@@ -144,13 +168,23 @@ def tradable_universe(
     last_close = recent.groupby("entity_id")["close"].tail(1)
     last_close = recent.loc[last_close.index].set_index("entity_id")["close"]
 
+    floor = params.effective_floor(market=market, equity=equity)
+    # 하한이 상수를 넘었나 — 자본이 유동성을 조이기 시작한 자리다. 이유를
+    # 두 개로 가른다: 상수 미달은 "못 파는 종목", 배수 미달은 "못 사는 종목".
+    capital_floor = floor > params.min_turnover
+
     kept: list[str] = []
     for entity in alive:
         if entity not in turnover.index or pd.isna(turnover[entity]):
             dropped[entity] = "거래대금 관측 없음"
             continue
-        if float(turnover[entity]) < params.min_turnover:
-            dropped[entity] = "거래대금 하한 미달"
+        value = float(turnover[entity])
+        if value < floor:
+            dropped[entity] = (
+                "거래대금 용량 미달"
+                if capital_floor and value >= params.min_turnover
+                else "거래대금 하한 미달"
+            )
             continue
         price = float(last_close.get(entity, 0.0))
         if price <= 0:
