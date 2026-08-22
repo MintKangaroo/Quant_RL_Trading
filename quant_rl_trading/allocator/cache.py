@@ -61,6 +61,12 @@ NAV 가 그 아래로 내려갈 일이 없게 잡는 값이다.
 사고**가 이 저장소에서 가장 조용한 사고이기 때문이다 — 값이 그럴듯해서 아무도
 안 묻는다. 표지가 어긋나면 무시하지 않고 `CacheStampMismatch` 로 멈춘다.
 
+설정 지문은 **이 경로가 읽는 키 위에서만** 계산한다(`CONFIG_DEPENDENCIES`).
+전체 설정 위에서 재던 시절에는 브로커 계좌 두 줄을 심은 것만으로 구워 둔
+캐시가 통째로 무효가 됐다 — 그러면 사람은 설정을 안 고치거나 캐시를 안
+굽는다. 좁히다 빠뜨리는 쪽이 훨씬 위험하므로, 그 목록은 손이 아니라 시험이
+지킨다(`tests/allocator/test_cache_config_scope.py`).
+
 ## 배치
 
     <cache_root>/v1/<MARKET>/<YYYY-MM-DD>.pq   (실제 확장자는 `cache_path` 참조)
@@ -497,6 +503,11 @@ class Stamp:
     session: str
     as_of: str
     config_fingerprint: str
+    #: 지문을 만든 설정 값 그대로(`CONFIG_DEPENDENCIES` 범위). **지문만으로는
+    #: "무엇이 달라졌나" 를 답할 수 없다** — 어긋난 사람이 보는 것은
+    #: ``9317fab8 != b56e4b15`` 하나뿐이고, 거기서 다음 행동이 안 나온다.
+    #: 옛 형식 파일에는 없다(None).
+    config_values: dict[str, str] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -506,10 +517,12 @@ class Stamp:
             "session": self.session,
             "as_of": self.as_of,
             "config_fingerprint": self.config_fingerprint,
+            "config_values": self.config_values,
         }
 
     @classmethod
     def from_json(cls, raw: Mapping[str, Any]) -> Stamp:
+        values = raw.get("config_values")
         return cls(
             builder_version=int(raw["builder_version"]),
             store_root=str(raw["store_root"]),
@@ -517,23 +530,129 @@ class Stamp:
             session=str(raw["session"]),
             as_of=str(raw["as_of"]),
             config_fingerprint=str(raw["config_fingerprint"]),
+            config_values=(
+                None if values is None else {str(k): str(v) for k, v in values.items()}
+            ),
         )
 
 
-def config_fingerprint(store: Store, *, as_of: datetime) -> str:
-    """그 시점 설정 전체의 지문.
+#: 지문이 세는 설정. **이름 하나는 그 키와 그 아래 섹션 전부**를 가리킨다 —
+#: ``"universe"`` 는 ``universe.min_listed_days`` 를 포함한다.
+#:
+#: ## 왜 전체가 아닌가 (2026-08-22)
+#:
+#: 지문은 원래 설정 **전체** 위에서 계산했다. "어느 키가 캐시에 영향을 주는지
+#: 손으로 열거하면 그 목록이 낡는다" 는 이유였는데, 그 대가가 실제로 나왔다:
+#: 브로커 계좌 설정 두 줄(``execution.account_mode`` ·
+#: ``execution.live_account_fingerprint_paper``)을 창고에 심었더니 구워 둔 캐시가
+#: 통째로 무효가 됐다. 이 경로는 그 키들을 읽지 않는다. 그러면 사람은 둘 중
+#: 하나를 안 하게 된다 — **설정을 안 고치거나 캐시를 안 굽거나.** 둘 다 나쁘다.
+#:
+#: ## 좁히기의 위험과 그것을 막는 방법
+#:
+#: 반대 방향의 사고가 훨씬 나쁘다. 진짜 영향을 주는 키를 빠뜨리면 환경이
+#: 달라졌는데 캐시는 유효하다고 말하고, 그 위에서 나온 학습 결과는 아무 데도
+#: 안 뜨는 거짓이 된다. **과잉 포함은 시끄럽고 안전하며, 잘못된 좁히기는
+#: 조용하고 위험하다.**
+#:
+#: 그래서 이 목록을 손으로 지키지 않는다. `tests/allocator/test_cache_config_scope.py`
+#: 가 ``allocator/env.py`` · ``allocator/cache.py`` · ``tools/build_rl_cache.py``
+#: 에서 시작하는 import 닫힘을 훑어 **거기서 읽는 모든 설정 이름**을 뽑고, 이
+#: 목록이 그것을 전부 덮는지 본다. 새 키를 읽는 코드가 들어오면 그 시험이 깨진다.
+#:
+#: 목록에는 import 로 닿지만 이 경로에서 실제로는 안 도는 코드가 읽는 키도
+#: 들어 있다(``executor.orders`` 의 슬라이스 설정, ``executor.guards`` 의
+#: 킬스위치). 더 좁히려면 "저 코드는 안 돈다" 를 사람이 매번 판단해야 하고,
+#: 그 판단이 한 번 틀리면 위의 조용한 사고가 된다. 시끄러운 쪽에 남긴다.
+CONFIG_DEPENDENCIES: tuple[str, ...] = (
+    # 수수료·세금·환산 — 체결 손익과 NAV 를 바꾼다.
+    "accounting.capital_gains_allowance_krw",
+    "accounting.capital_gains_us",
+    "accounting.dividend_tax_kr",
+    "accounting.dividend_tax_us",
+    "accounting.fee_kr",
+    "accounting.fee_us",
+    "accounting.snapshot_time",
+    "accounting.transaction_tax_kr",
+    # 환경 규격 — 슬롯 수·에피소드 길이·비중 상한·자본·정책금리 계열.
+    "allocator.baseline",
+    "allocator.cash_buffer",
+    "allocator.env.cache_carry_sessions",
+    "allocator.env.cache_equity",
+    "allocator.env.initial_capital",
+    "allocator.env.kr_policy_rate_series",
+    "allocator.env.max_entry_delay_days",
+    "allocator.env.us_policy_rate_series",
+    "allocator.episode_days",
+    "allocator.max_position_weight",
+    "allocator.n_max_candidates",
+    # Analyst 가중치가 IC 문턱에서 나온다 — 문턱이 바뀌면 합성점수가 바뀐다.
+    "analyst.ic_min_samples",
+    "analyst.ic_threshold",
+    # 섹션째 읽는다(`accounting/benchmark.py`), 이름을 만들어 읽기도 한다
+    # (`session/daily.py` 의 f"benchmark.{market}_index").
+    "benchmark",
+    "data_quality.missing_warn",
+    # **execution 은 섹션째 넣지 않는다.** 계좌 모드·실계좌 지문이 여기 있고,
+    # 그것이 이 목록을 만든 이유다. 읽는 키만 이름으로 적는다.
+    "execution.defer_minutes",
+    "execution.impact_k",
+    "execution.max_adv_ratio",
+    "execution.max_liquidation_days",
+    "execution.max_slippage",
+    "execution.min_order_value",
+    "execution.settlement_days",
+    "execution.slice_count",
+    "execution.slice_interval_sec",
+    "exposure",
+    "killswitch.drawdown_trigger",
+    "killswitch.liquidate_on_trigger",
+    "reward",
+    "selector.corr_penalty",
+    "selector.corr_threshold",
+    "selector.n_candidates",
+    "selector.risk_floor_percentile",
+    "selector.sector_cap",
+    # 유니버스 문턱. 시장별 이름을 만들어 읽으므로(`f"universe.{key}"`) 섹션째다.
+    "universe",
+)
 
-    임계치 하나가 바뀌면 후보도 점수도 달라진다. 어느 키가 캐시에 영향을
-    주는지 손으로 열거하면 **키가 늘 때마다 그 목록이 낡는다** — 낡은 목록은
-    "영향 없음" 이라고 거짓말한다. 그래서 전부 센다.
+
+def depends_on(name: str) -> bool:
+    """설정 이름 하나가 이 경로에 영향을 주는가. `CONFIG_DEPENDENCIES` 가 정의다."""
+    return any(name == dep or name.startswith(f"{dep}.") for dep in CONFIG_DEPENDENCIES)
+
+
+def dependent_config(store: Store, *, as_of: datetime) -> dict[str, str]:
+    """그 시점에 **발효돼 있던** 의존 설정. 이름 → 값(JSON 문자열).
+
+    ``valid_from <= as_of`` 를 한 번 더 거는 이유는 `store.config` 가 그렇게
+    읽기 때문이다(`store/config.read_value`). 게이트가 걸러주는 것은
+    ``observed_at`` 뿐이라, "다음 달부터 올린다" 를 오늘 적어 두면 관측은
+    오늘이지만 발효는 다음 달이다. 그 행을 지문이 세면 **아무도 아직 안 읽는
+    값 때문에 캐시가 깨진다.**
     """
-    values = current_values(store.get(CONFIG_TABLE, as_of=as_of))
-    payload = json.dumps(
-        {name: value for name, (value, _revision) in sorted(values.items())},
-        ensure_ascii=False,
-        sort_keys=True,
-    )
+    frame = store.get(CONFIG_TABLE, as_of=as_of)
+    if not frame.empty:
+        frame = frame[frame["valid_from"] <= as_of]
+    values = current_values(frame)
+    return {
+        name: value
+        for name, (value, _revision) in sorted(values.items())
+        if depends_on(name)
+    }
+
+
+def fingerprint_of(values: Mapping[str, str]) -> str:
+    """의존 설정 한 벌의 지문. 표지에는 값도 같이 적지만(`Stamp`), 짧은 식별자가
+    로그·학습 기록(`tools/train_rl.py`)에 필요하다."""
+    payload = json.dumps(dict(sorted(values.items())), ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def config_fingerprint(store: Store, *, as_of: datetime) -> str:
+    """그 시점 **의존 설정**의 지문. 무관한 키가 바뀌어도 그대로다."""
+    return fingerprint_of(dependent_config(store, as_of=as_of))
 
 
 @dataclass(frozen=True)
@@ -595,6 +714,7 @@ def build_session(
         dict.fromkeys([entity for entity, _score in selection.candidates] + list(extra_entities))
     )
 
+    settings = dependent_config(store, as_of=as_of)
     combined, signals = reader.signals(as_of, entities)
     stats = reader.stats(as_of, entities)
     betas = reader.betas(as_of, entities)
@@ -608,7 +728,8 @@ def build_session(
             market=reader.market.upper(),
             session=session.isoformat(),
             as_of=as_of.isoformat(),
-            config_fingerprint=config_fingerprint(store, as_of=as_of),
+            config_fingerprint=fingerprint_of(settings),
+            config_values=settings,
         ),
         scalars=scalars,
         selection=selection,
@@ -683,13 +804,39 @@ def verify(
         problems.append(f"시장 {stamp.market} != {str(market).upper()}")
     if stamp.session != session.isoformat():
         problems.append(f"세션 {stamp.session} != {session.isoformat()}")
-    fingerprint = config_fingerprint(store, as_of=as_of)
+    settings = dependent_config(store, as_of=as_of)
+    fingerprint = fingerprint_of(settings)
     if stamp.config_fingerprint != fingerprint:
-        problems.append(f"설정 지문 {stamp.config_fingerprint} != {fingerprint}")
+        problems.append(_config_problem(stamp, settings, fingerprint))
     if problems:
         raise CacheStampMismatch(
             "캐시 표지가 지금 창고·설정과 다르다: " + " · ".join(problems)
         )
+
+
+def _config_problem(stamp: Stamp, settings: Mapping[str, str], fingerprint: str) -> str:
+    """어느 설정이 어떻게 달라졌는지까지 적는다.
+
+    **지문 두 개만 적으면 다음 행동이 안 나온다.** 실제로 2026-08-22 에 캐시가
+    통째로 무효가 됐을 때, 원인이 브로커 계좌 두 줄이었다는 것을 알아내는 데
+    사람이 창고를 따로 뒤져야 했다. 이제는 메시지가 이름을 말한다.
+    """
+    head = f"설정 지문 {stamp.config_fingerprint} != {fingerprint}"
+    if stamp.config_values is None:
+        # v1 초기 파일: 지문이 설정 **전체** 위에서 계산돼 있어 지금 값과 맞을
+        # 수 없다. 다시 구워야 한다는 말을 그대로 적는다.
+        return f"{head} (표지에 의존 설정 값이 없다 — 옛 형식이라 다시 구워야 한다)"
+    before = stamp.config_values
+    names = sorted(set(before) | set(settings))
+    changes = [
+        f"{name}: {before.get(name, '(없음)')} → {settings.get(name, '(없음)')}"
+        for name in names
+        if before.get(name) != settings.get(name)
+    ]
+    shown = " · ".join(changes[:5])
+    if len(changes) > 5:
+        shown += f" 외 {len(changes) - 5}건"
+    return f"{head} — {shown}"
 
 
 # -- 직렬화 --------------------------------------------------------------------

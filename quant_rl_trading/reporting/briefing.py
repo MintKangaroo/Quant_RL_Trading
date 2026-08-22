@@ -30,6 +30,7 @@ import pandas as pd
 
 from quant_rl_trading.indicators import wilder_rsi
 
+from quant_rl_trading.accounting import performance as performance_module
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.dashboard.services import market as market_service
 from quant_rl_trading.replay.clock import Clock
@@ -43,6 +44,7 @@ from quant_rl_trading.reporting.sessions import (
     fx_source_latest,
 )
 from quant_rl_trading.store import Store
+from quant_rl_trading.store import mode as store_mode
 from quant_rl_trading.store.prices import read_prices
 
 DOCUMENTS = "documents"
@@ -234,6 +236,19 @@ class Briefing:
     #: 정상이라, 좌우로 가르면 그 사실이 안 보인다.
     macro: MacroSection
     markets: dict[str, MarketBrief]
+    #: 그날의 성과 — 매매내역·수익률·총수익률·자산증감.
+    #:
+    #: **회계가 접어 준 것을 그대로 든다** (``accounting/performance.py``).
+    #: 브리핑이 NAV 나 수익률을 자기가 계산하면 화면·보상함수와 어긋나고,
+    #: 어긋난 순간 어느 쪽이 맞는지 판정할 방법이 없다 (accounting.md §8).
+    #:
+    #: **창고 하나만 읽는다.** 이 값은 ``build_briefing`` 에 넘어온 그 store
+    #: 에서 온다 — 실전 창고로 부르면 실전, ``data/_shadow`` 로 부르면 모의
+    #: 운용이다. 한 메일에 두 창고 숫자가 섞이는 일이 구조적으로 없다.
+    #:
+    #: ``None`` 이면 성과 섹션을 아예 안 실은 것이다(옛 호출부·테스트).
+    #: "성과가 0" 과 다른 사실이라 렌더러가 자리를 통째로 비운다.
+    performance: performance_module.Performance | None = None
 
     @property
     def gaps(self) -> list[Gap]:
@@ -281,6 +296,7 @@ class Briefing:
             "gaps": [gap.as_dict() for gap in self.gaps],
             "macro": self.macro.as_dict(),
             "markets": {code: brief.as_dict() for code, brief in self.markets.items()},
+            "performance": self.performance.as_dict() if self.performance else None,
         }
 
 
@@ -1363,6 +1379,41 @@ def _translate_us_news(
     return {**markets, "US": new_us}
 
 
+def _performance(store: Store, *, as_of: datetime) -> performance_module.Performance:
+    """그날 성과. **회계에서 읽어 온다 — 여기서 계산하지 않는다.**
+
+    회계는 환율이 없으면 예외를 던진다(그게 옳다 — 1.0 으로 때우면 NAV 가
+    무너진다). 그런데 **리포트는 비필수 경로**라(reporting.md §2), 그 예외가
+    메일 전체를 못 나가게 하면 안 된다. 그래서 여기서 붙잡아 "못 쟀다" 로
+    바꾼다 — 없는 것을 0 으로 그리는 것이 아니라, 못 쟀다고 적는 것이다.
+    """
+    try:
+        return performance_module.daily(store, as_of=as_of)
+    except Exception as error:  # noqa: BLE001 - 메일은 나가야 한다
+        mode = store_mode.of(store.root)
+        return performance_module.Performance(
+            mode=mode.code,
+            mode_note=mode.note,
+            store_root=str(store.root),
+            session=None,
+            previous_session=None,
+            since=None,
+            nav=None,
+            previous_nav=None,
+            nav_change=None,
+            inflow=None,
+            pnl=None,
+            daily_return=None,
+            cumulative_return=None,
+            index_value=None,
+            drawdown=None,
+            principal=None,
+            total_pnl=None,
+            fills=[],
+            note=f"회계가 성과를 못 냈다 — {error}",
+        )
+
+
 def build_briefing(
     store: Store, *, as_of: datetime, clock: Clock | None = None, translate: Any = None
 ) -> Briefing:
@@ -1409,4 +1460,5 @@ def build_briefing(
             store, as_of=as_of, sessions=expected, limit=int(settings["macro_rows"])
         ),
         markets=markets,
+        performance=_performance(store, as_of=as_of),
     )

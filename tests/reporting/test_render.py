@@ -7,7 +7,8 @@
 2. 변동성 지수에는 **손익 색이 없다** — VIX 상승은 수익이 아니라 공포다
 3. **무엇으로 줄 세웠는지** 순위표마다 적힌다
 4. 걸어 둔 **하한과 커버리지가 각주로 남는다** — 숨긴 필터는 못 믿는 필터다
-5. **성과·수익률·보유 섹션이 없다** — 빈 표는 "손실 0" 으로 읽힌다
+5. **성과는 TWR 로 적는다** — 입금일에 NAV 변화율을 "수익률" 이라 적으면
+   하루에 +5,000% 가 찍힌다. 없는 것은 0 이 아니라 "못 쟀다" 로 적는다
 6. 인라인 CSS · **다크 배경** · JS 없음 (reporting.md §3)
 7. 결측은 **성격별로 갈린다** — 우리가 못 받은 것과 원본이 안 낸 것은 다른 사실이다
 """
@@ -18,6 +19,7 @@ import re
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from quant_rl_trading.accounting.performance import Fill, Performance
 from quant_rl_trading.collectors.market_hours import Market, is_trading_day
 from quant_rl_trading.reporting import render as render_module
 from quant_rl_trading.reporting.briefing import (
@@ -430,16 +432,152 @@ def test_untranslated_title_has_no_stray_english_footnote() -> None:
     assert "제목 번역은 Claude" not in html
 
 
-# -- 매매 리포트가 아니다 ----------------------------------------------------------
+# -- 성과 섹션 ------------------------------------------------------------------
+#
+# **옛 계약은 "성과 섹션이 없다" 였다.** 매매가 0건이던 동안은 그게 맞았다 —
+# 빈 표는 "손실 0" 으로 읽힌다 (reporting.md §0). 매매가 돌기 시작해서 시황
+# 위에 성과를 얹었으므로, 지금 고정할 것은 **성과가 어떻게 실리는가** 다.
+# 특히 입금이 있는 날 그것이 수익으로 읽히지 않는 것.
 
 
-def test_no_performance_section() -> None:
+def _perf(**over: object) -> Performance:
+    payload: dict[str, object] = {
+        "mode": "SHADOW",
+        "mode_note": "모의 운용 — 돈이 오가지 않는다",
+        "store_root": "data/_shadow",
+        "session": FRIDAY,
+        "previous_session": THURSDAY,
+        "since": date(2026, 8, 12),
+        "nav": 9_761_790.0,
+        "previous_nav": 9_759_185.0,
+        "nav_change": 2_605.0,
+        "inflow": 0.0,
+        "pnl": 2_605.0,
+        "daily_return": 0.000267,
+        "cumulative_return": -0.0238,
+        "index_value": 97.62,
+        "drawdown": -0.0296,
+        "principal": 10_000_000.0,
+        "total_pnl": -238_209.0,
+        "fills": [],
+        "fills_omitted": 0,
+        "buy_count": 0,
+        "sell_count": 0,
+        "realized_pnl": None,
+        "note": None,
+    }
+    payload.update(over)
+    return Performance(**payload)  # type: ignore[arg-type]
+
+
+def _fill(**over: object) -> Fill:
+    payload: dict[str, object] = {
+        "entity_id": "KR:037460",
+        "name": "삼지전자",
+        "side": "sell",
+        "quantity": 14.0,
+        "price": 31_850.0,
+        "currency": "KRW",
+        "fee": 66.885,
+        "tax": 802.62,
+        "realized_pnl": 2_564.0,
+        "realized_rate": 0.0058,
+    }
+    payload.update(over)
+    return Fill(**payload)  # type: ignore[arg-type]
+
+
+def test_입금일_수익률이_입금액만큼_부풀지_않는다() -> None:
+    """**이 섹션에서 가장 틀리기 쉬운 자리다.**
+
+    490,238,209원이 들어온 날 NAV 는 976만에서 5억이 된다. 그 변화율을
+    "수익률" 이라 적으면 +5,000% 다. 자산 증감은 절대액으로 싣되(사용자가
+    요청한 항목이다) **그중 입출금이 얼마인지 바로 아래 줄에 적는다.**
+    """
+    deposit = 490_238_209.0
+    perf = _perf(
+        nav=500_002_605.0,
+        previous_nav=9_761_790.0,
+        nav_change=deposit + 2_605.0,
+        inflow=deposit,
+        pnl=2_605.0,
+        daily_return=0.000267,
+    )
+    for text in (render_html(_briefing(performance=perf)),
+                 render_text(_briefing(performance=perf))):
+        # 수익률 자리에 다섯 자리 퍼센트가 있으면 안 된다.
+        assert not re.search(r"[+\-]\d{3,},?\d*\.\d\d%", text)
+        assert "+0.03%" in text
+        # 증감 옆에 입출금이 반드시 적힌다.
+        assert "490,238,209" in text
+        assert "입출금" in text
+
+
+def test_성과는_TWR_이라고_적는다() -> None:
+    """단순 NAV 변화율과 수익률이 다른 값이라는 사실을 본문이 말한다."""
+    html = render_html(_briefing(performance=_perf()))
+    assert "TWR" in html
+    assert "자산 증감" in html and "당일 수익률" in html
+
+
+def test_매매가_없던_날은_0건이_아니라_없었다고_적는다() -> None:
+    for text in (render_html(_briefing(performance=_perf())),
+                 render_text(_briefing(performance=_perf()))):
+        assert "체결된 매매가 없다" in text
+        assert "매매 0건" not in text
+
+
+def test_못_잰_것과_0_을_가른다() -> None:
+    """회계 스냅샷이 없으면 숫자를 그리지 않는다 — 0 으로 채운 표는
+    "손실 0" 으로 읽힌다."""
+    perf = _perf(
+        session=None, previous_session=None, since=None,
+        nav=None, previous_nav=None, nav_change=None, inflow=None, pnl=None,
+        daily_return=None, cumulative_return=None, index_value=None, drawdown=None,
+        principal=None, total_pnl=None,
+        note="회계 스냅샷이 아직 없다 — 성과를 잴 수 없다",
+    )
+    html = render_html(_briefing(performance=perf))
+    assert "성과를 잴 수 없다" in html
+    assert "당일 수익률" not in html
+    assert "0.00%" not in html
+
+
+def test_실현손익은_매도에만_붙는다() -> None:
+    """매수 자리에 ``0원`` 을 적으면 "본전" 으로 읽힌다."""
+    perf = _perf(
+        fills=[_fill(side="buy", realized_pnl=None, realized_rate=None)],
+        buy_count=1,
+    )
+    for text in (render_html(_briefing(performance=perf)),
+                 render_text(_briefing(performance=perf))):
+        assert "아직 실현 없음" in text
+
+
+def test_잘린_목록은_잘렸다고_적는다() -> None:
+    perf = _perf(fills=[_fill()], fills_omitted=4, sell_count=5)
+    for text in (render_html(_briefing(performance=perf)),
+                 render_text(_briefing(performance=perf))):
+        assert "매매 내역" in text or "매매 5건" in text
+        assert "4건" in text
+
+
+def test_어느_창고의_성과인지_밝힌다() -> None:
+    """모의 운용 숫자를 실전으로 읽는 것이 이 메일에서 가능한 가장 비싼 오해다."""
+    for text in (render_html(_briefing(performance=_perf())),
+                 render_text(_briefing(performance=_perf()))):
+        assert "모의 운용" in text
+        assert "data/_shadow" in text
+
+
+def test_성과가_없으면_섹션도_없다() -> None:
+    """``performance=None`` 은 회계를 안 읽고 만든 메일이다. 그 사실을 적되
+    빈 표를 그리지 않는다."""
     html = render_html(_briefing())
-    disclaimer = "성과·보유는 넣지 않는다"
-    assert disclaimer in html
-    body = html.replace(disclaimer, "")
-    for banned in ("수익률", "일간 손익", "보유 종목", "체결 내역", "액션 반영률", "NAV"):
-        assert banned not in body, f"{banned} 섹션이 들어갔다 — 빈 표는 '손실 0' 으로 읽힌다"
+    assert "성과 섹션 없음" in html
+    body = html.replace("성과 섹션 없음 — 회계를 읽지 않고 만든 메일이다", "")
+    for banned in ("당일 수익률", "자산 증감", "총 수익금"):
+        assert banned not in body
 
 
 # -- 이메일 제약 ----------------------------------------------------------------

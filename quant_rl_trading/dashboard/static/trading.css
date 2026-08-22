@@ -76,3 +76,26 @@
   #watchlist .pnl-inline { font-size: 10px; line-height: 1.25; white-space: nowrap; }
   #watchlist .sig { padding: 1px 4px; font-size: 10px; }
 }
+
+/* -- 오늘의 성과 ------------------------------------------------------------
+   KPI 스트립과 같은 그리드지만 **패널 안**이라 테두리를 따로 두지 않는다.
+   여섯 칸이 한 줄에 서야 "자산 증감" 과 "당일 수익률" 이 나란히 읽힌다 —
+   둘이 다른 줄로 갈리면 입금일에 왜 증감만 큰지가 안 보인다. */
+.perf-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.perf-cell { padding: 2px 0; }
+.perf-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.perf-value { font-size: 19px; line-height: 1.15; margin-top: 3px; }
+/* 방향이 없는 값에는 클래스가 안 붙는다 — 색을 칠하지 않는 것이 규칙이다. */
+.perf-value.up { color: var(--up); }
+.perf-value.down { color: var(--down); }
+.perf-note { color: var(--dim); font-size: 10.5px; margin-top: 1px; }

@@ -298,17 +298,23 @@ def cache_liquidity(
 
 
 def cache_chart_features(
-    store: Store, *, market: Market, calendar: list[date], out: Path
+    store: Store, *, market: Market, calendar: list[date], out: Path, name: str = "chart"
 ) -> None:
-    """chart 의 **내부 피처**를 세션마다. 피처 군집화가 이걸 쓴다."""
-    path = out / f"features-chart-{market}.pkl"
+    """Analyst 의 **내부 피처**를 세션마다. 피처 단위 IC 측정이 이걸 쓴다.
+
+    합성 점수가 아니라 피처를 굽는 이유: 게이트가 재는 것은 Analyst 인데
+    **알파의 단위는 피처**일 수 있다. chart 에서 실제로 그랬다 — 유일하게
+    유의한 `volume_surge` 가 안 되는 다섯과 평균당해 사라졌다
+    (`docs/signal-combination.md` §6).
+    """
+    path = out / f"features-{name}-{market}.pkl"
     if path.exists():
-        print("=== chart 피처: 캐시가 이미 있다", flush=True)
+        print(f"=== {name} 피처: 캐시가 이미 있다", flush=True)
         return
-    from quant_rl_trading.analysts.chart import ChartAnalyst
+    print(f"=== {name} 피처: {len(calendar)}세션", flush=True)
 
     policy = publication_policy(store, market, clock=LiveClock())
-    analyst = ChartAnalyst(store, LiveClock(), market=market)
+    analyst = ANALYSTS[name](store, LiveClock(), market=market)
     frames: list[pd.DataFrame] = []
     for index, session in enumerate(calendar, start=1):
         moment = policy.for_session(session)
@@ -316,14 +322,14 @@ def cache_chart_features(
         frame = analyst.features(moment)
         if not frame.empty:
             frames.append(frame.assign(session=session).reset_index(names="entity_id"))
-        if index % 25 == 0:
-            print(f"       … chart 피처 {index}/{len(calendar)}", flush=True)
+        if index % 50 == 0:
+            print(f"       … {name} 피처 {index}/{len(calendar)}", flush=True)
     if not frames:
-        print("    chart 피처가 비었다", flush=True)
+        print(f"    {name} 피처가 비었다 — 캐시를 안 만든다", flush=True)
         return
     out_frame = pd.concat(frames, ignore_index=True)
     out_frame.to_pickle(path)
-    print(f"    chart 피처 {len(out_frame):,}행 → {path.name}", flush=True)
+    print(f"    {name} 피처 {len(out_frame):,}행 → {path.name}", flush=True)
 
 
 def run_cache_extra(args: argparse.Namespace) -> int:
@@ -339,7 +345,8 @@ def run_cache_extra(args: argparse.Namespace) -> int:
     ]
     print(f"추가 캐시 · 세션 {len(calendar)}개", flush=True)
     cache_liquidity(store, market=market, calendar=calendar, as_of=as_of, out=out)
-    cache_chart_features(store, market=market, calendar=calendar, out=out)
+    for name in args.analyst:
+        cache_chart_features(store, market=market, calendar=calendar, out=out, name=name)
     print("추가 캐시 완료")
     return 0
 
@@ -356,7 +363,11 @@ def main(argv: list[str] | None = None) -> int:
     cache.add_argument("--cache-dir", default=str(CACHE_DIR))
     cache.set_defaults(func=run_cache)
 
-    extra_parser = sub.add_parser("cache-extra", help="유동성 패널 · chart 내부 피처")
+    extra_parser = sub.add_parser("cache-extra", help="유동성 패널 · Analyst 내부 피처")
+    extra_parser.add_argument(
+        "--analyst", nargs="+", default=["chart"], choices=sorted(ANALYSTS),
+        help="내부 피처를 구울 Analyst. 피처 단위 IC 측정은 전부 필요하다",
+    )
     extra_parser.add_argument("--market", default="KR", choices=[m.value for m in Market])
     extra_parser.add_argument("--data-root", type=Path)
     extra_parser.add_argument("--cache-dir", default=str(CACHE_DIR))

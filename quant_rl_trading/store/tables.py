@@ -495,6 +495,35 @@ _SPECS: dict[str, TableSpec] = {
             "나중에 고쳐도 달라지지 않는 사실이다."
         ),
     ),
+    "ingest_outcomes": TableSpec(
+        name="ingest_outcomes",
+        columns={
+            "market": pa.string(),
+            # 어느 테이블을 채우려던 수집이었나. 데이터셋 이름만으로는
+            # "그래서 무엇이 안 들어왔나" 를 모른다.
+            "table_name": pa.string(),
+            # 셋 중 무엇인가. collectors/outcome.py 의 ``Verdict``.
+            "verdict": pa.string(),
+            "stage": pa.string(),
+            "error_type": pa.string(),
+            "detail": pa.string(),
+        },
+        # entity_id 가 종목이 아니라 **수집 데이터셋 이름**이다
+        # ("krx_openapi:indices"). analyst_failures 와 같은 사정이라 시장
+        # 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
+        natural_key=("entity_id", "valid_from", "stage"),
+        market_prefixed_entity=False,
+        observation_lag_days=3,
+        doc=(
+            "수집이 0행으로 끝난 사실과 그 판정. 1행 = 한 데이터셋 · 한 세션. "
+            "**0행 셋을 로그로는 가릴 수 없어서 만든 표다** — (가) 원본이 그날 "
+            "값을 안 냄 · (나) 원본은 냈는데 우리가 못 받음 · (다) 받았는데 "
+            "조건에 맞는 행이 없음. 셋이 전부 '0행'·rc=0 으로 끝나서 (나)가 "
+            "며칠씩 조용히 이어졌다(2026-08-19 KRX 지수·시총, 2026-08-22 FRED). "
+            "**행이 들어온 세션은 안 적는다** — 그건 데이터 표 자체가 증거다. "
+            "창고를 읽어 추론할 수 없는 것은 0행 쪽뿐이다."
+        ),
+    ),
     "analyst_weights": TableSpec(
         name="analyst_weights",
         columns={

@@ -351,6 +351,71 @@ def test_설정이_바뀌면_거부한다(warehouse, tmp_path) -> None:
         )
 
 
+def test_설정_변경은_이름과_값까지_알려준다(warehouse, tmp_path) -> None:
+    """지문 두 개만 적으면 다음 행동이 안 나온다.
+
+    후보 수를 정하는 `selector.n_candidates` 는 캐시 내용을 직접 바꾼다.
+    거부하는 것만으로는 부족하고, **무엇이 얼마에서 얼마로** 바뀌었는지가
+    메시지에 있어야 사람이 "그 변경이 맞다, 다시 굽자" 를 그 자리에서 정한다.
+    """
+    root = tmp_path / "rl_cache"
+    day = _sessions()[0]
+    _bake(warehouse, root, [day])
+    cached = cache_module.read(cache_module.cache_path(root, "KR", day))
+
+    _bump_config(warehouse, day, "selector.n_candidates", "3")
+    with pytest.raises(CacheStampMismatch, match="selector.n_candidates"):
+        cache_module.verify(
+            cached, store=warehouse, market="KR", session=day, as_of=_moment(day)
+        )
+
+
+def test_환경이_안_읽는_설정이_바뀌어도_캐시는_유효하다(warehouse, tmp_path) -> None:
+    """2026-08-22 에 실제로 겪은 일 — **브로커 계좌 두 줄이 캐시를 깼다.**
+
+    `allocator/env.py` 도 `allocator/cache.py` 도 계좌 모드를 읽지 않는다.
+    그런데 지문이 설정 전체 위에서 계산돼, 계좌 설정을 창고에 심은 순간 구워
+    둔 캐시가 통째로 무효가 됐고 대조군 실행이 8초 만에 죽었다. 그러면 사람은
+    설정을 안 고치거나 캐시를 안 굽는다.
+
+    ⚠️ 이 시험만으로는 부족하다. 반대 방향(**읽는 키가 바뀌면 거부한다**)이
+    위 두 시험이고, 목록 자체가 낡지 않는지는 `test_cache_config_scope.py` 가
+    본다. 한 방향만 걸어 두면 좁히기가 과했는지 못 잡는다.
+    """
+    root = tmp_path / "rl_cache"
+    day = _sessions()[0]
+    _bake(warehouse, root, [day])
+    cached = cache_module.read(cache_module.cache_path(root, "KR", day))
+
+    for name, value in (
+        ("execution.account_mode", '"paper"'),
+        ("execution.live_account_fingerprint_paper", '"abc123def456"'),
+        ("llm.monthly_budget_usd", "50"),
+        ("reporting.rsi_period", "21"),
+    ):
+        _bump_config(warehouse, day, name, value)
+
+    # 예외가 없다 = 캐시가 그대로 유효하다.
+    cache_module.verify(
+        cached, store=warehouse, market="KR", session=day, as_of=_moment(day)
+    )
+
+
+def _bump_config(warehouse, day: date, name: str, value_json: str) -> None:
+    """설정 하나를 세션 전날 발효로 정정한다. 창고는 append-only 다(불변식 4)."""
+    moment = _moment(day) - timedelta(days=1)
+    warehouse.append(
+        "config",
+        [{
+            "entity_id": name,
+            "valid_from": moment,
+            "observed_at": moment,
+            "source": "test", "revision": 99, "value_json": value_json,
+        }],
+        ingest_run_id=f"config-bump-{name}",
+    )
+
+
 def test_다른_세션의_캐시는_거부한다(warehouse, tmp_path) -> None:
     root = tmp_path / "rl_cache"
     days = _sessions()[:2]

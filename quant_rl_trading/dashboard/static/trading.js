@@ -554,6 +554,101 @@ function renderOrders(body) {
   bindRows("orders");
 }
 
+/* -- 오늘의 성과 --------------------------------------------------------- */
+
+/** 부호를 붙인 원화. 값이 없으면 "—" 다 — 0 으로 채우면 "본전" 으로 읽힌다. */
+function wonSigned(v) {
+  if (v === null || v === undefined) return "—";
+  return (v > 0 ? "+" : "") + num(Math.round(v)) + "원";
+}
+
+/** 성과 한 칸. `tone` 이 빈 문자열이면 색을 안 칠한다 —
+ *  **방향이 없는 값에 색을 칠하면 있는 것처럼 보인다.** */
+function perfCell(label, value, note, toneClass) {
+  return `<div class="perf-cell">
+    <div class="perf-label">${label}</div>
+    <div class="perf-value ${toneClass || ""}">${value}</div>
+    <div class="perf-note">${note || ""}</div>
+  </div>`;
+}
+
+function renderPerformance(body) {
+  const p = body.data.performance;
+  const summary = document.getElementById("perf-summary");
+  const fills = document.getElementById("perf-fills");
+  const stamp = document.getElementById("perf-stamp");
+  if (!summary) return;
+
+  // 회계 스냅샷이 없으면 **숫자를 지어내지 않는다.** 0 으로 채운 표는
+  // "손실 0" 으로 읽힌다.
+  if (!p || !p.session) {
+    stamp.textContent = "";
+    summary.innerHTML = "";
+    fills.innerHTML = `<p class="empty">${(p && p.note) || "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다."}</p>`;
+    return;
+  }
+
+  // 어느 창고의 숫자인지 항상 적는다. 모의 운용 성과를 실전으로 읽는 것이
+  // 이 패널에서 가능한 가장 비싼 오해다.
+  // **"종가" 라고 안 적는다.** 화면은 요청 시각에 장부를 다시 접으므로,
+  // 06:00 에 열면 이 값은 오늘 종가가 아니라 지금까지 알 수 있는 전부다.
+  // 메일 쪽은 창고의 확정 스냅샷만 읽으므로 거기서만 "종가" 라고 적는다.
+  stamp.textContent = `${p.session} 기준 · ${p.mode}`;
+
+  const flowNote = p.inflow
+    ? `그중 입출금 ${wonSigned(p.inflow)}`
+    : "입출금 없음";
+  const changeNote = p.previous_nav === null
+    ? p.note || "비교할 어제가 없다"
+    : `${num(Math.round(p.previous_nav))} → ${num(Math.round(p.nav))} · ${flowNote}`;
+
+  summary.innerHTML = [
+    perfCell("총자산", num(Math.round(p.nav)) + "원",
+             `${p.session} 기준 · 원금 ${num(Math.round(p.principal || 0))}원`, ""),
+    // **증감에는 색을 칠하되 그것이 수익이 아님을 아랫줄이 말한다.**
+    perfCell("자산 증감", wonSigned(p.nav_change), changeNote, tone(p.nav_change)),
+    perfCell("당일 손익", wonSigned(p.pnl), "자산 증감 − 입출금", tone(p.pnl)),
+    perfCell("당일 수익률", pct(p.daily_return), "TWR — 입출금을 뺀 값", tone(p.daily_return)),
+    perfCell("총 수익률", pct(p.cumulative_return),
+             `TWR 누적 · ${p.since} 이후 · 지수 ${dec(p.index_value, 2)}`,
+             tone(p.cumulative_return)),
+    perfCell("총 수익금", wonSigned(p.total_pnl), "원금(입출금 누계) 대비", tone(p.total_pnl)),
+  ].join("");
+
+  if (!p.fill_count) {
+    // **"매매 0건" 이 아니라 "매매가 없었다" 다.** 앞은 수치이고 뒤는 사실이다.
+    fills.innerHTML = `<p class="empty">${p.session} 에 체결된 매매가 없다.</p>`;
+    return;
+  }
+
+  const head = `<thead><tr><th>종목</th><th class="mid">방향</th>
+    <th class="r">수량</th><th class="r">체결가</th><th class="r">체결대금</th>
+    <th class="r">비용</th><th class="r">실현손익</th><th class="r">수익률</th></tr></thead>`;
+  const rows = p.fills.map((f) => {
+    const won = f.currency !== "USD";
+    const money = (v) => (won ? num(Math.round(v)) : "$" + Number(v).toFixed(2));
+    // **실현손익은 매도에만 있다.** 매수 자리에 0 을 넣으면 "본전" 으로 읽힌다.
+    const realized = f.realized_pnl === null || f.realized_pnl === undefined
+      ? `<td class="r sub" colspan="2">매수 — 아직 실현 없음</td>`
+      : `<td class="r mono ${f.realized_pnl >= 0 ? "up" : "down"}">${f.realized_pnl >= 0 ? "+" : ""}${money(f.realized_pnl)}</td>
+         <td class="r mono ${f.realized_pnl >= 0 ? "up" : "down"}">${pct(f.realized_rate)}</td>`;
+    return `<tr class="click" data-entity="${f.entity_id}">
+      <td><span class="name">${f.name}</span><span class="code">${f.entity_id}</span></td>
+      <td class="mid side ${f.side}">${f.side.toUpperCase()}</td>
+      <td class="r mono">${num(f.quantity)}</td>
+      <td class="r mono">${money(f.price)}</td>
+      <td class="r mono">${money(f.amount)}</td>
+      <td class="r mono">${money(f.fee + f.tax)}</td>
+      ${realized}
+    </tr>`;
+  }).join("");
+  const omitted = p.fills_omitted
+    ? `<p class="note">${p.fill_count}건 중 큰 것부터 ${p.fills.length}건 — 외 ${p.fills_omitted}건은 생략됐다.</p>`
+    : `<p class="note">매수 ${p.buy_count} · 매도 ${p.sell_count}</p>`;
+  fills.innerHTML = `<table class="ledger">${head}${rows}</table>${omitted}`;
+  bindRows("perf-fills");
+}
+
 /* -- 차트 ----------------------------------------------------------------- */
 
 function renderEquity(body) {
@@ -896,7 +991,7 @@ async function loadTrading() {
     renderAlerts(body);
     document.getElementById("kpis").innerHTML =
       kpi("평가 불가", "—", body.data.unavailable, true);
-    ["watchlist", "decision", "risk", "positions", "orders"].forEach((id) => {
+    ["watchlist", "decision", "risk", "positions", "orders", "perf-fills"].forEach((id) => {
       document.getElementById(id).innerHTML =
         `<p class="empty">회계가 평가를 거부했다. 위 사유를 먼저 해결한다.</p>`;
     });
@@ -921,6 +1016,7 @@ async function loadTrading() {
   renderPositions(body);
   renderPositionsPie(body);
   renderOrders(body);
+  renderPerformance(body);
   renderEquity(body);
   renderUnderwater(body);
   renderCalendarPanel(body);

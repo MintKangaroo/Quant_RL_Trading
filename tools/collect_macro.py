@@ -29,6 +29,7 @@ from quant_rl_trading.collectors.macro_source import (  # noqa: E402
     FredSource,
     IndexCollector,
     MacroCollector,
+    MacroUnavailable,
 )
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
@@ -86,11 +87,21 @@ def main(argv: list[str] | None = None) -> int:
     # 과거는 tools/backfill_indices_us.py 가 (시리즈, 연도) 결정론 run_id 로
     # 한 번만 넣는다. 라이브는 최근 것만 따라잡으면 된다 — collect_daily 의
     # SESSIONS=3 과 같은 취지로, 연휴·장애로 며칠 놓쳐도 메워지게 넉넉히 준다.
-    written = IndexCollector(
-        store=store, source=source, clock=clock,
-        archive=RawArchive(root=store.root), days=10,
-    ).collect()
-    print(f"indices 적재: {written}행 (US · 가격지수 — 배당 미반영)")
+    # **못 받은 것이 있으면 rc≠0 으로 나간다.** 시리즈 하나가 죽어도 나머지가
+    # 적재되므로 행 수만 보면 성공처럼 보인다 — 2026-08-22 아침 브리핑이 8/21
+    # 지수를 못 받고도 "적재 140행" 이었다. 셸의 `echo rc=$?` 가 이 값을
+    # 삼키지 않도록 refresh_before_briefing.sh 도 함께 고쳤다.
+    failed = False
+    try:
+        written = IndexCollector(
+            store=store, source=source, clock=clock,
+            archive=RawArchive(root=store.root), days=10,
+        ).collect()
+        print(f"indices 적재: {written}행 (US · 가격지수 — 배당 미반영)")
+    except MacroUnavailable as error:
+        # 여기서 멈추지 않는다. 아래 KR 수집은 FRED 와 무관하게 돌아야 한다.
+        print(f"indices: {error}", file=sys.stderr)
+        failed = True
 
 
     kosis = KosisSource.from_env()
@@ -118,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"macro_releases 적재: {written}행 (KR/ECOS — 금리)")
     else:
         print("KR: ECOS_API_KEY 가 없다.")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -35,9 +35,8 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.accounting import performance as performance_module
 from quant_rl_trading.accounting import snapshot as snapshot_module
-from quant_rl_trading.accounting.book import Book, Trade
-from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
@@ -46,6 +45,8 @@ from quant_rl_trading.selector.combine import contributions
 from quant_rl_trading.collectors.market_hours import Market, is_regular_session
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
+from quant_rl_trading.store import mode as mode_module
+from quant_rl_trading.store import names as names_module
 from quant_rl_trading.store.prices import read_prices
 
 NAV_DAILY = "nav_daily"
@@ -210,10 +211,10 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     #
     # **원금은 입출금의 합이지 첫날 NAV 가 아니다.** 첫날 NAV 로 재면 이후
     # 입금이 통째로 수익으로 잡힌다 (accounting.md §6, TWR 과 같은 이유).
-    flows = store.get(
-        "capital_flows", as_of=as_of, entity=ledger_module.ACCOUNT, lookback=None
-    )
-    principal = float(flows["amount"].astype(float).sum()) if not flows.empty else 0.0
+    # 환산은 회계가 한다. 여기서 amount 를 그냥 더하면 달러 입금이 1원으로
+    # 섞인다 — 실측(2026-08-22) 실전 창고에서 원금 18,422원이 5,009원으로
+    # 세어져 총 수익금이 +272% 로 나왔다.
+    principal = ledger_module.principal(store, as_of=as_of)
     total_pnl = nav - principal if principal > 0 else None
 
     # 오늘 수익금은 **직전 스냅샷 대비**다. 그날 입금이 있었으면 그만큼 뺀다 —
@@ -634,57 +635,12 @@ def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[s
 
 
 def _realized_by_trade(store: Store, as_of: datetime) -> dict[str, dict[str, Any]]:
-    """체결별 실현손익. **매도에만 값이 있다.**
+    """체결별 실현손익. **계산은 회계가 한다** (accounting/performance.py).
 
-    화면이 "얼마에 팔았나" 만 보여주면 그게 이익인지 손실인지 알 수 없다.
-    평균단가는 그 종목의 **모든 과거 매수**에 달려 있어서, 최근 10일만 봐서는
-    못 구한다 — 그래서 전 기간을 접는다.
-
-    **계산을 다시 구현하지 않는다.** ``Book.with_trade`` 가 이미
-    ``(체결가 빼기 평단) 곱하기 수량, 비용 차감`` 을 하고 있고(이동평균법, 수수료 포함),
-    회계와 화면이 다른 식을 쓰면 어느 쪽이 맞는지 판정할 방법이 없다
-    (accounting.md §8 과 같은 이유). 여기서는 그 장부를 재생하며 매도 직전·직후
-    누적 실현손익의 **차이**를 꺼낼 뿐이다.
-
-    수익률의 분모는 **취득원가**(평단 × 수량)다. 매도대금으로 나누면 손실이
-    난 거래에서 분모가 작아져 손실률이 실제보다 작아 보인다.
+    여기서 다시 접으면 화면과 메일이 다른 식으로 실현손익을 내고, 그때 어느
+    쪽이 맞는지 판정할 방법이 없다 (accounting.md §8).
     """
-    frame = store.get(TRADES, as_of=as_of)
-    if frame.empty:
-        return {}
-
-    book = Book()
-    out: dict[str, dict[str, Any]] = {}
-    for row in ledger_module._ordered(frame):
-        entity = str(row["entity_id"])
-        currency = str(row["currency"])
-        side = BookSide(str(row["side"]))
-        quantity = float(row["quantity"])
-        held = book.positions.get(entity)
-        basis = (held.avg_cost * quantity) if held else 0.0
-        before = book.realized_pnl.get(currency, 0.0)
-        try:
-            book = book.with_trade(
-                Trade(
-                    entity_id=entity, side=side, quantity=quantity,
-                    price=float(row["price"]), currency=currency,
-                    fee=float(row["fee"]), tax=float(row["tax"]),
-                )
-            )
-        except ValueError:
-            # 보유보다 많이 판 기록이다. 장부가 아니라 데이터의 문제이므로
-            # 화면을 죽이지 않고 그 건만 건너뛴다.
-            continue
-        if side is not BookSide.SELL:
-            continue
-        realized = book.realized_pnl.get(currency, 0.0) - before
-        key = f"{str(row['order_id']).split('|')[0]}|{entity}"
-        out[key] = {
-            "realized_pnl": realized,
-            "realized_rate": (realized / basis) if basis else None,
-            "currency": currency,
-        }
-    return out
+    return performance_module.realized_by_trade(store, as_of=as_of)
 
 
 def orders(store: Store, context: Context) -> list[dict[str, Any]]:
@@ -1227,21 +1183,8 @@ def _latest_scores(store: Store, *, as_of: datetime) -> dict[str, float]:
 
 
 def _names(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
-    if not entities:
-        return {}
-    # 정렬에 쓰는 열도 함께 요청한다. columns 로 좁히면 안 부른 열은 오지 않고,
-    # 그때 정렬 키가 사라져 조용히 KeyError 로 죽는다.
-    frame = store.get(
-        UNIVERSE,
-        as_of=as_of,
-        entity=entities,
-        lookback=10,
-        columns=["name", "valid_from", "observed_at"],
-    )
-    if frame.empty:
-        return {}
-    latest = frame.sort_values(["valid_from", "observed_at"]).groupby("entity_id").tail(1)
-    return {str(row["entity_id"]): str(row["name"]) for row in latest.to_dict(orient="records")}
+    """종목 이름. 창고에 묻는 규칙은 ``store/names.py`` 한 벌뿐이다."""
+    return names_module.of(store, as_of=as_of, entities=entities)
 
 
 def _quotes(
@@ -1283,17 +1226,9 @@ def system(store: Store, context: Context) -> dict[str, Any]:
     설정을 기억하게 두지 않는다.
     """
     root = str(store.root)
-    if root.endswith("_shadow"):
-        mode, mode_note = "SHADOW", "모의 운용 — 돈이 오가지 않는다"
-    elif "_backtest" in root:
-        mode, mode_note = "BACKTEST", "백테스트 샌드박스"
-    elif "_demo" in root:
-        # 화면 확인용 창고(tools/seed_demo.py). 보유와 주문은 우리가 심은
-        # 것이고 시세만 진짜다. **이걸 LIVE 로 보여주면 안 된다** — 화면에서
-        # 가능한 가장 비싼 오해가 모드를 잘못 읽는 것이다.
-        mode, mode_note = "DEMO", "화면 확인용 — 보유·주문은 심은 것이다"
-    else:
-        mode, mode_note = "LIVE", "실전 창고"
+    # 판정 명단은 ``store/mode.py`` 한 벌뿐이다. 화면과 메일이 각자 판정하면
+    # 언젠가 한쪽만 새 창고 이름을 배우고, 그때 어느 쪽이 맞는지 알 수 없다.
+    mode = mode_module.of(root)
 
     as_of = context.as_of
     # 여기서 쓰는 것은 **가장 늦은 관측 시각 하나**다. 컬럼을 안 좁히면
@@ -1308,8 +1243,8 @@ def system(store: Store, context: Context) -> dict[str, Any]:
 
     signals = store.get(SIGNALS, as_of=as_of, lookback=3, columns=["observed_at"])
     return {
-        "mode": mode,
-        "mode_note": mode_note,
+        "mode": mode.code,
+        "mode_note": mode.note,
         "store_root": root,
         "broker": "LS · 미연결",  # 브로커 어댑터는 실전 투입 때 붙는다
         "engine": f"룰 베이스라인 ({AllocatorParams.from_store(store, as_of=as_of).baseline})",
@@ -1349,7 +1284,7 @@ def payload(
         return {
             "market": market,
             "system": {
-                "mode": "LIVE" if not str(store.root).endswith("_shadow") else "SHADOW",
+                "mode": mode_module.of(store.root).code,
                 "mode_note": "평가 불가",
                 "store_root": str(store.root),
                 "broker": "—",
@@ -1368,6 +1303,7 @@ def payload(
             "orders": [],
             "equity": {"sessions": [], "nav": [], "index": [], "drawdown": [], "benchmark": []},
             "calendar": {"days": [], "months": []},
+            "performance": None,
         }
     kpi = kpis(store, context)
     risk_state = risk(store, context)
@@ -1383,4 +1319,14 @@ def payload(
         "orders": orders(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
         "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback),
+        # 성과 넷(매매내역·수익률·총수익률·자산증감)은 **회계가 접어 준다.**
+        # 메일도 같은 함수를 읽는다 — 화면과 메일이 다른 숫자를 말하면 어느
+        # 쪽이 맞는지 판정할 방법이 없다 (accounting.md §8).
+        # **이 요청이 접은 스냅샷을 그대로 넘긴다.** 창고의 nav_daily 만 읽게
+        # 두면 회계 크론(23:20)이 아직 안 돈 시각에 KPI 는 오늘을, 성과 칸은
+        # 어제를 말한다. 화면 안에서 두 숫자가 갈리는 것이 여기서 가능한
+        # 가장 흔한 사고다.
+        "performance": performance_module.daily(
+            store, as_of=context.as_of, snapshot=context.snapshot, fill_limit=None
+        ).as_dict(),
     }

@@ -181,3 +181,61 @@ def test_장_마감_후에는_오늘_수익을_종가로_잡는다(tmp_path: Pat
     assert "111,690" in kpi_html, "마감 후 오늘 수익금이 종가로 안 잡힌다"
     # 종가라는 사실을 화면이 말해야 한다 — 안 적으면 어제 값과 구분이 안 된다.
     assert "종가" in kpi_html
+
+
+# -- 오늘의 성과 ----------------------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_성과_패널이_증감_옆에_입출금을_적는다(tmp_path: Path) -> None:
+    """증감과 수익률은 다른 사실이다. 입출금이 안 적히면 입금일에 둘이
+    서로를 거짓말쟁이로 만든다 (accounting.md §6)."""
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    trading["data"]["performance"]["inflow"] = 490_238_209.0
+    trading["data"]["performance"]["nav_change"] = 490_240_814.55
+    chart = json.loads((payloads / "chart.json").read_text())
+
+    dump = _render(tmp_path, trading, chart)
+    html = dump["perf-summary"]
+    assert "자산 증감" in html and "당일 수익률" in html
+    assert "490,238,209" in html, "증감 옆에 입출금이 안 적힌다"
+    # 수익률 자리에 다섯 자리 퍼센트가 있으면 안 된다.
+    assert "0.03%" in html
+    assert "5,000" not in html.split("당일 수익률")[1]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_성과_패널이_매수에_실현손익_0_을_안_적는다(tmp_path: Path) -> None:
+    """매수 자리의 ``0원`` 은 "본전" 으로 읽힌다."""
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    dump = _render(tmp_path, trading, chart)
+    assert "아직 실현 없음" in dump["perf-fills"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_회계_스냅샷이_없으면_숫자를_안_그린다(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    trading["data"]["performance"] = None
+    chart = json.loads((payloads / "chart.json").read_text())
+    dump = _render(tmp_path, trading, chart)
+    assert dump["perf-summary"] == ""
+    assert "잴 수 없다" in dump["perf-fills"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_매매가_없던_날은_0건이_아니라_없었다고_적는다(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    perf = trading["data"]["performance"]
+    perf["fills"] = []
+    perf["fill_count"] = 0
+    perf["buy_count"] = perf["sell_count"] = 0
+    chart = json.loads((payloads / "chart.json").read_text())
+    dump = _render(tmp_path, trading, chart)
+    assert "체결된 매매가 없다" in dump["perf-fills"]
+    assert "0건" not in dump["perf-fills"]
+

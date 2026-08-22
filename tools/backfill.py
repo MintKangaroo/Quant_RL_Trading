@@ -53,6 +53,7 @@ from quant_rl_trading.collectors.ls_us_source import (  # noqa: E402
     UsPriceBackfiller,
 )
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
+from quant_rl_trading.collectors.outcome import availability_key  # noqa: E402
 from quant_rl_trading.collectors.panels import (  # noqa: E402
     OPENAPI_PANELS,
     PANELS,
@@ -67,7 +68,7 @@ from quant_rl_trading.replay.clock import Clock, LiveClock  # noqa: E402
 from quant_rl_trading.settings import (
     load_env,
 )
-from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
+from quant_rl_trading.store import ConfigNotFound, SchemaViolation, Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
@@ -86,12 +87,33 @@ US_MARKET_CAP = "market-cap"
 ENV_FILE = REPO_ROOT / ".env"
 
 
+#: 창고에 설정이 심겨 있는지 볼 때 찔러보는 키.
+#:
+#: ``backfill.years`` 하나만 보던 자리다. 그러면 **나중에 추가된 키는 영영
+#: 안 심긴다** — 창고에는 옛 키가 있으니 시딩을 건너뛰고, 새 키를 읽는 쪽은
+#: ``ConfigNotFound`` 를 본다. 0행 판정(collectors/outcome.py)은 설정이 없으면
+#: "확인 못 했다" 로 가므로, 안 심긴 것이 매일 밤 실패로 나온다.
+CONFIG_PROBES = (
+    "backfill.years",
+    availability_key("krx_openapi:market_stats"),
+)
+
+
 def build_store(root: Path | None = None) -> Store:
     store = Store(root=root) if root is not None else Store()
-    try:
-        store.config("backfill.years", as_of=LiveClock().now())
-    except ConfigNotFound:
-        store.seed_config_defaults()
+    now = LiveClock().now()
+    for probe in CONFIG_PROBES:
+        try:
+            store.config(probe, as_of=now)
+        except ConfigNotFound:
+            try:
+                store.seed_config_defaults()
+            except SchemaViolation as clash:
+                # yaml 과 창고가 어긋나 있으면 시딩은 발효 시점을 요구한다.
+                # 여기서 임의로 밀지 않는다 — 밀면 과거 as_of 조회가 소급해
+                # 바뀐다. 대신 시끄럽게 적고 간다.
+                print(f"설정 시딩을 건너뛴다: {clash}", file=sys.stderr)
+            break
     return store
 
 
@@ -195,8 +217,13 @@ def run_backfill(
             status = "FAIL" if result.error else "ok"
         tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
         counts = " ".join(f"{name}={rows}" for name, rows in sorted(result.counts.items()))
+        # 0행이면 **그게 무엇인지** 함께 적는다. `indices=0` 만 적히던 자리가
+        # 휴장인지 우리 실패인지 로그로 가릴 수 없던 곳이다.
+        verdict = getattr(result, "verdict", None)
         print(
-            f"[{index}/{len(pending)}] {day} {status}  {counts}{tail}"
+            f"[{index}/{len(pending)}] {day} {status}  {counts}"
+            + (f" [{verdict}]" if verdict is not None else "")
+            + tail
             + (f"  {result.error}" if result.error else "")
         )
 

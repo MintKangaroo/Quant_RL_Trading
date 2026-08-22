@@ -28,6 +28,19 @@ LOG="logs/refresh-$(date +%Y%m).log"
 export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-1200MB}"
 export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
 
+# 실패한 단계 수. **셸의 `echo rc=$?` 가 rc 를 삼킨다** — 그동안 이 스크립트는
+# 무엇이 죽어도 0 으로 나갔다(같은 사고: 커밋 7ad5680). 이제 수집기가
+# "원본이 안 냄"(정상) 과 "우리가 못 받음"(실패) 을 구별해 rc 로 알려주므로,
+# 그 rc 를 여기서 세서 그대로 내보낸다.
+FAILED=0
+
+note() {   # note <이름> <rc>
+    echo "  $1 rc=$2"
+    if [ "$2" -ne 0 ]; then
+        FAILED=$((FAILED + 1))
+    fi
+}
+
 {
     echo "=== $(date '+%F %T') 브리핑 전 보충 ==="
 
@@ -35,12 +48,12 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     # 마지막 거래일이 창 안에 들어온다.
     for T in shares indices-krx indices-board; do
         .venv/bin/python tools/backfill.py --market KR --table "$T" --sessions 2
-        echo "  KR ${T} rc=$?"
+        note "KR ${T}" "$?"
     done
 
     # 미장 지수·거시(FRED). 미장 마감 05:00~06:00 KST 뒤라 그날 값이 있다.
     .venv/bin/python tools/collect_macro.py
-    echo "  거시·미장지수 rc=$?"
+    note "거시·미장지수" "$?"
 
     # 미장 지수 **대용 ETF** 4종(SPY·QQQ·DIA·SOXX). 종목 4개라 몇 초다.
     #
@@ -50,7 +63,7 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     # **대체하지 않고 옆에 세운다** — 브리핑이 둘을 따로 적는다(ETF 는 지수가
     # 아니다).
     .venv/bin/python tools/collect_us_prices.py --source etf --sessions 3
-    echo "  미장 대용 ETF rc=$?"
+    note "미장 대용 ETF" "$?"
 
     # FRED 지수가 아직이면 **브리핑 직전까지 몇 분 간격으로 다시 묻는다.**
     #
@@ -80,6 +93,14 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         fi
         sleep "${RETRY_SLEEP}"
         .venv/bin/python tools/collect_macro.py
+        # 재시도의 rc 는 세지 않는다. 다음 회차가 성공할 수 있고, 끝내 못
+        # 받으면 위의 첫 호출이 이미 한 번 셌다.
         echo "  미장 지수 재시도 ${attempt} rc=$?"
     done
+
+    echo "실패한 단계 ${FAILED}개"
 } >>"${LOG}" 2>&1
+
+# **0 으로 나가지 않는다.** 이 rc 를 크론이 보고, 사람이 안 볼 때도 실패가
+# 실패로 남는다.
+exit "$((FAILED > 0))"

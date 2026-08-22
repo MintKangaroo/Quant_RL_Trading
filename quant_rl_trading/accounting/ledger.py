@@ -266,6 +266,30 @@ def daily_inflow(store: Store, *, as_of: datetime, since: datetime) -> float:
     return total
 
 
+def principal(store: Store, *, as_of: datetime) -> float:
+    """원금 = as_of 까지의 순입출금 누계(원화환산).
+
+    **첫날 NAV 가 아니다.** 첫날 NAV 로 재면 이후 입금이 통째로 수익으로
+    잡힌다 (accounting.md §6, TWR 과 같은 이유).
+
+    **통화별로 환산한 뒤 더한다.** 그냥 ``amount.sum()`` 을 하면 달러 입금이
+    1달러 = 1원으로 섞인다 — 실전 창고가 정확히 그랬다(2026-08-22): 5,000원 +
+    9.49달러가 5,009원으로 세어져 원금이 18,422원 대신 5,009원이 됐고, 총
+    수익금이 204원 대신 13,616원(+272%)으로 나갔다. ``daily_inflow`` 는 처음부터
+    환산하고 있었으므로 **같은 규칙을 여기서도 쓴다** — 두 벌로 두었던 것이
+    갈라진 것이 원인이다.
+    """
+    frame = store.get(CAPITAL_FLOWS, as_of=as_of, entity=ACCOUNT, lookback=None)
+    if frame.empty:
+        return 0.0
+    total = 0.0
+    for row in _ordered(frame):
+        currency = str(row["currency"])
+        rate = 1.0 if currency == KRW else fx_rate(store, as_of=row["valid_from"])
+        total += float(row["amount"]) * rate
+    return total
+
+
 def previous_snapshot(store: Store, *, as_of: datetime) -> dict[str, object] | None:
     """**as_of 보다 앞선** 회계 스냅샷. 없으면 None — 첫날이다.
 

@@ -43,6 +43,8 @@ import httpx
 
 from quant_rl_trading.collectors.errors import CollectorError, MissingCredentials
 from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.outcome import Verdict
+from quant_rl_trading.collectors.outcome import record as record_outcome
 from quant_rl_trading.replay.clock import Clock
 
 MACRO_RELEASES = "macro_releases"
@@ -661,6 +663,16 @@ class IndexCollector:
     days: int = 400
 
     def collect(self) -> int:
+        """받은 만큼 적재하고, **못 받은 시리즈가 있으면 던진다.**
+
+        전에는 ``except CollectorError: continue`` 였다. 시리즈 하나가 죽어도
+        나머지가 적재되므로 화면에는 "indices 적재: 140행" 이 찍히고, 죽은
+        시리즈는 어디에도 안 남았다 — 2026-08-22 아침 브리핑이 8/21 지수를
+        못 받고도 성공처럼 보인 자리다.
+
+        적재를 먼저 하고 던진다. 받은 것을 버릴 이유는 없고, **못 받은 것을
+        조용히 넘길 이유도 없다.**
+        """
         observed_at = self.clock.now().astimezone(UTC)
         run_id = f"idx-US-{observed_at:%Y%m%dT%H%M%S}"
         if self.store.ingest_run_recorded("indices", run_id):
@@ -668,21 +680,59 @@ class IndexCollector:
 
         rows: list[dict[str, Any]] = []
         payloads: dict[str, Any] = {}
+        failures: list[str] = []
         for series_id in FRED_INDICES:
             try:
                 observations = self.source.latest_observations(series_id, limit=self.days)
-            except CollectorError:
+            except CollectorError as error:
+                failures.append(f"{series_id}: {error}")
+                self._outcome(series_id, Verdict.FETCH_FAILED, observed_at, error=error)
                 continue
             payloads[series_id] = observations
+            if not observations:
+                # 200 을 받았는데 0건이다. 이 시리즈들은 5년치 과거가 있는
+                # 상설 지수라 "원본이 안 냈다" 로 볼 근거가 없다 — 모르면
+                # (나)다. 죽은 키가 빈 블록을 주는 일이 실제로 있다.
+                failures.append(f"{series_id}: 관측값 0건")
+                self._outcome(series_id, Verdict.EMPTY_UNCONFIRMED, observed_at)
+                continue
             rows.extend(index_rows(series_id, observations, observed_at=observed_at))
 
-        if not rows:
-            return 0
-        self.archive.save(
-            self.source.name, payloads, observed_at=observed_at,
-            ingest_run_id=run_id, label=f"idx-US-{observed_at:%Y%m%d}",
+        written = 0
+        if rows:
+            self.archive.save(
+                self.source.name, payloads, observed_at=observed_at,
+                ingest_run_id=run_id, label=f"idx-US-{observed_at:%Y%m%d}",
+            )
+            written = int(self.store.append("indices", rows, ingest_run_id=run_id))
+        if failures:
+            detail = "; ".join(failures)
+            raise MacroUnavailable(f"FRED 지수 {len(failures)}개를 못 받았다: {detail}")
+        return written
+
+    def _outcome(
+        self,
+        series_id: str,
+        verdict: Verdict,
+        observed_at: datetime,
+        *,
+        error: BaseException | None = None,
+    ) -> None:
+        """못 받았다는 사실을 창고에 남긴다. 로그는 지워지고 창고는 남는다."""
+        record_outcome(
+            self.store,
+            dataset=f"{FRED_SOURCE}:{series_id}",
+            table="indices",
+            market=str(Market.US),
+            # 세션 축이 아니라 **그날 우리가 겪은 일**이다. 날짜로 묶어야
+            # 같은 날의 재시도가 같은 자연키로 접힌다 — 브리핑 앞 재시도가
+            # 다섯 번 돌면 다섯 행이 쌓이는 것을 막는다.
+            day=observed_at.date(),
+            verdict=verdict,
+            stage="fetch",
+            observed_at=observed_at,
+            error=error,
         )
-        return int(self.store.append("indices", rows, ingest_run_id=run_id))
 
 
 # -----------------------------------------------------------------------------

@@ -910,6 +910,276 @@ def _gap_detail(briefing: Briefing) -> str:
     )
 
 
+
+# -- 성과 ----------------------------------------------------------------------
+
+#: 모드 배지 문구. ``store/mode.py`` 가 코드를, 여기가 메일에서 읽을 말을 든다.
+MODE_LABEL = {
+    "LIVE": "실전",
+    "SHADOW": "모의 운용",
+    "BACKTEST": "백테스트",
+    "DEMO": "화면 확인용",
+}
+
+
+def _won(value: float | None) -> str:
+    """원화 금액. **억으로 접지 않는다** — 9,761,791원을 "0억" 이라 적으면
+    그 줄은 아무 말도 안 한 것이 된다 (``_money`` 는 시가총액용이다)."""
+    return "—" if value is None else f"{value:,.0f}원"
+
+
+def _won_signed(value: float | None) -> str:
+    """부호를 붙인 원화. **0 과 없음을 가른다** — 없으면 ``—`` 다.
+
+    딱 0 이면 부호를 안 붙인다. ``+0원`` 은 방향이 있는 것처럼 읽히는데,
+    보합은 방향이 아니다 (``_color`` 가 0 에 색을 안 칠하는 것과 같은 규칙).
+    """
+    if value is None:
+        return "—"
+    if round(value) == 0:
+        return "0원"
+    return f"{value:+,.0f}원"
+
+
+def _perf_row(label: str, value: str, *, color: str = INK, note: str = "") -> str:
+    """성과 한 줄. 왼쪽 이름, 오른쪽 값, 그 아래 근거 한 줄.
+
+    두 칸 표다 — 390px 에서 세 칸을 만들면 숫자가 줄바꿈된다.
+    """
+    tail = (
+        f'<tr>{_cell(note, color=FOOTNOTE, size=SMALL, pad="0 4px 6px", extra="")}'
+        f'{_cell("", pad="0 4px 6px")}</tr>'
+        if note
+        else ""
+    )
+    return (
+        f"<tr>{_cell(label, color=SOFT, size=SMALL, pad='6px 4px 0')}"
+        f"{_cell(value, color=color, align='right', weight=700, pad='6px 4px 0', wrap=False)}"
+        f"</tr>{tail}"
+    )
+
+
+def _fill_rows(perf: Any) -> str:
+    """체결 목록. 매수·매도를 갈라 세고, **실현손익은 매도에만 적는다.**
+
+    매수 자리에 ``0원`` 을 적으면 "본전" 으로 읽힌다 — 매수는 아직 아무것도
+    실현하지 않은 것이지 0원을 번 것이 아니다.
+    """
+    rows = ""
+    for fill in perf.fills:
+        side = "매수" if fill.side == "buy" else "매도"
+        color = UP if fill.side == "buy" else DOWN
+        head = (
+            f'<span style="color:{INK}">{fill.name}</span> '
+            f'<span style="color:{SOFT};font-size:{SMALL}px">{fill.entity_id}</span>'
+        )
+        money = _won if fill.currency == "KRW" else (lambda v: f"${v:,.2f}")
+        detail = (
+            f"{side} {fill.quantity:,.0f}주 @{_price(fill.price, fill.currency)} · "
+            f"{money(fill.amount)}"
+        )
+        if fill.realized_pnl is None:
+            realized = "매수 — 아직 실현 없음"
+            realized_color = FOOTNOTE
+        else:
+            sign = "+" if fill.realized_pnl >= 0 else ""
+            rate = "" if fill.realized_rate is None else f" ({_pct(fill.realized_rate)})"
+            realized = f"{sign}{money(fill.realized_pnl)}{rate}"
+            realized_color = _color(fill.realized_pnl)
+        side_cell = _cell(
+            side, color=color, align="right", size=SMALL, pad="6px 4px 0", wrap=False
+        )
+        realized_cell = _cell(
+            realized,
+            color=realized_color,
+            align="right",
+            size=SMALL,
+            pad="0 4px 5px",
+            wrap=False,
+        )
+        rows += (
+            f"<tr>{_cell(head, size=SMALL, pad='6px 4px 0')}{side_cell}</tr>"
+            f"<tr>{_cell(detail, color=SOFT, size=SMALL, pad='0 4px 5px')}"
+            f"{realized_cell}</tr>"
+        )
+    return rows
+
+
+def _performance_block(briefing: Briefing) -> str:
+    """성과 섹션 — 매매내역 · 수익률 · 총수익률 · 자산증감.
+
+    ## 자산 증감과 수익률을 반드시 가른다 ⭐
+
+    2026-08-24 에 490,238,209원이 모의계좌에 들어온다. 그날 NAV 는 976만에서
+    5억으로 뛰는데 **그건 수익이 아니다.** 단순 NAV 변화율을 "수익률" 이라
+    적으면 하루에 +5,000% 가 찍힌다 — 시간가중수익률(TWR)이 그래서 있다
+    (accounting.md §6).
+
+    그래서 **"자산 증감" 줄 바로 아래에 그중 입출금이 얼마인지 적는다.**
+    사용자가 명시적으로 요청한 항목이라 절대액을 보여주는 것이 맞지만,
+    입출금을 안 적으면 이 줄이 그 위의 수익률 줄과 서로를 거짓말쟁이로
+    만든다.
+
+    ## 없는 것은 없다고 적는다
+
+    회계 스냅샷이 없으면 숫자 자리를 통째로 비우고 이유만 적는다. 매매가
+    없던 날은 "0건" 이 아니라 "매매가 없었다" 로 적는다 — 0 은 잰 결과이고
+    없음은 사건이 없던 것이다.
+    """
+    perf = briefing.performance
+    if perf is None:
+        return ""
+
+    mode = MODE_LABEL.get(perf.mode, perf.mode)
+    head = _section("성과", sub=f"· {mode}")
+    if not perf.measured:
+        return _rule() + head + _band(
+            perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다",
+            ink=WARN_INK,
+            bg=WARN_BG,
+        )
+
+    # 증감 아래 줄이 입출금을 말한다. **입출금이 0 이어도 적는다** — 있는 날만
+    # 적으면 없는 날의 침묵이 "안 적어도 되는 값" 으로 읽힌다.
+    flow = (
+        f"그중 입출금 {_won_signed(perf.inflow)}"
+        if perf.inflow
+        else "입출금 없음"
+    )
+    change_note = (
+        f"{_won(perf.previous_nav)} → {_won(perf.nav)} · {flow}"
+        if perf.previous_nav is not None
+        else (perf.note or "비교할 직전 스냅샷이 없다")
+    )
+
+    rows = _perf_row(
+        "총자산",
+        _won(perf.nav),
+        note=f"{perf.session.isoformat()} 종가 · 원금 {_won(perf.principal)}",
+    )
+    rows += _perf_row(
+        "자산 증감",
+        _won_signed(perf.nav_change),
+        color=_color(perf.nav_change),
+        note=change_note,
+    )
+    rows += _perf_row(
+        "당일 손익",
+        _won_signed(perf.pnl),
+        color=_color(perf.pnl),
+        note="자산 증감에서 입출금을 뺀 것",
+    )
+    rows += _perf_row(
+        "당일 수익률",
+        _pct(perf.daily_return),
+        color=_color(perf.daily_return),
+        note="TWR — 입출금은 수익이 아니다",
+    )
+    rows += _perf_row(
+        "총 수익률",
+        _pct(perf.cumulative_return),
+        color=_color(perf.cumulative_return),
+        note=(
+            f"TWR 누적 · {perf.since.isoformat()} 이후 · 지수 "
+            f"{_num(perf.index_value)}"
+            if perf.since
+            else "TWR 누적"
+        ),
+    )
+    rows += _perf_row(
+        "총 수익금",
+        _won_signed(perf.total_pnl),
+        color=_color(perf.total_pnl),
+        note="원금(입출금 누계) 대비",
+    )
+
+    out = _rule() + head + _grid(rows)
+
+    if not perf.fill_count:
+        # **"0건" 이 아니라 "없었다" 다.** 앞은 수치이고 뒤는 사실이다.
+        return out + _foot(f"{perf.session.isoformat()} 에 체결된 매매가 없다.")
+
+    out += _section("매매 내역", sub=f"· {perf.fill_count}건")
+    if perf.fills:
+        out += _grid(_fill_rows(perf))
+    tail = f"매수 {perf.buy_count} · 매도 {perf.sell_count}"
+    if perf.fills_omitted:
+        tail += f" · 큰 것부터 {len(perf.fills)}건만 실었다 (외 {perf.fills_omitted}건)"
+    return out + _foot(tail)
+
+
+def _performance_lines(briefing: Briefing) -> list[str]:
+    """텍스트 대체본. **HTML 과 같은 사실을 말한다** — 한쪽만 정직하면
+    이미지·스타일이 막힌 클라이언트에서 다른 메일이 된다."""
+    perf = briefing.performance
+    if perf is None:
+        return []
+    mode = MODE_LABEL.get(perf.mode, perf.mode)
+    lines = [f"== 성과 · {mode} =="]
+    if not perf.measured:
+        lines += ["  " + (perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다"), ""]
+        return lines
+
+    flow = f"그중 입출금 {_won_signed(perf.inflow)}" if perf.inflow else "입출금 없음"
+    lines.append(
+        f"  총자산 {_won(perf.nav)} ({perf.session.isoformat()} 종가) · "
+        f"원금 {_won(perf.principal)}"
+    )
+    if perf.previous_nav is None:
+        lines.append(f"  자산 증감: {perf.note or '비교할 직전 스냅샷이 없다'}")
+    else:
+        lines.append(
+            f"  자산 증감 {_won_signed(perf.nav_change)} "
+            f"({_won(perf.previous_nav)} → {_won(perf.nav)}, {flow})"
+        )
+    lines.append(f"  당일 손익 {_won_signed(perf.pnl)} (자산 증감 − 입출금)")
+    lines.append(f"  당일 수익률 {_pct(perf.daily_return)} (TWR — 입출금은 수익이 아니다)")
+    lines.append(
+        f"  총 수익률 {_pct(perf.cumulative_return)} (TWR 누적"
+        + (f", {perf.since.isoformat()} 이후" if perf.since else "")
+        + f", 지수 {_num(perf.index_value)})"
+    )
+    lines.append(f"  총 수익금 {_won_signed(perf.total_pnl)} (원금 대비)")
+
+    if not perf.fill_count:
+        lines += [f"  -- 매매: {perf.session.isoformat()} 에 체결된 매매가 없다", ""]
+        return lines
+    lines.append(
+        f"  -- 매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count})"
+    )
+    for fill in perf.fills:
+        side = "매수" if fill.side == "buy" else "매도"
+        money = _won if fill.currency == "KRW" else (lambda v: f"${v:,.2f}")
+        realized = (
+            "매수 — 아직 실현 없음"
+            if fill.realized_pnl is None
+            else f"실현 {'+' if fill.realized_pnl >= 0 else ''}{money(fill.realized_pnl)}"
+            + ("" if fill.realized_rate is None else f" ({_pct(fill.realized_rate)})")
+        )
+        lines.append(
+            f"     {fill.name} {fill.entity_id} {side} {fill.quantity:,.0f}주 "
+            f"@{_price(fill.price, fill.currency)} · {money(fill.amount)} · {realized}"
+        )
+    if perf.fills_omitted:
+        lines.append(f"     (큰 것부터 {len(perf.fills)}건만 실었다 — 외 {perf.fills_omitted}건)")
+    lines.append("")
+    return lines
+
+
+def _source_foot(briefing: Briefing) -> str:
+    """꼬리말. **어느 창고의 성과인지 밝힌다.**
+
+    모의 운용 숫자를 실전으로 읽는 것이 이 메일에서 가능한 가장 비싼
+    오해다. 성과가 없던 시절의 꼬리말("실매매 기록이 없어 성과·보유는 넣지
+    않는다")이 그 자리에 있었는데, 이제 성과가 실리므로 그 문장은 거짓이다.
+    """
+    perf = briefing.performance
+    if perf is None:
+        return "성과 섹션 없음 — 회계를 읽지 않고 만든 메일이다"
+    mode = MODE_LABEL.get(perf.mode, perf.mode)
+    return f"성과는 {mode} 창고({perf.store_root}) 기준 · 수익률은 TWR"
+
+
 def _report_date(briefing: Briefing) -> str:
     """리포트가 다루는 날. **as_of 의 날짜가 아니다** — 세션 날짜다."""
     day = report_date(briefing)
@@ -958,11 +1228,12 @@ border-collapse:collapse;border-radius:10px">
 시황 브리핑 · {_report_date(briefing)}</div>
 {_headline_block(briefing)}
 {_gap_line(briefing)}
+{_performance_block(briefing)}
 {blocks}
 {_gap_detail(briefing)}
 <div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;\
 line-height:1.5;padding:14px 0 0;border-top:1px solid {RULE};margin-top:16px">
-실매매 기록이 없어 성과·보유는 넣지 않는다 · 전 수치 store.get(as_of) 경유 · 생성 {stamp} KST
+{_source_foot(briefing)} · 전 수치 store.get(as_of) 경유 · 생성 {stamp} KST
 </div>
 </td></tr></table>
 </td></tr></table>
@@ -975,6 +1246,8 @@ def render_text(briefing: Briefing) -> str:
     if briefing.gaps:
         lines.append(f"[결측 {len(briefing.gaps)}건 — 맨 아래 목록]")
         lines.append("")
+
+    lines += _performance_lines(briefing)
 
     for code in MARKET_ORDER:
         brief = briefing.markets.get(code)
@@ -1074,7 +1347,7 @@ def render_text(briefing: Briefing) -> str:
             if items:
                 lines.append(f"  -- {heading} --")
                 lines += [f"  - {text}" for text in items]
-    lines += ["", "실매매 기록이 없어 성과·보유 섹션 없음"]
+    lines += ["", _source_foot(briefing)]
     return "\n".join(lines)
 
 

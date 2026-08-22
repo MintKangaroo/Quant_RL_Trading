@@ -472,19 +472,40 @@ def test_as_of_hides_the_future(seeded: Store) -> None:
     assert kr.price_session.observed == date(2026, 8, 13)
 
 
-# -- 매매 섹션은 없다 -------------------------------------------------------------
+# -- 성과 섹션 -------------------------------------------------------------------
 
 
-def test_briefing_carries_no_performance_section(seeded: Store) -> None:
-    """실매매가 없는 동안 성과·보유 섹션을 만들지 않는다.
+def test_성과는_회계에서_읽어온다(seeded: Store) -> None:
+    """브리핑이 NAV 나 수익률을 자기가 계산하지 않는다.
 
-    빈 표를 내보내면 읽는 사람이 그것을 "손실 0" 으로 읽는다. 없는 것을
-    0 으로 그리는 것이 이 저장소가 가장 경계하는 실패다.
+    각 모듈이 따로 계산하면 반드시 어긋나고, 어긋나면 어느 쪽이 맞는지 판정할
+    방법이 없다 (accounting.md §8). 그리고 **읽은 창고를 밝힌다** — 모의 운용
+    숫자를 실전으로 읽는 것이 이 메일에서 가능한 가장 비싼 오해다.
     """
-    payload = briefing_module.build_briefing(seeded, as_of=NOW).as_dict()
-    flat = str(payload)
-    for banned in ("pnl", "nav", "positions", "holdings", "return_pct"):
-        assert banned not in flat
+    perf = briefing_module.build_briefing(seeded, as_of=NOW).performance
+    assert perf is not None
+    assert perf.store_root == str(seeded.root)
+    # 회계 스냅샷이 없는 창고다 — 0 으로 채우지 않고 이유를 적는다.
+    assert perf.measured is False
+    assert perf.nav is None
+    assert perf.note
+
+
+def test_회계가_죽어도_메일은_나간다(seeded: Store, monkeypatch) -> None:
+    """리포트는 비필수 경로다 (reporting.md §2).
+
+    환율이 없으면 회계는 예외를 던진다 — 그게 옳다. 그런데 그 예외가 메일
+    전체를 못 나가게 하면, 성과 한 칸 때문에 시황까지 통째로 사라진다.
+    """
+    def explode(*args, **kwargs):
+        raise LookupError("환율이 없다")
+
+    monkeypatch.setattr(briefing_module.performance_module, "daily", explode)
+    briefing = briefing_module.build_briefing(seeded, as_of=NOW)
+    assert briefing.markets  # 시황은 그대로 있다
+    assert briefing.performance is not None
+    assert briefing.performance.measured is False
+    assert "환율이 없다" in (briefing.performance.note or "")
 
 
 

@@ -14,6 +14,25 @@
 
   <section class="alerts" id="alerts"></section>
 
+  {# 성과 넷 — 매매내역 · 수익률 · 총수익률 · 자산증감.
+     숫자는 전부 accounting/performance.py 에서 오고, 같은 함수를 이메일
+     브리핑도 읽는다. 화면과 메일이 각자 접으면 어느 쪽이 맞는지 판정할
+     방법이 없다 (accounting.md §8). #}
+  <section class="panel" id="panel-performance">
+    <h2>오늘의 성과
+      <span class="right"><span class="sub" id="perf-stamp"></span></span>
+    </h2>
+    <div id="perf-summary" class="perf-summary"></div>
+    <div id="perf-fills" class="scroll dense"></div>
+    <p class="note">
+      <strong>자산 증감과 수익률은 다른 사실이다.</strong> 증감에는 입출금이
+      섞여 있고 수익률(TWR)은 그것을 빼고 잰다 — 그래서 증감 옆에 그중
+      입출금이 얼마인지 함께 적는다 (<code>accounting.md §6</code>).
+      <strong>매매가 없던 날은 "0건" 이 아니라 없었다고 적는다</strong> —
+      "0" 과 "없다" 와 "못 쟀다" 는 다른 사실이다.
+    </p>
+  </section>
+
   <section class="grid-desk">
     <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
     <div class="panel" id="panel-watchlist">

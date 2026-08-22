@@ -957,7 +957,59 @@
         "target_weight": null,
         "value": 9487641100.0
       }
-    ]
+    ],
+    "performance": {
+      "mode": "SHADOW",
+      "mode_note": "모의 운용 — 돈이 오가지 않는다",
+      "store_root": "data/_shadow",
+      "session": "2026-08-21",
+      "previous_session": "2026-08-20",
+      "since": "2026-08-12",
+      "nav": 9761790.67,
+      "previous_nav": 9759185.11,
+      "nav_change": 2605.55,
+      "inflow": 0.0,
+      "pnl": 2605.55,
+      "daily_return": 0.000267,
+      "cumulative_return": -0.0238,
+      "index_value": 97.618,
+      "drawdown": -0.0296,
+      "principal": 10000000.0,
+      "total_pnl": -238209.33,
+      "realized_pnl": -82742.55,
+      "fills": [
+        {
+          "entity_id": "KR:037460",
+          "name": "삼지전자",
+          "side": "sell",
+          "quantity": 14.0,
+          "price": 31850.0,
+          "amount": 445900.0,
+          "currency": "KRW",
+          "fee": 66.885,
+          "tax": 802.62,
+          "realized_pnl": 2564.14,
+          "realized_rate": 0.0058
+        },
+        {
+          "entity_id": "KR:005930",
+          "name": "삼성전자",
+          "side": "buy",
+          "quantity": 10.0,
+          "price": 73500.0,
+          "amount": 735000.0,
+          "currency": "KRW",
+          "fee": 11.03,
+          "tax": 0.0,
+          "realized_pnl": null,
+          "realized_rate": null
+        }
+      ],
+      "fills_omitted": 0,
+      "fill_count": 2,
+      "buy_count": 1,
+      "sell_count": 1
+    }
   },
   "live": false,
   "lookback_days": 90,
