@@ -586,6 +586,16 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     "allocator.episode_days",
     "allocator.max_position_weight",
     "allocator.n_max_candidates",
+    # 리스크 패리티 룰 베이스라인(§3) 손잡이. **RL env 가 직접 읽지는 않지만**
+    # cache.py 가 session.daily 를 import 하고 그 모듈이 risk_parity_baseline 을
+    # 물어, import 닫힘이 이 키들에 닿는다. baseline: risk_parity 로 학습하면
+    # 이 값들이 베이스라인을 바꾸므로 지문에 있어야 맞다 — score_tilt 는 진화
+    # 유전자가 될 값이라 특히 그렇다 (test_cache_config_scope 가 강제한다).
+    "allocator.downside_beta_cap",
+    "allocator.name_risk_cap",
+    "allocator.risk_window",
+    "allocator.score_tilt",
+    "allocator.sector_risk_cap",
     # Analyst 가중치가 IC 문턱에서 나온다 — 문턱이 바뀌면 합성점수가 바뀐다.
     "analyst.ic_min_samples",
     "analyst.ic_threshold",

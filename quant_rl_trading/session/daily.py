@@ -250,11 +250,42 @@ def run(
         store, as_of=as_of, entities=entities, market=market
     )
     scores = {item.entity_id: item.score for item in selection.candidates}
-    weights = allocate(
-        scores=scores,
-        params=params,
-        volatility=volatility if params.baseline is Baseline.SCORE_INVERSE_VOL else None,
-    )
+    allocate_driver = str(params.baseline)
+    if params.baseline is Baseline.RISK_PARITY:
+        # **위험 구조로 나눈다** (§3). 창고를 타므로 순수 allocate 가 아니다.
+        # 팩터 모델이 못 서면 스코어 비례로 물러서고, 그 사실을 driver 로 남긴다.
+        #
+        # **지연 import 다.** risk_parity_baseline 은 portfolio→selector→backtest→
+        # 이 모듈로 도는 import 고리에 걸린다. 여기서 늦게 물어 고리를 끊는다 —
+        # AST 로 닫힘을 보는 test_cache_config_scope 는 함수 안 import 도 세므로
+        # 지문 커버는 그대로다.
+        from quant_rl_trading.allocator.risk_parity_baseline import (
+            RiskParityParams,
+            allocate_risk_parity,
+        )
+
+        rp_params = RiskParityParams.from_store(store, as_of=as_of)
+        weights, path = allocate_risk_parity(
+            store,
+            as_of=as_of,
+            market=str(market),
+            scores=scores,
+            entities=entities,
+            params=rp_params,
+            fallback=AllocatorParams(
+                baseline=Baseline.SCORE,
+                max_position_weight=params.max_position_weight,
+                cash_buffer=params.cash_buffer,
+            ),
+            volatility=volatility,
+        )
+        allocate_driver = f"risk_parity:{path}"
+    else:
+        weights = allocate(
+            scores=scores,
+            params=params,
+            volatility=volatility if params.baseline is Baseline.SCORE_INVERSE_VOL else None,
+        )
 
     # 2-b. 노출 제어 (③) — **얼마나 살지.** 무엇을 살지는 위에서 끝났다.
     #
@@ -285,7 +316,7 @@ def run(
     # 노출이 얼마나 깎았는지가 갈려 있어야 어느 쪽이 문제인지 가른다.
     log.record(
         "allocate",
-        str(params.baseline),
+        allocate_driver,
         {"weights": {name: round(value, 6) for name, value in weights.items()}},
     )
     log.record("exposure", decision.driver, decision.as_dict())
