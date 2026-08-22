@@ -467,3 +467,70 @@ regime 의 volatile 은 **같은 방향의 미확인 관측**으로 남긴다.
    필터가 건다
 4. **regime volatile 부호** — 설계 재검토. 사후 가중치 맞추기는 금지
 
+
+---
+
+# 피처 단위 전수 측정 (#31, 2026-08-22)
+
+Analyst 단위가 알파의 단위가 아니다. 그래서 34개 피처를 **하나씩** 재고 다중
+검정을 보정했다(`tools/report_feature_ic.py`). 부호는 재기 전에 등록했다
+(`docs/feature-registry.md`, 커밋 c8e1242) — 사후로 뒤집지 않기 위해서다.
+
+방법론 검증: `volume_surge` IC +0.0135 / t 2.18 로 이전 측정(+0.0140/t 2.28)을
+재현했다.
+
+## 채택 후보 13개 — 부호 일치 · t(NW) ≥ 2 · BH FDR 10% 통과
+
+    fundamental  roe 7.84 · operating_margin 7.27 · earnings_yield 6.87 ·
+                 profit_growth 5.47 · book_to_market 3.66 · sales_to_price 3.48 ·
+                 revenue_growth 2.78                                    (9 중 7)
+    event        dilution 8.11 · maturity 5.20 · dividend 4.73 · buyback 4.71 (6 중 4)
+    risk         low_volatility 4.59                                     (3 중 1)
+    volume       volume_surge 2.18                                       (1 중 1)
+    chart        —                                                       (5 중 0)
+    flow_kr      —                                                       (5 중 0)
+
+29개를 재서 13개가 BH FDR 10% 를 통과했다. 잡음이라면 1.5개가 기대되는데
+13개가, 그것도 t 2.8~8.1 로 나왔다 — 잡음이 아니다.
+
+## 사전 등록과 대조 — 무엇이 맞고 틀렸나
+
+**① fundamental 이 알파의 본체다.** 9개 중 7개 통과, 전부 부호 일치. 밸류
+(earnings_yield·book_to_market·sales_to_price) + 퀄리티(roe·operating_margin)
++ 성장(profit_growth·revenue_growth) **세 축이 다 산다.** 탈락은 current_ratio
+(1.16)·low_leverage(0.02) 둘뿐. "밸류+roe" 로 좁게 봤던 짐작보다 넓었다.
+
+**② event 는 maturity 하나가 아니다 — 의심 가설 기각.** 사전 등록이 "event 의
+IC 가 maturity 에서 대부분 온다(그럼 event 가 아니라 퀄리티 analyst)" 를
+의심했는데, 실제로는 **dilution(t 8.11)이 maturity(5.20)보다 강하고** dividend·
+buyback 도 통과했다. event 는 진짜 다피처 신호다.
+
+> 다만 **event 는 단일 IC 는 강해도 fundamental 위에서 증분이 0 이었다**
+> (signal-combination.md 의 한계기여 측정). 개별로 진짜지만 fundamental 과
+> 겹친다 — 기업행위가 재무와 상관되기 때문이다. **채택 후보 ≠ 결합 채택.**
+> dilution 이 +부호로 유의한 것(발행이 수익을 예고)은 경제적으로 뒤집혀
+> 보이므로, 피처 정의의 부호 인코딩을 결합 전에 확인할 것.
+
+**③ flow_kr 의 사전 등록은 대부분 틀렸다.** `institution_20` 이 **예상과 반대로
+유의**(−0.0286, t −4.09) — 기관 순매수가 저조를 예고했다. 이건 부호를 뒤집어
+쓸 신호가 아니라 **가설이 틀렸다는 증거**다(ic.py 금지). 나머지도 0 근처.
+채택 0개. 이 문서가 앞서 낸 "flow_kr 결함 셋"(분모·observed_at·확정치) 을
+고치기 전에는 이 측정도 신호가 아니라 구현을 재고 있다.
+
+**④ chart 는 횡단면 기여 0 — 확증.** 5개 전부 미달, momentum_20/60 둘 다 음수
+(예상 +). 한때 보이던 IC 가 섞인 low_volatility 에서 빌린 것이었다는 결론이
+다시 확인됐다([[chart-borrowed-signal]]).
+
+**⑤ 저변동성 축이 모든 걸 묶는다.** `low_volatility` 0.086/t4.59 와 대조군
+regime 의 `idio_volatility` 0.084/t4.52 가 거의 같은 크기 — 같은 팩터다.
+regime 의 index_correlation(3.67)·rate_steadiness(3.55)도 대조군인데 유의.
+방향을 등록 안 한 것이 옳았다.
+
+## 결론
+
+알파는 네 곳에 산다: **fundamental(밸류·퀄리티·성장) · event(기업행위) ·
+저변동성 축 · volume_surge.** chart·flow_kr 은 가중치를 쥐고도 기여가 없거나
+(chart) 부호가 반대(flow_kr institution_20)다. 다만 **개별 IC 가 결합 알파는
+아니다** — event 는 fundamental 과 겹쳐 증분이 없었다. 이 표는 "어느 피처가
+진짜인가" 를 답하지 "어느 피처를 결합에 넣는가" 를 답하지 않는다. 후자는
+signal-combination.md 의 한계기여가 정한다.
