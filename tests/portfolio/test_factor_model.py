@@ -105,3 +105,51 @@ def test_공분산_조립은_EΩEᵀ_더하기_D() -> None:
     # A,B 공분산 = 1·2·0.04 + 0·1·0.09 = 0.08
     assert abs(cov.loc["KR:A", "KR:B"] - 0.08) < 1e-9
     assert np.allclose(cov.to_numpy(), cov.to_numpy().T)
+
+
+def _built(factors, loadings, idio, used):
+    return fm._Built(
+        factors=factors,
+        market_ret=factors["MKT"],
+        loadings=loadings,
+        idio=idio,
+        used=used,
+    )
+
+
+def test_위기표본에서_팩터_상관이_붙는다() -> None:
+    """§4 의 핵심 — 평시엔 섞이지 않던 팩터가 하락일엔 같이 움직인다.
+
+    상승일엔 섹터가 시장과 독립, 하락일엔 시장을 그대로 따라가게 심는다.
+    위기 Ω 의 상관이 평시 Ω 보다 훨씬 커야 한다.
+    """
+    idx = _sessions(300)
+    rng = np.random.default_rng(7)
+    mkt = pd.Series(rng.normal(0, 0.01, 300), index=idx)
+    down = (mkt < 0).to_numpy()
+    sector = pd.Series(rng.normal(0, 0.01, 300), index=idx)  # 평시엔 독립
+    sector[down] = mkt[down] + rng.normal(0, 0.001, int(down.sum()))  # 위기엔 붙는다
+    factors = pd.DataFrame({"MKT": mkt, "제조업": sector})
+    loadings = pd.DataFrame({"MKT": [1.0], "제조업": [1.0]}, index=["KR:A"])
+    built = _built(factors, loadings, pd.Series({"KR:A": 0.001}), ["MKT", "제조업"])
+
+    def factor_corr(model) -> float:
+        omega = model.factor_covariance
+        return omega.loc["MKT", "제조업"] / np.sqrt(
+            omega.loc["MKT", "MKT"] * omega.loc["제조업", "제조업"]
+        )
+
+    normal = fm._model_from(built, sessions=None)
+    crisis = fm._model_from(built, sessions=factors.index[down])
+    assert factor_corr(crisis) > factor_corr(normal) + 0.3
+
+
+def test_regime_로_공분산을_고른다() -> None:
+    small = pd.DataFrame([[0.01]], index=["KR:A"], columns=["KR:A"])
+    big = pd.DataFrame([[0.09]], index=["KR:A"], columns=["KR:A"])
+    normal = fm.FactorRiskModel(small, small, small, pd.Series({"KR:A": 0.0}), 0.0)
+    crisis = fm.FactorRiskModel(big, big, big, pd.Series({"KR:A": 0.0}), 0.0)
+    for state in ("crisis", "bear", "volatile"):
+        assert fm.select_by_regime(normal, crisis, state) is crisis
+    for state in ("bull", "unknown", "anything"):
+        assert fm.select_by_regime(normal, crisis, state) is normal

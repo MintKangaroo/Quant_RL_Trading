@@ -33,8 +33,10 @@ from datetime import datetime
 import pandas as pd
 
 from quant_rl_trading.allocator.baseline import AllocatorParams, allocate
+from quant_rl_trading.analysts.regime import RegimeAnalyst
 from quant_rl_trading.portfolio import constraints, factor_model, risk_parity
 from quant_rl_trading.portfolio.sector_beta import DEFAULT_WINDOW, estimate as estimate_betas
+from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.selector import ksic
 from quant_rl_trading.selector.candidates import sector_map
 from quant_rl_trading.store import Store
@@ -97,15 +99,24 @@ def allocate_risk_parity(
 ) -> tuple[dict[str, float], str]:
     """리스크 패리티 목표 비중과 **어느 경로로 났는지**.
 
-    돌려주는 문자열이 경로다: ``"risk_parity"`` 이면 위험 구조로, ``"fallback"``
-    이면 스코어 비례로 물러섰다는 뜻이다. 호출부가 이것을 로그에 남긴다 —
-    비중이 왜 그 모양인지 사후에 못 대면 운영할 수 없다.
+    돌려주는 문자열이 driver 다: ``"risk_parity:{레짐}"`` 이면 위험 구조로(어느
+    공분산을 썼는지 레짐이 붙는다), ``"risk_parity:fallback"`` 이면 스코어
+    비례로 물러섰다는 뜻이다. 호출부가 이것을 그대로 로그에 남긴다 — 비중이
+    왜 그 모양인지 사후에 못 대면 운영할 수 없다.
     """
-    model = factor_model.estimate(
+    dual = factor_model.estimate_dual(
         store, as_of=as_of, entities=entities, market=market, window=params.window
     )
-    if model is None or model.covariance.empty:
-        return allocate(scores=scores, params=fallback, volatility=volatility), "fallback"
+    if dual is None:
+        return allocate(scores=scores, params=fallback, volatility=volatility), "risk_parity:fallback"
+    normal, crisis = dual
+    # **레짐이 위기면 위기 공분산으로 전환한다** (§4). 평시 상관 0.3 이던
+    # 섹터가 폭락장에 0.8 로 붙는 것을 위기 Ω 가 담고 있다. 현금은 여기서
+    # 안 올린다 — exposure.apply 가 레짐으로 노출을 줄인다.
+    state = RegimeAnalyst(store, ReplayClock(as_of)).state(as_of)
+    model = factor_model.select_by_regime(normal, crisis, state)
+    if model.covariance.empty:
+        return allocate(scores=scores, params=fallback, volatility=volatility), "risk_parity:fallback"
 
     cov = model.covariance
     sectors = ksic.roll_up_map(
@@ -118,7 +129,7 @@ def allocate_risk_parity(
         scores=scores, cov=cov, sectors=sectors, tilt=params.score_tilt
     )
     if base.empty:
-        return allocate(scores=scores, params=fallback, volatility=volatility), "fallback"
+        return allocate(scores=scores, params=fallback, volatility=volatility), "risk_parity:fallback"
 
     downside = _downside_betas(
         store, as_of=as_of, market=market, sectors=sectors,
@@ -139,4 +150,5 @@ def allocate_risk_parity(
         for entity, value in projected.items()
         if value > 0.0
     }
-    return weights, "risk_parity"
+    # 경로에 레짐을 남긴다 — 위기 공분산이 실제로 쓰였는지 로그로 갈린다.
+    return weights, f"risk_parity:{state}"

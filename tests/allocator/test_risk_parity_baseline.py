@@ -39,39 +39,54 @@ def test_순수_allocate_는_risk_parity_를_거부한다() -> None:
         allocate(scores={"KR:A": 1.0}, params=params)
 
 
+def _stub_regime(monkeypatch, state: str) -> None:
+    """RegimeAnalyst 를 stub 으로 — 창고 없이 상태만 돌려준다."""
+    class _Stub:
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        def state(self, as_of) -> str:
+            return state
+
+    monkeypatch.setattr(rpb, "RegimeAnalyst", _Stub)
+    monkeypatch.setattr(rpb, "ReplayClock", lambda *a, **k: None)
+
+
+class _Model:
+    def __init__(self, cov: pd.DataFrame) -> None:
+        self.covariance = cov
+
+
 def test_팩터모델이_None이면_스코어로_물러선다(monkeypatch) -> None:
-    monkeypatch.setattr(rpb.factor_model, "estimate", lambda *a, **k: None)
+    monkeypatch.setattr(rpb.factor_model, "estimate_dual", lambda *a, **k: None)
     scores = {"KR:A": 2.0, "KR:B": 1.0}
     weights, path = rpb.allocate_risk_parity(
         store=None, as_of=None, market="KR", scores=scores,
         entities=["KR:A", "KR:B"], params=_rp_params(), fallback=_fallback(),
     )
-    assert path == "fallback"
+    assert path == "risk_parity:fallback"
     # 스코어 비례: 합 = 1 − cash_buffer, A 가 B 보다 크다.
     assert weights["KR:A"] > weights["KR:B"]
     assert abs(sum(weights.values()) - 0.95) < 1e-9
 
 
 def test_공분산이_비면_스코어로_물러선다(monkeypatch) -> None:
-    class _Model:
-        covariance = pd.DataFrame()
-
-    monkeypatch.setattr(rpb.factor_model, "estimate", lambda *a, **k: _Model())
+    empty = _Model(pd.DataFrame())
+    monkeypatch.setattr(rpb.factor_model, "estimate_dual", lambda *a, **k: (empty, empty))
+    _stub_regime(monkeypatch, "bull")
     weights, path = rpb.allocate_risk_parity(
         store=None, as_of=None, market="KR", scores={"KR:A": 1.0},
         entities=["KR:A"], params=_rp_params(), fallback=_fallback(),
     )
-    assert path == "fallback"
+    assert path == "risk_parity:fallback"
 
 
 def test_모델이_있으면_리스크패리티_경로로_간다(monkeypatch) -> None:
     names = ["KR:A", "KR:B", "KR:C"]
     cov = pd.DataFrame(np.diag([0.04, 0.02, 0.03]), index=names, columns=names)
-
-    class _Model:
-        covariance = cov
-
-    monkeypatch.setattr(rpb.factor_model, "estimate", lambda *a, **k: _Model())
+    model = _Model(cov)
+    monkeypatch.setattr(rpb.factor_model, "estimate_dual", lambda *a, **k: (model, model))
+    _stub_regime(monkeypatch, "bull")
     monkeypatch.setattr(
         rpb, "sector_map",
         lambda *a, **k: {"KR:A": "c1", "KR:B": "c2", "KR:C": "c3"},
@@ -89,20 +104,46 @@ def test_모델이_있으면_리스크패리티_경로로_간다(monkeypatch) ->
         scores={"KR:A": 1.0, "KR:B": 1.0, "KR:C": 1.0},
         entities=names, params=_rp_params(), fallback=_fallback(),
     )
-    assert path == "risk_parity"
+    assert path == "risk_parity:bull"
     assert set(weights) == set(names)
     # cash_floor=0 이라 합은 1 근처(투영이 현금을 안 뺀다 — exposure 가 뺀다).
     assert abs(sum(weights.values()) - 1.0) < 1e-6
 
 
+def test_위기_레짐이면_위기_공분산을_고른다(monkeypatch) -> None:
+    """레짐이 crisis 면 위기 모델의 공분산이 쓰이고 driver 에 남는다."""
+    names = ["KR:A", "KR:B"]
+    normal = _Model(pd.DataFrame(np.diag([0.04, 0.02]), index=names, columns=names))
+    crisis = _Model(pd.DataFrame(np.diag([0.20, 0.20]), index=names, columns=names))
+    monkeypatch.setattr(
+        rpb.factor_model, "estimate_dual", lambda *a, **k: (normal, crisis)
+    )
+    # 진짜 select_by_regime 을 쓴다(스텁 아님) — 그 로직도 같이 검증.
+    _stub_regime(monkeypatch, "crisis")
+    monkeypatch.setattr(rpb, "sector_map", lambda *a, **k: {"KR:A": "c1", "KR:B": "c2"})
+    monkeypatch.setattr(rpb.ksic, "roll_up_map", lambda m: m)
+
+    class _Beta:
+        down_beta = 0.5
+
+    monkeypatch.setattr(
+        rpb, "estimate_betas", lambda *a, **k: {"c1": _Beta(), "c2": _Beta()}
+    )
+    weights, path = rpb.allocate_risk_parity(
+        store=None, as_of=None, market="KR",
+        scores={"KR:A": 1.0, "KR:B": 1.0},
+        entities=names, params=_rp_params(), fallback=_fallback(),
+    )
+    assert path == "risk_parity:crisis"
+    assert set(weights) == set(names)
+
+
 def test_음수_스코어는_리스크패리티_경로에서도_빠진다(monkeypatch) -> None:
     names = ["KR:A", "KR:B"]
     cov = pd.DataFrame(np.diag([0.04, 0.02]), index=names, columns=names)
-
-    class _Model:
-        covariance = cov
-
-    monkeypatch.setattr(rpb.factor_model, "estimate", lambda *a, **k: _Model())
+    model = _Model(cov)
+    monkeypatch.setattr(rpb.factor_model, "estimate_dual", lambda *a, **k: (model, model))
+    _stub_regime(monkeypatch, "bull")
     monkeypatch.setattr(rpb, "sector_map", lambda *a, **k: {"KR:A": "c1", "KR:B": "c2"})
     monkeypatch.setattr(rpb.ksic, "roll_up_map", lambda m: m)
 
@@ -117,5 +158,5 @@ def test_음수_스코어는_리스크패리티_경로에서도_빠진다(monkey
         scores={"KR:A": 1.0, "KR:B": -0.5},
         entities=names, params=_rp_params(), fallback=_fallback(),
     )
-    assert path == "risk_parity"
+    assert path == "risk_parity:bull"
     assert "KR:B" not in weights

@@ -279,7 +279,8 @@ def run(
             ),
             volatility=volatility,
         )
-        allocate_driver = f"risk_parity:{path}"
+        # path 는 이미 자기서술적이다: "risk_parity:crisis" / "risk_parity:fallback".
+        allocate_driver = path
     else:
         weights = allocate(
             scores=scores,

@@ -56,6 +56,14 @@ MARKET_FACTOR = "MKT"
 #: 회귀가 잡음이면 그 종목이 최적화기에서 극단 비중을 받는다.
 MIN_REGRESSION_SESSIONS = 60
 
+#: 위기 공분산을 낼 최소 하락 세션. 이보다 얇으면 위기 Ω 가 잡음이라 평시로
+#: 물러선다. sector_beta.MIN_SIGN_DAYS(20)와 같은 값 — 같은 "하락 표본" 이다.
+MIN_CRISIS_SESSIONS = 20
+
+#: 위기 공분산을 쓰는 레짐 상태 (§4). bull·unknown 은 평시다 — 모르는 상태
+#: (index 결측)에서 과잉 방어로 가지 않는다.
+CRISIS_STATES = frozenset({"crisis", "bear", "volatile"})
+
 
 def ledoit_wolf(observations: np.ndarray) -> tuple[np.ndarray, float]:
     """정준 Ledoit-Wolf 축소 공분산과 축소 강도.
@@ -193,19 +201,25 @@ def assemble_covariance(
     return pd.DataFrame(total, index=loadings.index, columns=loadings.index)
 
 
-def estimate(
-    store: Store,
-    *,
-    as_of: datetime,
-    entities: list[str],
-    market: str = "KR",
-    window: int = DEFAULT_WINDOW,
-) -> FactorRiskModel | None:
-    """``entities`` 의 팩터 기반 공분산. 못 내면 None.
+@dataclass(frozen=True)
+class _Built:
+    """팩터 모델의 **공유 부품** — Ω 를 어느 세션에서 재든 이건 그대로다.
 
-    섹터 합성·시장 수익률은 §1 과 같은 판을 재사용한다. 팩터는 그 섹터들을
-    시장에 직교화한 것이고, 로딩은 각 종목의 시계열 회귀에서 나온다.
+    로딩·고유분산은 전체 창에서 한 번 추정한다(안정적). 평시/위기 공분산은
+    이 부품 위에서 세션만 갈아 Ω 를 다시 내는 것이다 (§4 이중 추정).
     """
+
+    factors: pd.DataFrame       # 세션×팩터 (시장 + 직교 섹터)
+    market_ret: pd.Series       # 세션 시장 수익률 — 위기 표본을 가르는 축
+    loadings: pd.DataFrame      # 종목×팩터 E
+    idio: pd.Series             # 종목별 고유분산 D
+    used: list[str]             # 실제로 로딩이 실린 팩터
+
+
+def _build(
+    store: Store, *, as_of: datetime, entities: list[str], market: str, window: int
+) -> _Built | None:
+    """창고에서 팩터·로딩·고유분산을 세운다. Ω 는 아직 안 낸다."""
     stock_ret, market_ret, caps, sectors = _panels(
         store, as_of=as_of, market=market, window=window
     )
@@ -217,21 +231,99 @@ def estimate(
     factors = orthogonalize_sectors(sector_ret, market_ret)
     if factors.shape[1] < 1:
         return None
-
     loadings, idio = _fit_loadings(stock_ret, factors, sectors, entities)
     if loadings.empty:
         return None
     # 로딩이 실제로 실린 팩터만 Ω 에 넣는다 — 아무 종목도 안 실은 섹터 열은
     # 공분산에 넣어봐야 Σ 에 0 으로만 곱해진다.
     used = [f for f in factors.columns if (loadings[f].abs() > 0).any()]
-    omega_matrix, shrink = ledoit_wolf(factors[used].to_numpy())
-    factor_cov = pd.DataFrame(omega_matrix, index=used, columns=used)
+    return _Built(
+        factors=factors,
+        market_ret=market_ret.reindex(factors.index),
+        loadings=loadings,
+        idio=idio,
+        used=used,
+    )
 
-    cov = assemble_covariance(loadings[used], factor_cov, idio)
+
+def _model_from(built: _Built, sessions: pd.Index | None) -> FactorRiskModel | None:
+    """공유 부품 + 세션 부분집합 → 그 표본의 Ω 로 세운 공분산.
+
+    ``sessions`` 가 None 이면 전체(평시). 하락 국면 세션만 주면 위기 공분산이
+    된다 — 로딩·고유분산은 그대로 두고 팩터 공분산만 그 표본에서 다시 낸다.
+    """
+    frame = built.factors[built.used]
+    if sessions is not None:
+        frame = frame.reindex(sessions)
+    frame = frame.dropna()
+    if len(frame) < 2:
+        return None
+    omega_matrix, shrink = ledoit_wolf(frame.to_numpy())
+    factor_cov = pd.DataFrame(omega_matrix, index=built.used, columns=built.used)
+    cov = assemble_covariance(built.loadings[built.used], factor_cov, built.idio)
     return FactorRiskModel(
         covariance=cov,
         factor_covariance=factor_cov,
-        loadings=loadings[used],
-        idiosyncratic=idio,
+        loadings=built.loadings[built.used],
+        idiosyncratic=built.idio,
         shrinkage=shrink,
     )
+
+
+def estimate(
+    store: Store,
+    *,
+    as_of: datetime,
+    entities: list[str],
+    market: str = "KR",
+    window: int = DEFAULT_WINDOW,
+) -> FactorRiskModel | None:
+    """``entities`` 의 팩터 기반 공분산(평시·전체 표본). 못 내면 None.
+
+    섹터 합성·시장 수익률은 §1 과 같은 판을 재사용한다. 팩터는 그 섹터들을
+    시장에 직교화한 것이고, 로딩은 각 종목의 시계열 회귀에서 나온다.
+    """
+    built = _build(store, as_of=as_of, entities=entities, market=market, window=window)
+    if built is None:
+        return None
+    return _model_from(built, sessions=None)
+
+
+def estimate_dual(
+    store: Store,
+    *,
+    as_of: datetime,
+    entities: list[str],
+    market: str = "KR",
+    window: int = DEFAULT_WINDOW,
+) -> tuple[FactorRiskModel, FactorRiskModel] | None:
+    """(평시, 위기) 두 공분산 (§4). 못 내면 None.
+
+    **평시** 는 전체 표본, **위기** 는 시장이 하락한 세션만으로 Ω 를 다시
+    낸다 — 평시 상관 0.3 이던 섹터가 폭락장에서 0.8 로 붙는 것을 잡는다.
+    로딩·고유분산은 공유하므로 위기 추정의 추가 비용은 LW 한 번뿐이다.
+
+    하락 표본이 너무 얇으면(§1 의 MIN_SIGN_DAYS 미만) 위기 Ω 가 잡음이라
+    **위기 대신 평시를 함께 돌려준다** — 없는 위기를 지어내지 않는다.
+    """
+    built = _build(store, as_of=as_of, entities=entities, market=market, window=window)
+    if built is None:
+        return None
+    normal = _model_from(built, sessions=None)
+    if normal is None:
+        return None
+    down = built.market_ret.index[built.market_ret < 0]
+    crisis = _model_from(built, sessions=down) if len(down) >= MIN_CRISIS_SESSIONS else None
+    return normal, (crisis or normal)
+
+
+def select_by_regime(
+    normal: FactorRiskModel, crisis: FactorRiskModel, state: str
+) -> FactorRiskModel:
+    """레짐 상태로 공분산을 고른다 (§4). 위험 회피 상태면 위기 공분산.
+
+    ``bull``·``unknown`` 은 평시다 — 모르는 상태(index 결측)에서 과잉 방어로
+    가지 않는다. 나머지(``crisis``·``bear``·``volatile``)는 상관이 붙는
+    국면이라 위기 공분산을 쓴다. 현금은 여기서 안 뺀다 — exposure 가 뺀다.
+    """
+    return crisis if state in CRISIS_STATES else normal
