@@ -15,6 +15,7 @@ from flask import Blueprint, current_app, request
 from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.dashboard.api.common import clock, envelope, scope, store
+from quant_rl_trading.dashboard.services import account as account_service
 from quant_rl_trading.dashboard.services import trading as service
 from quant_rl_trading.executor import guards
 
@@ -60,6 +61,27 @@ def calendar() -> Any:
     return envelope(
         current,
         service.calendar_payload(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
+@bp.get("/account")
+def broker_account() -> Any:
+    """증권사 계좌를 **실제로 조회한다** (t0424). 장부가 아니다.
+
+    KPI 는 장부에서 온다 — 백테스트와 라이브가 같은 숫자를 봐야 하고(불변식 5)
+    수익률은 입금을 걸러낸 TWR 이라 잔고에서 바로 안 나온다. **그렇다고 계좌를
+    안 보면 장부가 틀려도 모른다** — 2026-08-23 에 shadow 장부가 아직 안 들어온
+    입금 4.9억을 세어 총 수익률이 4900% 로 찍혔는데 대조할 것이 없었다.
+
+    **조회 전용이다.** 이 경로가 부르는 TR 은 t0424 하나뿐이라 주문이 나갈 길이
+    없다. 느리므로(외부 호출) 화면이 KPI 와 따로 늦게 불러 그린다.
+    """
+    current = scope()
+    return envelope(
+        current,
+        account_service.broker_account(
+            store(), as_of=current.as_of, market=_market()
+        ),
     )
 
 

@@ -1065,3 +1065,10 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 /* 고른 날을 표시한다. 안 하면 어느 날 숫자인지 모른다. */
 .cal-cell.pick { cursor: pointer; }
 .cal-cell.on { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+
+
+/* 계좌 실조회 — 숫자를 빽빽하게 놓는다(dashboard.md 밀도 규칙). */
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px 14px; }
+.account-grid > div { display: flex; flex-direction: column; }
+.account-grid span { font-size: 11px; opacity: .65; }
+.account-grid strong { font-variant-numeric: tabular-nums; font-size: 15px; }
