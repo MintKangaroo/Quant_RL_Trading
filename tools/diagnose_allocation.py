@@ -391,6 +391,18 @@ def main(argv: list[str] | None = None) -> int:
         help="관측에 정답을 꽂는다. **성과는 전부 가짜다** — 배선 점검 전용.",
     )
     parser.add_argument(
+        "--n-epochs", type=int, default=4,
+        help=(
+            "같은 표본을 몇 번 다시 도는가. **그래디언트 스텝 = (표본/미니배치) × "
+            "에포크** 인데 환경 스텝이 병목(≈32ms)이라, 예산을 키우는 싼 손잡이가 "
+            "이것이다. r≈0.043 이면 학습에 ~110,000 스텝이 필요하다(실측)."
+        ),
+    )
+    parser.add_argument(
+        "--minibatch", type=int, default=512,
+        help="미니배치 크기. 줄이면 같은 표본에서 그래디언트 스텝이 늘어난다.",
+    )
+    parser.add_argument(
         "--n-steps", type=int, default=128,
         help=(
             "업데이트당 환경 스텝. 표본 = n_steps × envs 다. **이것이 판정력을 "
@@ -429,8 +441,14 @@ def main(argv: list[str] | None = None) -> int:
     torch.manual_seed(args.seed)
     ppo = replace(
         train_module.train_config(), num_envs=args.envs, n_steps=args.n_steps,
-        minibatch_size=512, n_epochs=4, lr_policy=3e-5, lr_value=9e-5,
+        minibatch_size=args.minibatch, n_epochs=args.n_epochs,
+        lr_policy=3e-5, lr_value=9e-5,
     )
+    # **예산을 먼저 찍는다.** 그래디언트 스텝이 몇 개인지 모르고 "안 배운다" 를
+    # 말하면 안 된다 — 2026-08-23 까지 카나리가 정확히 그 잘못을 했다(768스텝).
+    grad_steps = max(1, (args.envs * args.n_steps) // args.minibatch) * args.n_epochs
+    print(f"표본 {args.envs * args.n_steps:,}/업데이트 · 그래디언트 "
+          f"{grad_steps:,}스텝/업데이트 · 총 {grad_steps * args.updates:,}스텝", flush=True)
     if args.target_kl is not None:
         ppo = replace(ppo, target_kl=args.target_kl)
     if args.ent_coef is not None:
