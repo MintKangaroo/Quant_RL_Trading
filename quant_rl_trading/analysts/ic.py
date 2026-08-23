@@ -48,6 +48,9 @@ class ICResult:
     market: str
     ic: float
     ic_std: float
+    #: 겹치는 타깃을 보정한 t 값(Newey-West, lag = horizon-1). **크기와 함께
+    #: 유의성을 남긴다** — 예전에는 ic_std 를 계산해 로그에 찍고 버렸다.
+    ic_t: float
     sample_days: int
     sample_rows: int
     threshold: float
@@ -77,6 +80,11 @@ class ICResult:
             "analyst_version": self.analyst_version,
             "weight": self.weight,
             "ic": self.ic,
+            # **유의성을 같이 남긴다.** 크기만 적으면 나중에 성적표를 봐도
+            # 그 IC 가 우연인지 알 수 없다 — 2026-08-23 재점검에서 실제로
+            # t 를 내려다 저장값이 없어 못 냈다.
+            "ic_std": self.ic_std,
+            "ic_t": self.ic_t,
             "ic_threshold": self.threshold,
             "sample_days": self.sample_days,
             "passed": self.passed,
@@ -117,6 +125,34 @@ def forward_returns(
     frame["forward_close"] = grouped.shift(-(entry_lag + horizon))
     frame["forward_return"] = frame["forward_close"] / frame["entry_close"] - 1.0
     return frame.dropna(subset=["forward_return"])
+
+
+
+def newey_west_t(series: "pd.Series", *, lag: int) -> float:
+    """겹치는 타깃을 감안한 t 값. ``lag=0`` 이면 보통 t 와 같다.
+
+    **여기가 이 식의 유일한 자리다.** 예전에는 `tools/diagnose_ic.py` 에만
+    있었는데, 합격 판정이 t 를 쓰게 되면서 라이브러리로 올렸다 — 도구와
+    판정이 각자 t 를 계산하면 언젠가 서로 다른 답을 낸다.
+
+    **왜 보정하나.** 5일 앞을 보는 타깃은 연속한 날들이 겹친다. 겹친 표본을
+    독립으로 세면 유효표본이 부풀고 t 가 과대평가된다 — regime 에서 -2.46 이
+    보정 후 -1.93 으로 바뀌어 "유의" 가 "미확인" 이 된 적이 있다.
+    """
+    values = series.dropna().to_numpy(dtype=float)
+    n = values.size
+    if n < 3:
+        return float("nan")
+    mean = float(values.mean())
+    dev = values - mean
+    gamma0 = float((dev * dev).sum() / n)
+    variance = gamma0
+    for k in range(1, min(lag, n - 1) + 1):
+        gamma = float((dev[k:] * dev[:-k]).sum() / n)
+        variance += 2.0 * (1.0 - k / (lag + 1)) * gamma
+    if variance <= 0:
+        return float("nan")
+    return mean / float(np.sqrt(variance / n))
 
 
 def cross_sectional_z(frame: pd.DataFrame, column: str, *, by: str = "session") -> pd.Series:
@@ -277,7 +313,8 @@ def evaluate(
     if merged.empty:
         return ICResult(
             analyst=analyst, analyst_version=analyst_version, market=market,
-            ic=float("nan"), ic_std=float("nan"), sample_days=0, sample_rows=0,
+            ic=float("nan"), ic_std=float("nan"), ic_t=float("nan"),
+            sample_days=0, sample_rows=0,
             threshold=threshold, min_sample_days=min_sample_days,
         )
 
@@ -298,6 +335,8 @@ def evaluate(
         market=market,
         ic=float(np.mean(fold_ics)) if fold_ics else float(series.mean()),
         ic_std=float(series.std()),
+        # lag = horizon-1. 5일 타깃이면 연속 4일이 겹친다.
+        ic_t=newey_west_t(series, lag=max(horizon - 1, 0)),
         sample_days=int(series.size),
         sample_rows=len(merged),
         threshold=threshold,

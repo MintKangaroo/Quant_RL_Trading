@@ -195,22 +195,9 @@ def t_stat(series: pd.Series) -> tuple[float, float]:
     return (mean / std if std > 0 else float("nan")), mean
 
 
-def newey_west_t(series: pd.Series, *, lag: int) -> float:
-    """겹치는 타깃을 감안한 t 값. lag=0 이면 보통 t 와 같다."""
-    values = series.dropna().to_numpy(dtype=float)
-    n = values.size
-    if n < 3:
-        return float("nan")
-    mean = float(values.mean())
-    dev = values - mean
-    gamma0 = float((dev * dev).sum() / n)
-    variance = gamma0
-    for k in range(1, min(lag, n - 1) + 1):
-        gamma = float((dev[k:] * dev[:-k]).sum() / n)
-        variance += 2.0 * (1.0 - k / (lag + 1)) * gamma
-    if variance <= 0:
-        return float("nan")
-    return mean / np.sqrt(variance / n)
+#: **라이브러리 것을 쓴다.** 판정(`ic.ICResult`)과 도구가 각자 계산하면
+#: 언젠가 서로 다른 t 를 낸다.
+newey_west_t = ic.newey_west_t
 
 
 def score_ic(

@@ -530,6 +530,16 @@ _SPECS: dict[str, TableSpec] = {
             "analyst_version": pa.string(),
             "weight": pa.float64(),
             "ic": pa.float64(),
+            # **유의성을 같이 적는다** (2026-08-23). 예전에는 `ic_std` 를
+            # 계산해 로그에 한 줄 찍고 버렸다. 그래서 창고에 쌓인 성적표만
+            # 보면 어느 Analyst 가 유의한지 사후에 확인할 방법이 없었다 —
+            # 실제로 재점검에서 t 를 내려다 저장값이 없어 못 냈다.
+            #
+            # `ic_t` 는 **Newey-West** 다(lag = horizon-1). 타깃이 5일 겹치므로
+            # 단순 t 는 과대평가된다 — regime 에서 -2.46 이 -1.93 으로 바뀐 적이
+            # 있다. 옛 행에는 이 칸이 없어 null 로 읽힌다(그때는 안 쟀다는 뜻).
+            "ic_std": pa.float64(),
+            "ic_t": pa.float64(),
             "ic_threshold": pa.float64(),
             "sample_days": pa.int32(),
             "passed": pa.bool_(),
