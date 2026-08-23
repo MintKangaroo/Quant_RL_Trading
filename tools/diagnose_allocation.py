@@ -419,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
     device = torch.device("cpu")
     torch.manual_seed(args.seed)
     ppo = replace(
-        train_module.train_config(), num_envs=args.envs, n_steps=128,
+        train_module.train_config(), num_envs=args.envs, n_steps=args.n_steps,
         minibatch_size=512, n_epochs=4, lr_policy=3e-5, lr_value=9e-5,
     )
     if args.target_kl is not None:
