@@ -40,6 +40,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 import torch  # noqa: E402
 
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
@@ -138,6 +139,69 @@ def attribution_split(
             "z": float((scores[FEATURE_ORACLE] - others.mean()) / (others.std() + 1e-12)),
         }
     return out
+
+
+def advantage_alignment(
+    rollout: dict, *, ppo, device: torch.device
+) -> dict[str, float]:
+    """**advantage 가 행동의 오라클 정렬도와 상관이 있는가.** 신용할당의 급소다.
+
+    ## 왜 이걸 재는가
+
+    2026-08-23 실측으로 앞의 용의자가 전부 지워졌다: 망은 지도학습 200스텝에
+    정답 칸을 0.967 로 배우고(용량 무죄), 환경은 오라클 상위 6종목에 실으면
+    10스텝 누적보상이 +0.039 vs 하위 -0.132 로 크게 갈린다(보상 무죄).
+    그런데 PPO 의 비중 그래디언트는 평균이 0 이다(표본 4배에도 SNR 불변).
+
+    정책 그래디언트는 ``E[A · ∇log π]`` 다. **A 가 행동의 좋고 나쁨과
+    상관없으면 그 기댓값은 0 이 된다** — 신호가 환경에 있어도 학습은 못 한다.
+    그래서 A 와 "그 행동이 오라클 상위에 얼마나 실었나" 의 상관을 직접 잰다.
+
+    ## 읽는 법
+
+    상관이 **0 근처면 신용할당이 범인**이다 — 보상은 있는데 그 공이 엉뚱한
+    스텝으로 간다는 뜻이고, 고칠 곳은 GAE·가치함수·보상 지연 구조다.
+    **양수면 신호가 A 까지는 왔다** — 그러면 남은 것은 로그확률 그래디언트다.
+    """
+    from quant_rl_trading.allocator.train import _to_torch, gae
+
+    advantages, _ = gae(
+        rewards=rollout["rewards"], values=rollout["values"], dones=rollout["dones"],
+        bootstrap=rollout["bootstrap"], last_value=rollout["last_value"],
+        gamma=ppo.gamma, lam=ppo.gae_lambda,
+    )
+    flat = {
+        key: torch.cat([_to_torch(step, device)[key] for step in rollout["obs"]], dim=0)
+        for key in rollout["obs"][0]
+    }
+    actions = np.concatenate(rollout["actions"])          # (T·E, N+1)
+    oracle = flat["assets"][..., FEATURE_ORACLE].detach().cpu().numpy()  # (T·E, N)
+    mask = flat["mask"].detach().cpu().numpy().astype(bool)
+    adv = advantages.reshape(-1)
+
+    n_assets = oracle.shape[1]
+    align = np.zeros(adv.shape[0])
+    for i in range(adv.shape[0]):
+        live = mask[i]
+        if live.sum() < 3:
+            continue
+        w = actions[i, :n_assets][live]
+        o = oracle[i][live]
+        if w.sum() <= 0 or np.allclose(o, o[0]):
+            continue
+        # **정렬도 = 비중을 오라클 순위에 얼마나 실었나.** 크기가 아니라 순위로
+        # 본다 — 오라클 값의 스케일이 세션마다 달라서다.
+        rank = pd.Series(o).rank(pct=True).to_numpy()
+        align[i] = float((w / w.sum()) @ rank)
+
+    good = np.isfinite(align) & np.isfinite(adv) & (align != 0.0)
+    if good.sum() < 30:
+        return {"n": float(good.sum()), "corr": float("nan"), "spearman": float("nan")}
+    a, d = align[good], adv[good]
+    corr = float(np.corrcoef(a, d)[0, 1])
+    spear = float(pd.Series(a).corr(pd.Series(d), method="spearman"))
+    return {"n": float(good.sum()), "corr": corr, "spearman": spear,
+            "align_std": float(a.std())}
 
 
 def gradient_snr(
@@ -488,6 +552,24 @@ def main(argv: list[str] | None = None) -> int:
         if args.oracle else {}
     )
     snr = gradient_snr(policy, rollout, ppo=ppo, device=device)
+    align = advantage_alignment(rollout, ppo=ppo, device=device)
+    print("\n[신용할당] advantage 가 행동의 오라클 정렬도와 상관이 있나")
+    if not np.isfinite(align.get("corr", float("nan"))):
+        print(f"  표본 부족 (n={align.get('n', 0):.0f})")
+    else:
+        n = align["n"]; r = align["corr"]
+        # **문턱이 아니라 t 로 읽는다.** r 0.05 는 n 이 100 이면 잡음이고
+        # 10,000 이면 확실한 신호다 — 크기만 보면 표본 수를 숨기게 된다.
+        t = abs(r) * ((n - 2) ** 0.5) / max((1 - r * r) ** 0.5, 1e-12)
+        print(f"  피어슨 {r:+.4f} (t {t:.2f}) · 스피어만 {align['spearman']:+.4f} "
+              f"· 표본 {n:.0f} · 정렬도 흩어짐 {align['align_std']:.4f}")
+        # 이 r 로 학습하려면 표본이 몇 개 필요한가 — 예산 판정의 근거다.
+        need = int(4.0 / max(r * r, 1e-9)) if r != 0 else -1
+        if t < 2.0:
+            print(f"  → **0 과 구분 안 된다(t {t:.2f}).** 이 표본으로는 판정 못 한다.")
+            print(f"     r={r:+.3f} 이 참이라면 t=2 를 넘기는 데 표본 {need:,}개가 필요하다.")
+        else:
+            print(f"  → 신호가 advantage 까지 왔다(t {t:.2f}). 남은 것은 로그확률 그래디언트다.")
 
     print()
     print(f"오라클 {'켬 — 성과는 가짜다' if args.oracle else '끔'} · 슬롯 {env.config.n_assets}칸")
