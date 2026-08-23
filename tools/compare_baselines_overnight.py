@@ -81,6 +81,36 @@ def _seed_config(store: Store, source: Path, baseline: str) -> None:
     )
 
 
+#: 워크포워드 가중치를 가져올 기존 샌드박스. **실전 창고에서 가져오면 안 된다** —
+#: 실전 가중치는 오늘 관측이라 과거 백테스트가 보면 미래를 훔친다
+#: (`run_backtest.WRITABLE` 주석). 여기 것은 과거 시점으로 측정해 심은 것이다.
+WEIGHTS_SOURCE = REPO_ROOT / "data" / "_backtest"
+
+_WEIGHT_COLS = [
+    "entity_id", "valid_from", "observed_at", "source", "revision",
+    "analyst_version", "weight", "ic", "ic_threshold", "sample_days",
+    "passed", "market",
+]
+
+
+def _seed_weights(store: Store, *, weights_from: Path) -> int:
+    """Analyst 가중치를 샌드박스에 심는다. **없으면 매매가 0건이 된다.**
+
+    `analyst_weights` 는 writable 이라 `layer.clear()` 가 비운다. 비워 두면
+    합성 점수가 0 이 되고 후보가 0 건이 되어 **NAV 가 초기값에 고정된 채
+    "MDD 0%" 라는 거짓 성적표**가 나온다(verify_m3 가 경고하는 함정).
+    2026-08-23 실측: 신호 344만 행을 만들고도 매매 0건이었다.
+
+    두 baseline 에 **같은 가중치**를 심는다 — 그래야 차이가 비중 산출에서만 온다.
+    """
+    source = Store(root=weights_from)
+    frame = source.get("analyst_weights", as_of=FAR_FUTURE)
+    if frame.empty:
+        return 0
+    rows = frame[_WEIGHT_COLS].to_dict(orient="records")
+    return store.append("analyst_weights", rows, ingest_run_id="copy-walkforward-weights")
+
+
 def _run_one(
     baseline: str, *, start: date, end: date, market: str, capital: float,
     warmup: int | None, sandbox_root: Path,
@@ -92,6 +122,15 @@ def _run_one(
     layer.clear()
     store = Store(root=layer.root)
     _seed_config(store, source, baseline)
+    seeded = _seed_weights(store, weights_from=WEIGHTS_SOURCE)
+    if seeded == 0:
+        # **여기서 멈춘다.** 가중치 0 이면 후보가 0 건이라 NAV 가 안 움직이고,
+        # 그 성적표는 "완벽" 처럼 보인다. 조용히 도는 것이 제일 나쁘다.
+        raise RuntimeError(
+            f"Analyst 가중치를 못 심었다({WEIGHTS_SOURCE}). 이대로 돌리면 "
+            "매매 0건에 MDD 0% 라는 거짓 성적표가 나온다"
+        )
+    print(f"[{baseline}] 가중치 {seeded}행 심음 ({WEIGHTS_SOURCE.name})", flush=True)
 
     probe = loop.snapshot_moment(
         store, start,
@@ -116,16 +155,24 @@ def _run_one(
         store, start=start, end=end, market=market, capital=capital,
         warmup_days=warm, on_day=show,
     )
-    return result.performance
+    # **체결 수를 같이 본다.** 0 건이면 MDD 는 언제나 0% 라 성적표가 완벽해
+    # 보인다 — 그건 성적이 아니라 아무것도 안 한 것이다(verify_m3 규약).
+    trades = store.get("trades", as_of=FAR_FUTURE)
+    n_trades = int(len(trades))
+    print(f"[{baseline}] 끝 · 체결 {n_trades}건", flush=True)
+    if n_trades == 0:
+        print(f"[{baseline}] ⚠️ 매매 0건 — 이 성적표는 읽지 마라", flush=True)
+    return result.performance, n_trades
 
 
-def _report(results: dict[str, object], *, start: date, end: date, path: Path) -> None:
+def _report(results: dict[str, object], *, start: date, end: date,
+            trades: dict[str, int], path: Path) -> None:
     lines = [
         f"# baseline 비교 — {start} ~ {end}",
         "",
         "§7 검증: 리스크 패리티가 스코어 비례 대비 MDD 를 낮췄나.",
         "",
-        "| baseline | 수익 | MDD | 변동성 | 수익/변동성 | 회전율 | 체결률 | 액션반영 |",
+        "| baseline | 체결 | 수익 | MDD | 변동성 | 수익/변동성 | 회전율 | 액션반영 |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for baseline in BASELINES:
@@ -133,11 +180,15 @@ def _report(results: dict[str, object], *, start: date, end: date, path: Path) -
         if perf is None:
             lines.append(f"| {baseline} | — 백테스트 실패 — |")
             continue
+        n = trades.get(baseline, 0)
         lines.append(
-            f"| {baseline} | {perf.total_return:+.2%} | {perf.max_drawdown:.2%} | "
+            f"| {baseline} | {n} | {perf.total_return:+.2%} | {perf.max_drawdown:.2%} | "
             f"{perf.volatility:.2%} | {perf.return_over_vol:.2f} | {perf.turnover:.2f} | "
-            f"{perf.fill_rate:.2%} | {perf.action_reflection:.2%} |"
+            f"{perf.action_reflection:.2%} |"
         )
+    if any(trades.get(b, 0) == 0 for b in BASELINES):
+        lines += ["", "> **매매 0건인 팔이 있다 — 이 표를 성적으로 읽지 마라.** "
+                      "MDD 0% 는 완벽이 아니라 아무것도 안 한 것이다."]
     score, rp = results.get("score"), results.get("risk_parity")
     if score is not None and rp is not None:
         dd = rp.max_drawdown - score.max_drawdown
@@ -166,19 +217,22 @@ def main(argv: list[str] | None = None) -> int:
     load_env()
     start, end = date.fromisoformat(args.start), date.fromisoformat(args.end)
     results: dict[str, object] = {}
+    trade_counts: dict[str, int] = {}
     for baseline in BASELINES:
         sandbox = REPO_ROOT / "data" / f"_backtest_{baseline}"
         try:
-            results[baseline] = _run_one(
+            perf, n_trades = _run_one(
                 baseline, start=start, end=end, market=args.market,
                 capital=args.capital, warmup=args.warmup, sandbox_root=sandbox,
             )
+            results[baseline] = perf
+            trade_counts[baseline] = n_trades
         except Exception as exc:  # 야간 무인 실행 — 한쪽이 죽어도 다른 쪽은 남긴다
             print(f"[{baseline}] 실패: {type(exc).__name__}: {exc}", flush=True)
             results[baseline] = None
 
     stamp = LiveClock().now().strftime("%Y%m%d")
-    _report(results, start=start, end=end,
+    _report(results, start=start, end=end, trades=trade_counts,
             path=REPO_ROOT / "logs" / f"compare_baselines_{stamp}.md")
     return 0 if all(results.get(b) is not None for b in BASELINES) else 1
 
