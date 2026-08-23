@@ -391,6 +391,15 @@ def main(argv: list[str] | None = None) -> int:
         help="관측에 정답을 꽂는다. **성과는 전부 가짜다** — 배선 점검 전용.",
     )
     parser.add_argument(
+        "--n-steps", type=int, default=128,
+        help=(
+            "업데이트당 환경 스텝. 표본 = n_steps × envs 다. **이것이 판정력을 "
+            "정한다** — advantage↔정렬도 상관이 r≈0.05 라 t=2 를 넘기려면 표본이 "
+            "1,418개 필요한데(실측 2026-08-23), 기본 128×8=1,024 는 그 아래다. "
+            "지금까지 카나리는 판정할 수 없는 크기로 재고 있었다."
+        ),
+    )
+    parser.add_argument(
         "--target-kl", type=float, default=None,
         help=(
             "KL 조기종료 문턱. 기본 0.02 인데 lr 3e-5 의 실측 approx_kl 은 "
