@@ -326,6 +326,15 @@ def main(argv: list[str] | None = None) -> int:
         "--oracle", action="store_true",
         help="관측에 정답을 꽂는다. **성과는 전부 가짜다** — 배선 점검 전용.",
     )
+    parser.add_argument(
+        "--kappa", type=float, default=None,
+        help=(
+            "simplex 의 총 집중도 κ (α = softmax(logits)·κ). 안 주면 살아 있는 "
+            "칸 수라 **평균 α = 1** 이 되는데, 그게 log x 가 -14 까지 내려가는 "
+            "병리 구간이다 (gradient_snr 독스트링). 키우면 표본이 평균 둘레로 "
+            "모여 log x 의 분산이 준다."
+        ),
+    )
     args = parser.parse_args(argv)
 
     device = torch.device("cpu")
@@ -369,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         n_portfolio_features=int(obs["portfolio"].shape[-1]),
         n_delay_choices=3,
         concentration_mode=args.concentration_mode,
+        concentration_total=args.kappa,
     )).to(device)
     optimizer = build_optimizer(policy, ppo)
     normalizer = ReturnNormalizer(gamma=ppo.gamma, num_envs=args.envs)
