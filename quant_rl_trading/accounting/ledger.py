@@ -97,6 +97,12 @@ def build_book(
     book = Book()
 
     flows = store.get(CAPITAL_FLOWS, as_of=as_of, lookback=lookback)
+    # **발효 전 입금은 장부에 안 선다.** 게이트는 `observed_at` 만 거르므로
+    # "월요일에 넣겠다" 를 오늘 적으면 그 돈이 오늘 현금으로 잡힌다. 실제로
+    # 그랬다(2026-08-23 · `cumulative_inflow` 주석에 전말). `daily_inflow` 와
+    # 같은 기준으로 자른다 — 세 곳이 같은 표를 다르게 읽으면 반드시 어긋난다.
+    if not flows.empty:
+        flows = flows[flows["valid_from"] <= pd.Timestamp(as_of)]
     trades = store.get(TRADES, as_of=as_of, lookback=lookback)
     dividends = store.get(DIVIDENDS, as_of=as_of, lookback=lookback)
 
@@ -280,6 +286,19 @@ def principal(store: Store, *, as_of: datetime) -> float:
     갈라진 것이 원인이다.
     """
     frame = store.get(CAPITAL_FLOWS, as_of=as_of, entity=ACCOUNT, lookback=None)
+    if frame.empty:
+        return 0.0
+    # **아직 발효되지 않은 입금은 안 센다.** 게이트는 `observed_at` 만 거른다
+    # (불변식 3) — "월요일에 넣겠다" 를 오늘 적어 두면 관측은 오늘이고 발효는
+    # 월요일이다. 그 행을 오늘 원금에 넣으면 아직 오지 않은 돈이 장부에 선다.
+    #
+    # 2026-08-23 실측 사고: shadow 에 8/24 발효 입금 4.902억을 적어 뒀는데
+    # 8/22 NAV 가 그것을 이미 더해 5억이 됐다. 그런데 `daily_inflow` 는
+    # `valid_from` 을 제대로 걸러 inflow 를 0 으로 봤다 — **같은 행을 두 곳이
+    # 다르게 걸러서** TWR 이 (5억-0)/976만-1 = +5022% 를 냈고, 화면의 총
+    # 수익률이 4900% 로 찍혔다. 통화 환산을 한 벌로 모은 것과 같은 이유로
+    # 날짜 기준도 `daily_inflow` 와 같아야 한다.
+    frame = frame[frame["valid_from"] <= pd.Timestamp(as_of)]
     if frame.empty:
         return 0.0
     total = 0.0
