@@ -94,6 +94,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--curriculum", default="C1")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--no-store", action="store_true", help="창고에 안 적는다")
+    parser.add_argument(
+        "--checkpoint-dir", default="data/rl_checkpoints",
+        help=(
+            "정책·옵티마이저를 저장할 곳. **본 학습은 37시간짜리다**(148스텝/초 "
+            "실측 · 20M 스텝). 저장이 없으면 그 시간이 통째로 사라진다 — "
+            "2026-08-23 까지 이 저장소에 `torch.save` 가 한 줄도 없었다."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-every", type=int, default=20,
+        help="몇 업데이트마다 저장할지. WSL2 는 Windows 가 자면 같이 죽는다.",
+    )
+    parser.add_argument(
+        "--resume", default=None,
+        help="이어서 돌릴 체크포인트 경로. 정책·옵티마이저·시작 업데이트를 복원한다.",
+    )
     args = parser.parse_args(argv)
 
     ppo = train_module.train_config()
@@ -150,8 +166,37 @@ def main(argv: list[str] | None = None) -> int:
 
     # 남은 시간 표시용이다. 창고에 들어가는 값이 아니고, 학습 결과에도
     # 관여하지 않는다 (불변식 2).
+    # **체크포인트.** 없으면 37시간짜리 학습이 죽는 순간 통째로 사라진다.
+    checkpoint_dir = Path(args.checkpoint_dir)
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / f"{run_id}.pt"
+    start_index = 1
+    if args.resume:
+        state = torch.load(args.resume, map_location=device, weights_only=False)
+        policy.load_state_dict(state["policy"])
+        optimizer.load_state_dict(state["optimizer"])
+        start_index = int(state["update"]) + 1
+        print(f"이어서 돈다: {args.resume} · 업데이트 {start_index} 부터", flush=True)
+
+    def save_checkpoint(update: int) -> None:
+        """원자적으로 쓴다 — 저장 도중에 죽으면 옛 체크포인트가 남아야 한다."""
+        temporary = checkpoint_path.with_suffix(".pt.tmp")
+        torch.save(
+            {
+                "policy": policy.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "update": update,
+                "run_id": run_id,
+                "ppo": ppo.__dict__,
+                "seed": args.seed,
+                "market": args.market,
+            },
+            temporary,
+        )
+        temporary.replace(checkpoint_path)
+
     started = time.time()  # invariant-allow: wallclock
-    for index in range(1, total_updates + 1):
+    for index in range(start_index, total_updates + 1):
         # 진행도는 선형 감쇠에 쓴다(§4 — 학습률·엔트로피 계수).
         progress = 1.0 - (index - 1) / total_updates
         rollout = train_module.collect(
@@ -174,6 +219,11 @@ def main(argv: list[str] | None = None) -> int:
             f"보상 {log.episode_reward:+.4f} · 남은시간 ~{remain / 60:.0f}분",
             flush=True,
         )
+
+        # **주기적으로 저장한다.** 마지막에 한 번만 쓰면 중간에 죽었을 때
+        # 지금까지 배운 것이 통째로 사라진다 — 아래 창고 기록과 같은 이유다.
+        if index % args.checkpoint_every == 0:
+            save_checkpoint(index)
 
         if not args.no_store:
             # **업데이트마다 쓴다.** 끝에 몰아 쓰면 중간에 죽었을 때 몇 시간이
@@ -208,7 +258,9 @@ def main(argv: list[str] | None = None) -> int:
             )
 
     spent = (time.time() - started) / 60  # invariant-allow: wallclock
-    print(f"완료 — {total_updates}업데이트 · {spent:.1f}분", flush=True)
+    save_checkpoint(total_updates)
+    print(f"완료 — {total_updates}업데이트 · {spent:.1f}분 · 체크포인트 {checkpoint_path}",
+          flush=True)
     return 0
 
 
