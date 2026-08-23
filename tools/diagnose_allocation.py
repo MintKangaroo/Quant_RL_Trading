@@ -327,6 +327,21 @@ def main(argv: list[str] | None = None) -> int:
         help="관측에 정답을 꽂는다. **성과는 전부 가짜다** — 배선 점검 전용.",
     )
     parser.add_argument(
+        "--target-kl", type=float, default=None,
+        help=(
+            "KL 조기종료 문턱. 기본 0.02 인데 lr 3e-5 의 실측 approx_kl 은 "
+            "0.2157 이라(train_config 독스트링 표) **매 업데이트가 1스텝 만에 "
+            "끊길 수 있다.** 크게 주면 사실상 끄고 잰다."
+        ),
+    )
+    parser.add_argument(
+        "--ent-coef", type=float, default=None,
+        help=(
+            "엔트로피 보너스. Dirichlet 엔트로피는 균등에서 최대라 이 항이 "
+            "**비중을 균등으로 되민다.** 0 을 주면 그 힘을 끄고 잰다."
+        ),
+    )
+    parser.add_argument(
         "--kappa", type=float, default=None,
         help=(
             "simplex 의 총 집중도 κ (α = softmax(logits)·κ). 안 주면 살아 있는 "
@@ -343,6 +358,10 @@ def main(argv: list[str] | None = None) -> int:
         train_module.train_config(), num_envs=args.envs, n_steps=128,
         minibatch_size=512, n_epochs=4, lr_policy=3e-5, lr_value=9e-5,
     )
+    if args.target_kl is not None:
+        ppo = replace(ppo, target_kl=args.target_kl)
+    if args.ent_coef is not None:
+        ppo = replace(ppo, ent_coef=args.ent_coef)
     store = Store(root=Path(args.root))
     train_start, train_end = date(2025, 1, 2), date(2026, 6, 30)
     # **학습 설계값은 "지금" 으로 읽는다.** 학습 구간 첫날로 읽으면 오늘 바꾼
