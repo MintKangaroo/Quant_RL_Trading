@@ -245,3 +245,40 @@ def test_에피소드_경계에서_할인리턴을_끊는다() -> None:
         cut([0.01], [index % 10 == 9])
 
     assert cut.rms.var < kept.rms.var
+
+
+def test_선택과_노출의_합은_excess_와_기계정밀도로_같다() -> None:
+    """§8 분해 — 총보상은 안 바뀐다. 한쪽을 빼서 만들기 때문에 정확히 같다."""
+    engine = RewardEngine(params=PARAMS)
+    out = engine.step(
+        portfolio_return=0.013, benchmark_return=0.004, cost=0.001,
+        candidate_mean_return=0.007, invested_share=0.9,
+    )
+    assert out.selection_return + out.exposure_return == out.excess_return
+    # 노출 = invested·r̄ − r_bench = 0.9×0.007 − 0.004
+    assert abs(out.exposure_return - (0.9 * 0.007 - 0.004)) < 1e-15
+
+
+def test_후보수익이_없으면_기존과_동일하다() -> None:
+    """r̄ 을 못 구한 날(가격 결측)은 selection=excess · exposure=0 — 회귀 없음."""
+    engine = RewardEngine(params=PARAMS)
+    out = engine.step(portfolio_return=0.01, benchmark_return=0.002, cost=0.0)
+    assert out.selection_return == out.excess_return
+    assert out.exposure_return == 0.0
+
+
+def test_선택점수는_노출_결정에_무감각하다() -> None:
+    """같은 종목 실력(후보 대비 +50bp)이면 주식을 30% 들든 90% 들든 선택
+    점수가 같아야 한다 — 이것이 성적표를 가른 이유다."""
+    tilt = 0.005          # 후보 평균 대비 내 포트폴리오의 우위 (종목 실력)
+    r_bar = 0.01
+    scores = []
+    for invested in (0.3, 0.9):
+        engine = RewardEngine(params=PARAMS)
+        r_port = invested * (r_bar + tilt)          # 실력이 같고 노출만 다르다
+        out = engine.step(
+            portfolio_return=r_port, benchmark_return=0.0, cost=0.0,
+            candidate_mean_return=r_bar, invested_share=invested,
+        )
+        scores.append(out.selection_return / invested)  # 단위 노출당 선택 점수
+    assert abs(scores[0] - scores[1]) < 1e-12

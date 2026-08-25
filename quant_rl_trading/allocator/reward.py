@@ -107,6 +107,11 @@ class RewardBreakdown:
 
     reward: float
     excess_return: float
+    #: §8 분해 — excess 를 "무엇을 샀나" 와 "얼마나 샀나" 로 가른다.
+    #: **합이 excess 와 기계 정밀도로 같다** (한쪽을 빼서 만들기 때문).
+    #: 후보 수익 정보가 없으면 selection=excess · exposure=0 (기존과 동일).
+    selection_return: float
+    exposure_return: float
     drawdown_penalty: float
     cost: float
     depth: float
@@ -177,15 +182,34 @@ class RewardEngine:
         portfolio_return: float,
         benchmark_return: float,
         cost: float = 0.0,
+        candidate_mean_return: float | None = None,
+        invested_share: float | None = None,
     ) -> RewardBreakdown:
         """``portfolio_return`` 은 `accounting.nav.twr_return` 이 낸 세전 TWR 이다.
 
         ``cost`` 는 **양수로 넘긴다**(0.003 = 30bp). 보상에서는 빼는 항이다.
+
+        ``candidate_mean_return`` 은 그날 후보의 **균등가중 일간수익률**,
+        ``invested_share`` 는 어제 기준 주식 비중이다. 둘 다 오면 excess 를
+        §8 대로 가른다:
+
+            선택 = r_port − invested·r̄     ("비중을 더 준 종목이 나았나")
+            노출 = invested·r̄ − r_bench    ("주식을 얼마나 들고 있었나")
+
+        합은 정의상 excess 와 같다 — **총보상은 안 바뀐다.** 1회차(2026-08-25)
+        실측이 근거다: 섞인 성적표에서 정책이 배운 것은 현금 도망(6.5→13.8%)
+        뿐이었다 (reward-and-risk.md §8).
         """
         params = self.params
         depth, delta = self.drawdown.step(portfolio_return)
 
         excess = portfolio_return - benchmark_return
+        if candidate_mean_return is not None and invested_share is not None:
+            equal_leg = invested_share * candidate_mean_return
+            exposure = equal_leg - benchmark_return
+            selection = excess - exposure   # 한쪽을 빼서 만든다 — 합이 정확히 excess
+        else:
+            selection, exposure = excess, 0.0
         penalty = penalty_weight(depth, params=params) * delta
         reward = excess - penalty - cost
 
@@ -198,6 +222,8 @@ class RewardEngine:
         return RewardBreakdown(
             reward=reward,
             excess_return=excess,
+            selection_return=selection,
+            exposure_return=exposure,
             drawdown_penalty=penalty,
             cost=cost,
             depth=depth,

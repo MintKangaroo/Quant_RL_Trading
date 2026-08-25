@@ -507,6 +507,13 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
 
         # 2. 하루를 넘긴다. 시계는 advance 로만 움직인다 (불변식 2).
         previous_nav = state.nav
+        # §8 선택/노출 분해의 재료 — **어제 시점**의 후보 가격과 주식 비중.
+        # advance 뒤에 읽으면 오늘 가격이라 r̄ 이 0 이 된다.
+        slot_entities = [slot.entity_id for slot in state.slots]
+        previous_prices = self._prices(slot_entities)
+        # 첫 스텝(reset 직후)엔 아직 평가가 없다 — 그날은 노출을 모르는 채로
+        # 분해를 끈다(selection=excess). 하루짜리 공백이고, 지어내지 않는다.
+        previous_valuation = getattr(self, "_last_valuation", None)
         state.cursor += 1
         today = state.sessions[state.cursor]
         self.clock.advance(self._moment(today) - self.as_of)
@@ -526,10 +533,32 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         # 5. 보상. 비용은 **시뮬레이터가 실제로 뺀 값**을 넘긴다 — 여기서 다시
         #    추정하면 장부에서 나간 돈과 배우는 벌점이 갈라진다.
         cost = cost_krw / previous_nav if previous_nav > 0 else 0.0
+        # §8 — 후보 균등가중 일간수익률 r̄ 과 어제의 주식 비중. 미래를 안 본다:
+        # 둘 다 어제 관측(가격·평가)에서 나오고, 오늘 가격은 방금 advance 로
+        # 열린 그날 종가다(체결 평가와 같은 시점).
+        today_prices = self._prices(slot_entities)
+        candidate_returns = [
+            today_prices[e] / previous_prices[e] - 1.0
+            for e in slot_entities
+            if previous_prices.get(e, 0.0) > 0 and today_prices.get(e, 0.0) > 0
+        ]
+        candidate_mean = (
+            sum(candidate_returns) / len(candidate_returns)
+            if candidate_returns else None
+        )
+        invested_share = None
+        if previous_valuation is not None and previous_valuation.nav > 0:
+            cash_total = (
+                previous_valuation.cash_krw
+                + previous_valuation.cash_usd * previous_valuation.fx_rate
+            )
+            invested_share = max(0.0, 1.0 - cash_total / previous_valuation.nav)
         breakdown = state.engine.step(
             portfolio_return=portfolio_return,
             benchmark_return=benchmark_return,
             cost=cost,
+            candidate_mean_return=candidate_mean,
+            invested_share=invested_share,
         )
 
         realized = self._realized_weights(valuation.nav)
@@ -552,6 +581,9 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             "target_weights": targets,
             "action_reflection_rate": reflection,
             "cost": cost,
+            # §8 분해 — 학습 로그가 "선택을 배우나, 노출만 만지나" 를 가른다.
+            "selection_return": breakdown.selection_return,
+            "exposure_return": breakdown.exposure_return,
             "drawdown": breakdown.depth,
             "turnover": turnover,
             # 진단용. 합계만 보면 어디가 틀렸는지 못 찾는다.
