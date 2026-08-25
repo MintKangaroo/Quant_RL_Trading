@@ -39,6 +39,7 @@ from quant_rl_trading.analysts.fundamental import FundamentalAnalyst  # noqa: E4
 from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
 from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
 from quant_rl_trading.analysts.volume import VolumeAnalyst  # noqa: E402
+from quant_rl_trading.selector.constraints import CONSTRAINT_ANALYSTS
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
 from quant_rl_trading.replay.clock import Clock, LiveClock, ReplayClock  # noqa: E402
@@ -118,7 +119,7 @@ def measure(
     sessions: int,
     verbose: bool,
     as_of: datetime | None = None,
-) -> ic.ICResult:
+) -> tuple[pd.DataFrame, pd.DataFrame, ic.ICResult]:
     """``as_of`` 를 주면 **그 시점까지만 알고** 측정한다 — 워크포워드용이다.
 
     백테스트가 진짜 OOS 이려면, 평가 구간에서 쓰는 가중치가 그 구간 데이터를
@@ -143,7 +144,7 @@ def measure(
     analyst = ANALYSTS[name](store, clock, market=market)
     scores = score_sessions(analyst, store, calendar, market, verbose=verbose)
 
-    return ic.evaluate(
+    return scores, targets, ic.evaluate(
         scores,
         targets,
         analyst=analyst.name,
@@ -226,9 +227,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     results = []
+    alpha_scores: dict[str, pd.DataFrame] = {}
+    targets_frame = None
     for name in args.analyst:
         print(f"\n=== {name} ===", flush=True)
-        result = measure(
+        scores, targets_frame, result = measure(
             name,
             store,
             market=market,
@@ -238,6 +241,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(render(result))
         results.append(result)
+        # 한계기여 계산의 재료 — **통과한 알파**만 모은다. 제약 Analyst(risk)는
+        # 합성에 안 들어가므로(selector/constraints.py) 여기서도 뺀다.
+        if result.passed and name not in CONSTRAINT_ANALYSTS:
+            alpha_scores[name] = scores
 
     if args.save:
         # 적재 시각도 측정 시점이다. 지금 시각으로 찍으면 과거 as_of 조회가
@@ -247,6 +254,28 @@ def main(argv: list[str] | None = None) -> int:
             result.row(as_of=now, observed_at=now, source="ic-measure")
             for result in results
         ]
+        # **한계기여 가중** (2026-08-25, ic.marginal_shares 독스트링이 규칙 원본).
+        # 통과 = 자격이고 가중치 = 기여다. 동등 가중은 겹치는 신호(event↔재무)가
+        # 중복 투표하게 한다 — 실측으로 event 의 한계기여가 ~0 이었다.
+        if len(alpha_scores) >= 2 and targets_frame is not None:
+            shares, details = ic.marginal_shares(
+                alpha_scores, targets_frame, t_min=2.0
+            )
+            print("\n[한계기여] 통과 알파의 가중치 — ΔIC(전체−하나뺀것) 기준")
+            for name in sorted(shares):
+                delta, t_value = details[name]
+                print(f"    {name:12s} ΔIC {delta:+.4f} · t {t_value:5.2f} "
+                      f"→ 가중치 {shares[name]:.3f}")
+            if all(value == 1.0 for value in shares.values()) and len(set(
+                    round(d, 6) for d, _ in details.values())) > 1:
+                pass
+            if max(
+                (d for d, t in details.values() if pd.notna(d)), default=0.0
+            ) <= 0.0:
+                print("    ⚠️ 전부 0 — 동등 가중으로 물러섰다(쌍둥이 신호는 LOO 로 안 갈린다)")
+            for row in rows:
+                if row["entity_id"] in shares:
+                    row["weight"] = round(float(shares[row["entity_id"]]), 6)
         written = store.append("analyst_weights", rows, ingest_run_id=run_id)
         print(f"\nanalyst_weights 적재: {written}행")
 

@@ -21,7 +21,7 @@ Analyst 보다 이게 먼저다. 이 단계의 실패 방식은 하나뿐이고 
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -442,6 +442,77 @@ def rolling_confidence(
         return NO_EVIDENCE_CONFIDENCE
     # 여기부터는 **잰 값**이다. 0 이면 증거가 있는 배제다.
     return max(0.0, float(daily.mean()))
+
+
+
+def marginal_shares(
+    scored: "Mapping[str, pd.DataFrame]",
+    targets: pd.DataFrame,
+    *,
+    horizon: int = HORIZON_DAYS,
+    t_min: float = 2.0,
+) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """통과한 알파 Analyst 들의 **한계기여 기반 가중치** (2026-08-25).
+
+    ## 왜
+
+    동등 가중은 겹치는 신호가 **중복 투표**하게 한다. 실측(signal-combination.md):
+    event 는 단일 IC t 7.66 으로 강하지만 fundamental 위 한계기여가 ~0 이다 —
+    기업행위가 재무와 상관되기 때문이다. 동등 가중이면 event 가 재무의 목소리를
+    한 번 더 내고, 그만큼 다른 정보가 희석된다.
+
+    ## 규칙 (사전 등록)
+
+    각 Analyst 의 한계기여 ΔIC = IC(전체 동등결합) − IC(그것만 뺀 결합) 을
+    일별 차이 시계열로 재고 Newey-West t 를 붙인다.
+
+        share_i = ΔIC_i   (ΔIC_i > 0 이고 t_i ≥ t_min 일 때만; 아니면 0)
+        가중치  = share / max(share)          → (0, 1]
+
+    **전부 0 이면 동등 가중으로 물러선다** — 서로 완전한 쌍둥이 신호들은 LOO 로
+    갈라지지 않는다(하나를 빼도 나머지가 대신한다). 그 경우는 오늘과 같은
+    동등 가중이므로 나빠지지 않고, 물러섰다는 사실은 호출자가 크게 적는다.
+
+    돌려주는 둘째 값은 {analyst: (ΔIC, t)} — 결정 근거를 성적표 옆에 남긴다.
+    """
+    names = sorted(scored)
+    if len(names) <= 1:
+        return {name: 1.0 for name in names}, {name: (float("nan"), float("nan")) for name in names}
+
+    # Analyst 마다 세션별 z — 점수 스케일이 서로 달라 그대로 평균하면 큰 쪽이
+    # 다 먹는다. combine 의 실전 경로와 같은 정신이다.
+    z_frames = []
+    for name in names:
+        frame = scored[name].loc[:, ["entity_id", "session", "score"]].copy()
+        frame["z"] = cross_sectional_z(frame, "score")
+        frame["analyst"] = name
+        z_frames.append(frame.dropna(subset=["z"]))
+    stacked = pd.concat(z_frames, ignore_index=True)
+
+    def ic_of(members: Sequence[str]) -> pd.Series:
+        sub = stacked[stacked["analyst"].isin(members)]
+        combined = (
+            sub.groupby(["entity_id", "session"], as_index=False)["z"].mean()
+            .rename(columns={"z": "score"})
+        )
+        merged = combined.merge(targets, on=["entity_id", "session"], how="inner")
+        return daily_ic(merged)
+
+    full = ic_of(names)
+    details: dict[str, tuple[float, float]] = {}
+    shares: dict[str, float] = {}
+    for name in names:
+        loo = ic_of([other for other in names if other != name])
+        diff = (full - loo).dropna()
+        delta = float(diff.mean()) if not diff.empty else float("nan")
+        t_value = newey_west_t(diff, lag=max(horizon - 1, 0))
+        details[name] = (delta, t_value)
+        shares[name] = delta if (np.isfinite(delta) and delta > 0 and np.isfinite(t_value) and t_value >= t_min) else 0.0
+
+    top = max(shares.values())
+    if top <= 0.0:
+        return {name: 1.0 for name in names}, details
+    return {name: value / top for name, value in shares.items()}, details
 
 
 def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int, float]:
