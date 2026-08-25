@@ -427,6 +427,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--c1", action="store_true",
+        help=(
+            "C1 커리큘럼 — 보상 = 선택 점수만·비용 0 (reward-and-risk.md §8). "
+            "총보상은 분해 전과 동일하므로, §8 이 학습에 뜻을 가지려면·"
+            "r 재측정이 뜻을 가지려면 이 모드여야 한다."
+        ),
+    )
+    parser.add_argument(
         "--kappa", type=float, default=None,
         help=(
             "simplex 의 총 집중도 κ (α = softmax(logits)·κ). 안 주면 살아 있는 "
@@ -477,6 +485,7 @@ def main(argv: list[str] | None = None) -> int:
     env = VecLatticeEnv(
         store=store, train_start=train_start, train_end=train_end,
         market=args.market, n_envs=args.envs, oracle_leak=args.oracle,
+        curriculum_c1=args.c1,
         seed=args.seed, params=params, hyper_as_of=run_moment,
     )
     if args.only_oracle:

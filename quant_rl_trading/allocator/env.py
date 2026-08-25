@@ -48,7 +48,7 @@ import logging
 import math
 import warnings
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace, field
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -320,6 +320,7 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         market: str = "KR",
         params: EnvParams | None = None,
         oracle_leak: bool = False,
+        curriculum_c1: bool = False,
         use_cache: bool = True,
         cache_root: Path | None = None,
         #: 학습 설계값(슬롯 수·보상 계수 등)을 읽을 시점. 안 주면 학습 구간
@@ -345,6 +346,11 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         self.store = store
         self.market = Market(market)
         self.oracle_leak = oracle_leak
+        # **C1 커리큘럼** (rl-training.md §6 · reward-and-risk.md §8).
+        # 보상 = 선택 점수(r_port − invested·r̄)만, 비용 0. "무엇을 살까" 를
+        # 먼저 배우게 하는 보조바퀴다 — 1회차는 이 단계를 건너뛰고 전부 켠 채
+        # 돌렸고, 벌점(비용·낙폭)만 또렷해서 정책이 현금으로 도망갔다.
+        self.curriculum_c1 = curriculum_c1
         self.reader = cache_module.build_reader(
             store,
             str(self.market),
@@ -533,6 +539,8 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         # 5. 보상. 비용은 **시뮬레이터가 실제로 뺀 값**을 넘긴다 — 여기서 다시
         #    추정하면 장부에서 나간 돈과 배우는 벌점이 갈라진다.
         cost = cost_krw / previous_nav if previous_nav > 0 else 0.0
+        if self.curriculum_c1:
+            cost = 0.0   # C1: 비용 0 — 행동하면 감점이라는 도망 유인을 치운다
         # §8 — 후보 균등가중 일간수익률 r̄ 과 어제의 주식 비중. 미래를 안 본다:
         # 둘 다 어제 관측(가격·평가)에서 나오고, 오늘 가격은 방금 advance 로
         # 열린 그날 종가다(체결 평가와 같은 시점).
@@ -560,6 +568,13 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             candidate_mean_return=candidate_mean,
             invested_share=invested_share,
         )
+
+        if self.curriculum_c1:
+            # C1 보상 = **선택 점수만**. 낙폭 페널티·노출 항을 빼는 이유:
+            # 지금 가르치는 과목이 "무엇을 살까" 하나이기 때문이다. 총보상
+            # (분해 전과 동일)으로는 §8 분리가 학습에 아무 효과가 없다 —
+            # r 재측정도 이 모드로 해야 뜻이 있다.
+            breakdown = replace(breakdown, reward=breakdown.selection_return)
 
         realized = self._realized_weights(valuation.nav)
         reflection = _reflection_rate(targets, realized)
