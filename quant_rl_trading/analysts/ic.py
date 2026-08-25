@@ -55,6 +55,8 @@ class ICResult:
     sample_rows: int
     threshold: float
     min_sample_days: int
+    #: t 하한 (Newey-West). 0 이면 t 게이트를 끈다 — 옛 행 재현용.
+    t_min: float = 0.0
     fold_ics: tuple[float, ...] = ()
 
     @property
@@ -64,7 +66,16 @@ class ICResult:
         표본 200일 미만에서 나온 IC 0.05 는 우연과 구분되지 않는다. 여기서
         관대해지면 검증되지 않은 Analyst 가 실제 자본을 움직이게 된다.
         """
-        return self.ic >= self.threshold and self.sample_days >= self.min_sample_days
+        if not (self.ic >= self.threshold and self.sample_days >= self.min_sample_days):
+            return False
+        if self.t_min <= 0.0:
+            return True
+        # **크기와 유의성을 둘 다 요구한다** (2026-08-25). 크기 게이트만으로는
+        # 변동성이 큰 잡음이 요행으로 넘는다 — chart 급 std(0.13)면 IC 0.03
+        # 이어도 t≈1.8 이라 이 게이트가 정확히 잡는다. 실측 근거: 통과 3종의
+        # t 는 4.5~7.7, 미통과 최고는 2.04 — 현재 판정은 하나도 안 바뀐다.
+        # nan(표본<3)은 유의성을 잴 수 없으므로 통과가 아니다.
+        return bool(np.isfinite(self.ic_t) and self.ic_t >= self.t_min)
 
     @property
     def weight(self) -> float:
@@ -300,6 +311,7 @@ def evaluate(
     market: str,
     threshold: float,
     min_sample_days: int,
+    t_min: float = 0.0,
     n_splits: int = 5,
     horizon: int = HORIZON_DAYS,
     embargo: int = EMBARGO_DAYS,
@@ -315,7 +327,7 @@ def evaluate(
             analyst=analyst, analyst_version=analyst_version, market=market,
             ic=float("nan"), ic_std=float("nan"), ic_t=float("nan"),
             sample_days=0, sample_rows=0,
-            threshold=threshold, min_sample_days=min_sample_days,
+            threshold=threshold, min_sample_days=min_sample_days, t_min=t_min,
         )
 
     series = daily_ic(merged)
@@ -341,6 +353,7 @@ def evaluate(
         sample_rows=len(merged),
         threshold=threshold,
         min_sample_days=min_sample_days,
+        t_min=t_min,
         fold_ics=tuple(fold_ics),
     )
 
@@ -431,11 +444,12 @@ def rolling_confidence(
     return max(0.0, float(daily.mean()))
 
 
-def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int]:
-    """합격선과 표본 하한. 하드코딩 금지 (불변식 10)."""
+def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int, float]:
+    """합격선·표본 하한·t 하한. 하드코딩 금지 (불변식 10)."""
     return (
         float(store.config("analyst.ic_threshold", as_of=as_of)),
         int(store.config("analyst.ic_min_samples", as_of=as_of)),
+        float(store.config("analyst.ic_t_min", as_of=as_of)),
     )
 
 

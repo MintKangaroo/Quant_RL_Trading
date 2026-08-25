@@ -357,6 +357,11 @@ capital:
 analyst:
   ic_threshold: 0.03         # 이 아래면 가중치 0(관찰 모드)
   ic_min_samples: 200        # 표본이 모자란 IC 는 우연과 구분되지 않는다
+  # 합성점수 IC 의 t(Newey-West) 하한. 크기 게이트(0.03)의 뒷받침이다 —
+  # 변동성이 큰 잡음은 크기를 요행으로 넘는다(chart 급 std 0.13 이면 IC 0.03
+  # 이어도 t≈1.8). 2026-08-25 실측: 통과 3종 t 4.5~7.7 · 미통과 최고 2.04 라
+  # 이 값(2.0)을 걸어도 현재 판정은 하나도 안 바뀐다 — 미래의 요행만 막는다.
+  ic_t_min: 2.0
   ic_rolling_window: 60      # confidence 계산 창
   horizon_days: 5
   retrain_ic_floor: 0.01     # 이하로 떨어지면 재학습

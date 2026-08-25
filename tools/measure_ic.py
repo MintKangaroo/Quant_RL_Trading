@@ -127,7 +127,7 @@ def measure(
     """
     clock: Clock = LiveClock() if as_of is None else ReplayClock(as_of)
     as_of = clock.now()
-    threshold, min_days = ic.thresholds(store, as_of=as_of)
+    threshold, min_days, t_min = ic.thresholds(store, as_of=as_of)
 
     targets = ic.build_targets(
         store, as_of=as_of, lookback=target_span(sessions), market=str(market)
@@ -151,6 +151,7 @@ def measure(
         market=str(market),
         threshold=threshold,
         min_sample_days=min_days,
+        t_min=t_min,
     )
 
 

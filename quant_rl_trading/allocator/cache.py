@@ -598,6 +598,7 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     "allocator.sector_risk_cap",
     # Analyst 가중치가 IC 문턱에서 나온다 — 문턱이 바뀌면 합성점수가 바뀐다.
     "analyst.ic_min_samples",
+    "analyst.ic_t_min",
     "analyst.ic_threshold",
     # 섹션째 읽는다(`accounting/benchmark.py`), 이름을 만들어 읽기도 한다
     # (`session/daily.py` 의 f"benchmark.{market}_index").

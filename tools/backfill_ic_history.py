@@ -332,7 +332,7 @@ def evaluate_all(
                 print(f"  {key} {name:<12} 점수 0행 — 잴 것이 없다", flush=True)
                 continue
             targets = read_work(target_path)
-            threshold, min_days = ic.thresholds(store, as_of=point)
+            threshold, min_days, t_min = ic.thresholds(store, as_of=point)
             result = ic.evaluate(
                 scores,
                 targets,
@@ -341,6 +341,7 @@ def evaluate_all(
                 market=str(market),
                 threshold=threshold,
                 min_sample_days=min_days,
+        t_min=t_min,
             )
             results[key][name] = result
             print(
