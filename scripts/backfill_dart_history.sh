@@ -16,10 +16,11 @@ LOG="logs/backfill-dart-history.log"
 RC=0
 {
     echo "=== $(date '+%F %T') DART 5년 백필 시작 ==="
-    ulimit -v 6000000
+    # ulimit -v 를 걸지 않는다 — 2026-08-23 학습, 2026-08-25 이 스크립트 자신이
+    # 그것 때문에 조용히 죽었다. DuckDB 메모리 상한이 진짜 안전장치다.
     for TABLE in fundamentals-dart documents-dart; do
         echo "--- ${TABLE} ---"
-        QUANT_RL_DUCKDB_MEMORY_LIMIT=800MB QUANT_RL_DUCKDB_THREADS=2 \
+        QUANT_RL_DUCKDB_MEMORY_LIMIT=1500MB QUANT_RL_DUCKDB_THREADS=2 \
             .venv/bin/python -u tools/backfill.py \
             --table "${TABLE}" --market KR --years 5
         rc=$?
