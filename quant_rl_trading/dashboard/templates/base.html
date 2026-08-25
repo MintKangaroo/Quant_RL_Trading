@@ -5,6 +5,29 @@
   <!-- viewport-fit=cover 가 없으면 env(safe-area-inset-*) 가 전부 0 으로
        계산된다 — 아이폰 노치·홈바 아래로 헤더·본문이 그대로 깔린다. -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  {# **임시 진단(2026-08-25).** 폰에서 화면이 검은데 원인을 못 찾고 있다.
+     브라우저 콘솔을 볼 수 없으므로 에러를 서버 접속 로그로 보낸다 — 이미지
+     요청이라 서버 코드가 필요 없고, 404 로 찍히면서 쿼리에 메시지가 남는다.
+     원인을 찾으면 **지운다.** #}
+  <script>
+  (function () {
+    function report(kind, msg, src, line) {
+      try {
+        new Image().src = "/__jserr?k=" + encodeURIComponent(kind)
+          + "&m=" + encodeURIComponent(String(msg).slice(0, 300))
+          + "&s=" + encodeURIComponent(String(src || "").slice(0, 120))
+          + "&l=" + encodeURIComponent(line || "");
+      } catch (e) { /* 진단이 화면을 죽이면 안 된다 */ }
+    }
+    window.addEventListener("error", function (e) {
+      report("error", e.message, e.filename, e.lineno);
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      report("reject", (e.reason && (e.reason.stack || e.reason.message)) || e.reason, "", "");
+    });
+    new Image().src = "/__jserr?k=boot";   // JS 가 아예 도는지부터 본다
+  })();
+  </script>
   <title>{% block title %}Quant_RL_Trading{% endblock %}</title>
   {# **바깥 인터넷에 기대지 않는다.** 이 화면은 폰이 Tailscale 로 붙어서 보는
      것이라, 외부 주소가 안 뚫리는 경로가 실제로 있다. 웹폰트는 렌더링을
@@ -31,6 +54,15 @@
   <script defer src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 </head>
 <body>
+<noscript>
+  {# JS 가 꺼진 브라우저에는 다크 배경만 그려져 **검은 빈 화면**이 된다.
+     2026-08-25 에 폰이 정확히 그 상태였는데 화면에 아무 말이 없어 서버·
+     네트워크를 이틀 팠다. 상태를 문장으로 만든다. #}
+  <div style="padding:24px;color:#fff;background:#7f1d1d;font-size:16px;line-height:1.6">
+    <strong>JavaScript 가 꺼져 있다.</strong> 이 화면은 전부 JS 로 그려진다 —
+    설정 → Safari → 고급 → JavaScript, 또는 잠금 모드(Lockdown)를 확인할 것.
+  </div>
+</noscript>
 {% block body %}{% endblock %}
 <script>
 /* 하단 탭 바(모바일 전용) — 상단 nav.tabs(_scope.html) 를 그대로 소스로
