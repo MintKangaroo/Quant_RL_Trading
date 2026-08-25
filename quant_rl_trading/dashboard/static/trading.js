@@ -979,45 +979,6 @@ function renderPositionsPie(body) {
 
 /* -- 진입 ----------------------------------------------------------------- */
 
-/** 증권사 계좌 실조회 — **장부가 아니다.**
- *
- * KPI 는 장부에서 온다(불변식 5). 이 카드는 계좌가 말하는 값을 그대로 놓아
- * 둘이 어긋났을 때 사람이 볼 수 있게 한다 — 2026-08-23 에 shadow 장부가 아직
- * 안 들어온 입금 4.9억을 세어 총 수익률이 4900% 로 찍혔는데 대조할 것이 없었다.
- *
- * **KPI 와 따로 늦게 부른다.** 외부 호출이라 느리고, 이것 때문에 화면 전체가
- * 늦어지면 안 된다. 실패해도 카드 하나만 "조회 불가" 가 된다.
- */
-async function loadAccount() {
-  const host = document.getElementById("broker-account");
-  if (!host) return;
-  let body;
-  try {
-    body = await fetchJson("trading/account");
-  } catch (err) {
-    host.innerHTML = `<p class="empty">계좌 조회 실패 — 장부 값만 보고 있다.</p>`;
-    return;
-  }
-  const d = body.data;
-  if (!d || !d.available) {
-    host.innerHTML =
-      `<p class="empty">계좌 조회 불가 (${d ? d.mode : "?"}) — 장부 값만 보고 있다.</p>`;
-    return;
-  }
-  const won = (v) => (v === null || v === undefined ? "—" : Math.round(v).toLocaleString("ko-KR"));
-  const modeLabel = d.mode === "real" ? "실전계좌" : "모의계좌";
-  host.innerHTML = `
-    <div class="account-grid">
-      <div><span>총자산</span><strong>${won(d.net_asset)}</strong></div>
-      <div><span>예수금</span><strong>${won(d.cash)}</strong></div>
-      <div><span>평가금액</span><strong>${won(d.equity)}</strong></div>
-      <div><span>평가손익</span><strong>${won(d.unrealized)}</strong></div>
-      <div><span>보유</span><strong>${d.positions}종목</strong></div>
-      <div><span>계좌</span><strong>${modeLabel}</strong></div>
-    </div>
-    <p class="hint">증권사 실조회(t0424) · 위 KPI 는 장부값이라 다를 수 있다</p>`;
-}
-
 async function loadTrading() {
   const entity = currentEntity();
   const body = await fetchJson(`trading${entity ? "?entity=" + encodeURIComponent(entity) : ""}`);
@@ -1048,7 +1009,6 @@ async function loadTrading() {
   if (equitySub) equitySub.textContent = `${body.data.equity.sessions.length}세션`;
 
   renderKpis(body);
-  loadAccount();  // 외부 호출 — 기다리지 않는다
   renderAlerts(body);
   renderWatchlist(body);
   renderDecision(body);
