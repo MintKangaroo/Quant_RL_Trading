@@ -30,11 +30,19 @@ OTHER_CHART_LIBRARIES = (
 )
 
 
+#: 우리가 쓴 코드가 아니라 통째로 받아 둔 라이브러리. 폰에서 CDN 이 안 열려
+#: ECharts 를 로컬로 옮겼는데(2026-08-25), 축소판 안의 저장소 주소 주석까지
+#: "외부 출처" 로 세면 벤더링 자체가 불가능해진다. **런타임에 fetch 하는
+#: 코드가 아니라 문자열이다** — 진짜 외부 로드는 html 의 src= 가 잡는다.
+VENDORED = ("echarts.min.js",)
+
+
 def asset_files() -> list[Path]:
     return sorted(
         path
         for pattern in ("*.js", "*.css", "*.html")
         for path in DASHBOARD.rglob(pattern)
+        if path.name not in VENDORED
     )
 
 

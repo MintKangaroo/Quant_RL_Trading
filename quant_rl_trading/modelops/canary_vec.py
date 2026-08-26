@@ -93,7 +93,11 @@ class VecLatticeEnv:
         use_cache: bool = True,
         cache_root: Path | None = None,
         params: EnvParams | None = None,
-        cache_pool: int = 512,
+        #: 학습 구간 전체 세션 수보다 커야 한다. 512 인 채로 2022~26 구간
+        #: (930세션+이월)을 돌리자 창이 서로를 밀어내 **매 스텝이 파일 파싱**
+        #: 이 됐다 — 스텝 5.9ms → 91ms, 33시간짜리가 12일이 된다(2026-08-26
+        #: 실측). 세션 하나 수백 KB 라 1,280개를 다 들어도 램 2GB 안쪽이다.
+        cache_pool: int = 1280,
         seed: int = 0,
         #: 학습 설계값을 읽을 시점. 안 주면 학습 구간 첫날이라 오늘 바꾼
         #: 설정을 못 본다 (`EnvParams.from_store` 독스트링).

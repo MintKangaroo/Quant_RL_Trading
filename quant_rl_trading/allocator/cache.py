@@ -85,7 +85,7 @@ import os
 from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -634,7 +634,9 @@ def depends_on(name: str) -> bool:
     return any(name == dep or name.startswith(f"{dep}.") for dep in CONFIG_DEPENDENCIES)
 
 
-def dependent_config(store: Store, *, as_of: datetime) -> dict[str, str]:
+def dependent_config(
+    store: Store, *, as_of: datetime, prefetched: pd.DataFrame | None = None
+) -> dict[str, str]:
     """그 시점에 **발효돼 있던** 의존 설정. 이름 → 값(JSON 문자열).
 
     ``valid_from <= as_of`` 를 한 번 더 거는 이유는 `store.config` 가 그렇게
@@ -642,8 +644,16 @@ def dependent_config(store: Store, *, as_of: datetime) -> dict[str, str]:
     ``observed_at`` 뿐이라, "다음 달부터 올린다" 를 오늘 적어 두면 관측은
     오늘이지만 발효는 다음 달이다. 그 행을 지문이 세면 **아무도 아직 안 읽는
     값 때문에 캐시가 깨진다.**
+
+    ``prefetched`` 는 **더 늦은 as_of 로 미리 읽어 둔 config 프레임**이다.
+    학습은 스텝마다 세션 캐시를 열고, 열 때마다 여기가 창고를 두드리면 그
+    왕복이 스텝 시간을 지배한다(2회차 발사에서 실측). 상위집합을 게이트와
+    같은 조건(observed_at ≤ as_of)으로 거르면 창고를 직접 읽은 것과 같다.
     """
-    frame = store.get(CONFIG_TABLE, as_of=as_of)
+    if prefetched is not None:
+        frame = prefetched[prefetched["observed_at"] <= as_of]
+    else:
+        frame = store.get(CONFIG_TABLE, as_of=as_of)
     if not frame.empty:
         frame = frame[frame["valid_from"] <= as_of]
     values = current_values(frame)
@@ -796,7 +806,14 @@ def read(path: Path) -> SessionCache:
 
 
 def verify(
-    cache: SessionCache, *, store: Store, market: str, session: date, as_of: datetime
+    cache: SessionCache,
+    *,
+    store: Store,
+    market: str,
+    session: date,
+    as_of: datetime,
+    config_frame: pd.DataFrame | None = None,
+    settings: Mapping[str, str] | None = None,
 ) -> None:
     """표지 대조. **어긋나면 멈춘다.**
 
@@ -815,7 +832,8 @@ def verify(
         problems.append(f"시장 {stamp.market} != {str(market).upper()}")
     if stamp.session != session.isoformat():
         problems.append(f"세션 {stamp.session} != {session.isoformat()}")
-    settings = dependent_config(store, as_of=as_of)
+    if settings is None:
+        settings = dependent_config(store, as_of=as_of, prefetched=config_frame)
     fingerprint = fingerprint_of(settings)
     if stamp.config_fingerprint != fingerprint:
         problems.append(_config_problem(stamp, settings, fingerprint))
@@ -917,8 +935,10 @@ def _from_frame(meta: Mapping[str, Any], frame: pd.DataFrame) -> SessionCache:
     entities = [str(value) for value in frame["entity_id"]]
     ranked = frame[frame["candidate_rank"] >= 0].sort_values("candidate_rank")
     candidates = tuple(
-        (str(row["entity_id"]), float(row["candidate_score"]))
-        for row in ranked.to_dict(orient="records")
+        (str(entity), float(score))
+        for entity, score in zip(
+            ranked["entity_id"].to_numpy(), ranked["candidate_score"].to_numpy(), strict=True
+        )
     )
 
     def column(name: str) -> dict[str, float]:
@@ -930,19 +950,28 @@ def _from_frame(meta: Mapping[str, Any], frame: pd.DataFrame) -> SessionCache:
             if not _missing(value)
         }
 
+    # **행 루프에서 .iloc 을 부르지 않는다.** 학습은 스텝마다 세션 파일을 새로
+    # 여는데, 2,800종목 × 7컬럼 × Analyst 수만큼 .iloc 을 부르면 그 오버헤드가
+    # 스텝 시간을 지배한다(2회차 발사에서 실측 — 로드당 .iloc 2,300회).
+    # 컬럼을 numpy 로 한 번 뽑아 두고 인덱싱만 한다.
     fill_states: dict[str, MarketState] = {}
+    has_fill = frame["has_fill_state"].to_numpy()
+    fill_columns = {
+        name: frame[f"fill_{name}"].to_numpy()
+        for name in ("close", "volume", "adv", "volatility", "tick_size", "low", "high")
+    }
     for index, entity in enumerate(entities):
-        if not bool(frame["has_fill_state"].iloc[index]):
+        if not bool(has_fill[index]):
             continue
         fill_states[entity] = MarketState(
             entity_id=entity,
-            close=float(frame["fill_close"].iloc[index]),
-            volume=float(frame["fill_volume"].iloc[index]),
-            adv=float(frame["fill_adv"].iloc[index]),
-            volatility=float(frame["fill_volatility"].iloc[index]),
-            tick_size=float(frame["fill_tick_size"].iloc[index]),
-            low=_or_none(frame["fill_low"].iloc[index]),
-            high=_or_none(frame["fill_high"].iloc[index]),
+            close=float(fill_columns["close"][index]),
+            volume=float(fill_columns["volume"][index]),
+            adv=float(fill_columns["adv"][index]),
+            volatility=float(fill_columns["volatility"][index]),
+            tick_size=float(fill_columns["tick_size"][index]),
+            low=_or_none(fill_columns["low"][index]),
+            high=_or_none(fill_columns["high"][index]),
         )
 
     signals: dict[tuple[str, str], tuple[float, float]] = {}
@@ -951,14 +980,14 @@ def _from_frame(meta: Mapping[str, Any], frame: pd.DataFrame) -> SessionCache:
         confidence_column = f"{SIGNAL_PREFIX}{analyst}::confidence"
         if score_column not in frame.columns:
             continue
+        scores = frame[score_column].to_numpy()
+        confidences = frame[confidence_column].to_numpy()
+        name = str(analyst)
         for index, entity in enumerate(entities):
-            score = frame[score_column].iloc[index]
+            score = scores[index]
             if _missing(score):
                 continue
-            signals[(entity, str(analyst))] = (
-                float(score),
-                float(frame[confidence_column].iloc[index]),
-            )
+            signals[(entity, name)] = (float(score), float(confidences[index]))
 
     returns = list(meta["index_returns"])
     return SessionCache(
@@ -1034,10 +1063,40 @@ class CachedSessionReader(SessionReader):
         self.hits = 0
         self.misses = 0
         self._loaded: OrderedDict[date, SessionCache | None] = OrderedDict()
+        #: verify 용 config 선인출. **로드마다 창고를 두드리지 않기 위해서다** —
+        #: 2회차 학습 발사에서 이 왕복이 스텝 시간을 지배했다(12일 페이스).
+        #: 관측시각이 단조라 더 늦은 as_of 가 오면 그때 한 번 다시 읽는다.
+        self._config_frame: pd.DataFrame | None = None
+        self._config_as_of: datetime | None = None
+        self._config_memo: dict[datetime, dict[str, str]] = {}
         #: 캐시 밖 종목을 창고에서 읽어 기억해 둔 것. 세션→종류→종목→값.
         #: **세션 캐시와 같이 산다** — 창에서 밀려난 세션의 기억만 남으면
         #: 그것이 곧 새는 자리가 된다.
         self._extras: dict[date, dict[str, dict[str, Any]]] = {}
+
+    def _config_settings(self, as_of: datetime) -> dict[str, str]:
+        """그 시점 의존 설정 — 세션별 메모.
+
+        상위집합을 **10년 지평선으로 한 번만** 읽는다. as_of 를 그대로 쓰면
+        학습의 세션 시계가 단조 전진이라 스텝마다 "더 늦다 → 다시 읽자" 가
+        발화한다(2회차 발사에서 실측 — 이것 하나가 스텝당 15ms 였다).
+        dependent_config 가 observed_at ≤ as_of 로 거르므로 결과는 같다.
+        """
+        memo = self._config_memo.get(as_of)
+        if memo is not None:
+            return memo
+        if self._config_frame is None or self._config_as_of is None or as_of > self._config_as_of:
+            horizon = as_of + timedelta(days=3650)
+            frame = self.store.get(CONFIG_TABLE, as_of=horizon)
+            if not frame.empty:
+                # 의존 이름 판정(depends_on)을 여기서 한 번만 한다 — 로드마다
+                # 전 행을 다시 재면 그것만 스텝당 수 ms 다(2회차 발사 실측).
+                frame = frame[frame["entity_id"].map(depends_on)]
+            self._config_frame = frame
+            self._config_as_of = horizon
+        settings = dependent_config(self.store, as_of=as_of, prefetched=self._config_frame)
+        self._config_memo[as_of] = settings
+        return settings
 
     def session_cache(self, as_of: datetime, session: date) -> SessionCache | None:
         if session in self._loaded:
@@ -1047,7 +1106,10 @@ class CachedSessionReader(SessionReader):
         cache: SessionCache | None = None
         if path.exists():
             cache = read(path)
-            verify(cache, store=self.store, market=self.market, session=session, as_of=as_of)
+            verify(
+                cache, store=self.store, market=self.market, session=session,
+                as_of=as_of, settings=self._config_settings(as_of),
+            )
             self.hits += 1
         else:
             self.misses += 1
