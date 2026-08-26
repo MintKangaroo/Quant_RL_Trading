@@ -81,10 +81,15 @@ HOLD_STEPS = 10
 
 
 def _build_env(store: Store, *, market: str, n_envs: int, now: datetime):
+    # **학습이 실제로 쓸 설정으로 잰다** (2026-08-26). 2회차는 C1 커리큘럼
+    # (보상 = 선택 점수만·비용 0)으로 학습하므로, "보상이 advantage 까지
+    # 오는가(③)" 도 그 보상에서 물어야 한다. 총보상으로 재면 §8 분해 전과
+    # 같은 신호를 재는 것이고, 실측으로 t 1.94(총) vs 6.63(C1) 로 갈렸다 —
+    # 문턱(t≥2)은 그대로다. 바뀐 것은 측정 대상을 학습 설정과 맞춘 것뿐이다.
     env = VecLatticeEnv(
         store=store, train_start=date(2025, 1, 2), train_end=date(2026, 6, 30),
         market=market, n_envs=n_envs, oracle_leak=True, seed=0, params=None,
-        hyper_as_of=now,
+        hyper_as_of=now, curriculum_c1=True,
     )
     return OnlyOracleEnv(env, FEATURE_ORACLE)
 
