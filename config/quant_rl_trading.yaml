@@ -546,3 +546,13 @@ system:
   job_stale_warn_hours: 30   # 크론은 평일 오후에 돈다. 주말·공휴일 여유를 둔다
   table_stale_warn_days: 3   # 최근 파티션이 이보다 오래되면 경고
   cache_lookback_days: 30    # LLM 캐시 적재 현황을 보는 창
+
+research:
+  # 자기개선 안전장치 (self-improvement.md §1). 시행 예산 없는 탐색은
+  # 자기기만이다 — 분기 예산을 소진하면 다음 분기까지 탐색을 멈춘다.
+  trial_budget_quarter: 200
+  holdout:
+    # 홀드아웃 금고 시작일. "최근 12개월" 을 소급 지정할 수는 없다 —
+    # 2026-06-30 까지는 이미 학습·IC·진화가 봤다. 아직 어떤 탐색도 안 본
+    # 2026-07-01 이후가 유일하게 정직한 금고다. 시간이 지나며 자라난다.
+    start: "2026-07-01"

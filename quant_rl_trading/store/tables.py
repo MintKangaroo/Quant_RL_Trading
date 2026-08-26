@@ -473,6 +473,52 @@ _SPECS: dict[str, TableSpec] = {
             "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
         ),
     ),
+    # -- 자기개선 안전장치 (self-improvement.md §1) ---------------------------
+    "research_trials": TableSpec(
+        name="research_trials",
+        columns={
+            "market": pa.string(),
+            # 가설 계열: ic-analyst / ic-feature / evolution / rl-config /
+            # canary / manual / … 계열별로 나눠 적지만 **카운터는 전부 합친다**
+            # — 실험별로 리셋하지 않는 것이 이 표의 존재 이유다.
+            "family": pa.string(),
+            # 이 행이 대표하는 시행 수. 소급 집계는 계열당 한 행(배치)으로
+            # 적는다 — 낱개 재구성은 불가능하고, 총합만 맞으면 DSR 은 성립한다.
+            "n_trials": pa.int32(),
+            # 사전등록 파일(sha256 16자리). 소급분·미등록 시행은 빈 문자열 —
+            # 그 자체가 "등록 없이 돌았다" 는 기록이다.
+            "protocol_hash": pa.string(),
+            "detail": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from"),
+        # entity_id 가 종목이 아니라 **시행 묶음 이름**이다(rl_updates 와 같은 사정).
+        market_prefixed_entity=False,
+        doc=(
+            "가설 검정 시행 대장. 1행 = 시행 묶음, 누적합 = Deflated Sharpe 의 N. "
+            "같은 5년 데이터에 가설을 몇 번 두드렸는지를 실험 종류와 무관하게 "
+            "하나로 센다 — 시행 예산 없는 자기개선은 자기기만이다"
+            "(self-improvement.md §0). 리셋도 삭제도 없다."
+        ),
+    ),
+    "holdout_access": TableSpec(
+        name="holdout_access",
+        columns={
+            "market": pa.string(),
+            # 왜 열었나: promotion-review(승격 심사) 외의 값은 원칙 위반이다.
+            "reason": pa.string(),
+            # 열람한 구간. 연 뒤에는 그 구간이 탐색 데이터로 강등된다.
+            "window_start": pa.string(),
+            "window_end": pa.string(),
+            "detail": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from"),
+        market_prefixed_entity=False,
+        doc=(
+            "홀드아웃 금고 개봉 이력. 1행 = 개봉 1회. 0행이 정상 상태다. "
+            "금고는 승격 심사 때 딱 한 번 열고, 열면 소진으로 간주한다"
+            "(self-improvement.md §1①). 학습 탭이 이 표를 그대로 보여준다."
+        ),
+    ),
     "analyst_failures": TableSpec(
         name="analyst_failures",
         columns={

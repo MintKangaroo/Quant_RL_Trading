@@ -101,6 +101,7 @@ Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 | `docs/design/reporting.md` | 리포트 3종, 이메일 제약 |
 | `docs/design/dashboard.md` | 3탭 화면 명세, 밀도 규칙, API 규약 |
 | `docs/design/config.md` | 모든 임계치의 단일 소스 (config/quant_rl_trading.yaml) |
+| `docs/design/self-improvement.md` | 자기개선 루프 — 홀드아웃 금고, 사전등록, 시행 예산, DSR |
 | `docs/design/ls-api.md` | LS API 제약 확인 목록 |
 | `docs/milestones.md` | M1~M5, 완료 기준, 중단 기준 |
 | `START-HERE.md` | 전체 실행 순서, 부트스트랩 프롬프트 |

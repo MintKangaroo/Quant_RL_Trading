@@ -222,11 +222,59 @@ def walk_forward_comparison(store: Store, *, as_of: datetime, lookback: int) -> 
     }
 
 
+def research_ledger(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """자기개선 시행 대장 — self-improvement.md §7.
+
+    자기개선을 켜면 누적 시행 횟수가 성과 지표만큼 중요해진다. 예산은
+    ``store.config`` 에서 읽고(불변식 10), DSR 은 nav_daily 의 일별 수익률로
+    계산한다 — 표본이 30일 미만이면 숫자를 지어내지 않고 없다고 말한다.
+    승격 비율·사후 성과는 승격 파이프라인이 아직 없어 **집계 대상이 0건**이다
+    — 0 으로 그리지 않고 없다고 말한다 (training_runs 와 같은 이유).
+    """
+    from quant_rl_trading.modelops import trials as trials_module
+
+    total = trials_module.cumulative_trials(store, as_of=as_of)
+    families = trials_module.trials_by_family(store, as_of=as_of)
+    quarter_used = trials_module.quarter_trials(store, as_of=as_of)
+    budget = int(store.config("research.trial_budget_quarter", as_of=as_of))
+
+    vault = store.get(trials_module.HOLDOUT_TABLE, as_of=as_of)
+    openings = []
+    if not vault.empty:
+        for _, row in vault.sort_values("valid_from").iterrows():
+            openings.append({
+                "opened_at": str(row["valid_from"]),
+                "reason": str(row.get("reason") or ""),
+                "window": f"{row.get('window_start') or ''}~{row.get('window_end') or ''}",
+                "detail": str(row.get("detail") or ""),
+            })
+
+    dsr: dict[str, float] | None = None
+    nav = store.get("nav_daily", as_of=as_of, lookback=max(lookback, 400))
+    if not nav.empty and "twr_return" in nav.columns:
+        returns = nav.sort_values("valid_from")["twr_return"].dropna()
+        dsr = trials_module.deflated_sharpe(returns.to_numpy(), n_trials=max(total, 1))
+
+    return {
+        "cumulative_trials": total,
+        "families": families,
+        "quarter_used": quarter_used,
+        "quarter_budget": budget,
+        "holdout_start": str(store.config("research.holdout.start", as_of=as_of)),
+        "holdout_openings": openings,
+        "dsr": dsr,
+        "nav_sample_days": int(nav["twr_return"].notna().sum()) if not nav.empty else 0,
+        # 승격 파이프라인 산출물. 표가 생기면 여기서 집계한다 — 그때까지 null.
+        "promotion": None,
+    }
+
+
 __all__ = [
     "M4_WIDGETS",
     "WALK_FORWARD_2026_01_02",
     "analyst_gate",
     "ic_history",
     "m4_status",
+    "research_ledger",
     "walk_forward_comparison",
 ]

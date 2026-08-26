@@ -301,4 +301,52 @@ async function renderWalkForward() {
     <tbody>${rows.join("")}</tbody></table>`;
 }
 
-runAll([renderKpis, renderM4Placeholders, renderGate, renderIcHistory, renderWalkForward]);
+async function renderResearchLedger() {
+  const { data } = await fetchJson("learning/research-ledger");
+  const target = document.getElementById("research-ledger");
+  if (!target) return;
+
+  const fam = Object.entries(data.families || {})
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, n]) => `${name} ${n}`)
+    .join(" · ");
+  const budgetPct = data.quarter_budget
+    ? Math.round((data.quarter_used / data.quarter_budget) * 100)
+    : 0;
+  const budgetClass = budgetPct >= 100 ? "weak" : "";
+
+  // DSR — 표본이 모자라면 숫자를 지어내지 않는다 (불변식 3 의 화면판).
+  let dsrCell;
+  if (data.dsr) {
+    const pct = (data.dsr.dsr * 100).toFixed(1);
+    const cls = data.dsr.dsr >= 0.95 ? "good" : "weak";
+    dsrCell = `<span class="${cls}">${pct}%</span>
+      <span class="kpi-note">일별 샤프 ${data.dsr.sharpe.toFixed(3)} vs 시행 ${data.cumulative_trials}회 운의 상한 ${data.dsr.expected_max.toFixed(3)} · 표본 ${data.dsr.sample_days}일</span>`;
+  } else {
+    dsrCell = `<span class="kpi-note">표본 부족 — NAV ${data.nav_sample_days}일 (30일 필요). 시간이 유일한 진짜 신규 데이터다</span>`;
+  }
+
+  const openings = (data.holdout_openings || []).length
+    ? data.holdout_openings
+        .map((o) => `${o.opened_at.slice(0, 10)} · ${o.reason} · ${o.window}`)
+        .join("<br>")
+    : `<span class="kpi-note">개봉 이력 없음 — 정상 상태다. 금고 시작 ${data.holdout_start}</span>`;
+
+  target.innerHTML = `<table>
+    <tbody>
+      <tr><th>누적 시행</th>
+        <td class="num"><strong>${data.cumulative_trials}</strong></td>
+        <td><span class="kpi-note">${fam}</span></td></tr>
+      <tr><th>분기 예산</th>
+        <td class="num ${budgetClass}">${data.quarter_used} / ${data.quarter_budget}</td>
+        <td><span class="kpi-note">${budgetPct}% 소진 — 다 쓰면 다음 분기까지 탐색을 멈춘다</span></td></tr>
+      <tr><th>Deflated Sharpe</th>
+        <td colspan="2">${dsrCell}</td></tr>
+      <tr><th>홀드아웃 금고</th>
+        <td colspan="2">${openings}</td></tr>
+      <tr><th>승격 성적표</th>
+        <td colspan="2"><span class="kpi-note">승격 파이프라인 미가동 — 제안·승격이 생기면 비율과 사후 성과가 여기 쌓인다</span></td></tr>
+    </tbody></table>`;
+}
+
+runAll([renderKpis, renderM4Placeholders, renderGate, renderIcHistory, renderWalkForward, renderResearchLedger]);

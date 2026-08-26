@@ -53,6 +53,16 @@ def training_runs() -> Any:
     )
 
 
+@bp.get("/research-ledger")
+def research_ledger() -> Any:
+    """자기개선 시행 대장 (self-improvement.md §7) — 누적 시행·예산·금고·DSR."""
+    current = scope()
+    return envelope(
+        current,
+        service.research_ledger(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.get("/walk-forward")
 def walk_forward() -> Any:
     current = scope()

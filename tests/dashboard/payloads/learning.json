@@ -1,679 +1,714 @@
 {
-  "learning/gate": {
-    "as_of": "2026-08-19T05:42:41.892456+00:00",
-    "data": {
-      "active": [
-        "event",
-        "fundamental",
-        "risk"
-      ],
-      "active_count": 3,
-      "active_weight": 3.0,
-      "measured_count": 6,
-      "roster": [
-        {
-          "analyst": "chart",
-          "ic": -0.002945259993838891,
-          "ic_threshold": 0.03,
-          "market": "KR",
-          "measured": true,
-          "measured_at": "2026-08-18T16:00:00+09:00",
-          "note": "가격·거래량",
-          "passed": false,
-          "sample_days": 300,
-          "version": "chart-v0.1.0",
-          "weight": 0.0
-        },
-        {
-          "analyst": "event",
-          "ic": 0.039577637766496566,
-          "ic_threshold": 0.03,
-          "market": "KR",
-          "measured": true,
-          "measured_at": "2026-08-18T16:00:00+09:00",
-          "note": "달력",
-          "passed": true,
-          "sample_days": 300,
-          "version": "event-v0.1.0",
-          "weight": 1.0
-        },
-        {
-          "analyst": "flow_kr",
-          "ic": -0.006048306279360512,
-          "ic_threshold": 0.03,
-          "market": "KR",
-          "measured": true,
-          "measured_at": "2026-08-18T16:00:00+09:00",
-          "note": "투자자별 수급 (LS t1717)",
-          "passed": false,
-          "sample_days": 300,
-          "version": "flow_kr-v0.1.0",
-          "weight": 0.0
-        },
-        {
-          "analyst": "flow_us",
-          "ic": null,
-          "market": null,
-          "measured": false,
-          "measured_at": null,
-          "note": "미장 수급 — 데이터 없음",
-          "passed": null,
-          "sample_days": null,
-          "version": null,
-          "weight": 0.0
-        },
-        {
-          "analyst": "fundamental",
-          "ic": 0.07183993292642268,
-          "ic_threshold": 0.03,
-          "market": "KR",
-          "measured": true,
-          "measured_at": "2026-08-18T16:00:00+09:00",
-          "note": "DART 재무",
-          "passed": true,
-          "sample_days": 300,
-          "version": "fundamental-v0.2.0",
-          "weight": 1.0
-        },
-        {
-          "analyst": "news",
-          "ic": null,
-          "market": null,
-          "measured": false,
-          "measured_at": null,
-          "note": "공시·뉴스 필터 (Verdict)",
-          "passed": null,
-          "sample_days": null,
-          "version": null,
-          "weight": 0.0
-        },
-        {
-          "analyst": "regime",
-          "ic": -0.021686200189761324,
-          "ic_threshold": 0.03,
-          "market": "KR",
-          "measured": true,
-          "measured_at": "2026-08-18T16:00:00+09:00",
-          "note": "지수·변동성",
-          "passed": false,
-          "sample_days": 300,
-          "version": "regime-v0.1.0",
-          "weight": 0.0
-        },
-        {
-          "analyst": "risk",
-          "ic": 0.07431329697236028,
-          "ic_threshold": 0.03,
-          "market": "KR",
-          "measured": true,
-          "measured_at": "2026-08-18T16:00:00+09:00",
-          "note": "상관·변동성·유동성",
-          "passed": true,
-          "sample_days": 300,
-          "version": "risk-v0.1.0",
-          "weight": 1.0
-        },
-        {
-          "analyst": "sns",
-          "ic": null,
-          "market": null,
-          "measured": false,
-          "measured_at": null,
-          "note": "펌핑 탐지 (Verdict)",
-          "passed": null,
-          "sample_days": null,
-          "version": null,
-          "weight": 0.0
-        }
-      ],
-      "total": 9
+ "learning/gate": {
+  "as_of": "2026-08-19T05:42:41.892456+00:00",
+  "data": {
+   "active": [
+    "event",
+    "fundamental",
+    "risk"
+   ],
+   "active_count": 3,
+   "active_weight": 3.0,
+   "measured_count": 6,
+   "roster": [
+    {
+     "analyst": "chart",
+     "ic": -0.002945259993838891,
+     "ic_threshold": 0.03,
+     "market": "KR",
+     "measured": true,
+     "measured_at": "2026-08-18T16:00:00+09:00",
+     "note": "가격·거래량",
+     "passed": false,
+     "sample_days": 300,
+     "version": "chart-v0.1.0",
+     "weight": 0.0
     },
-    "live": true,
-    "lookback_days": 90,
-    "thresholds": {
-      "coverage_warn": 0.98,
-      "default_lookback_days": 90,
-      "failure_rows": 50,
-      "latency_p90_warn_ms": 300000,
-      "max_lookback_days": 400,
-      "missing_warn": 0.01
+    {
+     "analyst": "event",
+     "ic": 0.039577637766496566,
+     "ic_threshold": 0.03,
+     "market": "KR",
+     "measured": true,
+     "measured_at": "2026-08-18T16:00:00+09:00",
+     "note": "달력",
+     "passed": true,
+     "sample_days": 300,
+     "version": "event-v0.1.0",
+     "weight": 1.0
+    },
+    {
+     "analyst": "flow_kr",
+     "ic": -0.006048306279360512,
+     "ic_threshold": 0.03,
+     "market": "KR",
+     "measured": true,
+     "measured_at": "2026-08-18T16:00:00+09:00",
+     "note": "투자자별 수급 (LS t1717)",
+     "passed": false,
+     "sample_days": 300,
+     "version": "flow_kr-v0.1.0",
+     "weight": 0.0
+    },
+    {
+     "analyst": "flow_us",
+     "ic": null,
+     "market": null,
+     "measured": false,
+     "measured_at": null,
+     "note": "미장 수급 — 데이터 없음",
+     "passed": null,
+     "sample_days": null,
+     "version": null,
+     "weight": 0.0
+    },
+    {
+     "analyst": "fundamental",
+     "ic": 0.07183993292642268,
+     "ic_threshold": 0.03,
+     "market": "KR",
+     "measured": true,
+     "measured_at": "2026-08-18T16:00:00+09:00",
+     "note": "DART 재무",
+     "passed": true,
+     "sample_days": 300,
+     "version": "fundamental-v0.2.0",
+     "weight": 1.0
+    },
+    {
+     "analyst": "news",
+     "ic": null,
+     "market": null,
+     "measured": false,
+     "measured_at": null,
+     "note": "공시·뉴스 필터 (Verdict)",
+     "passed": null,
+     "sample_days": null,
+     "version": null,
+     "weight": 0.0
+    },
+    {
+     "analyst": "regime",
+     "ic": -0.021686200189761324,
+     "ic_threshold": 0.03,
+     "market": "KR",
+     "measured": true,
+     "measured_at": "2026-08-18T16:00:00+09:00",
+     "note": "지수·변동성",
+     "passed": false,
+     "sample_days": 300,
+     "version": "regime-v0.1.0",
+     "weight": 0.0
+    },
+    {
+     "analyst": "risk",
+     "ic": 0.07431329697236028,
+     "ic_threshold": 0.03,
+     "market": "KR",
+     "measured": true,
+     "measured_at": "2026-08-18T16:00:00+09:00",
+     "note": "상관·변동성·유동성",
+     "passed": true,
+     "sample_days": 300,
+     "version": "risk-v0.1.0",
+     "weight": 1.0
+    },
+    {
+     "analyst": "sns",
+     "ic": null,
+     "market": null,
+     "measured": false,
+     "measured_at": null,
+     "note": "펌핑 탐지 (Verdict)",
+     "passed": null,
+     "sample_days": null,
+     "version": null,
+     "weight": 0.0
     }
+   ],
+   "total": 9
   },
-  "learning/ic-history": {
-    "as_of": "2026-08-19T05:42:41.940302+00:00",
-    "data": {
-      "points": 54,
-      "series": [
-        {
-          "analyst": "chart",
-          "points": [
-            {
-              "at": "2026-05-29T16:00:00+09:00",
-              "ic": -0.010361185597587905,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-06-30T16:00:00+09:00",
-              "ic": -0.004621424791519262,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-07-31T16:00:00+09:00",
-              "ic": 0.011226503380244576,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-12T12:19:21.235642+09:00",
-              "ic": 0.010685637197135257,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T12:12:29.646982+09:00",
-              "ic": 0.007907553672097407,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T14:38:32.180673+09:00",
-              "ic": 0.01972956285576015,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T19:12:55.526635+09:00",
-              "ic": null,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T20:31:08.779769+09:00",
-              "ic": 0.01448538792648229,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-14T01:54:21.377968+09:00",
-              "ic": 0.0014429325588578156,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-16T14:29:24.436544+09:00",
-              "ic": -0.002945243300911161,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-18T16:00:00+09:00",
-              "ic": -0.002945259993838891,
-              "passed": false,
-              "threshold": 0.03
-            }
-          ]
-        },
-        {
-          "analyst": "event",
-          "points": [
-            {
-              "at": "2026-05-29T16:00:00+09:00",
-              "ic": 0.040910702566856486,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-06-30T16:00:00+09:00",
-              "ic": 0.04119747966173241,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-07-31T16:00:00+09:00",
-              "ic": 0.04002300266747695,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-12T12:50:54.652256+09:00",
-              "ic": 0.033191750956332755,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T17:07:38.635270+09:00",
-              "ic": 0.033254244270101735,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-14T01:33:40.180182+09:00",
-              "ic": 0.03555190141740673,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-14T03:22:33.475652+09:00",
-              "ic": 0.03555190409123603,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-16T15:48:23.085167+09:00",
-              "ic": 0.0395776599584993,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-18T16:00:00+09:00",
-              "ic": 0.039577637766496566,
-              "passed": true,
-              "threshold": 0.03
-            }
-          ]
-        },
-        {
-          "analyst": "flow_kr",
-          "points": [
-            {
-              "at": "2026-05-29T16:00:00+09:00",
-              "ic": 0.0032749377302473772,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-06-30T16:00:00+09:00",
-              "ic": 0.004080952042199442,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-07-31T16:00:00+09:00",
-              "ic": 0.0019032067720596815,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T11:40:08.494927+09:00",
-              "ic": -0.0011136120714331905,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T18:56:34.734276+09:00",
-              "ic": -0.0010938630867609253,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-16T16:47:23.783268+09:00",
-              "ic": -0.006048294096455235,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-18T16:00:00+09:00",
-              "ic": -0.006048306279360512,
-              "passed": false,
-              "threshold": 0.03
-            }
-          ]
-        },
-        {
-          "analyst": "fundamental",
-          "points": [
-            {
-              "at": "2026-05-29T16:00:00+09:00",
-              "ic": 0.06643585419509727,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-06-30T16:00:00+09:00",
-              "ic": 0.07000684234942416,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-07-31T16:00:00+09:00",
-              "ic": 0.0758196239697114,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-12T18:30:05.606473+09:00",
-              "ic": 0.02618856139386781,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-12T23:24:28.110156+09:00",
-              "ic": 0.06182414967486546,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T16:20:51.554292+09:00",
-              "ic": 0.07080199223960697,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-16T14:05:06.367940+09:00",
-              "ic": 0.07183994969795797,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-18T16:00:00+09:00",
-              "ic": 0.07183993292642268,
-              "passed": true,
-              "threshold": 0.03
-            }
-          ]
-        },
-        {
-          "analyst": "regime",
-          "points": [
-            {
-              "at": "2026-05-29T16:00:00+09:00",
-              "ic": -0.011922873600139671,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-06-30T16:00:00+09:00",
-              "ic": -0.024701026892341053,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-07-31T16:00:00+09:00",
-              "ic": -0.007115767269855143,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T12:02:18.091191+09:00",
-              "ic": -0.005706872252225445,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T17:35:25.756094+09:00",
-              "ic": -0.014279702331575366,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T19:52:50.125076+09:00",
-              "ic": null,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T21:52:16.203843+09:00",
-              "ic": -0.008698462908447788,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-16T16:38:01.959610+09:00",
-              "ic": -0.021686180167556173,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-18T16:00:00+09:00",
-              "ic": -0.021686200189761324,
-              "passed": false,
-              "threshold": 0.03
-            }
-          ]
-        },
-        {
-          "analyst": "risk",
-          "points": [
-            {
-              "at": "2026-05-29T16:00:00+09:00",
-              "ic": 0.06931233249258881,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-06-30T16:00:00+09:00",
-              "ic": 0.07657831607841398,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-07-31T16:00:00+09:00",
-              "ic": 0.08820122324995405,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-12T12:19:21.235642+09:00",
-              "ic": 0.02065625599342788,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T12:24:13.168937+09:00",
-              "ic": 0.028720059384441277,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T14:51:52.243515+09:00",
-              "ic": 0.0776517048604636,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T19:26:07.862706+09:00",
-              "ic": null,
-              "passed": false,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-13T20:59:10.985175+09:00",
-              "ic": 0.05845838025343493,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-16T14:17:06.475259+09:00",
-              "ic": 0.0743132795653004,
-              "passed": true,
-              "threshold": 0.03
-            },
-            {
-              "at": "2026-08-18T16:00:00+09:00",
-              "ic": 0.07431329697236028,
-              "passed": true,
-              "threshold": 0.03
-            }
-          ]
-        }
-      ],
-      "threshold": 0.03
-    },
-    "live": true,
-    "lookback_days": 90,
-    "thresholds": {
-      "coverage_warn": 0.98,
-      "default_lookback_days": 90,
-      "failure_rows": 50,
-      "latency_p90_warn_ms": 300000,
-      "max_lookback_days": 400,
-      "missing_warn": 0.01
-    }
-  },
-  "learning/status": {
-    "as_of": "2026-08-19T05:42:41.996946+00:00",
-    "data": {
-      "active": false,
-      "milestone": "M4",
-      "note": "M4 — RL 환경은 들어왔다(allocator/ — env·policy·cache·reward·baseline). 아직 비어 있는 이유는 학습 코드가 없어서가 아니라 **학습 기록을 담을 테이블이 창고에 없기** 때문이다. PPO 학습 루프와 그 표가 같이 들어오면 아래 칸들이 채워진다.",
-      "widgets": [
-        {
-          "detail": "0.1 기준선. 0 근처에 붙어 있으면 학습 실패다 (rl-training.md §3).",
-          "key": "explained_variance",
-          "label": "explained_variance 추이"
-        },
-        {
-          "detail": "오라클 카나리 통과 여부 포함.",
-          "key": "curriculum",
-          "label": "커리큘럼 C0~C5 진행도"
-        },
-        {
-          "detail": "",
-          "key": "episode_reward",
-          "label": "학습 곡선 (에피소드 보상)"
-        },
-        {
-          "detail": "",
-          "key": "optimizer_diag",
-          "label": "approx KL · entropy · gradient norm"
-        },
-        {
-          "detail": "벤치마크 / 동일가중 / 스코어 비례(M3 룰). 못 이기면 RL 을 쓸 이유가 없다.",
-          "key": "ir_vs_baseline",
-          "label": "베이스라인 대비 IR"
-        },
-        {
-          "detail": "하이퍼파라미터 간 차이보다 크면 그 결과는 노이즈다.",
-          "key": "seed_variance",
-          "label": "시드 간 성과 분산 · policy churn"
-        }
-      ]
-    },
-    "live": true,
-    "lookback_days": 90,
-    "thresholds": {
-      "coverage_warn": 0.98,
-      "default_lookback_days": 90,
-      "failure_rows": 50,
-      "latency_p90_warn_ms": 300000,
-      "max_lookback_days": 400,
-      "missing_warn": 0.01
-    }
-  },
-  "learning/training-runs": {
-    "as_of": "2026-08-19T05:42:42.022526+00:00",
-    "data": {
-      "guards": {
-        "action_reflection": {
-          "floor": 0.3,
-          "label": "30% 미만 경고"
-        },
-        "approx_kl": {
-          "band": [
-            0.01,
-            0.02
-          ],
-          "label": "0.01~0.02. 급등 = 학습률 과다"
-        },
-        "explained_variance": {
-          "floor": 0.1,
-          "label": "0.1 이상. 0 근처 고착 = 실패"
-        }
-      },
-      "has_data": false,
-      "runs": []
-    },
-    "live": true,
-    "lookback_days": 90,
-    "thresholds": {
-      "coverage_warn": 0.98,
-      "default_lookback_days": 90,
-      "failure_rows": 50,
-      "latency_p90_warn_ms": 300000,
-      "max_lookback_days": 400,
-      "missing_warn": 0.01
-    }
-  },
-  "learning/walk-forward": {
-    "as_of": "2026-08-19T05:42:42.050353+00:00",
-    "data": {
-      "measured_at": "2026-01-02",
-      "rows": [
-        {
-          "analyst": "chart",
-          "delta_ic": 0.013654740006161108,
-          "live_ic": -0.002945259993838891,
-          "live_measured": true,
-          "live_passed": false,
-          "wf_ic": -0.0166,
-          "wf_passed": false,
-          "wf_weight": 0.0
-        },
-        {
-          "analyst": "event",
-          "delta_ic": -0.0031223622335034354,
-          "live_ic": 0.039577637766496566,
-          "live_measured": true,
-          "live_passed": true,
-          "wf_ic": 0.0427,
-          "wf_passed": true,
-          "wf_weight": 1.0
-        },
-        {
-          "analyst": "flow_kr",
-          "delta_ic": -0.007948306279360513,
-          "live_ic": -0.006048306279360512,
-          "live_measured": true,
-          "live_passed": false,
-          "wf_ic": 0.0019,
-          "wf_passed": false,
-          "wf_weight": 0.0
-        },
-        {
-          "analyst": "fundamental",
-          "delta_ic": 0.00193993292642268,
-          "live_ic": 0.07183993292642268,
-          "live_measured": true,
-          "live_passed": true,
-          "wf_ic": 0.0699,
-          "wf_passed": true,
-          "wf_weight": 1.0
-        },
-        {
-          "analyst": "regime",
-          "delta_ic": -0.031786200189761325,
-          "live_ic": -0.021686200189761324,
-          "live_measured": true,
-          "live_passed": false,
-          "wf_ic": 0.0101,
-          "wf_passed": false,
-          "wf_weight": 0.0
-        },
-        {
-          "analyst": "risk",
-          "delta_ic": -0.008986703027639723,
-          "live_ic": 0.07431329697236028,
-          "live_measured": true,
-          "live_passed": true,
-          "wf_ic": 0.0833,
-          "wf_passed": true,
-          "wf_weight": 1.0
-        }
-      ],
-      "source": "data/_backtest 샌드박스 워크포워드 (purged K-fold + embargo, 300세션) — 실전 창고 아님",
-      "threshold": 0.03
-    },
-    "live": true,
-    "lookback_days": 90,
-    "thresholds": {
-      "coverage_warn": 0.98,
-      "default_lookback_days": 90,
-      "failure_rows": 50,
-      "latency_p90_warn_ms": 300000,
-      "max_lookback_days": 400,
-      "missing_warn": 0.01
-    }
+  "live": true,
+  "lookback_days": 90,
+  "thresholds": {
+   "coverage_warn": 0.98,
+   "default_lookback_days": 90,
+   "failure_rows": 50,
+   "latency_p90_warn_ms": 300000,
+   "max_lookback_days": 400,
+   "missing_warn": 0.01
   }
+ },
+ "learning/ic-history": {
+  "as_of": "2026-08-19T05:42:41.940302+00:00",
+  "data": {
+   "points": 54,
+   "series": [
+    {
+     "analyst": "chart",
+     "points": [
+      {
+       "at": "2026-05-29T16:00:00+09:00",
+       "ic": -0.010361185597587905,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-06-30T16:00:00+09:00",
+       "ic": -0.004621424791519262,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-07-31T16:00:00+09:00",
+       "ic": 0.011226503380244576,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-12T12:19:21.235642+09:00",
+       "ic": 0.010685637197135257,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T12:12:29.646982+09:00",
+       "ic": 0.007907553672097407,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T14:38:32.180673+09:00",
+       "ic": 0.01972956285576015,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T19:12:55.526635+09:00",
+       "ic": null,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T20:31:08.779769+09:00",
+       "ic": 0.01448538792648229,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-14T01:54:21.377968+09:00",
+       "ic": 0.0014429325588578156,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-16T14:29:24.436544+09:00",
+       "ic": -0.002945243300911161,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-18T16:00:00+09:00",
+       "ic": -0.002945259993838891,
+       "passed": false,
+       "threshold": 0.03
+      }
+     ]
+    },
+    {
+     "analyst": "event",
+     "points": [
+      {
+       "at": "2026-05-29T16:00:00+09:00",
+       "ic": 0.040910702566856486,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-06-30T16:00:00+09:00",
+       "ic": 0.04119747966173241,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-07-31T16:00:00+09:00",
+       "ic": 0.04002300266747695,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-12T12:50:54.652256+09:00",
+       "ic": 0.033191750956332755,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T17:07:38.635270+09:00",
+       "ic": 0.033254244270101735,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-14T01:33:40.180182+09:00",
+       "ic": 0.03555190141740673,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-14T03:22:33.475652+09:00",
+       "ic": 0.03555190409123603,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-16T15:48:23.085167+09:00",
+       "ic": 0.0395776599584993,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-18T16:00:00+09:00",
+       "ic": 0.039577637766496566,
+       "passed": true,
+       "threshold": 0.03
+      }
+     ]
+    },
+    {
+     "analyst": "flow_kr",
+     "points": [
+      {
+       "at": "2026-05-29T16:00:00+09:00",
+       "ic": 0.0032749377302473772,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-06-30T16:00:00+09:00",
+       "ic": 0.004080952042199442,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-07-31T16:00:00+09:00",
+       "ic": 0.0019032067720596815,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T11:40:08.494927+09:00",
+       "ic": -0.0011136120714331905,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T18:56:34.734276+09:00",
+       "ic": -0.0010938630867609253,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-16T16:47:23.783268+09:00",
+       "ic": -0.006048294096455235,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-18T16:00:00+09:00",
+       "ic": -0.006048306279360512,
+       "passed": false,
+       "threshold": 0.03
+      }
+     ]
+    },
+    {
+     "analyst": "fundamental",
+     "points": [
+      {
+       "at": "2026-05-29T16:00:00+09:00",
+       "ic": 0.06643585419509727,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-06-30T16:00:00+09:00",
+       "ic": 0.07000684234942416,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-07-31T16:00:00+09:00",
+       "ic": 0.0758196239697114,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-12T18:30:05.606473+09:00",
+       "ic": 0.02618856139386781,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-12T23:24:28.110156+09:00",
+       "ic": 0.06182414967486546,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T16:20:51.554292+09:00",
+       "ic": 0.07080199223960697,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-16T14:05:06.367940+09:00",
+       "ic": 0.07183994969795797,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-18T16:00:00+09:00",
+       "ic": 0.07183993292642268,
+       "passed": true,
+       "threshold": 0.03
+      }
+     ]
+    },
+    {
+     "analyst": "regime",
+     "points": [
+      {
+       "at": "2026-05-29T16:00:00+09:00",
+       "ic": -0.011922873600139671,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-06-30T16:00:00+09:00",
+       "ic": -0.024701026892341053,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-07-31T16:00:00+09:00",
+       "ic": -0.007115767269855143,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T12:02:18.091191+09:00",
+       "ic": -0.005706872252225445,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T17:35:25.756094+09:00",
+       "ic": -0.014279702331575366,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T19:52:50.125076+09:00",
+       "ic": null,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T21:52:16.203843+09:00",
+       "ic": -0.008698462908447788,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-16T16:38:01.959610+09:00",
+       "ic": -0.021686180167556173,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-18T16:00:00+09:00",
+       "ic": -0.021686200189761324,
+       "passed": false,
+       "threshold": 0.03
+      }
+     ]
+    },
+    {
+     "analyst": "risk",
+     "points": [
+      {
+       "at": "2026-05-29T16:00:00+09:00",
+       "ic": 0.06931233249258881,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-06-30T16:00:00+09:00",
+       "ic": 0.07657831607841398,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-07-31T16:00:00+09:00",
+       "ic": 0.08820122324995405,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-12T12:19:21.235642+09:00",
+       "ic": 0.02065625599342788,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T12:24:13.168937+09:00",
+       "ic": 0.028720059384441277,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T14:51:52.243515+09:00",
+       "ic": 0.0776517048604636,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T19:26:07.862706+09:00",
+       "ic": null,
+       "passed": false,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-13T20:59:10.985175+09:00",
+       "ic": 0.05845838025343493,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-16T14:17:06.475259+09:00",
+       "ic": 0.0743132795653004,
+       "passed": true,
+       "threshold": 0.03
+      },
+      {
+       "at": "2026-08-18T16:00:00+09:00",
+       "ic": 0.07431329697236028,
+       "passed": true,
+       "threshold": 0.03
+      }
+     ]
+    }
+   ],
+   "threshold": 0.03
+  },
+  "live": true,
+  "lookback_days": 90,
+  "thresholds": {
+   "coverage_warn": 0.98,
+   "default_lookback_days": 90,
+   "failure_rows": 50,
+   "latency_p90_warn_ms": 300000,
+   "max_lookback_days": 400,
+   "missing_warn": 0.01
+  }
+ },
+ "learning/status": {
+  "as_of": "2026-08-19T05:42:41.996946+00:00",
+  "data": {
+   "active": false,
+   "milestone": "M4",
+   "note": "M4 — RL 환경은 들어왔다(allocator/ — env·policy·cache·reward·baseline). 아직 비어 있는 이유는 학습 코드가 없어서가 아니라 **학습 기록을 담을 테이블이 창고에 없기** 때문이다. PPO 학습 루프와 그 표가 같이 들어오면 아래 칸들이 채워진다.",
+   "widgets": [
+    {
+     "detail": "0.1 기준선. 0 근처에 붙어 있으면 학습 실패다 (rl-training.md §3).",
+     "key": "explained_variance",
+     "label": "explained_variance 추이"
+    },
+    {
+     "detail": "오라클 카나리 통과 여부 포함.",
+     "key": "curriculum",
+     "label": "커리큘럼 C0~C5 진행도"
+    },
+    {
+     "detail": "",
+     "key": "episode_reward",
+     "label": "학습 곡선 (에피소드 보상)"
+    },
+    {
+     "detail": "",
+     "key": "optimizer_diag",
+     "label": "approx KL · entropy · gradient norm"
+    },
+    {
+     "detail": "벤치마크 / 동일가중 / 스코어 비례(M3 룰). 못 이기면 RL 을 쓸 이유가 없다.",
+     "key": "ir_vs_baseline",
+     "label": "베이스라인 대비 IR"
+    },
+    {
+     "detail": "하이퍼파라미터 간 차이보다 크면 그 결과는 노이즈다.",
+     "key": "seed_variance",
+     "label": "시드 간 성과 분산 · policy churn"
+    }
+   ]
+  },
+  "live": true,
+  "lookback_days": 90,
+  "thresholds": {
+   "coverage_warn": 0.98,
+   "default_lookback_days": 90,
+   "failure_rows": 50,
+   "latency_p90_warn_ms": 300000,
+   "max_lookback_days": 400,
+   "missing_warn": 0.01
+  }
+ },
+ "learning/training-runs": {
+  "as_of": "2026-08-19T05:42:42.022526+00:00",
+  "data": {
+   "guards": {
+    "action_reflection": {
+     "floor": 0.3,
+     "label": "30% 미만 경고"
+    },
+    "approx_kl": {
+     "band": [
+      0.01,
+      0.02
+     ],
+     "label": "0.01~0.02. 급등 = 학습률 과다"
+    },
+    "explained_variance": {
+     "floor": 0.1,
+     "label": "0.1 이상. 0 근처 고착 = 실패"
+    }
+   },
+   "has_data": false,
+   "runs": []
+  },
+  "live": true,
+  "lookback_days": 90,
+  "thresholds": {
+   "coverage_warn": 0.98,
+   "default_lookback_days": 90,
+   "failure_rows": 50,
+   "latency_p90_warn_ms": 300000,
+   "max_lookback_days": 400,
+   "missing_warn": 0.01
+  }
+ },
+ "learning/walk-forward": {
+  "as_of": "2026-08-19T05:42:42.050353+00:00",
+  "data": {
+   "measured_at": "2026-01-02",
+   "rows": [
+    {
+     "analyst": "chart",
+     "delta_ic": 0.013654740006161108,
+     "live_ic": -0.002945259993838891,
+     "live_measured": true,
+     "live_passed": false,
+     "wf_ic": -0.0166,
+     "wf_passed": false,
+     "wf_weight": 0.0
+    },
+    {
+     "analyst": "event",
+     "delta_ic": -0.0031223622335034354,
+     "live_ic": 0.039577637766496566,
+     "live_measured": true,
+     "live_passed": true,
+     "wf_ic": 0.0427,
+     "wf_passed": true,
+     "wf_weight": 1.0
+    },
+    {
+     "analyst": "flow_kr",
+     "delta_ic": -0.007948306279360513,
+     "live_ic": -0.006048306279360512,
+     "live_measured": true,
+     "live_passed": false,
+     "wf_ic": 0.0019,
+     "wf_passed": false,
+     "wf_weight": 0.0
+    },
+    {
+     "analyst": "fundamental",
+     "delta_ic": 0.00193993292642268,
+     "live_ic": 0.07183993292642268,
+     "live_measured": true,
+     "live_passed": true,
+     "wf_ic": 0.0699,
+     "wf_passed": true,
+     "wf_weight": 1.0
+    },
+    {
+     "analyst": "regime",
+     "delta_ic": -0.031786200189761325,
+     "live_ic": -0.021686200189761324,
+     "live_measured": true,
+     "live_passed": false,
+     "wf_ic": 0.0101,
+     "wf_passed": false,
+     "wf_weight": 0.0
+    },
+    {
+     "analyst": "risk",
+     "delta_ic": -0.008986703027639723,
+     "live_ic": 0.07431329697236028,
+     "live_measured": true,
+     "live_passed": true,
+     "wf_ic": 0.0833,
+     "wf_passed": true,
+     "wf_weight": 1.0
+    }
+   ],
+   "source": "data/_backtest 샌드박스 워크포워드 (purged K-fold + embargo, 300세션) — 실전 창고 아님",
+   "threshold": 0.03
+  },
+  "live": true,
+  "lookback_days": 90,
+  "thresholds": {
+   "coverage_warn": 0.98,
+   "default_lookback_days": 90,
+   "failure_rows": 50,
+   "latency_p90_warn_ms": 300000,
+   "max_lookback_days": 400,
+   "missing_warn": 0.01
+  }
+ },
+ "learning/research-ledger": {
+  "as_of": "2026-08-19T05:42:41.892456+00:00",
+  "live": true,
+  "lookback_days": 90,
+  "thresholds": {
+   "coverage_warn": 0.98,
+   "default_lookback_days": 90,
+   "failure_rows": 50,
+   "latency_p90_warn_ms": 300000,
+   "max_lookback_days": 400,
+   "missing_warn": 0.01
+  },
+  "data": {
+   "cumulative_trials": 163,
+   "families": {
+    "ic-analyst": 77,
+    "ic-feature": 54,
+    "rl-config": 14,
+    "manual": 10,
+    "evolution": 8
+   },
+   "quarter_used": 163,
+   "quarter_budget": 200,
+   "holdout_start": "2026-07-01",
+   "holdout_openings": [],
+   "dsr": {
+    "sharpe": 0.021,
+    "expected_max": 0.169,
+    "dsr": 0.12,
+    "sample_days": 250.0
+   },
+   "nav_sample_days": 250,
+   "promotion": null
+  }
+ }
 }
