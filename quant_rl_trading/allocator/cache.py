@@ -223,8 +223,10 @@ class SessionReader:
         self._regime = RegimeAnalyst(store, ReplayClock(_EPOCH))
         self._scalars_at: datetime | None = None
         self._scalars: SessionScalars | None = None
-        self._index_at: datetime | None = None
-        self._index: pd.Series | None = None
+        #: as_of → 지수 시계열. 한 칸짜리 메모였는데, 학습은 32개 환경이 서로
+        #: 다른 세션을 같은 리더로 두드려서 매 호출이 미스가 됐다(2026-08-26).
+        #: 세션 하나가 시리즈 180개라 수천 세션을 다 들어도 램은 몇 MB 다.
+        self._index_memo: dict[datetime, pd.Series] = {}
 
     # -- 후보 --------------------------------------------------------------
 
@@ -373,8 +375,9 @@ class SessionReader:
 
     def index_series(self, as_of: datetime) -> pd.Series:
         """벤치마크 KR 지수의 일별 종가. 이름은 `config.benchmark` 에서 온다."""
-        if self._index_at == as_of and self._index is not None:
-            return self._index
+        memo = self._index_memo.get(as_of)
+        if memo is not None:
+            return memo
         entity = str(self.store.config("benchmark.kr_index", as_of=as_of))
         frame = self.store.get(INDICES, as_of=as_of, entity=entity, lookback=180)
         if frame.empty:
@@ -386,7 +389,7 @@ class SessionReader:
                 .last()
                 .astype(float)
             )
-        self._index_at, self._index = as_of, series
+        self._index_memo[as_of] = series
         return series
 
     def _fx_series(self, as_of: datetime) -> pd.Series:
