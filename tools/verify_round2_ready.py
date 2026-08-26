@@ -68,6 +68,7 @@ def check_a3_reward_split() -> tuple[str, str]:
     engine = RewardEngine(params=RewardParams(
         drawdown_free=0.12, drawdown_warn=0.22, drawdown_hard=0.30,
         w_free=0.0, w_mid=1.5, w_hot=8.0, terminal_penalty=-10.0,
+        normalize_returns="return_std",
     ))
     out = engine.step(
         portfolio_return=0.013, benchmark_return=0.004, cost=0.001,
@@ -108,15 +109,20 @@ def check_b2_cache(store, *, start: date, end: date, now) -> tuple[str, str]:
                       "build_rl_cache 로 굽는다")
     sample = [days[0], days[len(days) // 4], days[len(days) // 2],
               days[3 * len(days) // 4], days[-1]]
-    fingerprint = cache_module.fingerprint_of(
-        cache_module.dependent_config(store, as_of=now)
-    )
     import json
     import pyarrow.parquet as pq  # invariant-allow: data-access — 표지 검사 전용
     for day in sample:
         meta = pq.read_schema(root / f"{day}.parquet").metadata or {}  # invariant-allow: data-access — 표지 검사 전용
         stamp = json.loads(meta.get(cache_module.METADATA_KEY, b"{}"))
-        if stamp.get("config_fingerprint") not in (fingerprint,):
+        # **지문은 그 표지의 as_of 로 재계산한다.** 지금 시각으로 재면 그 사이
+        # 발효된 설정 정정본 때문에 언제나 어긋난다 — 2026-08-25 평가에서
+        # 정체불명이던 1dc89… 불일치의 정체가 이것이었다. 실제 사용 경로
+        # (cache.verify)도 세션 as_of 로 잰다 — 같은 자로 재야 한다.
+        stamp_as_of = datetime.fromisoformat(stamp.get("as_of"))
+        fingerprint = cache_module.fingerprint_of(
+            cache_module.dependent_config(store, as_of=stamp_as_of)
+        )
+        if stamp.get("config_fingerprint") != fingerprint:
             return FAIL, (f"{day} 표지 지문 불일치 ({stamp.get('config_fingerprint')} "
                           f"!= {fingerprint}) — 설정이 바뀌었다. 다시 굽는다")
     return PASS, f"세션 {len(days)}개 전부 존재 · 표본 5개 표지 일치"
