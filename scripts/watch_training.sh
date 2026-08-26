@@ -11,8 +11,13 @@ set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
 RUN_ID="${1:-m4-main-s0-r2}"
+# **로그와 추가 인자를 밖에서 받는다.** 로그를 고정하면 옛 판의 "완료 —" 를
+# 보고 새 판 감시를 즉시 끝내고, 재시작 명령에 학습 인자(--c1·--train-start)
+# 가 빠지면 **되살아난 판이 조용히 다른 설정**이 된다 — 죽는 것보다 나쁘다.
+LOG_OVERRIDE="${2:-}"
+EXTRA_ARGS="${3:-}"
 CKPT="data/rl_checkpoints/${RUN_ID}.pt"
-LOG="logs/train-m4-main.log"
+LOG="${LOG_OVERRIDE:-logs/train-m4-main.log}"
 WATCH_LOG="logs/watchdog.log"
 MAX_RESTARTS=5
 INTERVAL=60
@@ -53,7 +58,7 @@ while true; do
     say "죽었다 — 체크포인트에서 이어 돌린다 (${restarts}/${MAX_RESTARTS} · run=${NEW_ID})"
     QUANT_RL_DUCKDB_MEMORY_LIMIT=800MB QUANT_RL_DUCKDB_THREADS=2 \
         nohup .venv/bin/python -u -W ignore tools/train_rl.py \
-        --market KR --seed 0 --checkpoint-every 20 \
+        --market KR --seed 0 --checkpoint-every 20 ${EXTRA_ARGS} \
         --run-id "${NEW_ID}" --resume "${CKPT}" \
         >>"${LOG}" 2>&1 &
     CKPT="data/rl_checkpoints/${NEW_ID}.pt"

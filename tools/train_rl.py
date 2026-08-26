@@ -89,6 +89,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--envs", type=int, default=None)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--oracle-leak", action="store_true")
+    parser.add_argument(
+        "--c1", action="store_true",
+        help=(
+            "C1 커리큘럼 — 보상 = 선택 점수만·비용 0 (rl-training.md §6, "
+            "reward-and-risk.md §8). 1회차가 이 단계를 건너뛰고 실패했다."
+        ),
+    )
     parser.add_argument("--train-start", default="2025-01-02")
     parser.add_argument("--train-end", default="2026-06-30")
     parser.add_argument("--curriculum", default="C1")
@@ -130,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         market=args.market,
         n_envs=ppo.num_envs,
         oracle_leak=args.oracle_leak,
+        curriculum_c1=args.c1,
         seed=args.seed,
     )
     obs = env.reset()
@@ -151,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     total_updates = max(1, ppo.total_timesteps // per_update)
     run_id = args.run_id or (
         f"rl-{datetime.now(UTC):%Y%m%d-%H%M%S}"  # invariant-allow: wallclock
-        f"-s{args.seed}{'-oracle' if args.oracle_leak else ''}"
+        f"-s{args.seed}{'-oracle' if args.oracle_leak else ''}{'-c1' if args.c1 else ''}"
     )
     commit = git_commit()
     fingerprint = f"{ppo.lr_policy}/{ppo.gamma}/{ppo.num_envs}x{ppo.n_steps}"
