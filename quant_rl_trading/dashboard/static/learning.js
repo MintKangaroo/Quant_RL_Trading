@@ -46,6 +46,7 @@ async function renderM4Placeholders() {
   ]);
   const data = statusBody.data;
   const runs = runsBody.data;
+  renderTrainingLive(runs);
 
   for (const widget of data.widgets) {
     const target = document.getElementById(M4_TARGETS[widget.key]);
@@ -63,6 +64,59 @@ async function renderM4Placeholders() {
       widget.detail ? `<br>${widget.detail}` : ""
     }`;
   }
+}
+
+const STATUS_LABEL = {
+  running: ["진행 중", "ok"],
+  completed: ["완주", "ok"],
+  stopped: ["멈춤 — 마지막 기록 뒤 조용하다", "bad"],
+};
+
+function minutesLabel(m) {
+  if (m == null) return "—";
+  if (m < 90) return `${Math.round(m)}분`;
+  if (m < 60 * 36) return `${(m / 60).toFixed(1)}시간`;
+  return `${(m / 60 / 24).toFixed(1)}일`;
+}
+
+function tailMean(arr, n, offset = 0) {
+  const end = arr.length - offset;
+  const slice = arr.slice(Math.max(0, end - n), end).filter((v) => v != null);
+  if (!slice.length) return null;
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+
+/** 지금 돌고 있는 학습 — 창고의 마지막 기록이 말하는 것만 보인다. */
+function renderTrainingLive(runs) {
+  const target = document.getElementById("training-live");
+  if (!target) return;
+  if (!runs.has_data || !runs.runs.length) {
+    target.innerHTML = "<strong>학습 기록이 0행이다 — 돌고 있는 학습이 없다.</strong>";
+    return;
+  }
+  const run = runs.runs[0];
+  const [statusText, tone] = STATUS_LABEL[run.status] || [run.status, ""];
+  const pct = run.total_updates ? (100 * run.last_update) / run.total_updates : 0;
+  const reward = run.series.episode_reward || [];
+  const recent = tailMean(reward, 50);
+  const before = tailMean(reward, 50, 50);
+  const lastAt = new Date(run.last_observed_at);
+  const s = run.series;
+  const last = (k) => (s[k] && s[k].length ? s[k][s[k].length - 1] : null);
+  const fmt = (v, d = 4) => (v == null ? "—" : Number(v).toFixed(d));
+
+  const rows = [
+    ["상태", `<span class="${tone}">${statusText}</span> · 마지막 기록 ${lastAt.toLocaleString("ko-KR", { hour12: false })} (${minutesLabel(run.silent_minutes)} 전)`],
+    ["진행", `${run.last_update.toLocaleString()} / ${run.total_updates.toLocaleString()} 업데이트 (${pct.toFixed(1)}%)
+      <div style="height:6px;background:var(--line,#333);border-radius:3px;margin-top:4px"><div style="width:${pct.toFixed(1)}%;height:6px;background:#4C9AFF;border-radius:3px"></div></div>`],
+    ["페이스", `${run.pace_minutes == null ? "—" : run.pace_minutes.toFixed(1) + "분/업데이트"} · 남은시간 ${minutesLabel(run.eta_minutes)}`],
+    ["보상 추이", `최근 50 평균 ${fmt(recent)} · 그 앞 50 평균 ${fmt(before)}${recent != null && before != null ? ` · 차이 ${(recent - before >= 0 ? "+" : "") + (recent - before).toFixed(5)}` : ""}`],
+    ["마지막 지표", `EV ${fmt(last("explained_variance"), 3)} · KL ${fmt(last("approx_kl"), 5)} · grad ${fmt(last("grad_norm"), 2)} · 반영률 ${fmt(last("action_reflection"), 3)} · 현금 ${fmt(last("cash_weight"), 3)}`],
+    ["실행", `${run.run_id} · seed ${run.seed ?? "—"} · ${run.curriculum || "—"} · ${run.git_commit ? run.git_commit.slice(0, 7) : "—"}`],
+  ];
+  target.innerHTML = `<table class="kv">${rows
+    .map(([k, v]) => `<tr><th style="white-space:nowrap;text-align:left;padding-right:12px;vertical-align:top">${k}</th><td>${v}</td></tr>`)
+    .join("")}</table>`;
 }
 
 /** 가장 최근 run 의 지표 곡선. 여러 run 을 겹치면 어느 것이 최신인지 안 보인다. */

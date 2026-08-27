@@ -244,3 +244,44 @@ def test_학습_기록이_있으면_곡선을_돌려준다(seeded) -> None:
     # 재현성 정보가 화면까지 온다 (§11) — 없으면 좋은 성적을 다시 못 만든다.
     assert run["seed"] == 7
     assert run["git_commit"] == "abc1234"
+
+
+def test_마지막으로_기록한_실행이_맨_위다(seeded) -> None:
+    """run_id 문자열로 정렬하면 "rl-2026…" 이 "m4-…" 를 이겨 옛 판이 화면을
+    차지한다 (2026-08-27 실측). 최신은 이름이 아니라 **마지막 기록 시각**이다."""
+    from datetime import timedelta
+
+    old = [{**_update_row("rl-20260819-a", i, 0.1), "observed_at": NOW - timedelta(days=3)} for i in (1, 2)]
+    new = [
+        {**_update_row("m4-round2-r6", i, 0.2), "observed_at": NOW - timedelta(minutes=3 * (3 - i))}
+        for i in (1, 2, 3)
+    ]
+    seeded.append("rl_updates", old + new, ingest_run_id="rl-seed-order")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/learning/training-runs"))["data"]
+
+    assert [r["run_id"] for r in data["runs"]] == ["m4-round2-r6", "rl-20260819-a"]
+    live = data["runs"][0]
+    # 3분 간격으로 기록이 이어졌고 마지막이 지금이면 살아 있는 것이다.
+    assert live["status"] == "running"
+    assert live["last_update"] == 3
+    assert live["total_updates"] > 3
+    assert live["pace_minutes"] == pytest.approx(3.0)
+    assert live["eta_minutes"] == pytest.approx(3.0 * (live["total_updates"] - 3))
+    # 사흘 전에 멈춘 판은 멈춘 것이다 — "진행 중" 으로 꾸미지 않는다.
+    assert data["runs"][1]["status"] == "stopped"
+
+
+def test_총량에_닿은_실행은_완주다(seeded) -> None:
+    from quant_rl_trading.allocator.budget import total_updates
+
+    total = total_updates()
+    seeded.append(
+        "rl_updates",
+        [_update_row("m4-done", u, 0.3) for u in (total - 1, total)],
+        ingest_run_id="rl-seed-done",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/learning/training-runs"))["data"]
+    assert data["runs"][0]["status"] == "completed"
+    assert data["runs"][0]["eta_minutes"] is None

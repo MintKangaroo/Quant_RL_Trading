@@ -45,6 +45,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 
+from quant_rl_trading.allocator import budget
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig
 from quant_rl_trading.allocator.reward import ReturnNormalizer
 from quant_rl_trading.modelops.canary_ppo import PPOConfig
@@ -86,9 +87,9 @@ def train_config() -> PPOConfig:
     가치 쪽 배수(3배)는 §4 그대로 지킨다.
     """
     return PPOConfig(
-        total_timesteps=20_000_000,
-        num_envs=32,
-        n_steps=512,
+        total_timesteps=budget.TOTAL_TIMESTEPS,
+        num_envs=budget.NUM_ENVS,
+        n_steps=budget.N_STEPS,
         minibatch_size=2048,
         n_epochs=10,
         lr_policy=3e-5,

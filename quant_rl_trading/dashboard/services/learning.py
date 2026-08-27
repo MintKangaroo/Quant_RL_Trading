@@ -28,6 +28,7 @@ from typing import Any
 
 import pandas as pd
 
+from quant_rl_trading.allocator import budget
 from quant_rl_trading.dashboard.services import agent_health
 from quant_rl_trading.store import Store
 
@@ -130,8 +131,10 @@ def training_runs(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
         return {"has_data": False, "runs": [], "guards": UPDATE_GUARDS}
 
     runs: list[dict[str, Any]] = []
+    total = budget.total_updates()
     for run_id, rows in frame.groupby("entity_id", sort=False):
         rows = rows.sort_values("update")
+        progress = run_progress(rows, as_of=as_of, total_updates=total)
         series = {
             key: [None if pd.isna(v) else float(v) for v in rows[key]]
             for key in UPDATE_GUARDS
@@ -151,10 +154,51 @@ def training_runs(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
             "market": str(last.get("market") or ""),
             "curriculum": str(last.get("curriculum") or ""),
             "git_commit": str(last.get("git_commit") or ""),
+            **progress,
         })
-    # 최근 실행이 위로. 학습을 여러 번 돌리면 옛 곡선이 화면을 채운다.
-    runs.sort(key=lambda r: r["run_id"], reverse=True)
+    # **마지막으로 기록을 남긴 실행이 위로.** run_id 문자열로 정렬하면
+    # "rl-2026…" 이 "m4-…" 보다 앞서서 옛 판이 화면을 차지한다 (2026-08-27 실측
+    # — 돌고 있는 r6 대신 8/19 판이 그려졌다).
+    runs.sort(key=lambda r: r["last_observed_at"], reverse=True)
     return {"has_data": True, "runs": runs, "guards": UPDATE_GUARDS}
+
+
+#: 마지막 기록 뒤 이만큼 조용하면 "멈춤" 으로 본다 — 페이스의 3배, 최소 15분.
+#: 업데이트 하나가 2~3분이라 스텝 하나 밀린 것을 죽었다고 하지 않는다.
+STALL_PACE_MULTIPLE = 3.0
+STALL_FLOOR_MINUTES = 15.0
+
+
+def run_progress(rows: pd.DataFrame, *, as_of: datetime, total_updates: int) -> dict[str, Any]:
+    """한 실행의 진행 상태. **살아 있는지는 시계(as_of)와 마지막 기록의 거리로 안다.**
+
+    프로세스를 들여다보지 않는다 — 화면은 창고만 본다(불변식 1). 창고에
+    ``rl_updates`` 가 계속 쌓이면 살아 있는 것이고, 끊기면 죽은 것이다.
+    페이스는 기록 간격의 중앙값이라 재시작 공백 하나에 흔들리지 않는다.
+    """
+    stamps = pd.to_datetime(rows["observed_at"], utc=True).sort_values()
+    last_stamp = stamps.iloc[-1]
+    gaps = stamps.diff().dropna().dt.total_seconds() / 60.0
+    pace = float(gaps.median()) if len(gaps) else None
+    last_update = int(rows["update"].max())
+    silent = (pd.Timestamp(as_of).tz_convert("UTC") - last_stamp).total_seconds() / 60.0
+
+    if last_update >= total_updates:
+        status = "completed"
+    elif silent <= max(STALL_FLOOR_MINUTES, STALL_PACE_MULTIPLE * (pace or 0.0)):
+        status = "running"
+    else:
+        status = "stopped"
+    remaining = max(0, total_updates - last_update)
+    return {
+        "status": status,
+        "last_update": last_update,
+        "total_updates": total_updates,
+        "last_observed_at": last_stamp.isoformat(),
+        "pace_minutes": pace,
+        "silent_minutes": round(silent, 1),
+        "eta_minutes": (pace * remaining) if (pace and status == "running") else None,
+    }
 
 
 def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
