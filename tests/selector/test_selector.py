@@ -239,3 +239,26 @@ def test_하한_0은_제약을_끈다() -> None:
 
     assert list(kept.index) == ["KR:A", "KR:B"]
     assert any("적용하지 않았다" in note for note in trace.notes)
+
+
+# -- 완충 구간 (selector.md §5, 2026-08-27) -----------------------------------------
+
+
+def test_보유_종목은_퇴출_순위_안이면_남는다() -> None:
+    """25위↔24위가 하루걸러 자리를 바꾸는 회전을 막는다. 보유 종목이 exit_rank
+    안이면 남고, 밖이면 나간다. 새 후보는 남은 자리만 채운다."""
+    scores = pd.Series({"A": 0.9, "B": 0.8, "C": 0.7, "D": 0.6, "E": 0.5, "F": 0.1})
+    params = SelectionParams(
+        n_candidates=3, corr_threshold=0.7, corr_penalty=0.3, sector_cap=1.0, exit_rank=5
+    )
+    trace = SelectionTrace()
+    # D(4위)·E(5위)는 보유 → 남는다. F(6위)는 보유였지만 exit_rank 밖 → 퇴출.
+    chosen = select(scores=scores, params=params, held=["D", "E", "F"], trace=trace)
+    assert [c.entity_id for c in chosen] == ["D", "E", "A"]
+    assert any("완충: 보유 2종목 유지" in note and "1종목 퇴출" in note for note in trace.notes)
+
+
+def test_완충이_꺼져_있으면_매일_재선정이다() -> None:
+    scores = pd.Series({"A": 0.9, "B": 0.8, "C": 0.7, "D": 0.6})
+    chosen = select(scores=scores, params=PARAMS, held=["D"])
+    assert [c.entity_id for c in chosen] == ["A", "B", "C"]

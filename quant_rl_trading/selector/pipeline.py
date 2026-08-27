@@ -6,7 +6,7 @@ Session 이 부르는 진입점이다. 단계별 로직은 각 모듈에 있고 
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -54,6 +54,7 @@ def run(
     market: str,
     equity: float,
     sectors: Mapping[str, str] | None = None,
+    held: Iterable[str] | None = None,
 ) -> Selection:
     """후보 선정 한 번.
 
@@ -209,6 +210,7 @@ def run(
         correlations=correlations if not correlations.empty else None,
         sectors=sectors,
         trace=trace,
+        held=held,
     )
     return Selection(as_of, market, tuple(chosen), weights, trace)
 

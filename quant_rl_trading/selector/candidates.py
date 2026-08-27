@@ -26,7 +26,7 @@ LLM 판정 하나가 펀드를 멈추게 두지 않는다 — **상한을 넘으
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -58,6 +58,8 @@ class SelectionParams:
     corr_penalty: float
     sector_cap: float
     rejection_cap: float = DEFAULT_REJECTION_CAP
+    #: 완충 구간 — 보유 종목이 이 순위 안이면 남긴다. 0 이면 완충 없음(매일 재선정).
+    exit_rank: int = 0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> SelectionParams:
@@ -66,6 +68,7 @@ class SelectionParams:
             corr_threshold=float(store.config("selector.corr_threshold", as_of=as_of)),
             corr_penalty=float(store.config("selector.corr_penalty", as_of=as_of)),
             sector_cap=float(store.config("selector.sector_cap", as_of=as_of)),
+            exit_rank=int(store.config("selector.exit_rank", as_of=as_of)),
         )
 
 
@@ -239,6 +242,7 @@ def select(
     correlations: pd.DataFrame | None = None,
     sectors: Mapping[str, str] | None = None,
     trace: SelectionTrace | None = None,
+    held: Iterable[str] | None = None,
 ) -> list[Candidate]:
     """4~6단계. 점수 높은 순으로 훑으며 상관 감점과 섹터 상한을 적용한다.
 
@@ -251,6 +255,29 @@ def select(
     chosen: list[Candidate] = []
     sector_counts: dict[str, int] = {}
     sector_limit = max(1, int(params.n_candidates * params.sector_cap))
+
+    # **완충 구간** (selector.md §5). ``held`` 는 지금 보유 중인 종목이고,
+    # ``params.exit_rank`` 안에 있으면 먼저 후보에 남긴다. 25위↔24위가 하루걸러
+    # 자리를 바꾸는 회전을 막는 자리다 — 상관 감점은 새로 들어오는 종목에만 건다.
+    if held and params.exit_rank > 0:
+        order = sorted(remaining, key=lambda key: remaining[key], reverse=True)
+        rank = {entity: index + 1 for index, entity in enumerate(order)}
+        kept = sorted(
+            (e for e in dict.fromkeys(held) if rank.get(e, 10**9) <= params.exit_rank),
+            key=lambda e: rank[e],
+        )
+        for entity in kept[: params.n_candidates]:
+            score = remaining.pop(entity)
+            sector = sectors.get(entity) if sectors else None
+            chosen.append(Candidate(entity, score=score, raw_score=raw[entity], sector=sector))
+            if sector is not None:
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        dropped = [e for e in dict.fromkeys(held) if e in rank and rank[e] > params.exit_rank]
+        if kept or dropped:
+            trace.note(
+                f"완충: 보유 {len(kept)}종목 유지(순위 ≤ {params.exit_rank}), "
+                f"{len(dropped)}종목 퇴출"
+            )
 
     while remaining and len(chosen) < params.n_candidates:
         entity = max(remaining, key=lambda key: remaining[key])

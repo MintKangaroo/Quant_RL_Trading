@@ -180,6 +180,9 @@ selector:
   corr_threshold: 0.7
   corr_penalty: 0.3
   sector_cap: 0.35
+  # 완충 구간 (selector.md §5). 보유 종목은 순위가 이 안이면 후보에 남긴다.
+  # 진입은 n_candidates(24). 2026-08-27 사전등록 시행: 회전 5.6→1.3회/년.
+  exit_rank: 48
   population: 64
   generations: 40
   # 적합도 페널티 둘. **기준은 연율화 샤프 1.0**(진짜로 좋은 전략)이다 —

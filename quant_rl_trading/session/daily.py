@@ -219,8 +219,10 @@ def run(
         return result
 
     # 1. 후보 선정
+    # 보유 종목을 넘긴다 — 완충 구간(selector.md §5)은 보유를 알아야 선다.
     selection = selector_pipeline.run(
-        store, as_of=as_of, market=market, equity=equity
+        store, as_of=as_of, market=market, equity=equity,
+        held=[entity for entity, quantity in holdings.items() if quantity > 0],
     )
     result.candidates = tuple(item.entity_id for item in selection.candidates)
     result.notes.extend(selection.trace.notes)

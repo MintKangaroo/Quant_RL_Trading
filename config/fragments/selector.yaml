@@ -1,0 +1,4 @@
+# 종목 선정 완충 구간 (selector.md §5) — 본 yaml 과 같은 값. 조각으로 심는 이유는
+# research.yaml 과 같다(전체 시딩은 정정본을 오탐한다).
+selector:
+  exit_rank: 48
