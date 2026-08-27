@@ -62,25 +62,26 @@ def train_config() -> PPOConfig:
 
     빌려 쓰면 이런 것이 조용히 섞인다. 그래서 값을 여기에 다시 적는다.
 
-    ## 학습률은 §4 의 1e-4 가 아니라 1e-5 다 — 실측으로 정했다
+    ## 학습률 3e-5 — 2026-08-27 재보정 (분리 클리핑 + 관측 스케일 수정 후)
 
-    §4 의 값도 이 정책망에는 10배 크다. **"너무 멀리 갔다" 를 배분으로
-    정의하고**(목표 비중의 L1 거리 — 정책이 실제로 내리는 결정이고 회전율
-    비용이 붙는 것도 이것이다) 한 스텝이 얼마나 움직이는지 쟀다:
+    처음 표(2026-08-25)는 1e-5 를 골랐다: 1e-4 가 한 스텝에 KL 3.29 로 발산했다.
+    그 발산은 학습률 탓이 아니었다 — 환율 원값(1,478)이 관측에 그대로 들어가
+    가치 쪽 그래디언트를 1,000 대로 키웠고, 전역 클리핑이 그 합을 0.5 로 자르며
+    정책 몫은 3e-9 로 굶었다(`rl-training.md §4`). 둘을 고치고 다시 쟀다
+    (초기 정책 · 8env×256스텝 · 정책/가치 자르기 전 노름 2.5/15):
 
-        lr      1스텝 배분L1   approx_kl   3스텝 L1
-        1e-4      0.1333        3.2936     0.2472   <- 진동하며 발산
-        3e-5      0.0388        0.2157     0.0320
-        1e-5      0.0126        0.0225     0.0012   <- 채택
-        3e-6      0.0038        0.0020     0.0073
+        lr      1스텝 KL   1스텝 배분L1   3스텝 KL   3스텝 L1
+        1e-4    0.00272     0.0017       0.01059    0.0040   <- 3스텝에 목표선 절반, 조기종료 잦다
+        3e-5    0.00025     0.0005       0.00187    0.0015   <- 채택
+        1e-5    0.00003     0.0002       0.00024    0.0005
+        3e-6    0.00000     0.0001       0.00002    0.0002
 
-    1e-4 는 한 스텝에 포트폴리오의 **13%** 를 갈아엎고, 이어 붙이면 4스텝에
-    31% 까지 갔다가 되돌아온다. 학습이 아니라 진동이다.
+    한 업데이트는 최대 80 미니배치 스텝이다. 3e-5 는 한두 에폭을 돌고 target_kl
+    0.02 에 닿는 규모라 신뢰영역을 실제로 쓴다. 1e-5 는 이제 신뢰영역의 1/100
+    에서 노는 값이다 — 2회차가 그 자리에서 340업데이트를 헛돌았다.
 
-    **`target_kl` 은 손대지 않는다.** 1e-5 에서 한 스텝의 KL 이 0.0225 로
-    목표선 0.02 와 맞는다 — 즉 0.02 는 이 행동공간에서 "한 스텝에 1.3%
-    재배분" 이라는 뜻이고, 그건 합리적인 신뢰영역이다. **게이트가 틀린 것이
-    아니라 스텝이 컸다.**
+    **`target_kl` 은 손대지 않는다.** 0.02 는 이 행동공간에서 "한 업데이트에
+    1% 안팎 재배분" 이고, 그건 합리적인 신뢰영역이다.
 
     가치 쪽 배수(3배)는 §4 그대로 지킨다.
     """
@@ -90,8 +91,8 @@ def train_config() -> PPOConfig:
         n_steps=512,
         minibatch_size=2048,
         n_epochs=10,
-        lr_policy=1e-5,
-        lr_value=3e-5,
+        lr_policy=3e-5,
+        lr_value=1e-4,
     )
 
 
@@ -114,6 +115,9 @@ class UpdateLog:
     concentration_sum: float
     episode_reward: float
     cash_weight: float
+    #: 가치 손실 쪽 자르기 전 노름. 창고 컬럼은 아니고 콘솔·회고용이다 —
+    #: 정책 쪽(`grad_norm`)과 나란히 놓아야 누가 예산을 먹는지 보인다.
+    value_grad_norm: float = 0.0
 
 
 @dataclass
@@ -302,6 +306,43 @@ def collect(
     }
 
 
+def step_separately(
+    policy: AllocatorPolicy,
+    optimizer: torch.optim.Optimizer,
+    *,
+    policy_side: Tensor,
+    value_side: Tensor,
+    max_norm: float,
+) -> tuple[float, float]:
+    """정책 손실과 가치 손실을 **따로** 역전파해 각각 자른 뒤 더해 한 스텝 간다.
+
+    한 손실로 합쳐 전역 노름을 자르면 노름이 큰 쪽이 예산을 독식한다 — M4
+    2회차에서 가치 쪽 1,659 대 정책 쪽 19.5 로 정책의 실효 학습률이 3e-9 까지
+    떨어졌다(`rl-training.md §4`). 공유 인코더는 두 방향을 다 받되, 어느 쪽도
+    상대를 지우지 못한다.
+
+    돌려주는 것은 (정책 쪽, 가치 쪽) **자르기 전** 노름이다.
+    """
+    params = [p for p in policy.parameters() if p.requires_grad]
+    optimizer.zero_grad(set_to_none=True)
+    policy_side.backward(retain_graph=True)
+    policy_norm = float(torch.nn.utils.clip_grad_norm_(params, max_norm))
+    kept = [p.grad.detach().clone() if p.grad is not None else None for p in params]
+
+    optimizer.zero_grad(set_to_none=True)
+    value_side.backward()
+    value_norm = float(torch.nn.utils.clip_grad_norm_(params, max_norm))
+    for param, held in zip(params, kept, strict=True):
+        if held is None:
+            continue
+        if param.grad is None:
+            param.grad = held
+        else:
+            param.grad.add_(held)
+    optimizer.step()
+    return policy_norm, value_norm
+
+
 def update(
     policy: AllocatorPolicy,
     optimizer: torch.optim.Optimizer,
@@ -351,6 +392,7 @@ def update(
     # 엔트로피 계수는 선형 감쇠다(§4). 초반에 넓게 훑고 나중에 좁힌다.
     ent_coef = ppo.ent_coef * progress
     approx_kl = entropy_mean = grad_norm = concentration_sum = 0.0
+    value_grad_norm = 0.0
     stop = False
 
     for _ in range(ppo.n_epochs):
@@ -387,14 +429,13 @@ def update(
             value_loss = torch.max(plain, clipped_loss).mean()
 
             entropy = _entropy(out).mean()
-            loss = policy_loss + ppo.vf_coef * value_loss - ent_coef * entropy
-
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            grad_norm = float(
-                torch.nn.utils.clip_grad_norm_(policy.parameters(), ppo.max_grad_norm)
+            grad_norm, value_grad_norm = step_separately(
+                policy,
+                optimizer,
+                policy_side=policy_loss - ent_coef * entropy,
+                value_side=ppo.vf_coef * value_loss,
+                max_norm=ppo.max_grad_norm,
             )
-            optimizer.step()
 
             with torch.no_grad():
                 approx_kl = float(((ratio - 1.0) - log_ratio).mean())
@@ -420,6 +461,7 @@ def update(
         approx_kl=approx_kl,
         entropy=entropy_mean,
         grad_norm=grad_norm,
+        value_grad_norm=value_grad_norm,
         action_reflection=float(
             np.mean([info["action_reflection_rate"] for info in infos])
         ),

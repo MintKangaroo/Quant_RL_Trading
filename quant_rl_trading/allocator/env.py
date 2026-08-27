@@ -965,8 +965,11 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             row[FEATURE_VOLATILITY] = float(volatility.get(entity, 0.0))
             row[FEATURE_BETA] = float(betas.get(entity, 0.0))
             entered = state.entered.get(entity)
+            # 에피소드 길이로 나눈다 — 일수(126)를 그대로 넣으면 이 칸 하나가
+            # 다른 스물일곱 칸을 압도한다 (§1 의 O(1) 규칙).
             row[FEATURE_HOLDING_DAYS] = (
                 float(state.sessions.index(today) - state.sessions.index(entered))
+                / float(self.params.episode_days)
                 if entered in state.sessions
                 else 0.0
             )
@@ -1055,7 +1058,14 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         # 다시 퍼왔는데, 같은 스텝에서 `_fx_rate`·`_benchmark_return` 도 같은
         # 것을 읽어 같은 답을 서너 번 샀다.
         scalars = self._scalars()
-        out[6] = scalars.fx_rate if scalars.fx_rate is not None else 0.0
+        # **관측 칸은 전부 O(1) 스케일이어야 한다** (rl-training.md §1). 환율
+        # 원값 1,478 이 그대로 들어가 가치 헤드 그래디언트를 1,000 대로 키웠다
+        # (2026-08-27). 1,000 은 임계치가 아니라 단위 환산이라 config 가 아니다.
+        out[6] = (
+            math.log(scalars.fx_rate / 1000.0)
+            if scalars.fx_rate is not None and scalars.fx_rate > 0
+            else 0.0
+        )
         out[7] = scalars.fx_volatility
         out[8] = scalars.rate_differential
 
@@ -1069,7 +1079,7 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         # log 자본. 자본 단계마다 체결 가능성이 달라지므로(최소 주문금액·
         # 거래대금 상한) 정책이 규모를 알아야 한다. 선형으로 넣으면 억 단위
         # 값이 다른 피처를 압도한다.
-        out[18] = float(math.log10(max(equity, 1.0)))
+        out[18] = float(math.log10(max(equity, 1.0))) / 10.0
         out[19] = self._median_min_step(equity)
         out[20] = 1.0 - state.cursor / max(1, len(state.sessions) - 1)
         out[21] = state.last_turnover

@@ -338,10 +338,18 @@ def _update(
                 * dirichlet.log_prob_grad(out.concentration, actions[index], valid[index])
                 - ent_coef * dirichlet.entropy_grad(out.concentration, valid[index]) / size
             )
+            # 정책·가치를 **따로** 자른다 — `allocator/train.step_separately` 와
+            # 같은 규칙. 합쳐 자르면 노름이 큰 쪽이 예산을 독식한다(§4).
             grads, _ = policy.backward(
-                out, d_concentration=d_concentration, d_value=d_value
+                out, d_concentration=d_concentration, d_value=np.zeros_like(d_value)
             )
             grad_norm = clip_grads(grads, max_norm=ppo.max_grad_norm)
+            value_grads, _ = policy.backward(
+                out, d_concentration=np.zeros_like(d_concentration), d_value=d_value
+            )
+            clip_grads(value_grads, max_norm=ppo.max_grad_norm)
+            for name in grads:
+                grads[name] = grads[name] + value_grads[name]
             optimizer.step(grads, lr_scale=progress)
 
             approx_kl = float(np.mean((ratio - 1.0) - log_ratio))

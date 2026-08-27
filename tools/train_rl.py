@@ -114,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
         help="몇 업데이트마다 저장할지. WSL2 는 Windows 가 자면 같이 죽는다.",
     )
     parser.add_argument(
+        "--threads", type=int, default=None,
+        help="torch 스레드 수. 안 주면 코어 전부를 쓴다 — 대시보드가 같이 사는 머신이면 줄인다",
+    )
+    parser.add_argument(
         "--resume", default=None,
         help="이어서 돌릴 체크포인트 경로. 정책·옵티마이저·시작 업데이트를 복원한다.",
     )
@@ -126,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
         ppo = replace(ppo, num_envs=args.envs)
 
     device = torch.device("cpu")
+    if args.threads:
+        torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
@@ -184,6 +190,15 @@ def main(argv: list[str] | None = None) -> int:
         policy.load_state_dict(state["policy"])
         optimizer.load_state_dict(state["optimizer"])
         start_index = int(state["update"]) + 1
+        # 리턴 정규화기도 복원한다. 빠뜨리면 이어 돌린 판의 보상 스케일이
+        # 처음부터 다시 잡혀 가치함수가 딴 단위를 본다(2026-08-27 r5-c1).
+        saved = state.get("normalizer")
+        if saved:
+            normalizer.rms.mean = saved["mean"]
+            normalizer.rms.var = saved["var"]
+            normalizer.rms.count = saved["count"]
+        else:
+            print("체크포인트에 정규화기가 없다 — 보상 스케일을 처음부터 다시 잡는다", flush=True)
         print(f"이어서 돈다: {args.resume} · 업데이트 {start_index} 부터", flush=True)
 
     def save_checkpoint(update: int) -> None:
@@ -198,6 +213,11 @@ def main(argv: list[str] | None = None) -> int:
                 "ppo": ppo.__dict__,
                 "seed": args.seed,
                 "market": args.market,
+                "normalizer": {
+                    "mean": normalizer.rms.mean,
+                    "var": normalizer.rms.var,
+                    "count": normalizer.rms.count,
+                },
             },
             temporary,
         )
@@ -219,12 +239,18 @@ def main(argv: list[str] | None = None) -> int:
         log.step = index * per_update
 
         elapsed = time.time() - started  # invariant-allow: wallclock
-        remain = elapsed / index * (total_updates - index)
+        # **이어 돌린 판은 이번 판에서 돈 개수로 나눈다.** index 로 나누면
+        # 체크포인트 이전 320개를 이번 판이 돈 것으로 쳐서 남은시간이 1/20 로
+        # 줄어 보인다(실측 2026-08-27: 1730분짜리가 ~77분으로).
+        done_here = index - start_index + 1
+        remain = elapsed / done_here * (total_updates - index)
         print(
             f"[{index}/{total_updates}] EV {log.explained_variance:+.4f} · "
             f"KL {log.approx_kl:.5f} · ent {log.entropy:.1f} · "
             f"반영률 {log.action_reflection:.3f} · 현금 {log.cash_weight:.3f} · "
-            f"보상 {log.episode_reward:+.4f} · 남은시간 ~{remain / 60:.0f}분",
+            f"보상 {log.episode_reward:+.4f} · "
+            f"grad {log.grad_norm:.2f}/{log.value_grad_norm:.1f} · "
+            f"남은시간 ~{remain / 60:.0f}분",
             flush=True,
         )
 

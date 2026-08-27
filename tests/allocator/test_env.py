@@ -507,3 +507,16 @@ def test_에피소드_끝_5일은_정답이_0이다(warehouse) -> None:
     # 커서가 (길이 - 1 - 5) 를 넘어가면 5세션 뒤가 구간 밖이다.
     assert filled[0] is True
     assert filled[-1] is False
+
+
+def test_관측_칸은_전부_O1_스케일이다(warehouse) -> None:
+    """§1: 환율 원값(1,478)·보유 일수(126)·log10 자본(8) 이 그대로 들어가면
+    그 칸 하나가 가치 헤드 그래디언트를 1,000 대로 키운다(2026-08-27)."""
+    env = _env(warehouse)
+    obs, _ = env.reset(seed=0)
+    for _ in range(5):
+        obs, _, terminated, truncated, _ = env.step(_action(env, obs))
+        if terminated or truncated:
+            break
+    assert float(np.abs(obs["portfolio"]).max()) < 10.0, obs["portfolio"]
+    assert float(np.abs(obs["assets"]).max()) < 10.0
