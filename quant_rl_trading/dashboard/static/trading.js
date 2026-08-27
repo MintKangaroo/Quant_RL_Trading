@@ -176,6 +176,15 @@ function renderKpis(body) {
   const todayReturn = useLive && k.live_change !== null && k.live_change !== undefined
     ? k.live_change : k.daily_return;
   const closeBadge = "종가 기준";
+  // **총 수익금은 총자산과 같은 NAV 로 센다.** 서버의 total_pnl 은 창고의
+  // 마지막 종가 NAV(어제) 기준이라, 총자산이 오늘 실시간이면 두 카드가 서로
+  // 다른 날을 가리킨다(2026-08-27 실측: 총자산 506.8M · 총 수익금 +9.9M 은
+  // 어제 510.2M 기준). 원금이 있으면 화면의 NAV 로 다시 센다.
+  const totalPnl = useLive && k.principal ? navValue - k.principal : k.total_pnl;
+  // 원금 대비 단순 수익률. TWR 과 **다른 숫자가 맞다** — 입금 뒤의 수익은
+  // 큰 돈에, 입금 전의 손실은 작은 돈에 붙어서 금액은 +, TWR 은 − 일 수 있다.
+  const simpleReturn = k.principal && totalPnl !== null && totalPnl !== undefined
+    ? totalPnl / k.principal : null;
   // 오늘 수익 두 칸의 부제. 셋을 구분한다 — 장중 / 마감(종가) / 장 열기 전.
   const todayFoot = liveOn ? `${stampNow()} 기준`
     : closed ? "종가 기준 · 일봉 수집 전" : "TWR 기준";
@@ -187,9 +196,12 @@ function renderKpis(body) {
     kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
         { unit: "KRW", tone: tone(todayPnl) }),
     kpi("오늘 수익률", pct(todayReturn), todayFoot, false, { tone: tone(todayReturn) }),
-    kpi("총 수익금", signed(k.total_pnl), `원금 대비 · ${closeBadge}`, false,
-        { unit: "KRW", tone: tone(k.total_pnl) }),
-    kpi("총 수익률", pct(k.cumulative_return), `TWR 누적 · ${closeBadge}`, false,
+    kpi("총 수익금", signed(totalPnl),
+        `원금 ${k.principal ? num(Math.round(k.principal)) : "—"} 대비 · ${useLive ? (liveOn ? "장중 참고" : closeBadge) : closeBadge}`
+        + (simpleReturn === null ? "" : ` · ${pct(simpleReturn)}`), false,
+        { unit: "KRW", tone: tone(totalPnl) }),
+    kpi("총 수익률", pct(k.cumulative_return),
+        `TWR 누적 · ${closeBadge} · 입금 시점 영향 없음 — 원금 대비 %와 다른 것이 맞다`, false,
         { tone: tone(k.cumulative_return), spark: indexLine }),
     kpi("승률", k.win_rate === null ? "—" : pct(k.win_rate, 0),
         // 무엇을 세는지 적는다. 매도 기준 승률과 다른 숫자다.
