@@ -41,6 +41,14 @@ while true; do
 
     # 죽었다. 체크포인트가 없으면 이어 돌릴 수 없다 — 되살려도 처음부터라
     # 오히려 나쁘다(같은 run-id 로 창고 중복 적재까지 난다).
+    #
+    # **되살린 판이 첫 체크포인트(20업데이트) 전에 또 죽으면** 새 경로엔 파일이
+    # 없다. 그때는 직전 체크포인트로 물러선다 — 2026-08-28 00:58 OOM 이 그 경우였고,
+    # 여기서 포기해 3시간을 잃었다.
+    if [ ! -f "${CKPT}" ] && [ -n "${PREV_CKPT:-}" ] && [ -f "${PREV_CKPT}" ]; then
+        say "새 체크포인트가 아직 없다 — 직전 것으로 물러선다: ${PREV_CKPT}"
+        CKPT="${PREV_CKPT}"
+    fi
     if [ ! -f "${CKPT}" ]; then
         say "죽었는데 체크포인트가 없다 — 되살리지 않는다. 사람이 볼 것"
         exit 1
@@ -61,6 +69,7 @@ while true; do
         --market KR --seed 0 --checkpoint-every 20 ${EXTRA_ARGS} \
         --run-id "${NEW_ID}" --resume "${CKPT}" \
         >>"${LOG}" 2>&1 &
+    PREV_CKPT="${CKPT}"
     CKPT="data/rl_checkpoints/${NEW_ID}.pt"
     say "새 체크포인트 경로: ${CKPT}"
 done
