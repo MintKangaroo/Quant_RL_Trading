@@ -22,7 +22,10 @@ bp = Blueprint("learning_api", __name__, url_prefix="/api/learning")
 @bp.get("/status")
 def status() -> Any:
     current = scope()
-    return envelope(current, service.m4_status())
+    return envelope(
+        current,
+        service.m4_status(store(), as_of=current.as_of, lookback=current.lookback),
+    )
 
 
 @bp.get("/gate")

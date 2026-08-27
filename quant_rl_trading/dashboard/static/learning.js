@@ -210,7 +210,8 @@ async function renderKpis() {
   const s = statusBody.data;
 
   document.getElementById("kpis").innerHTML = [
-    kpi("RL 학습(M4)", s.active ? "가동" : "미착수", s.milestone),
+    kpi("RL 학습(M4)", s.label ?? (s.active ? "가동" : "미착수"),
+        s.run ? `${s.run.run_id}` : s.milestone),
     kpi("매매에 쓰이는 애널리스트", num(g.active_count), `잰 것 ${num(g.measured_count)}/${num(g.total)}`,
       g.active_count === 0),
     kpi("가중치 합", dec(g.active_weight, 1), "0 이면 아무도 매매에 못 쓴다", g.active_weight === 0),

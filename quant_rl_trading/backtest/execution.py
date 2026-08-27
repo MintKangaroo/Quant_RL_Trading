@@ -64,7 +64,17 @@ def pending(store: Store, *, as_of: datetime, session_id: str) -> pd.DataFrame:
     frame = store.get(ORDERS, as_of=as_of, lookback=7)
     if frame.empty:
         return frame
-    return frame[frame["session_id"] == session_id]
+    frame = frame[frame["session_id"] == session_id]
+    # **실브로커로 나간 주문은 시뮬레이션하지 않는다** (backtest.md §9).
+    # 그 체결은 계좌가 말해 주고 `reconcile_fills` 가 trades 에 적는다 — 여기서
+    # 봉으로 또 체결시키면 실제 체결 위에 가짜가 한 벌 더 얹힌다. `submitting`
+    # 은 나갔는지 모르는 것이라 지어내지 않고, `rejected` 는 없는 주문이다.
+    return frame[frame["status"].isin(SIMULATED_STATUSES)]
+
+
+#: 봉으로 체결시키는 상태. `paper` 는 PaperBroker 가 받은 것, `planned` 는
+#: 전송 단계 전에 죽어 상태가 안 붙은 것 — 둘 다 밖으로 안 나갔다.
+SIMULATED_STATUSES = frozenset({"planned", "paper"})
 
 
 def _aggregate(orders: pd.DataFrame) -> list[tuple[Order, str]]:

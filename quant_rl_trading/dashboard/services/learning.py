@@ -71,21 +71,40 @@ M4_WIDGETS: list[dict[str, str]] = [
 ]
 
 
-def m4_status() -> dict[str, Any]:
-    """RL 착수 여부. 시각을 되감아도 바뀌지 않는 마일스톤 사실이다.
+def m4_status(
+    store: Store | None = None, *, as_of: datetime | None = None, lookback: int = 90
+) -> dict[str, Any]:
+    """RL 착수 여부 — **창고의 학습 기록으로 판단한다.**
 
-    ``as_of`` 를 받긴 하지만(불변식 9, 규약 준수) 답은 시점에 의존하지 않는다
-    — data_quality 의 "진행 중인 작업" 패널과 같은 이유다: 이건 관측된
-    사실이 아니라 창고 스키마의 현재 상태다.
+    2026-08-27 까지 ``active: False`` 가 박혀 있어서 학습이 60업데이트째 도는
+    동안 화면은 "미착수" 라고 했다. 이제 ``rl_updates`` 의 최신 실행을 본다:
+    돌고 있으면 "학습 중", 총량에 닿았으면 "완주", 기록이 없으면 "미착수".
     """
+    label = "미착수"
+    active = False
+    run: dict[str, Any] | None = None
+    if store is not None and as_of is not None:
+        runs = training_runs(store, as_of=as_of, lookback=lookback)
+        if runs["has_data"] and runs["runs"]:
+            latest = runs["runs"][0]
+            run = {k: latest[k] for k in (
+                "run_id", "status", "last_update", "total_updates", "eta_minutes",
+                "silent_minutes",
+            )}
+            active = latest["status"] == "running"
+            label = {
+                "running": f"학습 중 {latest['last_update']}/{latest['total_updates']}",
+                "completed": f"완주 {latest['total_updates']}",
+                "stopped": f"멈춤 {latest['last_update']}/{latest['total_updates']}",
+            }.get(latest["status"], latest["status"])
     return {
-        "active": False,
+        "active": active,
+        "label": label,
+        "run": run,
         "milestone": "M4",
         "note": (
-            "M4 — RL 환경은 들어왔다(allocator/ — env·policy·cache·reward·baseline). "
-            "아직 비어 있는 이유는 학습 코드가 없어서가 아니라 **학습 기록을 "
-            "담을 테이블이 창고에 없기** 때문이다. PPO 학습 루프와 그 표가 "
-            "같이 들어오면 아래 칸들이 채워진다."
+            "M4 — PPO 학습 루프와 rl_updates 표가 들어왔다. 아래 칸은 창고의 최신 "
+            "실행을 그린다. 완주 뒤 OOS 판정(evaluate_policy)까지가 M4 다."
         ),
         "widgets": M4_WIDGETS,
     }

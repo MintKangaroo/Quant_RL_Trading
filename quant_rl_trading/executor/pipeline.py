@@ -280,6 +280,10 @@ def record_orders(
     )
 
 
+#: orders.reason 에 남기는 브로커 주문번호 접두. backtest.md §9.
+BROKER_ORDER_NO_PREFIX = "broker_order_no="
+
+
 def submit_orders(
     store: Store,
     clock: Clock,
@@ -365,6 +369,7 @@ def submit_orders(
         _record_submit_result(
             store, clock, item, as_of=as_of, market=market,
             status=STATUS_SENT if ack.sent else STATUS_PAPER,
+            broker_order_no=ack.broker_order_no if ack.sent else None,
         )
     return acks
 
@@ -377,6 +382,7 @@ def _record_submit_result(
     as_of: datetime,
     market: str,
     status: str,
+    broker_order_no: str | None = None,
 ) -> None:
     """전송 결과를 "submitting" 위 revision 으로 남긴다. 이 기록의 존재
     여부는 재전송 판단에 쓰지 않는다 — 그건 이미 ``submit_run_id`` 로
@@ -386,6 +392,10 @@ def _record_submit_result(
         return
     row = item.row(as_of=as_of, observed_at=clock.now(), market=market, status=status)
     row["revision"] = 2
+    if broker_order_no:
+        # 대사(reconcile_fills)가 t0425 에서 이 주문을 찾을 열쇠. 컬럼을 늘리지
+        # 않고 reason 에 적는다 — 기존 파티션과 스키마가 갈리면 읽기가 깨진다.
+        row["reason"] = f"{BROKER_ORDER_NO_PREFIX}{broker_order_no}"
     store.append(ORDERS, [row], ingest_run_id=run_id, source=SOURCE)
 
 
