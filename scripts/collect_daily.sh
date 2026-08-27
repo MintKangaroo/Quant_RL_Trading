@@ -196,6 +196,10 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
                 --market KR --table "${PANEL}" --sessions "${SESSIONS}"
             echo "  지수(${PANEL}) rc=$?"
         done
+        # 오늘 지수는 KRX 가 내일 오후에야 준다 — LS t1511 로 오늘 종가를 먼저 적는다.
+        # 없으면 23:05 shadow 의 벤치마크가 매일 null 로 시작한다.
+        .venv/bin/python tools/collect_indices_ls.py
+        echo "  지수(LS t1511) rc=$?"
     fi
 
     # 4. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이

@@ -50,6 +50,10 @@ note() {   # note <이름> <rc>
         .venv/bin/python tools/backfill.py --market KR --table "$T" --sessions 2
         note "KR ${T}" "$?"
     done
+    # KRX 는 전날 지수를 이 시각에 안 준다(실측 — 다음날 15:55 에야 온다). LS t1511 이
+    # 같은 종가를 마감 직후부터 주므로 그것으로 채운다. 이미 있으면 할 일 없음.
+    .venv/bin/python tools/collect_indices_ls.py
+    note "KR 지수(LS t1511)" "$?"
 
     # 미장 지수·거시(FRED). 미장 마감 05:00~06:00 KST 뒤라 그날 값이 있다.
     .venv/bin/python tools/collect_macro.py
