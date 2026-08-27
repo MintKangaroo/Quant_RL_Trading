@@ -95,21 +95,25 @@ function renderTrainingLive(runs) {
     return;
   }
   const run = runs.runs[0];
-  const [statusText, tone] = STATUS_LABEL[run.status] || [run.status, ""];
-  const pct = run.total_updates ? (100 * run.last_update) / run.total_updates : 0;
+  // 서버가 진행 정보를 안 주는 옛 페이로드(재시작 전)여도 죽지 않는다 —
+  // 있는 것만 보이고 없는 것은 "—" 다.
+  const lastUpdate = run.last_update ?? (run.updates?.length ? run.updates[run.updates.length - 1] : null);
+  const total = run.total_updates ?? null;
+  const [statusText, tone] = STATUS_LABEL[run.status] || [run.status ?? "서버 재시작 전 — 상태 미상", ""];
+  const pct = total && lastUpdate != null ? (100 * lastUpdate) / total : 0;
   const reward = run.series.episode_reward || [];
   const recent = tailMean(reward, 50);
   const before = tailMean(reward, 50, 50);
-  const lastAt = new Date(run.last_observed_at);
+  const lastAt = run.last_observed_at ? new Date(run.last_observed_at) : null;
   const s = run.series;
   const last = (k) => (s[k] && s[k].length ? s[k][s[k].length - 1] : null);
   const fmt = (v, d = 4) => (v == null ? "—" : Number(v).toFixed(d));
 
   const rows = [
-    ["상태", `<span class="${tone}">${statusText}</span> · 마지막 기록 ${lastAt.toLocaleString("ko-KR", { hour12: false })} (${minutesLabel(run.silent_minutes)} 전)`],
-    ["진행", `${run.last_update.toLocaleString()} / ${run.total_updates.toLocaleString()} 업데이트 (${pct.toFixed(1)}%)
+    ["상태", `<span class="${tone}">${statusText}</span>${lastAt ? ` · 마지막 기록 ${lastAt.toLocaleString("ko-KR", { hour12: false })} (${minutesLabel(run.silent_minutes)} 전)` : ""}`],
+    ["진행", `${lastUpdate == null ? "—" : lastUpdate.toLocaleString()} / ${total == null ? "—" : total.toLocaleString()} 업데이트 (${pct.toFixed(1)}%)
       <div style="height:6px;background:var(--line,#333);border-radius:3px;margin-top:4px"><div style="width:${pct.toFixed(1)}%;height:6px;background:#4C9AFF;border-radius:3px"></div></div>`],
-    ["페이스", `${run.pace_minutes == null ? "—" : run.pace_minutes.toFixed(1) + "분/업데이트"} · 남은시간 ${minutesLabel(run.eta_minutes)}`],
+    ["페이스", `${run.pace_minutes == null ? "—" : run.pace_minutes.toFixed(1) + "분/업데이트"} · 남은시간 ${minutesLabel(run.eta_minutes ?? null)}`],
     ["보상 추이", `최근 50 평균 ${fmt(recent)} · 그 앞 50 평균 ${fmt(before)}${recent != null && before != null ? ` · 차이 ${(recent - before >= 0 ? "+" : "") + (recent - before).toFixed(5)}` : ""}`],
     ["마지막 지표", `EV ${fmt(last("explained_variance"), 3)} · KL ${fmt(last("approx_kl"), 5)} · grad ${fmt(last("grad_norm"), 2)} · 반영률 ${fmt(last("action_reflection"), 3)} · 현금 ${fmt(last("cash_weight"), 3)}`],
     ["실행", `${run.run_id} · seed ${run.seed ?? "—"} · ${run.curriculum || "—"} · ${run.git_commit ? run.git_commit.slice(0, 7) : "—"}`],
