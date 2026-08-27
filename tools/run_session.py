@@ -112,6 +112,15 @@ def exit_code(entry: loop.DayResult) -> int:
     return 0
 
 
+def _account_mode(store: Store, *, as_of: datetime) -> str:
+    """``execution.account_mode``. 못 읽으면 모의로 본다 — factory 와 같은 규약."""
+    try:
+        raw = store.config(broker_factory.ACCOUNT_MODE_KEY, as_of=as_of)
+        return str(raw or broker_factory.MODE_PAPER).strip().lower()
+    except Exception:  # ConfigNotFound 포함
+        return broker_factory.MODE_PAPER
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--market", default="KR", choices=["KR", "US"])
@@ -135,20 +144,32 @@ def main(argv: list[str] | None = None) -> int:
         "과 계좌 지문이 둘 다 맞아야 실제로 열린다(broker/factory.py)",
     )
     args = parser.parse_args(argv)
-
+    load_env()
+    source = build_store(None)
     if args.live_broker and not args.live_store:
         # 샌드박스에 쓰면서 실주문을 내면 **체결이 실계좌에 쌓이는데 장부는
         # 샌드박스에 남는다.** 다음 세션이 실전 창고에서 장부를 접으면 보유
         # 수량이 0 으로 보이고, 같은 종목을 또 산다.
-        print(
-            "--live-broker 는 --live-store 와 함께 써야 한다. "
-            "실주문을 내면서 장부를 샌드박스에 적으면 보유가 장부에서 사라진다.",
-            file=sys.stderr,
-        )
-        return 2
-
-    load_env()
-    source = build_store(None)
+        #
+        # **모의 계좌는 예외다** (backtest.md §9). 그 계좌는 이 프로젝트만 쓰고
+        # 장부는 `--sandbox`(data/_paper) 하나뿐이라 1:1 이 지켜진다. 실전 창고
+        # `data/` 에는 실계좌 배선 검증 체결이 있어 모의 체결을 섞으면 회계가
+        # 둘을 못 가른다. 실전(real)은 예전대로 --live-store 를 요구한다.
+        mode = _account_mode(source, as_of=LiveClock().now())
+        if mode != broker_factory.MODE_PAPER:
+            print(
+                f"--live-broker 는 --live-store 와 함께 써야 한다 (account_mode={mode}). "
+                "실주문을 내면서 장부를 샌드박스에 적으면 보유가 장부에서 사라진다.",
+                file=sys.stderr,
+            )
+            return 2
+        if Path(args.sandbox).resolve() == DEFAULT_SANDBOX.resolve():
+            print(
+                "모의 계좌 실운용은 shadow 샌드박스(data/_shadow)에 쓰지 않는다 — "
+                "--sandbox data/_paper 를 준다. 두 장부의 차이가 곧 체결 비용이다.",
+                file=sys.stderr,
+            )
+            return 2
     if args.live_store:
         store = source
     else:
