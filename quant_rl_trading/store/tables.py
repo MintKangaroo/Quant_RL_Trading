@@ -325,6 +325,10 @@ _SPECS: dict[str, TableSpec] = {
             "market": pa.string(),
             "sector": pa.string(),
         },
+        # 참조 속성 — 게이트가 valid_from 을 본다 (data-contract.md §3). DART 업종을
+        # 2026-08-15 에 처음 받아 그 전 시점 백테스트가 섹터 0개였고, 포트폴리오
+        # 구성 §7 검증이 그 자리에서 막혔다(2026-08-23). 업종은 예측 정보가 아니다.
+        reference_data=True,
         # 일별매매(KRX Open API)에만 있다. LS 유니버스(t8436)에는 섹터가 없다
         # (krx_openapi.TRADE_FIELDS 의 SECT_TP_NM). 종목이 업종을 옮기면 그날
         # 부터 새 관측이 새 행으로 쌓인다 — 옛 행을 고치지 않는다(append-only).

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import duckdb
@@ -186,12 +186,16 @@ def _scope(
     ``query`` 와 ``latest_by_entity`` 가 같은 창을 봐야 한다. 두 벌로 두면
     한쪽만 고쳐졌을 때 두 조회가 조용히 다른 데이터를 본다.
     """
+    # **참조 속성 테이블은 valid_from 으로 건다** (schema.TableSpec.reference_data,
+    # data-contract.md §3). 파티션은 observed_date 축이라 상한도 같이 푼다 —
+    # 안 풀면 2026-08-15 파티션이 2025 년 as_of 에서 아예 안 열린다.
+    reference = spec.reference_data
     files = list(
         paths.iter_data_files(
             root,
             spec.name,
-            upper=paths.observed_date(as_of),
-            lower=paths.prune_lower_bound(
+            upper=date.max if reference else paths.observed_date(as_of),
+            lower=None if reference else paths.prune_lower_bound(
                 valid_floor.date() if valid_floor else None, spec.observation_lag_days
             ),
         )
@@ -199,7 +203,7 @@ def _scope(
     if not files:
         return None
 
-    predicates = ["observed_at <= ?"]
+    predicates = ["valid_from <= ?" if reference else "observed_at <= ?"]
     params: list[object] = [[str(path) for path in files], as_of]
 
     if entity is not None:

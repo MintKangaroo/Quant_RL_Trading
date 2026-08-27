@@ -83,6 +83,14 @@ store.get(table, as_of, entity=None, lookback=None) -> DataFrame
 
 - 내부에서 `observed_at <= as_of` 를 무조건 적용
 - 정정본은 `as_of` 이전 것 중 최신 `revision` 만 선택
+- **참조 속성 예외** (2026-08-27): `TableSpec.reference_data=True` 인 테이블은 게이트가
+  `valid_from <= as_of` 다. 지금은 `sectors` 하나뿐이다. 업종 분류는 준정적이고 수익률
+  예측 정보가 아니라서, "2026-08-15 에 처음 받았다" 는 이유로 2025 년 백테스트가
+  종목의 업종을 모르는 척하는 것은 미래 훔쳐보기 방지가 아니라 검증 불능이다
+  (portfolio-construction.md §7). `observed_at` 은 그대로 진실로 남긴다 — 과거로
+  내리지 않는다. 시세·재무·신호·수급처럼 **그 자체가 예측 정보인 테이블에는 절대 켜지
+  않는다**; 켜는 순간 그 테이블의 백테스트는 거짓이 된다. 켜는 곳은 스키마 선언 한
+  곳이고 백테스트 분기가 아니다(불변식 5).
 - **Parquet 직접 읽기·DuckDB 직접 쿼리 금지.** CI에서 검사
 
 에이전트 15개가 각자 데이터를 긁으면 그중 하나는 반드시 미래를 본다.
