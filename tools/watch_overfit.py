@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,7 +40,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     now = datetime.now(UTC)  # invariant-allow: wallclock
     frame = Store(root=Path(args.root)).get("rl_updates", as_of=now, lookback=30)
-    frame = frame[frame["entity_id"] == args.run].sort_values("update")
+    # 되살린 판(run-cN)은 같은 학습의 연장이다 — 접미사를 떼고 계열 전체를 본다.
+    # 같은 update 번호가 두 판에 있으면(죽기 전 몇 개) 나중 기록을 쓴다.
+    base = re.sub(r"-c\d+$", "", args.run)
+    frame = frame[frame["entity_id"].str.match(rf"^{re.escape(base)}(-c\d+)?$")]
+    frame = frame.sort_values(["update", "observed_at"]).drop_duplicates("update", keep="last")
     if len(frame) < 2 * WINDOW:
         print(f"{args.run}: {len(frame)}업데이트 — 비교하려면 {2 * WINDOW} 필요")
         return 0
