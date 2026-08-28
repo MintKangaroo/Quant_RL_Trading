@@ -107,8 +107,8 @@ def main(argv: list[str] | None = None) -> int:
             mark = "체결"
         else:
             mark = "변동없음"
-        qty = outcome.fill.filled_quantity if outcome.fill else outcome.cumulative_quantity
-        price = f" @ {outcome.fill.avg_price:,.0f}" if outcome.fill else ""
+        qty = outcome.fill.quantity if outcome.fill else outcome.cumulative_quantity
+        price = f" @ {outcome.fill.price:,.0f}" if outcome.fill else ""
         print(f"  {mark:<4} {outcome.order_id} · {qty if qty is not None else '-'}주{price} {outcome.detail}")
     print(f"trades {result.rows_written}행 적재 · 모름 {unknown}건")
     return 1 if unknown else 0
