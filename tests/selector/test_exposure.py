@@ -204,3 +204,33 @@ def test_노출_제어가_주문까지_도달한다() -> None:
         "exposure.apply 결과가 집행 단계로 안 넘어간다 — 노출 제어가 "
         "로그에만 남고 주문은 원래대로 나간다"
     )
+
+
+# -- 국면 확인 기간 (2026-08-28) ------------------------------------------------------
+
+
+def test_국면이_뒤집혀도_N세션_연속이어야_올린다() -> None:
+    """crisis↔volatile 이 하루걸러 뒤집힐 때 절반을 팔았다 사는 왕복을 막는다 —
+    낮추기는 즉시, 올리기는 확인 뒤."""
+    from dataclasses import replace
+
+    params = replace(PARAMS, regime_confirm_sessions=2)
+    # 어제 crisis, 오늘 volatile → 아직 0.5 (확인 중)
+    d = decide(FakeStore(_rising()), as_of=NOW, index_id="KR:IDX:KOSPI",
+               regime_state="volatile", params=params, recent_regime_states=["crisis"])
+    assert d.scale == pytest.approx(0.5) and d.driver == "regime"
+    assert any("확인 중" in n for n in d.notes)
+    # 이틀 연속 volatile → 올린다
+    d = decide(FakeStore(_rising()), as_of=NOW, index_id="KR:IDX:KOSPI",
+               regime_state="volatile", params=params, recent_regime_states=["volatile"])
+    assert d.scale == 1.0
+    # 어제 volatile, 오늘 crisis → 즉시 낮춘다
+    d = decide(FakeStore(_rising()), as_of=NOW, index_id="KR:IDX:KOSPI",
+               regime_state="crisis", params=params, recent_regime_states=["volatile"])
+    assert d.scale == pytest.approx(0.5)
+
+
+def test_확인_기간_1이면_옛_동작이다() -> None:
+    d = decide(FakeStore(_rising()), as_of=NOW, index_id="KR:IDX:KOSPI",
+               regime_state="volatile", params=PARAMS, recent_regime_states=["crisis"])
+    assert d.scale == 1.0

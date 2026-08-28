@@ -152,6 +152,13 @@ data_quality:                  # 데이터 화면 경고선
 execution:                     # 체결 시뮬레이터
   impact_k: 0.1                # 충격비용 = k × 변동성 × √(주문량/ADV)
   min_order_value: 100000.0    # 이보다 작으면 수수료가 잡아먹는다
+
+exposure:                      # 노출 제어 (selector/exposure.py)
+  regime_confirm_sessions: 2   # 국면 배수 확인 기간 — 낮추기 즉시, 올리기 N 세션 연속 확인.
+                               # crisis↔volatile 이 하루걸러 뒤집혀 절반을 팔았다 사던 왕복을 막는다 (2026-08-28)
+
+selector:
+  exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
 ```
 
 ---

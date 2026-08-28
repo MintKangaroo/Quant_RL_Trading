@@ -1,0 +1,3 @@
+# 노출 제어 국면 확인 기간 (selector/exposure.py) — 본 yaml 과 같은 값.
+exposure:
+  regime_confirm_sessions: 2

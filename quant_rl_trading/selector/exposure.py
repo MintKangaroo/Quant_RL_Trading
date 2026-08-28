@@ -48,6 +48,8 @@ KR 300세션·82만 행). **횡단면은 여전히 전부 미달이다** — 최
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -98,6 +100,9 @@ class ExposureParams:
     squeezed: float
     #: 압축으로 볼 백분위 문턱(작을수록 좁은 밴드).
     squeeze_quantile: float
+    #: 국면 배수 확인 기간(세션). 최근 N 세션 배수의 최솟값 — 낮추기는 즉시, 올리기는
+    #: N 연속 확인. 1 이면 현재 국면만 본다.
+    regime_confirm_sessions: int = 1
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> ExposureParams:
@@ -120,6 +125,7 @@ class ExposureParams:
             regime_scale=scales,
             squeezed=float(section["squeezed"]),
             squeeze_quantile=float(section["squeeze_quantile"]),
+            regime_confirm_sessions=int(section.get("regime_confirm_sessions", 1)),
         )
 
 
@@ -229,15 +235,29 @@ def squeeze_scale(
     return 1.0, None
 
 
-def regime_scale(state: str, params: ExposureParams) -> tuple[float, str | None]:
+def regime_scale(
+    state: str, params: ExposureParams, recent_states: Sequence[str] = (),
+) -> tuple[float, str | None]:
     """국면별 배수. 모르는 상태는 **1.0** 이다.
 
     `unknown` 에서 노출을 줄이면, 지수 이력이 짧은 구간(백테스트 초입)마다
     까닭 없이 절반만 사게 된다. 모른다는 것은 위험하다는 뜻이 아니다.
+
+    ``recent_states`` 는 직전 세션들의 국면(오래된 것부터). **최근 N 세션 배수의
+    최솟값**을 쓴다(N = ``regime_confirm_sessions``): 낮추는 것은 즉시, 올리는 것은
+    N 세션 연속 확인 뒤. crisis 와 volatile 은 20일 모멘텀 부호 하나로 갈리는데,
+    그 부호가 0 근처에서 하루걸러 뒤집히면 포트폴리오 절반을 팔았다 사는 왕복이
+    난다(2026-08-22~27 shadow 실측: 익스포저 73%→38%→복원).
     """
-    scale = float(params.regime_scale.get(state, 1.0))
+    window = max(1, int(params.regime_confirm_sessions))
+    states = [*recent_states, state][-window:]
+    scales = {s: float(params.regime_scale.get(s, 1.0)) for s in states}
+    lowest_state = min(states, key=lambda s: scales[s])
+    scale = scales[lowest_state]
     if scale >= 1.0:
         return 1.0, None
+    if lowest_state != state:
+        return scale, f"국면 {state} (직전 {lowest_state} 확인 중 — {window}세션 연속이어야 올린다)"
     return scale, f"국면 {state}"
 
 
@@ -248,6 +268,7 @@ def decide(
     index_id: str,
     regime_state: str,
     params: ExposureParams,
+    recent_regime_states: Sequence[str] = (),
 ) -> ExposureDecision:
     """노출 배수 하나와 그 이유.
 
@@ -259,7 +280,7 @@ def decide(
 
     scale, note = trend_scale(store, as_of=as_of, index_id=index_id, params=params)
     axes.append(("trend", scale, note))
-    scale, note = regime_scale(regime_state, params)
+    scale, note = regime_scale(regime_state, params, recent_regime_states)
     axes.append(("regime", scale, note))
     scale, note = squeeze_scale(store, as_of=as_of, index_id=index_id, params=params)
     axes.append(("squeeze", scale, note))

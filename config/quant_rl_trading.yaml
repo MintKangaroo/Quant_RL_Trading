@@ -244,6 +244,11 @@ exposure:
   # 압축으로 볼 백분위. **절대폭이 아니라 자기 과거 120세션 대비**다 —
   # 절대폭으로 재면 저변동 종목만 뽑혀 low_volatility 를 복제한다.
   squeeze_quantile: 0.20
+  # 국면 배수 확인 기간. 최근 N 세션 국면 배수의 **최솟값**을 쓴다 — 낮추는 것은
+  # 즉시, 올리는 것은 N 세션 연속 확인 뒤. 2026-08-22~27 에 crisis↔volatile 이
+  # 하루걸러 뒤집혀 shadow 가 절반을 팔았다 사는 왕복을 했다(20일 모멘텀 부호 하나가
+  # 가른다). 1 이면 옛 동작(현재 국면만).
+  regime_confirm_sessions: 2
 
 allocator:
   action_reflection_floor: 0.30   # 미만이면 경고 — RL이 아니라 룰 시스템이다
