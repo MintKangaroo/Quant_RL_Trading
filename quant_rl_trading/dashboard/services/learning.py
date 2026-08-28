@@ -84,7 +84,11 @@ def m4_status(
     active = False
     run: dict[str, Any] | None = None
     if store is not None and as_of is not None:
-        runs = training_runs(store, as_of=as_of, lookback=lookback)
+        # 카드는 "지금 도는 실행" 만 필요하다 — 90일치를 읽으면 4.6초다(2026-08-28 실측).
+        # 최근 3일에 기록이 없을 때만 원래 창으로 넓힌다.
+        runs = training_runs(store, as_of=as_of, lookback=min(lookback, 3))
+        if not runs["has_data"]:
+            runs = training_runs(store, as_of=as_of, lookback=lookback)
         if runs["has_data"] and runs["runs"]:
             latest = runs["runs"][0]
             run = {k: latest[k] for k in (
