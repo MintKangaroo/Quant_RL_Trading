@@ -734,10 +734,15 @@ function renderPerformance(body) {
       ${realized}
     </tr>`;
   }).join("");
-  const omitted = p.fills_omitted
-    ? `<p class="note">체결 ${p.fill_count}건 중 큰 것부터 ${p.fills.length}건을 종목별로 접었다 — 외 ${p.fills_omitted}건 생략.</p>`
-    : `<p class="note">체결 ${p.fill_count}건 → 종목·방향 ${groups.length}줄 · 매수 ${p.buy_count} · 매도 ${p.sell_count}</p>`;
-  fills.innerHTML = `<table class="ledger">${head}${rows}</table>${omitted}`;
+  // 보유 표(POSITIONS)와 같은 종목이 그대로 겹친다(첫날엔 완전히 같다) — 요약 한 줄만
+  // 펼쳐 두고 종목별 체결은 접는다 (사용자 요청 2026-08-28).
+  const buyAmt = groups.filter((g) => g.side === "buy").reduce((s, g) => s + g.amount, 0);
+  const sellAmt = groups.filter((g) => g.side === "sell").reduce((s, g) => s + g.amount, 0);
+  const won = (v) => num(Math.round(v));
+  const line = `오늘 체결 ${p.fill_count}건 — 매수 ${p.buy_count}건 ${won(buyAmt)}원 · 매도 ${p.sell_count}건 ${won(sellAmt)}원`
+    + (p.fills_omitted ? ` (큰 것부터 ${p.fills.length}건만, 외 ${p.fills_omitted}건 생략)` : "");
+  fills.innerHTML = `<details class="fold"><summary>${line} · 종목별 ${groups.length}줄 보기</summary>
+    <table class="ledger">${head}${rows}</table></details>`;
   bindRows("perf-fills");
 }
 
