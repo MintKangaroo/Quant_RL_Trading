@@ -1199,9 +1199,33 @@ def subject(briefing: Briefing) -> str:
     return f"[시황] {_report_date(briefing)} · {headline(briefing)}"
 
 
+def _freshness_line(briefing: Briefing) -> list[tuple[str, str, bool]]:
+    """(이름, 'M/D', 늦음?) — 메일 맨 위 기준일 줄. 늦은 것은 ⚠ 와 지연 세션 수."""
+    out: list[tuple[str, str, bool]] = []
+    for item in getattr(briefing, "freshness", None) or []:
+        iso = item.get("observed")
+        md = f"{int(iso[5:7])}/{int(iso[8:10])}" if iso else "없음"
+        # 환율은 본래 D+1(Yahoo·FRED) — 1세션까지는 늦은 것이 아니다 (tools/briefing_ready 와 같은 규칙).
+        tolerance = 1 if item.get("key") == "fx" else 0
+        late = item.get("status") == "stale" and (item.get("lag_sessions") or 0) > tolerance
+        text = f"{md} ⚠{item.get('lag_sessions')}세션" if late else md
+        out.append((str(item.get("label")), text, late))
+    return out
+
+
+def _freshness_band(briefing: Briefing) -> str:
+    line = _freshness_line(briefing)
+    if not line:
+        return ""
+    any_late = any(late for _, _, late in line)
+    body = " · ".join(f"{name} {text}" for name, text, _ in line)
+    head = "⚠ 일부 데이터가 늦었다 — " if any_late else "데이터 기준일 — "
+    return _band(head + body, ink=(DOWN if any_late else INK), bg=PAPER)
+
+
 def render_html(briefing: Briefing) -> str:
     report_day = report_date(briefing)
-    blocks = "".join(
+    blocks = _freshness_band(briefing) + "".join(
         _market_block(briefing.markets[code], report_day)
         for code in MARKET_ORDER
         if code in briefing.markets
@@ -1243,6 +1267,11 @@ line-height:1.5;padding:14px 0 0;border-top:1px solid {RULE};margin-top:16px">
 def render_text(briefing: Briefing) -> str:
     """텍스트 대체본. HTML 을 막는 클라이언트와 로그 확인용."""
     lines: list[str] = [subject(briefing), ""]
+    fresh = _freshness_line(briefing)
+    if fresh:
+        lines.append(("⚠ 일부 데이터가 늦었다 — " if any(l for _, _, l in fresh) else "데이터 기준일 — ")
+                     + " · ".join(f"{n} {t}" for n, t, _ in fresh))
+        lines.append("")
     if briefing.gaps:
         lines.append(f"[결측 {len(briefing.gaps)}건 — 맨 아래 목록]")
         lines.append("")

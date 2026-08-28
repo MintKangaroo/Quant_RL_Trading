@@ -249,6 +249,9 @@ class Briefing:
     #: ``None`` 이면 성과 섹션을 아예 안 실은 것이다(옛 호출부·테스트).
     #: "성과가 0" 과 다른 사실이라 렌더러가 자리를 통째로 비운다.
     performance: performance_module.Performance | None = None
+    #: 데이터 기준일 — 국장 시세·지수, 미장 지수·시세, 환율의 창고 최신 세션 대 기대 세션.
+    #: 메일 맨 위에 그대로 적는다(사용자 요청 2026-08-28: "최신 데이터인지 두 번 검증하기 싫다").
+    freshness: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def gaps(self) -> list[Gap]:
@@ -1461,4 +1464,15 @@ def build_briefing(
         ),
         markets=markets,
         performance=_performance(store, as_of=as_of),
+        freshness=_freshness(store, as_of=as_of),
     )
+
+
+def _freshness(store: Store, *, as_of: datetime) -> list[dict[str, Any]]:
+    """대시보드 띠와 **같은 계산**(services/freshness) — 메일과 화면이 다른 날짜를 말하면 안 된다."""
+    try:
+        from quant_rl_trading.dashboard.services.freshness import summary
+
+        return list(summary(store, as_of=as_of)["items"])
+    except Exception:  # 브리핑은 나가야 한다 — 띠가 못 만들어지면 빈 채로
+        return []

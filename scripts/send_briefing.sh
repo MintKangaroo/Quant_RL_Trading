@@ -28,7 +28,23 @@ sys.exit(0 if any(is_trading_day(m, y) for m in (Market.KR, Market.US)) else 1)
         echo "어제는 국장·미장 모두 휴장 — 보내지 않는다"
         exit 0
     fi
+    # **기준일이 맞을 때까지 기다린다** (사용자 요청 2026-08-28 — "최신 데이터인지 두 번 검증해야
+    # 한다"). 늦은 것이 있으면 마감 직후 소스(LS·Yahoo)로 다시 받고 07:10 까지 2분마다 재검사.
+    # 그래도 늦으면 보내되, 메일 맨 위 기준일 줄에 ⚠ 가 붙는다(reporting/render.py).
+    DEADLINE=710
+    while ! .venv/bin/python tools/briefing_ready.py; do
+        if [ "$((10#$(date +%H%M)))" -ge "${DEADLINE}" ]; then
+            echo "  07:10 넘김 — 늦은 데이터를 ⚠ 로 표시하고 보낸다"
+            break
+        fi
+        echo "  늦은 데이터가 있다 — 마감 직후 소스로 다시 받고 2분 뒤 재검사"
+        .venv/bin/python tools/collect_indices_ls.py
+        .venv/bin/python tools/collect_prices_ls.py
+        .venv/bin/python tools/collect_indices_us.py
+        .venv/bin/python tools/collect_fx_yahoo.py
+        sleep 120
+    done
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
-        .venv/bin/python tools/send_briefing.py --send
+        .venv/bin/python tools/send_briefing.py --send --store data/_paper   # 성과는 모의계좌 장부(2026-08-28~)
     echo "rc=$?"
 } >>"${LOG}" 2>&1
