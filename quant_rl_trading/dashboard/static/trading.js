@@ -590,18 +590,21 @@ async function renderAccount(tradingBody) {
   };
   const ledgerNav = k.live_nav ?? k.nav;
   const ledgerEquity = k.live_equity ?? k.equity;
-  const ledgerUnreal = (d.positions || []).reduce((s, p) => s + (p.pnl || 0), 0);
+  // 장부 평가손익도 계좌와 **같은 정의**(현재가 − 평균 매입가)로 센다. positions.pnl 은
+  // 전일 종가 대비 당일 손익이라 다른 숫자다 — 그걸 나란히 두면 차이가 가짜로 커진다.
+  const ledgerUnreal = (d.positions || []).reduce(
+    (s, p) => s + ((p.live_price ?? p.price) - (p.avg_price || 0)) * (p.quantity || 0), 0);
+  const settled = a.net_asset != null && a.equity != null ? a.net_asset - a.equity : null;
   const rows = [
-    ["총자산", a.net_asset, ledgerNav, "계좌 추정순자산 vs 장부 NAV"],
-    ["현금 (정산 후)", a.net_asset != null && a.equity != null ? a.net_asset - a.equity : null, k.cash_krw,
-      `계좌 순자산 − 평가금액 (= D+2 예수금) vs 장부 현금 · 당일 예수금은 ${won(a.cash)} — 차이는 미결제 매도대금`],
-    ["주식 평가금액", a.equity, ledgerEquity, "시세 시각이 다르면 조금 다르다"],
-    ["평가손익", a.unrealized, ledgerUnreal, "매입가 대비 · 청산한 옛 종목의 실현손익은 장부 밖"],
+    ["총자산", a.net_asset, ledgerNav],
+    ["현금(정산 후)", settled, k.cash_krw],
+    ["주식 평가금액", a.equity, ledgerEquity],
+    ["평가손익", a.unrealized, ledgerUnreal],
   ];
   let html = `<table><thead><tr><th>항목</th><th class="r">증권사 계좌</th><th class="r">우리 장부</th><th class="r">차이</th></tr></thead><tbody>`;
-  for (const [label, acct, ledger, note] of rows) {
-    html += `<tr><td>${label}<div style="font-size:11px;${muted}">${note}</div></td>
-      <td class="r">${won(acct)}</td><td class="r">${won(ledger)}</td>${diffCell(acct == null || ledger == null ? null : acct - ledger, a.net_asset)}</tr>`;
+  for (const [label, acct, ledger] of rows) {
+    html += `<tr><td style="white-space:nowrap">${label}</td>
+      <td class="r mono">${won(acct)}</td><td class="r mono">${won(ledger)}</td>${diffCell(acct == null || ledger == null ? null : acct - ledger, a.net_asset)}</tr>`;
   }
   const cntOk = a.positions === k.positions;
   html += `<tr><td>보유 종목 수</td><td class="r">${a.positions ?? "—"}</td><td class="r">${k.positions ?? "—"}</td>
@@ -625,9 +628,12 @@ async function renderAccount(tradingBody) {
   }
   tbl += "</tbody></table>";
   const verdict = mismatch === 0
-    ? `<div class="up" style="margin:8px 0;font-weight:600">종목·수량 ${keys.length}건 전부 일치 ✓</div>`
-    : `<div class="down" style="margin:8px 0;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것</div>`;
-  target.innerHTML = html + verdict + tbl;
+    ? `<p class="up" style="margin:10px 0 4px;font-weight:600">종목·수량 ${keys.length}건 전부 일치 ✓</p>`
+    : `<p class="down" style="margin:10px 0 4px;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것</p>`;
+  const legend = `<p class="note" style="margin-top:6px">
+    총자산 = 계좌 추정순자산 vs 장부 NAV · 현금(정산 후) = 계좌 순자산 − 평가금액 (당일 예수금 ${won(a.cash)}, 차이는 미결제 매도대금) ·
+    평가손익 = 현재가 − 평균 매입가 (청산한 옛 종목의 실현손익은 장부 밖) · 차이가 0.5% 를 넘으면 빨갛게 표시.</p>`;
+  target.innerHTML = html + legend + verdict + tbl;
   const sub = document.getElementById("account-sub");
   if (sub) sub.textContent = `t0424 조회 · 모드 ${a.mode} · ${stampNow()} 기준`;
   panel.style.display = "";
