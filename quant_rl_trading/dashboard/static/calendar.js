@@ -237,7 +237,10 @@ function bindDayDetail(root, cal, target) {
         ).join("")
       : `<span class="day-idx none">그날 지수가 창고에 없다</span>`;
 
+    // **어느 날의 수익인지 먼저 적는다** — 날짜 없이 "코스피 +1.53%" 만 보이면 오늘로 읽힌다
+    // (2026-08-28 실측: 27일 값을 28일 시장과 비교해 "틀렸다" 가 됐다).
     target.innerHTML =
+      `<span class="day-idx"><i>${session} 하루</i></span>` +
       `<span class="day-idx mine"><i>내 포트폴리오</i><b class="${cls(mine)}">${fmt(mine)}</b></span>` +
       cells;
     target.hidden = false;

@@ -154,6 +154,8 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         .venv/bin/python tools/backfill.py \
             --market US --table market-cap --sessions "${SESSIONS}"
         echo "  미장 시가총액 rc=$?"
+        .venv/bin/python tools/collect_indices_us.py
+        echo "  미장 지수(Yahoo) rc=$?"
     fi
 
     # 2-3. 기업행위 조정계수. **공시 단계 뒤에 와야 한다** — 후보를 그 표

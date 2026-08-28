@@ -58,6 +58,10 @@ note() {   # note <이름> <rc>
     # 미장 지수·거시(FRED). 미장 마감 05:00~06:00 KST 뒤라 그날 값이 있다.
     .venv/bin/python tools/collect_macro.py
     note "거시·미장지수" "$?"
+    # FRED 는 전날 미장 지수를 미국 오후에 낸다 → 06:30 브리핑은 이틀 전 종가였다.
+    # Yahoo 는 마감 몇 분 뒤 그날 종가를 준다. 같은 entity 라 FRED 가 오면 정정본이 된다.
+    .venv/bin/python tools/collect_indices_us.py
+    note "미장 지수(Yahoo)" "$?"
 
     # 미장 지수 **대용 ETF** 4종(SPY·QQQ·DIA·SOXX). 종목 4개라 몇 초다.
     #

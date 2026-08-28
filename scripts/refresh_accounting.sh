@@ -18,7 +18,9 @@ LOG="logs/accounting-$(date +%Y%m).log"
 
 {
     echo "=== $(date '+%F %T') market=${MARKET} ==="
-    for ROOT in data data/_shadow; do
+    # data/_paper: 모의계좌 장부. 세션이 다음 날 아침에 돌아 그날 NAV 가 하루 늦게 적혔다
+    # (달력 28일 칸이 비어 있던 이유, 2026-08-28).
+    for ROOT in data data/_shadow data/_paper; do
         QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
             .venv/bin/python tools/refresh_accounting.py \
                 --market "${MARKET}" --root "${ROOT}"
