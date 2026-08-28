@@ -132,6 +132,25 @@ function showScope(body) {
   label.textContent = `⏱ ${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
 }
 
+/** 데이터 기준일 띠. **날짜 없는 숫자는 없다** — 어느 세션 값인지, 늦었으면 며칠인지. */
+async function renderFreshness() {
+  const target = document.getElementById("freshness");
+  if (!target) return;
+  const body = await fetchJson("system/freshness");
+  const items = (body.data && body.data.items) || [];
+  if (!items.length) return;
+  const md = (iso) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "—");
+  target.innerHTML = items.map((it) => {
+    if (it.status === "ok") return `<span class="fresh ok">${it.label} ${md(it.observed)} ✓</span>`;
+    if (it.status === "stale") return `<span class="fresh stale">${it.label} ${md(it.observed)} ⚠ ${it.lag_sessions}세션 지연 (기대 ${md(it.expected)})</span>`;
+    return `<span class="fresh unknown">${it.label} 없음</span>`;
+  }).join("");
+  target.hidden = false;
+}
+if (typeof document !== "undefined" && document.getElementById("freshness")) {
+  renderFreshness().catch(() => {});
+}
+
 function showAlerts(warnings) {
   const target = document.getElementById("alerts");
   target.innerHTML = warnings.length

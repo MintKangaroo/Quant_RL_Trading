@@ -344,3 +344,11 @@ def test_입출금은_지연_경보_대상이_아니다() -> None:
     # 매일 들어와야 하는 것은 빠지면 안 된다 — 그게 빠지면 감시가 무의미해진다.
     assert "prices" not in NO_STALENESS_ALARM
     assert "universe" not in NO_STALENESS_ALARM
+
+
+def test_freshness_는_기대_세션과_창고_최신_세션을_같이_준다(client) -> None:  # type: ignore[no-untyped-def]
+    body = client.get("/api/system/freshness").get_json()
+    items = body["data"]["items"]
+    assert {i["key"] for i in items} >= {"kr_prices", "kr_index", "us_index", "fx"}
+    for item in items:
+        assert item["status"] in {"ok", "stale", "unknown"}

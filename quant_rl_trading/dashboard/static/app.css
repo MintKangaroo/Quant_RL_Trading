@@ -1072,3 +1072,9 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .account-grid > div { display: flex; flex-direction: column; }
 .account-grid span { font-size: 11px; opacity: .65; }
 .account-grid strong { font-variant-numeric: tabular-nums; font-size: 15px; }
+
+/* 데이터 기준일 띠 — 모든 탭 머리 */
+.freshness { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; font-size: 11px; }
+.fresh { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--panel2); color: var(--muted); }
+.fresh.ok { border-color: rgba(76,175,80,.4); color: var(--up); }
+.fresh.stale { border-color: var(--down); color: var(--down); font-weight: 600; }
