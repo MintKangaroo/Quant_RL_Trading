@@ -88,6 +88,7 @@ def broker_account(
         "cost": found.cost,
         "unrealized": found.unrealized,
         "positions": found.n_positions,
+        "realized_today": found.realized_today,
         "holdings": list(found.holdings),
         "gap": gap,
     }

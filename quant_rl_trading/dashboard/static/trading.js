@@ -595,16 +595,24 @@ async function renderAccount(tradingBody) {
   const ledgerUnreal = (d.positions || []).reduce(
     (s, p) => s + ((p.live_price ?? p.price) - (p.avg_price || 0)) * (p.quantity || 0), 0);
   const settled = a.net_asset != null && a.equity != null ? a.net_asset - a.equity : null;
+  const perf = d.performance || {};
+  const ledgerRealized = perf.realized_pnl ?? 0;
   const rows = [
-    ["총자산", a.net_asset, ledgerNav],
-    ["현금(정산 후)", settled, k.cash_krw],
-    ["주식 평가금액", a.equity, ledgerEquity],
-    ["평가손익", a.unrealized, ledgerUnreal],
+    ["총자산", a.net_asset, ledgerNav, true],
+    ["현금(정산 후)", settled, k.cash_krw, true],
+    ["주식 평가금액", a.equity, ledgerEquity, true],
+    ["평가손익", a.unrealized, ledgerUnreal, true],
+    // 당일 실현손익은 차이를 경고로 안 칠한다 — 계좌 쪽엔 장부 밖 청산(선행 잔고)이 들어간다.
+    ["당일 실현손익", a.realized_today, ledgerRealized, false],
   ];
   let html = `<table><thead><tr><th>항목</th><th class="r">증권사 계좌</th><th class="r">우리 장부</th><th class="r">차이</th></tr></thead><tbody>`;
-  for (const [label, acct, ledger] of rows) {
+  for (const [label, acct, ledger, judge] of rows) {
+    const delta = acct == null || ledger == null ? null : acct - ledger;
+    const cell = judge ? diffCell(delta, a.net_asset)
+      : `<td class="r mono" style="${muted}">${delta == null ? "—" : sgn(delta)}</td>`;
     html += `<tr><td style="white-space:nowrap">${label}</td>
-      <td class="r mono">${won(acct)}</td><td class="r mono">${won(ledger)}</td>${diffCell(acct == null || ledger == null ? null : acct - ledger, a.net_asset)}</tr>`;
+      <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(acct) : ""}">${label.includes("손익") ? sgn(acct) : won(acct)}</td>
+      <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(ledger) : ""}">${label.includes("손익") ? sgn(ledger) : won(ledger)}</td>${cell}</tr>`;
   }
   const cntOk = a.positions === k.positions;
   html += `<tr><td>보유 종목 수</td><td class="r">${a.positions ?? "—"}</td><td class="r">${k.positions ?? "—"}</td>
@@ -632,7 +640,8 @@ async function renderAccount(tradingBody) {
     : `<p class="down" style="margin:10px 0 4px;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것</p>`;
   const legend = `<p class="note" style="margin-top:6px">
     총자산 = 계좌 추정순자산 vs 장부 NAV · 현금(정산 후) = 계좌 순자산 − 평가금액 (당일 예수금 ${won(a.cash)}, 차이는 미결제 매도대금) ·
-    평가손익 = 현재가 − 평균 매입가 (청산한 옛 종목의 실현손익은 장부 밖) · 차이가 0.5% 를 넘으면 빨갛게 표시.</p>`;
+    평가손익 = 현재가 − 평균 매입가 · 당일 실현손익의 계좌 쪽엔 장부 밖 청산(선행 잔고 6종목, 8/28)이 들어 있어 차이를 경고로 치지 않는다 ·
+    계좌 값은 t0424(정규장 종가 기준)라 LS 앱의 시간외 현재가 기준 숫자와 조금 다르다 · 차이가 0.5% 를 넘으면 빨갛게 표시.</p>`;
   target.innerHTML = html + legend + verdict + tbl;
   const sub = document.getElementById("account-sub");
   if (sub) sub.textContent = `t0424 조회 · 모드 ${a.mode} · ${stampNow()} 기준`;
@@ -695,6 +704,7 @@ function renderPerformance(body) {
              `TWR 누적 · ${p.since} 이후 · 지수 ${dec(p.index_value, 2)}`,
              tone(p.cumulative_return)),
     perfCell("총 수익금", wonSigned(p.total_pnl), "원금(입출금 누계) 대비", tone(p.total_pnl)),
+    perfCell("당일 실현손익", wonSigned(p.realized_pnl ?? 0), `매도 ${p.sell_count ?? 0}건의 (매도가 − 평균매입가)`, tone(p.realized_pnl)),
   ].join("");
 
   if (!p.fill_count) {

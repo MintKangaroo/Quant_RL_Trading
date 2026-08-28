@@ -55,6 +55,8 @@ class AccountBalance:
     n_positions: int
     #: 계좌가 안 열렸거나 조회가 막힌 경우 True — 값은 전부 0 이다.
     unavailable: bool = False
+    #: 당일 실현손익. t0424 ``dtsunik`` — 그날 판 것 전부(장부 밖 청산 포함).
+    realized_today: float = 0.0
     #: 종목별 보유 — 장부와 종목·수량을 1:1 대조하는 자리 (대시보드 계좌 패널).
     holdings: tuple[dict[str, object], ...] = ()
 
@@ -101,6 +103,7 @@ def fetch(client: Any) -> AccountBalance:
         cost=_num(summary, "mamt"),
         unrealized=_num(summary, "tdtsunik"),
         n_positions=len(positions),
+        realized_today=_num(summary, "dtsunik"),
         holdings=tuple(
             {
                 "entity_id": f"KR:{str(row.get('expcode', '')).strip()}",
