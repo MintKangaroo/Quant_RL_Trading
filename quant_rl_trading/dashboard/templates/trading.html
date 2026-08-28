@@ -40,6 +40,19 @@
     </p>
   </section>
 
+  {# 총자산 일별 꺾은선 — 원 단위, 한 축 (사용자 요청 2026-08-28: 지수+낙폭 두 축은 읽기 어렵다) #}
+  <section class="panel" id="panel-equity">
+    <div>
+      <h2>총자산 (일별)
+        <span class="right"><span class="sub" id="equity-sub"></span></span>
+      </h2>
+      <div class="chart" id="chart-equity"></div>
+      <p class="note">
+        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
+      </p>
+    </div>
+  </section>
+
   <section class="grid-half">
     <div class="panel">
       <h2>Positions
@@ -172,15 +185,6 @@
   <details class="fold">
     <summary>자산 곡선 · 리스크 모니터</summary>
   <section class="grid-desk2">
-    <div class="panel">
-      <h2>Portfolio Equity
-        <span class="right"><span class="sub" id="equity-sub"></span></span>
-      </h2>
-      <div class="chart" id="chart-equity"></div>
-      <p class="note">
-        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
-      </p>
-    </div>
     <div class="panel">
       <h2>Risk Monitor</h2>
       <div id="risk"></div>

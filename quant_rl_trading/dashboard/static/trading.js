@@ -750,25 +750,40 @@ function renderPerformance(body) {
 
 function renderEquity(body) {
   const e = body.data.equity;
+  const target = document.getElementById("chart-equity");
+  if (!target) return;
   if (!e.sessions.length) {
-    document.getElementById("chart-equity").innerHTML =
-      `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
+    target.innerHTML = `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
     return;
   }
+  // **총자산(원) 하나만, 한 축으로.** 누적지수+낙폭 두 축은 읽기 어렵다는 지적(2026-08-28).
+  // 낙폭은 아래 언더워터 차트가 따로 그린다. 날짜는 M/D, 점을 찍어 하루가 보이게.
+  const nav = e.nav || [];
+  const days = e.sessions.map((s) => `${Number(String(s).slice(5, 7))}/${Number(String(s).slice(8, 10))}`);
+  const eok = (v) => (v == null ? "—" : v >= 1e8 ? (v / 1e8).toFixed(2) + "억" : num(Math.round(v / 1e4)) + "만");
+  const first = nav.find((v) => v != null);
+  const bench = (e.benchmark || []).map((b) => (b == null || first == null ? null : first * b / (e.benchmark.find((x) => x != null) || 1)));
   chart("chart-equity").setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: ["누적지수", "낙폭"] },
-    xAxis: { type: "category", data: e.sessions, ...AXIS },
-    yAxis: [
-      { type: "value", scale: true, ...AXIS },
-      { type: "value", max: 0, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(0) + "%" },
-        splitLine: { show: false }, axisLine: AXIS.axisLine },
-    ],
+    legend: { ...BASE.legend, data: ["총자산", "벤치마크(같은 출발점)"] },
+    tooltip: { trigger: "axis", formatter: (items) => {
+      const i = items[0].dataIndex;
+      const prev = i > 0 ? nav[i - 1] : null;
+      const d = prev != null && nav[i] != null ? nav[i] - prev : null;
+      return `${e.sessions[i]}<br>총자산 <b>${num(Math.round(nav[i]))}원</b>`
+        + (d != null ? `<br>전일 대비 ${d >= 0 ? "+" : ""}${num(Math.round(d))}원` : "")
+        + (bench[i] != null ? `<br>벤치마크 ${num(Math.round(bench[i]))}원` : "");
+    } },
+    grid: { left: 56, right: 14, top: 28, bottom: 28 },
+    xAxis: { type: "category", data: days, ...AXIS },
+    yAxis: { type: "value", scale: true, ...AXIS,
+      axisLabel: { ...AXIS.axisLabel, formatter: (v) => eok(v) } },
     series: [
-      { name: "누적지수", type: "line", data: e.index, showSymbol: false,
-        lineStyle: { color: COLOR.text, width: 1.6 } },
-      { name: "낙폭", type: "line", yAxisIndex: 1, data: e.drawdown, showSymbol: false,
-        lineStyle: { color: COLOR.warn, width: 1 }, areaStyle: { color: COLOR.warn, opacity: 0.12 } },
+      { name: "총자산", type: "line", data: nav, showSymbol: true, symbolSize: 6, smooth: false,
+        lineStyle: { color: COLOR.up, width: 2.2 }, itemStyle: { color: COLOR.up },
+        areaStyle: { color: COLOR.up, opacity: 0.08 } },
+      { name: "벤치마크(같은 출발점)", type: "line", data: bench, showSymbol: false,
+        lineStyle: { color: COLOR.muted, width: 1.2, type: "dashed" }, connectNulls: false },
     ],
   });
 }
