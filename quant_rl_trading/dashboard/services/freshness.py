@@ -22,7 +22,7 @@ DATASETS: tuple[tuple[str, str, str, Market, str | None, str | None], ...] = (
     ("kr_index", "국장 지수", "indices", Market.KR, None, "KR:IDX:KOSPI"),
     ("us_index", "미장 지수", "indices", Market.US, None, "US:IDX:SP500"),
     ("us_prices", "미장 시세", "prices", Market.US, "US", None),
-    ("fx", "환율", "fx", Market.US, None, "USDKRW"),
+    ("fx", "환율", "fx", Market.US, None, "FX:USDKRW"),
 )
 
 

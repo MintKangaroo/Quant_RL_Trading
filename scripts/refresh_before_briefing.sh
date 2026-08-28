@@ -62,6 +62,8 @@ note() {   # note <이름> <rc>
     # Yahoo 는 마감 몇 분 뒤 그날 종가를 준다. 같은 entity 라 FRED 가 오면 정정본이 된다.
     .venv/bin/python tools/collect_indices_us.py
     note "미장 지수(Yahoo)" "$?"
+    .venv/bin/python tools/collect_fx_yahoo.py
+    note "환율(Yahoo)" "$?"
 
     # 미장 지수 **대용 ETF** 4종(SPY·QQQ·DIA·SOXX). 종목 4개라 몇 초다.
     #

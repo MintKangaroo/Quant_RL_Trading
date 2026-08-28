@@ -218,4 +218,6 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #    창고가 중복을 거부하므로 매일 다시 받아도 안전하다.
     .venv/bin/python tools/collect_fx.py
     echo "  환율 rc=$?"
+    .venv/bin/python tools/collect_fx_yahoo.py
+    echo "  환율(Yahoo) rc=$?"
 } >>"${LOG}" 2>&1
