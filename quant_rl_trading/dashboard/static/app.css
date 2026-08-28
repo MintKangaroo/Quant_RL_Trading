@@ -1085,3 +1085,16 @@ details.fold > summary { cursor: pointer; padding: 10px 0; color: var(--muted); 
 details.fold > summary::before { content: "▸ "; }
 details.fold[open] > summary::before { content: "▾ "; }
 details.fold > summary::-webkit-details-marker { display: none; }
+
+/* ── 모바일 (≤640px): 좌우 스와이프 금지·부차 열 숨김·설명문 숨김 (사용자 요청 2026-08-28) ── */
+@media (max-width: 640px) {
+  html, body { overflow-x: hidden; }
+  header .statusbar { flex-wrap: wrap; overflow-x: visible; }
+  .mobile-hide { display: none !important; }
+  .note, .kpi-note { font-size: 10.5px; }
+  .panel > .note, .panel p.note { display: none; }
+  .scroll { overflow-x: hidden; }
+  table { font-size: 11px; }
+  td, th { padding-left: 2px; padding-right: 4px; }
+  .day-detail { flex-wrap: wrap; }
+}

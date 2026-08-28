@@ -198,7 +198,8 @@ def test_성과_패널이_증감_옆에_입출금을_적는다(tmp_path: Path) -
 
     dump = _render(tmp_path, trading, chart)
     html = dump["perf-summary"]
-    assert "자산 증감" in html and "당일 수익률" in html
+    # 당일 수익률·총자산 등은 KPI 카드에만 있다(중복 제거, 2026-08-28). 성과 패널엔 증감·실현손익만.
+    assert "자산 증감" in html and "당일 실현손익" in html and "당일 수익률" not in html
     assert "490,238,209" in html, "증감 옆에 입출금이 안 적힌다"
     # 수익률 자리에 다섯 자리 퍼센트가 있으면 안 된다.
     assert "0.03%" in html

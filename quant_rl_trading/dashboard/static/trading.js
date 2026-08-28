@@ -480,24 +480,24 @@ function renderPositions(body) {
     document.getElementById("positions").innerHTML = `<p class="empty">보유 종목이 없다.</p>`;
     return;
   }
-  const head = `<thead><tr><th>종목</th><th class="r">수량</th><th class="r">평균단가</th>
-    <th class="r">종가</th><th class="r">장중<span class="hint">참고</span></th>
-    <th class="r">평가금액</th><th class="r">평가손익</th>
-    <th class="r">수익률</th><th class="r">비중</th><th class="r">점수</th></tr></thead>`;
+  const head = `<thead><tr><th>종목</th><th class="r">수량</th><th class="r mobile-hide">평균단가</th>
+    <th class="r">종가</th><th class="r mobile-hide">장중<span class="hint">참고</span></th>
+    <th class="r mobile-hide">평가금액</th><th class="r">평가손익</th>
+    <th class="r">수익률</th><th class="r mobile-hide">비중</th><th class="r mobile-hide">점수</th></tr></thead>`;
   document.getElementById("positions").innerHTML =
     `<table>${head}${rows
       .map(
         (row) => `<tr class="click" data-entity="${row.entity_id}">
       <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
       <td class="r mono">${num(row.quantity)}</td>
-      <td class="r mono">${num(Math.round(row.avg_price))}</td>
+      <td class="r mono mobile-hide">${num(Math.round(row.avg_price))}</td>
       <td class="r mono">${row.price ? num(Math.round(row.price)) : "—"}</td>
-      ${liveCell(row)}
-      <td class="r mono">${row.value ? num(Math.round(row.value)) : "—"}</td>
+      ${liveCell(row).replace("<td ", '<td data-mobile="hide" ').replace('class="', 'class="mobile-hide ')}
+      <td class="r mono mobile-hide">${row.value ? num(Math.round(row.value)) : "—"}</td>
       <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}</td>
       <td class="r mono ${signClass(row.pnl_pct)}">${pct(row.pnl_pct)}</td>
-      <td class="r mono">${pct(row.weight)}</td>
-      <td class="r mono">${dec(row.score, 3)}</td>
+      <td class="r mono mobile-hide">${pct(row.weight)}</td>
+      <td class="r mono mobile-hide">${dec(row.score, 3)}</td>
     </tr>`
       )
       .join("")}</table>`;
@@ -540,10 +540,10 @@ function renderOrders(body) {
     return;
   }
   const head = `<thead><tr><th>시각</th><th>종목</th><th class="mid">방향</th>
-    <th class="r">지정가</th><th class="r">체결가</th><th class="r">수량</th>
-    <th class="r">체결수량</th><th class="r">비용</th><th class="r">실현손익</th>
-    <th class="r">수익률</th><th class="r">목표비중</th>
-    <th class="r">지연</th><th class="mid">상태</th></tr></thead>`;
+    <th class="r mobile-hide">지정가</th><th class="r">체결가</th><th class="r">수량</th>
+    <th class="r mobile-hide">체결수량</th><th class="r mobile-hide">비용</th><th class="r">실현손익</th>
+    <th class="r">수익률</th><th class="r mobile-hide">목표비중</th>
+    <th class="r mobile-hide">지연</th><th class="mid">상태</th></tr></thead>`;
   document.getElementById("orders").innerHTML =
     `<table class="ledger">${head}${rows
       .map(
@@ -551,14 +551,14 @@ function renderOrders(body) {
       <td class="mono">${row.time.slice(0, 16).replace("T", " ")}</td>
       <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
       <td class="mid side ${row.side}">${row.side.toUpperCase()}</td>
-      <td class="r mono">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
+      <td class="r mono mobile-hide">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
       <td class="r mono">${row.fill_price ? num(Math.round(row.fill_price)) : "—"}</td>
       <td class="r mono">${num(row.quantity)}</td>
-      <td class="r mono">${row.fill_quantity ? num(row.fill_quantity) : "—"}</td>
-      <td class="r mono">${row.cost === null ? "—" : num(Math.round(row.cost))}</td>
+      <td class="r mono mobile-hide">${row.fill_quantity ? num(row.fill_quantity) : "—"}</td>
+      <td class="r mono mobile-hide">${row.cost === null ? "—" : num(Math.round(row.cost))}</td>
       ${pnlCells(row)}
-      <td class="r mono">${pct(row.target_weight)}</td>
-      <td class="r mono">${row.latency_ms === null ? "—" : ms(row.latency_ms)}</td>
+      <td class="r mono mobile-hide">${pct(row.target_weight)}</td>
+      <td class="r mono mobile-hide">${row.latency_ms === null ? "—" : ms(row.latency_ms)}</td>
       <td class="mid"><span class="status ${row.status}">${row.status.toUpperCase()}</span></td>
     </tr>`
       )
@@ -623,7 +623,7 @@ async function renderAccount(tradingBody) {
   const ledgerBy = new Map((d.positions || []).map((p) => [p.entity_id, p]));
   const keys = [...new Set([...acctBy.keys(), ...ledgerBy.keys()])].sort();
   let mismatch = 0;
-  let tbl = `<table style="margin-top:10px"><thead><tr><th>종목</th><th class="r">계좌 수량</th><th class="r">장부 수량</th><th class="r">계좌 평가손익</th><th></th></tr></thead><tbody>`;
+  let tbl = `<table style="margin-top:10px"><thead><tr><th>종목</th><th class="r">계좌 수량</th><th class="r">장부 수량</th><th class="r mobile-hide">계좌 평가손익</th><th></th></tr></thead><tbody>`;
   for (const key of keys) {
     const h = acctBy.get(key); const p = ledgerBy.get(key);
     const qa = h ? h.quantity : null; const ql = p ? p.quantity : null;
@@ -631,7 +631,7 @@ async function renderAccount(tradingBody) {
     if (!ok) mismatch += 1;
     tbl += `<tr><td>${(h && h.name) || (p && p.name) || key} <span style="font-size:11px;${muted}">${key}</span></td>
       <td class="r">${qa == null ? "—" : num(qa)}</td><td class="r">${ql == null ? "—" : num(ql)}</td>
-      <td class="r ${h ? tone(h.unrealized) : ""}">${h ? sgn(h.unrealized) : "—"}</td>
+      <td class="r mobile-hide ${h ? tone(h.unrealized) : ""}">${h ? sgn(h.unrealized) : "—"}</td>
       <td class="${ok ? "up" : "down"}">${ok ? "✓" : "✗ 불일치"}</td></tr>`;
   }
   tbl += "</tbody></table>";
@@ -694,16 +694,7 @@ function renderPerformance(body) {
     : `${num(Math.round(p.previous_nav))} → ${num(Math.round(p.nav))} · ${flowNote}`;
 
   summary.innerHTML = [
-    perfCell("총자산", num(Math.round(p.nav)) + "원",
-             `${p.session} 기준 · 원금 ${num(Math.round(p.principal || 0))}원`, ""),
-    // **증감에는 색을 칠하되 그것이 수익이 아님을 아랫줄이 말한다.**
     perfCell("자산 증감", wonSigned(p.nav_change), changeNote, tone(p.nav_change)),
-    perfCell("당일 손익", wonSigned(p.pnl), "자산 증감 − 입출금", tone(p.pnl)),
-    perfCell("당일 수익률", pct(p.daily_return), "TWR — 입출금을 뺀 값", tone(p.daily_return)),
-    perfCell("총 수익률", pct(p.cumulative_return),
-             `TWR 누적 · ${p.since} 이후 · 지수 ${dec(p.index_value, 2)}`,
-             tone(p.cumulative_return)),
-    perfCell("총 수익금", wonSigned(p.total_pnl), "원금(입출금 누계) 대비", tone(p.total_pnl)),
     perfCell("당일 실현손익", wonSigned(p.realized_pnl ?? 0), `매도 ${p.sell_count ?? 0}건의 (매도가 − 평균매입가)`, tone(p.realized_pnl)),
   ].join("");
 
@@ -727,7 +718,7 @@ function renderPerformance(body) {
   }
   const groups = [...byStock.values()].sort((a, b) => b.amount - a.amount);
   const head = `<thead><tr><th>종목</th><th class="mid">방향</th>
-    <th class="r">수량</th><th class="r">평균가</th><th class="r">금액</th><th class="r">실현손익</th></tr></thead>`;
+    <th class="r">수량</th><th class="r mobile-hide">평균가</th><th class="r">금액</th><th class="r">실현손익</th></tr></thead>`;
   const rows = groups.map((g) => {
     const won = g.currency !== "USD";
     const money = (v) => (won ? num(Math.round(v)) : "$" + Number(v).toFixed(2));
@@ -738,7 +729,7 @@ function renderPerformance(body) {
       <td><span class="name">${g.name}</span><span class="code">${g.entity_id}</span></td>
       <td class="mid side ${g.side}">${g.side.toUpperCase()}</td>
       <td class="r mono">${num(g.quantity)}</td>
-      <td class="r mono">${money(g.quantity ? g.amount / g.quantity : 0)}</td>
+      <td class="r mono mobile-hide">${money(g.quantity ? g.amount / g.quantity : 0)}</td>
       <td class="r mono">${money(g.amount)}</td>
       ${realized}
     </tr>`;
