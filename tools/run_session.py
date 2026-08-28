@@ -208,7 +208,13 @@ def main(argv: list[str] | None = None) -> int:
         capital=args.capital,
         # 전날을 워밍업으로 같이 굴려야 체결 단계가 돈다 — 위 "체결은 전날이
         # 있어야 돈다" 참고. 0 이면 체결 코드가 아예 불리지 않는다.
-        warmup_days=1,
+        #
+        # **실브로커 세션은 워밍업을 안 돈다** (backtest.md §9). 체결은 봉 시뮬레이션이
+        # 아니라 계좌 대사(reconcile_fills)가 적으므로 체결 단계가 필요 없고, 워밍업
+        # 날은 브로커 없이 돌아 그날의 **모의 주문을 새로 만들어** 다음 날 봉으로
+        # 체결시킨다 — 2026-08-28 첫 실운용에서 그렇게 계좌에 없는 가상 보유 23종목이
+        # 장부에 생겼고, 실제 주문은 그 가상 보유 대비 차액만 나갔다.
+        warmup_days=0 if broker is not None else 1,
         # 신호는 일일 실행기가 실전 창고에 이미 쌓았다. 여기서 또 만들지 않는다.
         produce_signals=False,
         broker=broker,
