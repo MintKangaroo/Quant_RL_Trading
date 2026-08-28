@@ -466,6 +466,9 @@ _SPECS: dict[str, TableSpec] = {
         # 같은 run 의 같은 업데이트는 한 번만. 학습을 이어받아 다시 돌리면
         # 같은 번호가 또 나오는데, 그때 두 벌이 쌓이면 곡선이 겹쳐 그려진다.
         natural_key=("entity_id", "update"),
+        # 학습이 업데이트마다 한 행씩 적어 하루 파티션에 파일이 수백 개 쌓인다. 하한을
+        # 선언해야 3일 창이 7일치 파일을 다 열지 않는다(2026-08-28: 3일 읽기 1.6초).
+        observation_lag_days=1,
         # entity_id 가 종목이 아니라 **run_id** 다. analyst_weights 와 같은
         # 사정이라 시장 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
         market_prefixed_entity=False,
