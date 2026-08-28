@@ -145,6 +145,14 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     def ai_review_page() -> str:
         return render_template("ai_review.html")
 
+    @app.after_request
+    def _no_cache(response):  # type: ignore[no-untyped-def]
+        # **캐시 금지.** 모바일 Safari 가 정적 JS 와 API GET 을 잠깐 캐시해서, 서버를
+        # 재시작해도 옛 배지·옛 패널이 떴다(2026-08-28 실측 — 20분 뒤에도 "미연결").
+        # 이 화면은 매 요청이 새 사실이어야 한다.
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
     @app.errorhandler(HTTPException)
     def http_error(error: HTTPException) -> Any:
         return {"error": error.description, "status": error.code}, error.code

@@ -697,30 +697,39 @@ function renderPerformance(body) {
     return;
   }
 
+  // **체결 조각은 안 보인다** (사용자 요청 2026-08-28 — 종목당 슬라이스 4개가 줄줄이
+  // 나와 읽을 수 없었다). 종목별로 접어 한 줄씩, 방향·수량·평균가·금액만 적는다.
+  // 조각 단위가 필요하면 아래 "주문" 표가 그 자리다.
+  const byStock = new Map();
+  for (const f of p.fills) {
+    const key = `${f.entity_id}|${f.side}`;
+    const cur = byStock.get(key) || { name: f.name, entity_id: f.entity_id, side: f.side,
+      currency: f.currency, quantity: 0, amount: 0, realized: 0, hasRealized: false };
+    cur.quantity += f.quantity; cur.amount += f.amount;
+    if (f.realized_pnl !== null && f.realized_pnl !== undefined) { cur.realized += f.realized_pnl; cur.hasRealized = true; }
+    byStock.set(key, cur);
+  }
+  const groups = [...byStock.values()].sort((a, b) => b.amount - a.amount);
   const head = `<thead><tr><th>종목</th><th class="mid">방향</th>
-    <th class="r">수량</th><th class="r">체결가</th><th class="r">체결대금</th>
-    <th class="r">비용</th><th class="r">실현손익</th><th class="r">수익률</th></tr></thead>`;
-  const rows = p.fills.map((f) => {
-    const won = f.currency !== "USD";
+    <th class="r">수량</th><th class="r">평균가</th><th class="r">금액</th><th class="r">실현손익</th></tr></thead>`;
+  const rows = groups.map((g) => {
+    const won = g.currency !== "USD";
     const money = (v) => (won ? num(Math.round(v)) : "$" + Number(v).toFixed(2));
-    // **실현손익은 매도에만 있다.** 매수 자리에 0 을 넣으면 "본전" 으로 읽힌다.
-    const realized = f.realized_pnl === null || f.realized_pnl === undefined
-      ? `<td class="r sub" colspan="2">매수 — 아직 실현 없음</td>`
-      : `<td class="r mono ${f.realized_pnl >= 0 ? "up" : "down"}">${f.realized_pnl >= 0 ? "+" : ""}${money(f.realized_pnl)}</td>
-         <td class="r mono ${f.realized_pnl >= 0 ? "up" : "down"}">${pct(f.realized_rate)}</td>`;
-    return `<tr class="click" data-entity="${f.entity_id}">
-      <td><span class="name">${f.name}</span><span class="code">${f.entity_id}</span></td>
-      <td class="mid side ${f.side}">${f.side.toUpperCase()}</td>
-      <td class="r mono">${num(f.quantity)}</td>
-      <td class="r mono">${money(f.price)}</td>
-      <td class="r mono">${money(f.amount)}</td>
-      <td class="r mono">${money(f.fee + f.tax)}</td>
+    const realized = g.hasRealized
+      ? `<td class="r mono ${g.realized >= 0 ? "up" : "down"}">${g.realized >= 0 ? "+" : ""}${money(g.realized)}</td>`
+      : `<td class="r sub">—</td>`;
+    return `<tr class="click" data-entity="${g.entity_id}">
+      <td><span class="name">${g.name}</span><span class="code">${g.entity_id}</span></td>
+      <td class="mid side ${g.side}">${g.side.toUpperCase()}</td>
+      <td class="r mono">${num(g.quantity)}</td>
+      <td class="r mono">${money(g.quantity ? g.amount / g.quantity : 0)}</td>
+      <td class="r mono">${money(g.amount)}</td>
       ${realized}
     </tr>`;
   }).join("");
   const omitted = p.fills_omitted
-    ? `<p class="note">${p.fill_count}건 중 큰 것부터 ${p.fills.length}건 — 외 ${p.fills_omitted}건은 생략됐다.</p>`
-    : `<p class="note">매수 ${p.buy_count} · 매도 ${p.sell_count}</p>`;
+    ? `<p class="note">체결 ${p.fill_count}건 중 큰 것부터 ${p.fills.length}건을 종목별로 접었다 — 외 ${p.fills_omitted}건 생략.</p>`
+    : `<p class="note">체결 ${p.fill_count}건 → 종목·방향 ${groups.length}줄 · 매수 ${p.buy_count} · 매도 ${p.sell_count}</p>`;
   fills.innerHTML = `<table class="ledger">${head}${rows}</table>${omitted}`;
   bindRows("perf-fills");
 }
