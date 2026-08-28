@@ -47,6 +47,7 @@ from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials  # noq
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.schemas.order import Side  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
+from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import build_store  # noqa: E402
 from tools.verify_live_order import (  # noqa: E402
     PROFILES,
@@ -95,6 +96,15 @@ def main(argv: list[str] | None = None) -> int:
     # **모드에 맞는 키를 집는다.** 실전 프로파일을 그대로 쓰면 "모의를
     # 정리한다" 고 생각하며 실전 계좌를 청산한다 (`resolve_profile` 독스트링).
     profile = resolve_profile(store, market=args.market, as_of=clock.now())
+    # **모의 계좌의 체결은 모의 장부(data/_paper)에 적는다** (backtest.md §9). 2026-08-28
+    # 에 이 분기가 없어서 모의계좌 청산 4건이 실전 창고에 들어갔고, 정정본으로 지웠다.
+    if args.data_root is None and profile.env_prefix == "LS_PAPER_":
+        from quant_rl_trading.store import overlay
+        from tools.run_backtest import JOURNAL
+
+        layer = overlay.build(root=REPO_ROOT / "data" / "_paper", source=store.root, writable=JOURNAL)
+        store = Store(root=layer.root)
+        print(f"장부 → {store.root} (모의 계좌)")
     credentials = LSCredentials.from_env(prefix=profile.env_prefix)
     print(
         f"계좌 — 모드 키 {profile.env_prefix} · 지문 {credentials.fingerprint or '(없음)'} "
