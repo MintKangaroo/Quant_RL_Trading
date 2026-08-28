@@ -16,6 +16,8 @@ from pathlib import Path
 #: 배지에 그대로 쓰는 값. LIVE 만 "돈이 오간다".
 LIVE = "LIVE"
 SHADOW = "SHADOW"
+#: LS 모의투자 계좌에 실제 주문이 나가지만 돈은 가짜다 (backtest.md §9, data/_paper).
+PAPER = "PAPER"
 BACKTEST = "BACKTEST"
 DEMO = "DEMO"
 
@@ -39,6 +41,8 @@ def of(root: str | Path) -> Mode:
     text = str(root)
     if text.endswith("_shadow"):
         return Mode(SHADOW, "모의 운용 — 돈이 오가지 않는다")
+    if text.endswith("_paper"):
+        return Mode(PAPER, "모의계좌 — LS 모의투자에 실주문, 돈은 가짜")
     if "_backtest" in text:
         return Mode(BACKTEST, "백테스트 샌드박스")
     if "_demo" in text:

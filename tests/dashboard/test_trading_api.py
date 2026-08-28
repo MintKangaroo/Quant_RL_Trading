@@ -311,7 +311,7 @@ def test_되감은_채로는_킬스위치를_못_건다(client) -> None:
 def test_모드가_창고에서_유도된다(client) -> None:
     """shadow 창고를 실전으로 착각하는 것이 가장 비싼 오해다."""
     system = client.get("/api/trading").get_json()["data"]["system"]
-    assert system["mode"] in {"LIVE", "SHADOW", "BACKTEST"}
+    assert system["mode"] in {"LIVE", "SHADOW", "BACKTEST", "PAPER"}
     assert system["store_root"]
 
 

@@ -12,6 +12,13 @@
   <!-- KPI 줄. 마지막 칸이 EMERGENCY STOP 이다 (trading.js 가 채운다). -->
   <section class="kpis" id="kpis"></section>
 
+  {# 증권사 계좌가 말하는 숫자 — 장부(KPI)와 나란히 둔다. 둘이 다르면 어느
+     쪽이 틀렸는지 묻는 자리다. 외부 조회(t0424)라 KPI 와 따로 늦게 그린다. #}
+  <section class="panel" id="account-panel" style="display:none">
+    <h2>증권사 계좌 <span class="sub" id="account-sub">t0424 조회 · 장부와 대조</span></h2>
+    <div class="kpis" id="account-kpis"></div>
+  </section>
+
   <section class="alerts" id="alerts"></section>
 
   {# 성과 넷 — 매매내역 · 수익률 · 총수익률 · 자산증감.

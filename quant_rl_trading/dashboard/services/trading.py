@@ -1218,6 +1218,20 @@ def _quotes(
     return out
 
 
+def _broker_label(store: Store, mode_code: str, *, as_of: datetime) -> str:
+    """배지에 적는 브로커. 모드마다 다르다 — 모의계좌 장부에 "미연결" 이라 적으면
+    주문이 실제로 나가는 계좌를 없는 것으로 읽는다(2026-08-28 실측)."""
+    if mode_code == mode_module.PAPER:
+        try:
+            print_ = str(store.config("execution.live_account_fingerprint_paper", as_of=as_of))[:12]
+        except Exception:
+            print_ = "?"
+        return f"LS 모의투자 · 계좌 {print_}"
+    if mode_code == mode_module.LIVE:
+        return "LS 실전 (세션이 붙일 때만 전송)"
+    return "PaperBroker · 내부 시뮬레이션"
+
+
 def system(store: Store, context: Context) -> dict[str, Any]:
     """상단 상태 바. **모드와 창고를 화면이 항상 말한다.**
 
@@ -1246,7 +1260,7 @@ def system(store: Store, context: Context) -> dict[str, Any]:
         "mode": mode.code,
         "mode_note": mode.note,
         "store_root": root,
-        "broker": "LS · 미연결",  # 브로커 어댑터는 실전 투입 때 붙는다
+        "broker": _broker_label(store, mode.code, as_of=as_of),
         "engine": f"룰 베이스라인 ({AllocatorParams.from_store(store, as_of=as_of).baseline})",
         "last_ingest": last_ingest,
         # **신호가 언제 것인지**가 이 화면에서 가장 자주 묻는 질문이다.

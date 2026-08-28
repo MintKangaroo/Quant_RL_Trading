@@ -38,7 +38,9 @@ class AccountBalance:
     장부의 결제완료 현금과 다를 수 있고, 그 차이가 곧 미결제 대금이다.
     """
 
-    #: 예수금(현금). t0424 ``sunamt1``.
+    #: 예수금(현금). t0424 ``sunamt1`` — **당일 예수금**이다(LS 앱 "예수금"과 같다).
+    #: 미결제 매도대금은 안 들어 있다. 결제 후 현금은 ``net_asset − equity`` (2026-08-28 실측:
+    #: sunamt1 422,792,281 · 앱 D+2 예수금 442,188,462 = sunamt 508,822,722 − tappamt 66,634,225).
     cash: float
     #: 주식 평가금액. t0424 ``tappamt``.
     equity: float
@@ -53,6 +55,8 @@ class AccountBalance:
     n_positions: int
     #: 계좌가 안 열렸거나 조회가 막힌 경우 True — 값은 전부 0 이다.
     unavailable: bool = False
+    #: 종목별 보유 — 장부와 종목·수량을 1:1 대조하는 자리 (대시보드 계좌 패널).
+    holdings: tuple[dict[str, object], ...] = ()
 
 
 def _num(block: dict[str, Any], key: str) -> float:
@@ -97,6 +101,18 @@ def fetch(client: Any) -> AccountBalance:
         cost=_num(summary, "mamt"),
         unrealized=_num(summary, "tdtsunik"),
         n_positions=len(positions),
+        holdings=tuple(
+            {
+                "entity_id": f"KR:{str(row.get('expcode', '')).strip()}",
+                "name": str(row.get("hname", "")).strip(),
+                "quantity": _num(row, "janqty"),
+                "avg_price": _num(row, "pamt"),
+                "value": _num(row, "appamt"),
+                "unrealized": _num(row, "dtsunik"),
+            }
+            for row in positions
+            if str(row.get("expcode", "")).strip()
+        ),
     )
 
 

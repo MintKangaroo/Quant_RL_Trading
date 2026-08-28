@@ -569,6 +569,70 @@ function renderOrders(body) {
 /* -- 오늘의 성과 --------------------------------------------------------- */
 
 /** 부호를 붙인 원화. 값이 없으면 "—" 다 — 0 으로 채우면 "본전" 으로 읽힌다. */
+/** 증권사 계좌(t0424) 대 우리 장부 — **나란히 놓고 차이를 보인다.** 조회가 안 되면
+ *  패널을 숨긴다(0 을 지어내지 않는다). 합계 다섯 줄 + 종목별 수량 대조. */
+async function renderAccount(tradingBody) {
+  const panel = document.getElementById("account-panel");
+  const target = document.getElementById("account-kpis");
+  if (!panel || !target) return;
+  const body = await fetchJson("trading/account");
+  const a = (body && body.data) || {};
+  if (!a.available) { panel.style.display = "none"; return; }
+  const d = tradingBody.data || {};
+  const k = d.kpis || {};
+  const muted = "color:var(--muted)";
+  const won = (v) => (v == null ? "—" : num(Math.round(v)));
+  const sgn = (v) => (v == null ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
+  const diffCell = (v, base) => {
+    if (v == null) return "<td class=\"r\">—</td>";
+    const big = Math.abs(v) > 0.005 * Math.max(1, Math.abs(base || 1));
+    return `<td class="r ${big ? "down" : ""}" style="${big ? "" : muted}">${sgn(v)}</td>`;
+  };
+  const ledgerNav = k.live_nav ?? k.nav;
+  const ledgerEquity = k.live_equity ?? k.equity;
+  const ledgerUnreal = (d.positions || []).reduce((s, p) => s + (p.pnl || 0), 0);
+  const rows = [
+    ["총자산", a.net_asset, ledgerNav, "계좌 추정순자산 vs 장부 NAV"],
+    ["현금 (정산 후)", a.net_asset != null && a.equity != null ? a.net_asset - a.equity : null, k.cash_krw,
+      `계좌 순자산 − 평가금액 (= D+2 예수금) vs 장부 현금 · 당일 예수금은 ${won(a.cash)} — 차이는 미결제 매도대금`],
+    ["주식 평가금액", a.equity, ledgerEquity, "시세 시각이 다르면 조금 다르다"],
+    ["평가손익", a.unrealized, ledgerUnreal, "매입가 대비 · 청산한 옛 종목의 실현손익은 장부 밖"],
+  ];
+  let html = `<table><thead><tr><th>항목</th><th class="r">증권사 계좌</th><th class="r">우리 장부</th><th class="r">차이</th></tr></thead><tbody>`;
+  for (const [label, acct, ledger, note] of rows) {
+    html += `<tr><td>${label}<div style="font-size:11px;${muted}">${note}</div></td>
+      <td class="r">${won(acct)}</td><td class="r">${won(ledger)}</td>${diffCell(acct == null || ledger == null ? null : acct - ledger, a.net_asset)}</tr>`;
+  }
+  const cntOk = a.positions === k.positions;
+  html += `<tr><td>보유 종목 수</td><td class="r">${a.positions ?? "—"}</td><td class="r">${k.positions ?? "—"}</td>
+    <td class="r ${cntOk ? "" : "down"}" style="${cntOk ? muted : ""}">${a.positions == null || k.positions == null ? "—" : a.positions - k.positions}</td></tr></tbody></table>`;
+
+  // 종목별 수량 대조 — 합집합. 한쪽에만 있으면 그게 곧 어긋난 곳이다.
+  const acctBy = new Map((a.holdings || []).map((h) => [h.entity_id, h]));
+  const ledgerBy = new Map((d.positions || []).map((p) => [p.entity_id, p]));
+  const keys = [...new Set([...acctBy.keys(), ...ledgerBy.keys()])].sort();
+  let mismatch = 0;
+  let tbl = `<table style="margin-top:10px"><thead><tr><th>종목</th><th class="r">계좌 수량</th><th class="r">장부 수량</th><th class="r">계좌 평가손익</th><th></th></tr></thead><tbody>`;
+  for (const key of keys) {
+    const h = acctBy.get(key); const p = ledgerBy.get(key);
+    const qa = h ? h.quantity : null; const ql = p ? p.quantity : null;
+    const ok = qa != null && ql != null && Math.round(qa) === Math.round(ql);
+    if (!ok) mismatch += 1;
+    tbl += `<tr><td>${(h && h.name) || (p && p.name) || key} <span style="font-size:11px;${muted}">${key}</span></td>
+      <td class="r">${qa == null ? "—" : num(qa)}</td><td class="r">${ql == null ? "—" : num(ql)}</td>
+      <td class="r ${h ? tone(h.unrealized) : ""}">${h ? sgn(h.unrealized) : "—"}</td>
+      <td class="${ok ? "up" : "down"}">${ok ? "✓" : "✗ 불일치"}</td></tr>`;
+  }
+  tbl += "</tbody></table>";
+  const verdict = mismatch === 0
+    ? `<div class="up" style="margin:8px 0;font-weight:600">종목·수량 ${keys.length}건 전부 일치 ✓</div>`
+    : `<div class="down" style="margin:8px 0;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것</div>`;
+  target.innerHTML = html + verdict + tbl;
+  const sub = document.getElementById("account-sub");
+  if (sub) sub.textContent = `t0424 조회 · 모드 ${a.mode} · ${stampNow()} 기준`;
+  panel.style.display = "";
+}
+
 function wonSigned(v) {
   if (v === null || v === undefined) return "—";
   return (v > 0 ? "+" : "") + num(Math.round(v)) + "원";
@@ -1021,6 +1085,7 @@ async function loadTrading() {
   if (equitySub) equitySub.textContent = `${body.data.equity.sessions.length}세션`;
 
   renderKpis(body);
+  renderAccount(body).catch(() => {});  // 외부 조회 — 느리고 실패할 수 있다, KPI 를 막지 않는다
   renderAlerts(body);
   renderWatchlist(body);
   renderDecision(body);
