@@ -717,7 +717,7 @@ function renderPerformance(body) {
     const money = (v) => (won ? num(Math.round(v)) : "$" + Number(v).toFixed(2));
     const realized = g.hasRealized
       ? `<td class="r mono ${g.realized >= 0 ? "up" : "down"}">${g.realized >= 0 ? "+" : ""}${money(g.realized)}</td>`
-      : `<td class="r sub">—</td>`;
+      : `<td class="r sub">매수 — 아직 실현 없음</td>`;
     return `<tr class="click" data-entity="${g.entity_id}">
       <td><span class="name">${g.name}</span><span class="code">${g.entity_id}</span></td>
       <td class="mid side ${g.side}">${g.side.toUpperCase()}</td>
