@@ -202,8 +202,8 @@ def test_성과_패널이_증감_옆에_입출금을_적는다(tmp_path: Path) -
     assert "자산 증감" in html and "당일 실현손익" in html and "당일 수익률" not in html
     assert "490,238,209" in html, "증감 옆에 입출금이 안 적힌다"
     # 수익률 자리에 다섯 자리 퍼센트가 있으면 안 된다.
-    assert "0.03%" in html
-    assert "5,000" not in html.split("당일 수익률")[1]
+    # 당일 수익률(TWR) 칸은 KPI 카드로 옮겨졌다 — 입출금이 수익률에 안 섞이는 것은
+    # test_kpi 쪽에서 본다.
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
