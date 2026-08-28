@@ -179,7 +179,8 @@ def training_runs(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
     # "rl-2026…" 이 "m4-…" 보다 앞서서 옛 판이 화면을 차지한다 (2026-08-27 실측
     # — 돌고 있는 r6 대신 8/19 판이 그려졌다).
     runs.sort(key=lambda r: r["last_observed_at"], reverse=True)
-    return {"has_data": True, "runs": runs, "guards": UPDATE_GUARDS}
+    # 최근 여섯 실행만 — 옛 판 전부를 실으면 응답이 260KB·5초였다(2026-08-28).
+    return {"has_data": True, "runs": runs[:6], "guards": UPDATE_GUARDS}
 
 
 #: 마지막 기록 뒤 이만큼 조용하면 "멈춤" 으로 본다 — 페이스의 3배, 최소 15분.

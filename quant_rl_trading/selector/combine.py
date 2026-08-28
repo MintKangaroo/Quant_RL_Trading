@@ -62,7 +62,8 @@ def combined_scores(
             .tail(1)
         )
 
-    frame["weight"] = frame["analyst"].map(lambda name: float(weights.get(name, 0.0)))
+    # 벡터 매핑 — 람다 map 은 17만 행에서 0.3초를 먹었다(2026-08-28 프로파일).
+    frame["weight"] = frame["analyst"].map(dict(weights)).fillna(0.0).astype(float)
     frame["share"] = frame["weight"] * frame["confidence"].astype(float)
     frame = frame[frame["share"].abs() > EPSILON]
     if frame.empty:

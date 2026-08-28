@@ -1078,3 +1078,10 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .fresh { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--panel2); color: var(--muted); }
 .fresh.ok { border-color: rgba(76,175,80,.4); color: var(--up); }
 .fresh.stale { border-color: var(--down); color: var(--down); font-weight: 600; }
+
+/* 접힌 부가 패널 (트레이딩 탭) */
+details.fold { margin: 10px 0; border: 1px solid var(--panel2); border-radius: 8px; padding: 0 10px; }
+details.fold > summary { cursor: pointer; padding: 10px 0; color: var(--muted); font-size: 13px; list-style: none; }
+details.fold > summary::before { content: "▸ "; }
+details.fold[open] > summary::before { content: "▾ "; }
+details.fold > summary::-webkit-details-marker { display: none; }

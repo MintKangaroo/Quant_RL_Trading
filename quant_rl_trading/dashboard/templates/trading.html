@@ -40,79 +40,29 @@
     </p>
   </section>
 
-  <section class="grid-desk">
-    <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
-    <div class="panel" id="panel-watchlist">
-      <h2>Watchlist
-        <span class="right"><span class="sub" id="watchlist-count"></span></span>
-      </h2>
-      <div id="watchlist" class="scroll dense"></div>
-      <p class="note">합성 점수 순이다. 등락률 순이 아니다 — 화면이 결정 근거를 따라간다.</p>
-    </div>
-
-    <!-- 중: 차트 -->
-    <div class="panel" id="panel-chart">
-      <h2>
-        <span id="chart-title">—</span>
-        <span class="sub" id="chart-sub"></span>
-        <span class="right">
-          {# 버튼은 창고에 그 구간이 있을 때만 켜진다 — trading.js 가
-             /api/trading/chart 응답의 available_intervals 로 매 종목마다
-             다시 켜고 끈다. 자리를 지우면 "이 화면은 일봉 전용" 이 되고,
-             무조건 켜 두면 없는 봉을 그리게 된다. 그래서 마크업에서는
-             전부 disabled 로 시작하고(분봉 수집이 아직 그 종목을 못 받았을
-             수 있다는 뜻), JS 가 실제로 있는 구간만 연다. #}
-          <span class="seg" id="chart-timeframe">
-            <button type="button" data-interval="1m" disabled title="이 종목의 1분봉이 창고에 없다">1m</button>
-            <button type="button" data-interval="5m" disabled title="이 종목의 5분봉이 창고에 없다">5m</button>
-            <button type="button" data-interval="15m" disabled title="이 종목의 15분봉이 창고에 없다">15m</button>
-            <button type="button" data-interval="1H" disabled title="이 종목의 1시간봉이 창고에 없다">1H</button>
-            <button type="button" data-interval="4H" disabled title="이 종목의 4시간봉이 창고에 없다">4H</button>
-            <button type="button" data-interval="1D" class="on" title="창고에 항상 있는 것은 일봉이다">1D</button>
-          </span>
-        </span>
-      </h2>
-      <div class="chart tall" id="chart-candle"></div>
-      <p class="note" id="chart-note">
-        <strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
-        화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.
-      </p>
-    </div>
-
-    <!-- 우: 결정 -->
-    <div class="panel" id="panel-decision">
-      <h2>AI Decision
-        <span class="sub" id="decision-engine"></span>
-        <span class="right"><span class="live-dot" id="decision-live">LIVE</span></span>
-      </h2>
-      <div id="decision"></div>
-      <p class="note" id="decision-note"></p>
-    </div>
-  </section>
-
-  <section class="grid-desk2">
+  <section class="grid-half">
     <div class="panel">
-      <h2>Portfolio Equity
-        <span class="right"><span class="sub" id="equity-sub"></span></span>
+      <h2>Positions
+        <span class="right"><span class="sub" id="positions-count"></span></span>
       </h2>
-      <div class="chart" id="chart-equity"></div>
-      <p class="note">
-        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
-      </p>
+      <div class="positions-body">
+        <div id="positions" class="scroll dense"></div>
+        {# 현금도 한 조각이다. 주식 비중만 100% 로 그리면 실제 익스포저가
+           가려진다 — 익스포저 KPI 가 말하는 것과 이 파이가 어긋나면 안 된다. #}
+        <div class="chart positions-pie" id="chart-positions-pie"></div>
+      </div>
     </div>
+
     <div class="panel">
-      <h2>Risk Monitor</h2>
-      <div id="risk"></div>
+      <h2>Orders &amp; Executions</h2>
+      <div id="orders" class="scroll dense"></div>
       <p class="note">
-        밴드 12 / 22 / 30% 는 <code>reward-and-risk.md</code> 의 값이고
-        <code>store.config</code> 에서 읽는다 (불변식 10).
+        최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
+        "빠르다" 로 읽힌다.
       </p>
     </div>
   </section>
 
-  {# 아래 네 패널은 **두 줄로 접는다.** 세로로 쌓으면 패널 하나가 화면 폭을
-     통째로 먹어서, 낙폭 차트는 납작해지고 달력 칸은 쓸데없이 커진다.
-     dashboard.md §2 는 1920×1080 에서 스크롤 없이 들어갈 것을 요구한다. #}
   <section class="grid-half">
     <div class="panel">
       <h2>Underwater
@@ -166,28 +116,88 @@
     </div>
   </section>
 
-  <section class="grid-half">
-    <div class="panel">
-      <h2>Positions
-        <span class="right"><span class="sub" id="positions-count"></span></span>
+  {# 부가 패널은 접어 둔다 — 모바일에서 한 화면에 핵심(KPI·계좌·성과·보유·달력)만 (사용자 요청 2026-08-28). #}
+  <details class="fold">
+    <summary>후보 · 차트 · AI 결정 흔적</summary>
+  <section class="grid-desk">
+    <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
+    <div class="panel" id="panel-watchlist">
+      <h2>Watchlist
+        <span class="right"><span class="sub" id="watchlist-count"></span></span>
       </h2>
-      <div class="positions-body">
-        <div id="positions" class="scroll dense"></div>
-        {# 현금도 한 조각이다. 주식 비중만 100% 로 그리면 실제 익스포저가
-           가려진다 — 익스포저 KPI 가 말하는 것과 이 파이가 어긋나면 안 된다. #}
-        <div class="chart positions-pie" id="chart-positions-pie"></div>
-      </div>
+      <div id="watchlist" class="scroll dense"></div>
+      <p class="note">합성 점수 순이다. 등락률 순이 아니다 — 화면이 결정 근거를 따라간다.</p>
     </div>
 
+    <!-- 중: 차트 -->
+    <div class="panel" id="panel-chart">
+      <h2>
+        <span id="chart-title">—</span>
+        <span class="sub" id="chart-sub"></span>
+        <span class="right">
+          {# 버튼은 창고에 그 구간이 있을 때만 켜진다 — trading.js 가
+             /api/trading/chart 응답의 available_intervals 로 매 종목마다
+             다시 켜고 끈다. 자리를 지우면 "이 화면은 일봉 전용" 이 되고,
+             무조건 켜 두면 없는 봉을 그리게 된다. 그래서 마크업에서는
+             전부 disabled 로 시작하고(분봉 수집이 아직 그 종목을 못 받았을
+             수 있다는 뜻), JS 가 실제로 있는 구간만 연다. #}
+          <span class="seg" id="chart-timeframe">
+            <button type="button" data-interval="1m" disabled title="이 종목의 1분봉이 창고에 없다">1m</button>
+            <button type="button" data-interval="5m" disabled title="이 종목의 5분봉이 창고에 없다">5m</button>
+            <button type="button" data-interval="15m" disabled title="이 종목의 15분봉이 창고에 없다">15m</button>
+            <button type="button" data-interval="1H" disabled title="이 종목의 1시간봉이 창고에 없다">1H</button>
+            <button type="button" data-interval="4H" disabled title="이 종목의 4시간봉이 창고에 없다">4H</button>
+            <button type="button" data-interval="1D" class="on" title="창고에 항상 있는 것은 일봉이다">1D</button>
+          </span>
+        </span>
+      </h2>
+      <div class="chart tall" id="chart-candle"></div>
+      <p class="note" id="chart-note">
+        <strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
+        화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.
+      </p>
+    </div>
+
+    <!-- 우: 결정 -->
+    <div class="panel" id="panel-decision">
+      <h2>AI Decision
+        <span class="sub" id="decision-engine"></span>
+        <span class="right"><span class="live-dot" id="decision-live">LIVE</span></span>
+      </h2>
+      <div id="decision"></div>
+      <p class="note" id="decision-note"></p>
+    </div>
+  </section>
+  </details>
+  <details class="fold">
+    <summary>자산 곡선 · 리스크 모니터</summary>
+  <section class="grid-desk2">
     <div class="panel">
-      <h2>Orders &amp; Executions</h2>
-      <div id="orders" class="scroll dense"></div>
+      <h2>Portfolio Equity
+        <span class="right"><span class="sub" id="equity-sub"></span></span>
+      </h2>
+      <div class="chart" id="chart-equity"></div>
       <p class="note">
-        최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
-        "빠르다" 로 읽힌다.
+        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
+      </p>
+    </div>
+    <div class="panel">
+      <h2>Risk Monitor</h2>
+      <div id="risk"></div>
+      <p class="note">
+        밴드 12 / 22 / 30% 는 <code>reward-and-risk.md</code> 의 값이고
+        <code>store.config</code> 에서 읽는다 (불변식 10).
       </p>
     </div>
   </section>
+  </details>
+
+
+
+  {# 아래 네 패널은 **두 줄로 접는다.** 세로로 쌓으면 패널 하나가 화면 폭을
+     통째로 먹어서, 낙폭 차트는 납작해지고 달력 칸은 쓸데없이 커진다.
+     dashboard.md §2 는 1920×1080 에서 스크롤 없이 들어갈 것을 요구한다. #}
+
 
 </main>
 {% endblock %}
