@@ -12,7 +12,7 @@ class _Client:
         class R:
             def json(self):
                 return {"chart": {"result": [{
-                    "timestamp": [1787923800, 1788010200],   # 2026-08-26 / 08-27 13:30 UTC
+                    "timestamp": [1787751000, 1787837400],   # 2026-08-26 / 08-27 13:30 UTC
                     "indicators": {"quote": [{"close": [7675.7, 7730.99], "open": [7650.0, 7680.0],
                                                "high": [7690.0, 7740.0], "low": [7640.0, 7670.0], "volume": [1, 2]}]},
                 }]}}
