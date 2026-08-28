@@ -275,6 +275,22 @@ _SPECS: dict[str, TableSpec] = {
             "observed_at = ts_wall. 같은 뜻의 필드를 두 벌 들지 않는다."
         ),
     ),
+    "macro_consensus": TableSpec(
+        name="macro_consensus",
+        columns={
+            "market": pa.string(),
+            "title": pa.string(),      # 피드 원제 (예: "Unemployment Claims")
+            "forecast": pa.string(),   # 피드 표기 그대로 ("203K", "0.2%") — 단위가 우리 표와 달라 숫자로 안 접는다
+            "previous": pa.string(),
+            "actual": pa.string(),
+            "impact": pa.string(),
+        },
+        # entity_id 는 우리 macro_releases 의 지표 id(US:JOBLESS_CLAIMS …)로 맞춘다 — 그래야 발표
+        # 행 옆에 예측치가 붙는다. 매핑이 없는 이벤트는 US:FF:<slug>. valid_from = 발표 예정 시각.
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=1,
+        doc="시장 예측치(컨센서스) — ForexFactory 주간 캘린더. 브리핑 거시지표의 '예측' 열. 보상·선정에 안 들어간다.",
+    ),
     "macro_releases": TableSpec(
         name="macro_releases",
         columns={

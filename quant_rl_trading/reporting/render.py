@@ -770,12 +770,14 @@ def _macro_block(macro: MacroSection) -> str:
                 # 시각은 한 덩어리다. "08-14 / 21:30 / KST" 로 쪼개지면
                 # 셋 다 읽어서 다시 붙여야 시각이 된다.
                 f'<span style="white-space:nowrap">{when} KST</span> · 직전 '
-                f"{_macro_value(row.previous, row.unit)}</span>",
+                f"{_macro_value(row.previous, row.unit)}"
+                + (f' · <span style="color:{INK}">예측 {row.forecast}</span>' if row.forecast else "")
+                + "</span>",
                 extra=f"border-top:1px solid {RULE}",
             )
             + "</tr>"
         )
-    tail = ["컨센서스는 수집하지 않아 직전값 대비만", *macro.notes]
+    tail = ["예측 = 시장 컨센서스(ForexFactory, 피드 표기 그대로 — 단위가 우리 값과 다를 수 있다)", *macro.notes]
     return _section("거시지표") + _grid(body) + _foot(" · ".join(tail))
 
 
@@ -1099,13 +1101,8 @@ def _performance_block(briefing: Briefing) -> str:
         # **"0건" 이 아니라 "없었다" 다.** 앞은 수치이고 뒤는 사실이다.
         return out + _foot(f"{perf.session.isoformat()} 에 체결된 매매가 없다.")
 
-    out += _section("매매 내역", sub=f"· {perf.fill_count}건")
-    if perf.fills:
-        out += _grid(_fill_rows(perf))
-    tail = f"매수 {perf.buy_count} · 매도 {perf.sell_count}"
-    if perf.fills_omitted:
-        tail += f" · 큰 것부터 {len(perf.fills)}건만 실었다 (외 {perf.fills_omitted}건)"
-    return out + _foot(tail)
+    # 매매내역(체결 목록)은 메일에 싣지 않는다(사용자 요청 2026-08-29) — 대시보드 몫이다. 건수만.
+    return out + _foot(f"매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count}) — 내역은 대시보드")
 
 
 def _performance_lines(briefing: Briefing) -> list[str]:
@@ -1145,23 +1142,8 @@ def _performance_lines(briefing: Briefing) -> list[str]:
         lines += [f"  -- 매매: {perf.session.isoformat()} 에 체결된 매매가 없다", ""]
         return lines
     lines.append(
-        f"  -- 매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count})"
+        f"  -- 매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count}) — 내역은 대시보드"
     )
-    for fill in perf.fills:
-        side = "매수" if fill.side == "buy" else "매도"
-        money = _won if fill.currency == "KRW" else (lambda v: f"${v:,.2f}")
-        realized = (
-            "매수 — 아직 실현 없음"
-            if fill.realized_pnl is None
-            else f"실현 {'+' if fill.realized_pnl >= 0 else ''}{money(fill.realized_pnl)}"
-            + ("" if fill.realized_rate is None else f" ({_pct(fill.realized_rate)})")
-        )
-        lines.append(
-            f"     {fill.name} {fill.entity_id} {side} {fill.quantity:,.0f}주 "
-            f"@{_price(fill.price, fill.currency)} · {money(fill.amount)} · {realized}"
-        )
-    if perf.fills_omitted:
-        lines.append(f"     (큰 것부터 {len(perf.fills)}건만 실었다 — 외 {perf.fills_omitted}건)")
     lines.append("")
     return lines
 
@@ -1362,7 +1344,8 @@ def render_text(briefing: Briefing) -> str:
         lines.append(
             f"  [{MARKET_LABEL.get(item.market, item.market)}] {item.label} "
             f"({item.source_name}) {_macro_value(item.actual, item.unit)} "
-            f"{_macro_change(item)} (직전 {_macro_value(item.previous, item.unit)}) · {when} KST"
+            f"{_macro_change(item)} (직전 {_macro_value(item.previous, item.unit)}"
+            + (f" · 예측 {item.forecast}" if item.forecast else "") + f") · {when} KST"
         )
     if macro.released:
         for note in macro.notes:

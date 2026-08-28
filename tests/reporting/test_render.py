@@ -358,12 +358,13 @@ def test_macro_value_is_in_a_readable_unit() -> None:
 
 
 def test_no_consensus_column_is_invented() -> None:
-    """컨센서스를 수집하지 않으므로 "예상 대비" 를 쓸 수 없다."""
+    """예측치(컨센서스)는 macro_consensus 에 **있는 행에만** 붙는다 — 없는 지표에 "예상 대비"
+    를 지어내지 않는다. 각주는 예측이 어디서 왔는지 말한다 (2026-08-29)."""
     html = render_html(_briefing())
-    disclaimer = "컨센서스는 수집하지 않아 직전값 대비만"
+    disclaimer = "예측 = 시장 컨센서스(ForexFactory"
     assert disclaimer in html
-    body = html.replace(disclaimer, "")
-    for banned in ("예상", "컨센서스", "서프라이즈"):
+    body = html.split(disclaimer)[0]
+    for banned in ("예측 ", "서프라이즈"):
         assert banned not in body
 
 
@@ -549,17 +550,20 @@ def test_실현손익은_매도에만_붙는다() -> None:
         fills=[_fill(side="buy", realized_pnl=None, realized_rate=None)],
         buy_count=1,
     )
+    # 체결 목록은 메일에서 뺐다(2026-08-29) — 매수 줄에 0원이 찍힐 자리 자체가 없다. 건수만.
     for text in (render_html(_briefing(performance=perf)),
                  render_text(_briefing(performance=perf))):
-        assert "아직 실현 없음" in text
+        assert "아직 실현 없음" not in text
+        assert "매수 1" in text and "내역은 대시보드" in text
 
 
 def test_잘린_목록은_잘렸다고_적는다() -> None:
+    """목록을 안 싣으므로 '잘렸다' 대신 **전체 건수**를 적는다 — 5건 중 1건만 있는 것처럼 보이면 안 된다."""
     perf = _perf(fills=[_fill()], fills_omitted=4, sell_count=5)
     for text in (render_html(_briefing(performance=perf)),
                  render_text(_briefing(performance=perf))):
-        assert "매매 내역" in text or "매매 5건" in text
-        assert "4건" in text
+        assert "매매 5건" in text and "매도 5" in text
+        assert "내역은 대시보드" in text
 
 
 def test_어느_창고의_성과인지_밝힌다() -> None:

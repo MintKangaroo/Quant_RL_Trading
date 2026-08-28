@@ -64,6 +64,12 @@ note() {   # note <이름> <rc>
     note "미장 지수(Yahoo)" "$?"
     .venv/bin/python tools/collect_fx_yahoo.py
     note "환율(Yahoo)" "$?"
+    # 시총 상위 60 + ETF 의 전날 종가 — 브리핑 "시가총액 상위 전일대비" 가 06:30 에 비지 않게
+    .venv/bin/python tools/collect_prices_us_top.py
+    note "미장 시총상위 종가(Yahoo)" "$?"
+    # 거시지표 시장 예측치(컨센서스)
+    .venv/bin/python tools/collect_consensus_ff.py
+    note "컨센서스(FF)" "$?"
 
     # 미장 지수 **대용 ETF** 4종(SPY·QQQ·DIA·SOXX). 종목 4개라 몇 초다.
     #

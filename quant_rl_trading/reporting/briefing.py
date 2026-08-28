@@ -917,6 +917,9 @@ class MacroRow:
     unit: str
     #: **발표 시각.** ``valid_from``(우리가 안 시각)이 아니다.
     released_at: datetime
+    #: 시장 예측치(컨센서스, macro_consensus 표) — 피드 표기 그대로. 없으면 None.
+    forecast: str | None = None
+    forecast_previous: str | None = None
 
     @property
     def is_percent(self) -> bool:
@@ -1069,7 +1072,37 @@ def macro_section(
     deduped = sorted(
         seen.values(), key=lambda row: (row.released_at, row.entity_id), reverse=True
     )
-    return MacroSection(deduped[:limit], _macro_notes(deduped), since)
+    deduped = _attach_consensus(store, deduped[:limit], as_of=as_of)
+    return MacroSection(deduped, _macro_notes(deduped), since)
+
+
+def _attach_consensus(store: Store, rows: list[MacroRow], *, as_of: datetime) -> list[MacroRow]:
+    """발표 행에 같은 지표·같은 날(±36시간)의 예측치를 붙인다. 없으면 그대로 — 지어내지 않는다."""
+    if not rows:
+        return rows
+    try:
+        frame = store.get(
+            "macro_consensus", as_of=as_of, lookback=MACRO_LOOKBACK_DAYS,
+            columns=["entity_id", "valid_from", "forecast", "previous", "observed_at"],
+        )
+    except Exception:
+        return rows
+    if frame.empty:
+        return rows
+    frame = frame.sort_values("observed_at")
+    out: list[MacroRow] = []
+    for row in rows:
+        hits = frame[frame["entity_id"] == row.entity_id]
+        if not hits.empty:
+            gap = (pd.to_datetime(hits["valid_from"], utc=True) - pd.Timestamp(row.released_at)).abs()
+            hits = hits[gap <= pd.Timedelta(hours=36)]
+        if hits.empty:
+            out.append(row)
+            continue
+        last = hits.iloc[-1]
+        forecast = str(last.get("forecast") or "").strip() or None
+        out.append(replace(row, forecast=forecast, forecast_previous=str(last.get("previous") or "").strip() or None))
+    return out
 
 
 def _macro_notes(rows: list[MacroRow]) -> list[str]:
