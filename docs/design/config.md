@@ -54,7 +54,7 @@ universe:
   exclude_flags: [관리종목, 거래정지, 정리매매]
 
 execution:
-  max_adv_ratio: 0.03        # 일 거래대금 대비 매수 상한
+  max_adv_ratio: 1.0         # 일 거래대금 대비 매수 상한. 2026-08-28 0.03→1.0 (모의 단계, 후보 43% 절단 해소). 실전 전환 전 재조임
   max_liquidation_days: 3
   defer_minutes: 30          # 개장 후 신규매수 보류
   order_type: limit          # 시장가는 청산·킬스위치에만

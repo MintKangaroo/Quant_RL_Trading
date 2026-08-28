@@ -141,7 +141,12 @@ execution:
   # 새로 만드는 경로라 처음부터 조인다(tools/verify_live_order.py).
   # 값은 sha256(LS_US_APPKEY)[:12] — 2026-08-15 실측으로 확인했다.
   live_account_fingerprint_us: "20cf550a301f"
-  max_adv_ratio: 0.03        # 일 거래대금 대비 매수 상한
+  # 일 거래대금 대비 매수 상한. **2026-08-28 사용자 결정: 0.03 → 1.0** — 5억 자본에서
+  # 후보의 43% 가 3% 상한에 잘려 전략이 왜곡됐다(portfolio-construction.md §부록). 모의계좌
+  # 단계라 체결 가능성보다 전략 원형을 보는 것이 먼저다. 1.0 = 주문 하나가 하루 거래대금을
+  # 넘지 않는다는 최소 상식선. **실전 전환 전에 다시 조인다** — 실전에서 3% 는 충격비용과
+  # 미체결을 막는 보호막이다.
+  max_adv_ratio: 1.0
   max_liquidation_days: 3
   defer_minutes: 30          # 개장 후 신규매수 보류
   order_type: limit          # 시장가는 청산·킬스위치에만
