@@ -285,3 +285,22 @@ def test_총량에_닿은_실행은_완주다(seeded) -> None:
     data = body(client.get("/api/learning/training-runs"))["data"]
     assert data["runs"][0]["status"] == "completed"
     assert data["runs"][0]["eta_minutes"] is None
+
+
+def test_쉬운_말_요약이_배우는_중인지_말한다(seeded) -> None:
+    from datetime import timedelta
+
+    rows = []
+    for i in range(1, 121):
+        row = _update_row("m4-plain", i, 0.5)
+        row["observed_at"] = NOW - timedelta(minutes=3 * (121 - i))
+        row["episode_reward"] = -0.01 + 0.0002 * i   # 오른다
+        row["cash_weight"] = 0.03
+        row["action_reflection"] = 0.55
+        rows.append(row)
+    seeded.append("rl_updates", rows, ingest_run_id="rl-seed-plain")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    run = body(client.get("/api/learning/training-runs"))["data"]["runs"][0]
+    assert "배우고 있다" in run["plain"]
+    assert "도망은 없다" in run["plain"]
+    assert "55%" in run["plain"]

@@ -170,6 +170,7 @@ def training_runs(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
                 ]
         last = rows.iloc[-1]
         runs.append({
+            "plain": plain_summary(rows, progress),
             "run_id": str(run_id),
             "updates": [int(v) for v in rows["update"]],
             "series": series,
@@ -185,6 +186,58 @@ def training_runs(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
     runs.sort(key=lambda r: r["last_observed_at"], reverse=True)
     # 최근 여섯 실행만 — 옛 판 전부를 실으면 응답이 260KB·5초였다(2026-08-28).
     return {"has_data": True, "runs": runs[:6], "guards": UPDATE_GUARDS}
+
+
+def plain_summary(rows: pd.DataFrame, progress: dict[str, Any]) -> str:
+    """**쉬운 말 한 줄.** 숫자를 못 읽는 사람이 "지금 배우고 있나, 어디까지 왔나, 이상한가"
+    를 알게 한다. 규칙으로만 만든다 — LLM 이 아니다(결정론, 리플레이 재현).
+
+    보는 것: 진행률, 한 판당 점수(episode_reward)의 앞 50 대 뒤 50, 현금 비중 추세(도망),
+    액션 반영률(안전장치가 덮는 몫), 엔트로피 추세(조기 수렴 전조), 남은 시간.
+    """
+    n = len(rows)
+    if n == 0:
+        return "학습 기록이 없다."
+    win = min(50, max(1, n // 4))
+    head, tail = rows.head(win), rows.tail(win)
+    def mean(frame: pd.DataFrame, col: str) -> float | None:
+        return float(frame[col].mean()) if col in frame.columns and frame[col].notna().any() else None
+    r0, r1 = mean(head, "episode_reward"), mean(tail, "episode_reward")
+    cash1 = mean(tail, "cash_weight")
+    refl1 = mean(tail, "action_reflection")
+    ent0, ent1 = mean(head, "entropy"), mean(tail, "entropy")
+    status = progress.get("status")
+    last, total = progress.get("last_update", 0), progress.get("total_updates", 0)
+    pct = (100 * last / total) if total else 0
+    parts: list[str] = []
+    stage = {"running": "돌고 있다", "completed": "완주했다", "stopped": "멈춰 있다"}.get(status, status or "")
+    parts.append(f"학습이 {pct:.0f}% 지점({last:,}/{total:,})에서 {stage}.")
+    if r0 is not None and r1 is not None:
+        delta = r1 - r0
+        if delta > 0.002:
+            parts.append(f"한 판당 점수가 {r0:+.4f}에서 {r1:+.4f}로 올랐다 — 정책이 실제로 배우고 있다.")
+        elif delta < -0.002:
+            parts.append(f"한 판당 점수가 {r0:+.4f}에서 {r1:+.4f}로 내려갔다 — 나빠지는 중이다.")
+        else:
+            parts.append(f"한 판당 점수가 {r1:+.4f} 근처에서 평평하다 — 더 배우지 못하고 있다.")
+    if cash1 is not None:
+        cash0 = mean(head, "cash_weight") or cash1
+        if cash1 - cash0 > 0.03:
+            parts.append(f"현금이 {cash0:.0%}→{cash1:.0%}로 늘고 있다 — 종목을 못 고르겠으니 도망가는 신호다.")
+        else:
+            parts.append(f"현금 {cash1:.0%}로 도망은 없다.")
+    if refl1 is not None:
+        parts.append(f"RL 의도의 {refl1:.0%}만 집행된다(나머지는 안전장치가 깎는다{'; 30% 아래면 룰 시스템' if refl1 < 0.3 else ''}).")
+    if ent0 is not None and ent1 is not None and ent0 != 0:
+        drop = (ent0 - ent1) / abs(ent0)
+        if drop > 0.05:
+            parts.append(f"선택의 폭(엔트로피)이 {drop:.0%} 좁아졌다 — 너무 빨리 확신하는지 볼 것.")
+    if status == "running" and progress.get("eta_minutes"):
+        hours = progress["eta_minutes"] / 60
+        parts.append(f"완주까지 약 {hours:.0f}시간, 그 뒤 홀드아웃(OOS) 판정이 진짜 시험이다.")
+    elif status == "completed":
+        parts.append("다음은 홀드아웃(OOS) 판정 — 학습 구간 밖에서도 버는지 본다.")
+    return " ".join(parts)
 
 
 #: 마지막 기록 뒤 이만큼 조용하면 "멈춤" 으로 본다 — 페이스의 3배, 최소 15분.

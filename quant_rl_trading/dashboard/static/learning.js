@@ -109,6 +109,9 @@ function renderTrainingLive(runs) {
   const last = (k) => (s[k] && s[k].length ? s[k][s[k].length - 1] : null);
   const fmt = (v, d = 4) => (v == null ? "—" : Number(v).toFixed(d));
 
+  const plain = run.plain
+    ? `<p class="plain" style="margin:0 0 10px;padding:10px 12px;border-left:3px solid #4C9AFF;background:var(--panel2);font-size:13px;line-height:1.5">${run.plain}</p>`
+    : "";
   const rows = [
     ["상태", `<span class="${tone}">${statusText}</span>${lastAt ? ` · 마지막 기록 ${lastAt.toLocaleString("ko-KR", { hour12: false })} (${minutesLabel(run.silent_minutes)} 전)` : ""}`],
     ["진행", `${lastUpdate == null ? "—" : lastUpdate.toLocaleString()} / ${total == null ? "—" : total.toLocaleString()} 업데이트 (${pct.toFixed(1)}%)
@@ -118,7 +121,7 @@ function renderTrainingLive(runs) {
     ["마지막 지표", `EV ${fmt(last("explained_variance"), 3)} · KL ${fmt(last("approx_kl"), 5)} · grad ${fmt(last("grad_norm"), 2)} · 반영률 ${fmt(last("action_reflection"), 3)} · 현금 ${fmt(last("cash_weight"), 3)}`],
     ["실행", `${run.run_id} · seed ${run.seed ?? "—"} · ${run.curriculum || "—"} · ${run.git_commit ? run.git_commit.slice(0, 7) : "—"}`],
   ];
-  target.innerHTML = `<table class="kv">${rows
+  target.innerHTML = plain + `<table class="kv">${rows
     .map(([k, v]) => `<tr><th style="white-space:nowrap;text-align:left;padding-right:12px;vertical-align:top">${k}</th><td>${v}</td></tr>`)
     .join("")}</table>`;
 }
