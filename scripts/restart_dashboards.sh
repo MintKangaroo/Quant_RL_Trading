@@ -16,8 +16,8 @@ TARGETS=(
   "5057:-"
   "5058:-"
   "5073:-"
-  "5059:data/_shadow"
-  "5060:data/_paper"
+  "5059:data/_paper"
+  "5060:data/_shadow"
 )
 
 for spec in "${TARGETS[@]}"; do
