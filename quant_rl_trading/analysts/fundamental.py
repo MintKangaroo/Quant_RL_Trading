@@ -65,6 +65,8 @@ FUNDAMENTALS = "fundamentals"
 LOOKBACK_DAYS = 1150
 
 #: 기간에 걸쳐 발생하는 값. Q4 누적 복원이 필요하다.
+#: 시장별 재무 소스. 미장은 tools/backfill_fundamentals_us.py 가 SEC companyfacts 로 채운다.
+SOURCE_BY_MARKET = {"KR": "dart", "US": "edgar"}
 FLOW_METRICS = ("revenue", "operating_income", "net_income")
 
 #: 특정 시점의 잔액. 누적 개념이 없다.
@@ -199,7 +201,10 @@ class FundamentalAnalyst(Analyst):
         raw = self.store.get(FUNDAMENTALS, as_of=as_of, lookback=LOOKBACK_DAYS)
         if raw.empty:
             return pd.DataFrame()
-        raw = raw[(raw["source"] == "dart") & (raw["market"] == str(self.market))]
+        # 시장별 재무 소스 — 국장 DART, 미장 EDGAR(companyfacts). 둘 다 같은 metric 이름·
+        # 같은 분기 규약(Q4 = 연간 누적)으로 적혀 있어 아래 계산은 시장을 모른다.
+        raw = raw[(raw["source"] == SOURCE_BY_MARKET.get(str(self.market), "dart"))
+                  & (raw["market"] == str(self.market))]
         # 회계기간이 끝나기 전에 공시될 수는 없다. 이 조건이 깨진 행은 12월
         # 결산이 아닌 회사인데, 수집기가 fiscal_period 를 **요청값**으로 붙여
         # 오라벨한 것이다. 실측에서 2026Q3 의 관측시각이 2026-03-30 으로

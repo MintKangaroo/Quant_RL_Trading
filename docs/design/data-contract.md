@@ -129,6 +129,19 @@ store.get(table, as_of, entity=None, lookback=None) -> DataFrame
 
 **결측 처리: forward-fill만 허용. backward-fill 절대 금지.**
 
+### 4-0. 미장 재무 — SEC companyfacts (2026-08-29)
+
+`tools/backfill_fundamentals_us.py` 가 `fundamentals(market=US, source=edgar)` 를 채운다. 국장(DART)과
+**같은 metric 이름·같은 분기 규약**이다: Q1~Q3 는 3개월 값, Q4 는 연간(10-K) 누적 — Analyst 의
+`to_quarterly` 가 그대로 돈다. `fiscal_period` 는 회사 회계연도(`fy`·`fp`) 기준이라 9월 결산사도
+회사 안에서는 일관되다. `valid_from` = 회계기간 말, `observed_at` = 접수일 + 18:00 ET.
+
+함정: (1) 같은 (지표, 기간)이 비교 표시·정정으로 여러 공시에 나온다 — **가장 먼저 접수된 것**만
+적는다(시장이 처음 안 값, 자연키 중복 회피). (2) 매출 태그가 회사마다 다르다(Revenues /
+RevenueFromContractWithCustomerExcludingAssessedTax / SalesRevenueNet 순). (3) 총부채 태그가 없는
+회사는 자산 − 자본으로 만든다. (4) USD 단위만 — 시총(market_stats)도 USD 라 earnings_yield 가 선다.
+(5) ADR·외국 발행사(20-F/40-F)는 10-Q/10-K 가 없어 빠진다 — 커버리지는 우리 유니버스의 85% 안팎.
+
 ### 4-1. 기업행위 — 원주가를 저장하고 읽을 때 접는다
 
 창고에 드는 것은 **원주가**다. 수정주가에는 미래의 분할이 이미 섞여 있어서,
