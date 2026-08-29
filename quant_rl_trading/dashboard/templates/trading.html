@@ -21,6 +21,14 @@
 
   <section class="alerts" id="alerts"></section>
 
+  {# Claude 일일 리뷰 헤드라인 (M5). 해설자이지 심판이 아니다 — 숫자는 아래 성과 칸과
+     같은 함수(accounting.performance)에서 왔고, 리뷰가 없으면 칸도 없다. #}
+  <section class="panel review" id="panel-review" hidden>
+    <div class="review-head"><span class="badge dim">AI 리뷰</span><span class="sub" id="review-stamp"></span></div>
+    <p class="review-headline" id="review-headline"></p>
+    <details class="fold"><summary>자세히</summary><p class="review-body" id="review-body"></p></details>
+  </section>
+
   {# 성과 넷 — 매매내역 · 수익률 · 총수익률 · 자산증감.
      숫자는 전부 accounting/performance.py 에서 오고, 같은 함수를 이메일
      브리핑도 읽는다. 화면과 메일이 각자 접으면 어느 쪽이 맞는지 판정할

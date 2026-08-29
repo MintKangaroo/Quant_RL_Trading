@@ -1091,6 +1091,25 @@ function renderPositionsPie(body) {
 
 /* -- 진입 ----------------------------------------------------------------- */
 
+async function loadReview() {
+  const panel = document.getElementById("panel-review");
+  if (!panel) return;
+  const body = await fetchJson("trading/review");
+  const review = body.data && body.data.review;
+  if (!review || !review.headline) {
+    panel.hidden = true;
+    return;
+  }
+  const tone = { good: "up", bad: "down", mixed: "", quiet: "dim" }[review.tone] || "";
+  document.getElementById("review-stamp").textContent =
+    `${new Date(review.session_at).toLocaleDateString("ko-KR")} 장 · ${review.model} · ${review.status === "cached" ? "캐시" : review.status}`;
+  const headline = document.getElementById("review-headline");
+  headline.textContent = review.headline;
+  headline.className = `review-headline ${tone}`;
+  document.getElementById("review-body").textContent = review.body || "";
+  panel.hidden = false;
+}
+
 async function loadTrading() {
   const entity = currentEntity();
   const body = await fetchJson(`trading${entity ? "?entity=" + encodeURIComponent(entity) : ""}`);
@@ -1219,4 +1238,4 @@ function bindVisibilityRefresh(body) {
   });
 }
 
-runAll([loadTrading]);
+runAll([loadTrading, loadReview]);

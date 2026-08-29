@@ -1140,3 +1140,12 @@ td.num.bad { color: var(--down); }
   .sched-cell .d { display: inline-block; margin-right: 6px; }
   .sched-item { white-space: normal; }
 }
+
+/* Claude 일일 리뷰 — 트레이딩 탭 머리 */
+.panel.review { padding: 10px 14px; }
+.review-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.review-headline { font-size: 14px; font-weight: 600; margin: 0 0 4px; line-height: 1.45; }
+.review-headline.up { color: var(--up); }
+.review-headline.down { color: var(--down); }
+.review-headline.dim { color: var(--muted); }
+.review-body { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 4px 0 0; white-space: pre-line; }

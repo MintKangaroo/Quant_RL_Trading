@@ -408,10 +408,10 @@ M4 학습은 여기를 더 줄여야 가능하다.
 - Attribution, Risk, Regime 화면
 
 ### 완료 기준
-- [ ] 일일 리뷰 자동 생성, headline이 Fund 화면에 표시
-- [ ] 리뷰 결과가 `agent_cache` 에 저장되어 리플레이 시 재호출 없음
+- [x] 일일 리뷰 자동 생성, headline이 Fund 화면에 표시 — `auditor/daily_review.py` · `tools/daily_review.py`(평일 23:35) · `reviews` 표 · 트레이딩 탭 머리 카드 (2026-08-29 첫 리뷰)
+- [x] 리뷰 결과가 `agent_cache` 에 저장되어 리플레이 시 재호출 없음 — 사실 해시 키, `tests/auditor/test_daily_review.py` (2026-08-29)
 - [ ] Analyst별 성과 귀속이 가중치 진화에 피드백
-- [ ] LLM 월 비용이 예산 내
+- [x] LLM 월 비용이 예산 내 — `llm_usage` 실측 대 `llm.monthly_budget_usd`, 초과 시 호출 거부 + `skipped_budget` 기록 (2026-08-29; 이달 $1.23/$50)
 
 ---
 

@@ -49,6 +49,19 @@ def overview() -> Any:
     )
 
 
+@bp.get("/review")
+def review() -> Any:
+    """Claude 일일 리뷰 헤드라인 (M5). 없으면 ``review: null`` — 지어내지 않는다."""
+    from quant_rl_trading.auditor.daily_review import latest_review
+
+    current = scope()
+    market = request.args.get("market", "KR")
+    return envelope(
+        current,
+        {"review": latest_review(store(), as_of=current.as_of, market=market, lookback=current.lookback)},
+    )
+
+
 @bp.get("/calendar")
 def calendar() -> Any:
     """수익률 캘린더만. **장부를 접지 않는다.**

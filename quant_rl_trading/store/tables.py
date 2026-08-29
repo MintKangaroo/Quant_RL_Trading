@@ -522,6 +522,28 @@ _SPECS: dict[str, TableSpec] = {
             "읽는다. 추정을 확정처럼 보이게 하지 않는다 — timing 이 말한다."
         ),
     ),
+    "reviews": TableSpec(
+        name="reviews",
+        columns={
+            "market": pa.string(),
+            "mode": pa.string(),          # PAPER | SHADOW | LIVE
+            "headline": pa.string(),      # 한 문장, Fund 화면 머리에 뜬다
+            "body": pa.string(),          # 3~5문장 해설
+            "tone": pa.string(),          # good | bad | mixed | quiet
+            "model": pa.string(),
+            "features_hash": pa.string(), # 어떤 사실로 쓴 리뷰인지 — agent_cache 와 같은 해시
+            "status": pa.string(),        # written | cached | skipped_budget | skipped_no_key
+        },
+        # entity_id = "<MODE>:<MARKET>" (예: PAPER:KR). 세션마다 한 편.
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=3,
+        market_prefixed_entity=False,
+        doc=(
+            "Claude 일일 리뷰(M5). **해설자다, 심판이 아니다** — 보상 함수·가중치에 안 들어간다"
+            "(불변식 8). 사실(accounting.performance)은 화면과 같은 함수에서 오고, 같은 사실 "
+            "해시면 agent_cache 가 답해 LLM 을 다시 부르지 않는다."
+        ),
+    ),
     "rl_evaluations": TableSpec(
         name="rl_evaluations",
         columns={
