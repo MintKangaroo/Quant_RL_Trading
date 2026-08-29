@@ -130,6 +130,25 @@ def test_jobs_are_parsed_from_logs(seeded) -> None:
     assert {job["key"] for job in data} == expected_keys
 
 
+def test_one_off_logs_with_the_same_prefix_are_ignored(seeded) -> None:
+    """`collect-us-prices.log` 같은 단발 로그는 월별 이력이 아니다.
+
+    2026-08-29 실제 사고: 이름순으로 마지막 두 파일이 단발 로그가 되어 수집이
+    멀쩡한데 화면이 "완주 여부를 확인할 수 없음" 을 띄웠다.
+    """
+    write_log(
+        seeded.root.parent,
+        "collect-202608.log",
+        "=== 2026-08-14 15:55:03 market=KR sessions=3 ===\n  시세·유니버스 rc=0\n",
+    )
+    for decoy in ("collect-us-prices.log", "collect-us-shares.log", "collect-us-universe.log"):
+        write_log(seeded.root.parent, decoy, "미장 시세 6,414행\n")
+    data = body(client_for(seeded).get("/api/system/jobs"))["data"]
+    collect = next(job for job in data if job["key"] == "collect_daily")
+    assert collect["run_count"] == 1
+    assert collect["last_run_ok"] is True
+
+
 def test_job_with_no_rc_line_is_unconfirmed_not_failed(seeded) -> None:
     """완주하지 못해 rc= 를 못 찾은 실행은 실패로 단정하지 않는다."""
     write_log(

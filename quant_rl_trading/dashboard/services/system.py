@@ -85,6 +85,7 @@ RUN_HISTORY_LIMIT = 8
 
 RUN_HEADER = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) market=(\S+)", re.M)
 RC_LINE = re.compile(r"\brc=(-?\d+)")
+MONTHLY_LOG = re.compile(r"\d{6}")
 
 
 @dataclass(frozen=True)
@@ -175,7 +176,14 @@ def _log_files(prefix: str) -> list[Path]:
     directory = logs_dir()
     if not directory.is_dir():
         return []
-    return sorted(directory.glob(f"{prefix}-*.log"))
+    # **월별 파일(`collect-202608.log`)만.** `collect-us-prices.log` 같은 단발
+    # 로그가 같은 접두사를 쓰는데, 그것까지 집으면 이름순 마지막 두 파일이
+    # 헤더 없는 파일이 되어 화면이 "완주 여부를 확인할 수 없음" 으로 오판한다
+    # (2026-08-29 실제로 그랬다 — 수집은 멀쩡했다).
+    return sorted(
+        path for path in directory.glob(f"{prefix}-*.log")
+        if MONTHLY_LOG.fullmatch(path.name[len(prefix) + 1 : -4])
+    )
 
 
 def _read_runs(prefix: str) -> list[Run]:

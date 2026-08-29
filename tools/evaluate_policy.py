@@ -49,6 +49,7 @@ from quant_rl_trading.store import Store  # noqa: E402
 #: 학습 구간(=본 것)과 평가 구간(=안 본 것). 학습은 2026-06-30 에서 끝났다.
 TRAIN = (date(2025, 1, 2), date(2026, 6, 30))
 OOS = (date(2026, 7, 1), date(2026, 8, 22))
+BREAKDOWN = ("excess_return", "drawdown_penalty", "cost", "turnover", "drawdown")
 
 
 def _policy_from(checkpoint: Path, obs: dict, device) -> AllocatorPolicy:
@@ -88,6 +89,7 @@ def _run(
     n_slots = int(obs["mask"].shape[1])
     rewards: list[float] = []
     cash: list[float] = []
+    parts: dict[str, list[float]] = {key: [] for key in BREAKDOWN}
     reflection: list[float] = []
 
     for _ in range(steps):
@@ -112,9 +114,14 @@ def _run(
                 weights = (alpha / alpha.sum(-1, keepdim=True)).cpu().numpy().astype(np.float32)
         obs, reward, _, _, info = env.step(weights)
         rewards.append(float(np.mean(reward)))
-        cash.append(float(np.mean(info["cash_weight"])) if "cash_weight" in info else float("nan"))
+        # 현금 = 1 − 실현 비중 합. 환경 info 에 현금 칸이 따로 없다.
+        realized = np.asarray(info["realized_weights"], dtype=np.float64)
+        cash.append(float(np.mean(1.0 - realized.reshape(realized.shape[0], -1).sum(-1))))
         reflection.append(float(np.mean(info["action_reflection_rate"]))
                           if "action_reflection_rate" in info else float("nan"))
+        # §8 분해 — 합만 보면 "선택을 못 하나, 비용에 먹히나" 를 못 가른다.
+        for key in BREAKDOWN:
+            parts[key].append(float(np.mean(info[key])) if key in info else float("nan"))
     arr = np.asarray(rewards)
     return {
         "reward_mean": float(arr.mean()),
@@ -123,12 +130,15 @@ def _run(
         "cash": float(np.nanmean(cash)),
         "reflection": float(np.nanmean(reflection)),
         "steps": float(len(arr)),
+        **{key: float(np.nanmean(values)) for key, values in parts.items()},
     }
 
 
 def _line(label: str, r: dict[str, float]) -> str:
     return (f"  {label:22s} 보상평균 {r['reward_mean']:+.5f} · 합 {r['reward_sum']:+.4f} "
-            f"· 현금 {r['cash']:.3f} · 반영률 {r['reflection']:.3f}")
+            f"· 현금 {r['cash']:.3f} · 반영률 {r['reflection']:.3f}\n"
+            f"  {'':22s} 초과수익 {r['excess_return']:+.5f} · 낙폭벌점 {r['drawdown_penalty']:+.5f} "
+            f"· 비용 {r['cost']:+.5f} · 회전 {r['turnover']:.3f} · 낙폭 {r['drawdown']:.3f}")
 
 
 def main(argv: list[str] | None = None) -> int:
