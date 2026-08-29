@@ -632,8 +632,19 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
 )
 
 
+#: 접두는 맞지만 캐시가 **안 쓰는** 키. `exposure.regime_confirm_sessions` 는 세션의 노출 배수
+#: 확인 기간(selector/exposure.py)이라 구운 피처와 무관한데, 2026-08-28 에 새 키로 심기며
+#: 에포크 시점부터 발효된 것으로 들어와 930개 세션 캐시의 지문을 전부 깨뜨렸다(학습 재개 실패).
+#: 새 키를 심을 땐 이 목록·접두를 먼저 본다 — 지문은 "캐시 내용이 바뀌는 키" 만 세야 한다.
+#: `selector.exit_rank` 도 같다 — 완충 구간은 **보유 종목**이 있어야 서는데 캐시는 보유를 모르고
+#: 굽는다(`selection(... held=None)`), 그래서 구운 후보는 이 키와 무관하다.
+CONFIG_INDEPENDENT = frozenset({"exposure.regime_confirm_sessions", "selector.exit_rank"})
+
+
 def depends_on(name: str) -> bool:
     """설정 이름 하나가 이 경로에 영향을 주는가. `CONFIG_DEPENDENCIES` 가 정의다."""
+    if name in CONFIG_INDEPENDENT:
+        return False
     return any(name == dep or name.startswith(f"{dep}.") for dep in CONFIG_DEPENDENCIES)
 
 

@@ -112,8 +112,12 @@ def test_읽는_설정이_전부_지문에_들어간다() -> None:
     "그 키는 캐시에 영향 없다" 는 판단으로 목록 밖에 두지 마라 — 영향이 없는
     것과, 영향이 있는데 아직 안 겪은 것은 겉모습이 같다.
     """
+    from quant_rl_trading.allocator.cache import CONFIG_INDEPENDENT
+
+    # CONFIG_INDEPENDENT 는 읽히긴 하지만 구운 내용을 안 바꾸는 키다(cache.py 주석) —
+    # 세션 실행이 노출 배수 확인 기간을 읽어도 캐시 피처는 그 전에 만들어진다.
     missing = {
-        module: sorted(name for name in names if not depends_on(name))
+        module: sorted(name for name in names if not depends_on(name) and name not in CONFIG_INDEPENDENT)
         for module, names in _reads().items()
     }
     missing = {module: names for module, names in missing.items() if names}
