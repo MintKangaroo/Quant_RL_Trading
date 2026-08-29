@@ -47,9 +47,9 @@ from __future__ import annotations
 import logging
 import math
 import warnings
-from collections.abc import Sequence
-from dataclasses import dataclass, replace, field
-from datetime import date, datetime, time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -883,7 +883,9 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             "mask": np.zeros(self.params.n_max, dtype=np.bool_),
         }
 
-    def _observe(self) -> tuple[Obs, dict[str, Any]]:
+    def _observe(
+        self, candidates: Sequence[tuple[str, float]] | None = None
+    ) -> tuple[Obs, dict[str, Any]]:
         """오늘 결정 직전의 관측. **오늘 종가까지만 본다** — store 게이트가
         ``observed_at <= as_of`` 를 걸어 주므로, 여기서 미래를 보려면 as_of 를
         틀리게 넣는 수밖에 없다."""
@@ -891,7 +893,16 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         as_of = self.as_of
         equity = state.nav
 
-        selection = self.reader.selection(as_of, equity=equity)
+        if candidates is None:
+            selection = self.reader.selection(as_of, equity=equity)
+            picked: tuple[tuple[str, float], ...] = selection.candidates
+            notes: tuple[str, ...] = selection.notes
+        else:
+            # 라이브 세션(observe_live)이 이미 뽑은 후보를 그대로 쓴다. 세션은
+            # 보유를 알고 완충 구간(selector.exit_rank)까지 적용해 뽑는데, 여기서
+            # 한 번 더 뽑으면 같은 날 후보가 두 벌이 되어 로그와 관측이 갈린다.
+            picked = tuple((str(entity), float(score)) for entity, score in candidates)
+            notes = ()
         held = [
             entity
             for entity, position in state.book.positions.items()
@@ -899,8 +910,8 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         ]
         # **보유가 먼저다.** 슬롯이 모자랄 때 밀려나는 쪽이 보유면 그 종목은
         # 목표 0 이 되어 강제 청산된다 — 정책이 내리지 않은 결정이다.
-        ordered = list(dict.fromkeys(held + [entity for entity, _score in selection.candidates]))
-        scores = dict(selection.candidates)
+        ordered = list(dict.fromkeys(held + [entity for entity, _score in picked]))
+        scores = dict(picked)
         state.slots = [
             _Slot(entity_id=entity, score=scores.get(entity, 0.0))
             for entity in ordered[: self.params.n_max]
@@ -912,10 +923,102 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         obs: Obs = {"portfolio": portfolio, "assets": assets, "mask": mask}
         info = {
             "candidates": tuple(slot.entity_id for slot in state.slots),
-            "selection_notes": selection.notes,
+            "selection_notes": notes,
             "slots_dropped": dropped,
         }
         return obs, info
+
+    # -- 라이브 ----------------------------------------------------------------
+
+    def observe_live(
+        self,
+        *,
+        session: date,
+        book: Book,
+        entered: Mapping[str, date],
+        nav: float,
+        drawdown_depth: float,
+        candidates: Sequence[tuple[str, float]],
+        last_turnover: float = 0.0,
+        last_reflection: float = 1.0,
+    ) -> tuple[Obs, dict[str, Any]]:
+        """**실제 장부**로 오늘의 관측을 만든다. 학습이 보던 것과 같은 코드다.
+
+        에피소드 대신 장부를 받는다 — 현금·보유·평균단가는 `accounting.ledger`
+        가 창고에서 재구성한 그 장부이고, 낙폭은 `accounting.snapshot` 이 잰
+        누적지수 기준 깊이다(양수, 0.12 = -12%). 피처 계산은 `_asset_features`
+        `_portfolio_features` 를 그대로 부른다. **관측을 두 벌로 짜지 않는다** —
+        학습과 실전이 다른 관측을 보면 정책은 학습 때와 다른 것을 보고 결정하고,
+        그 차이는 성적표에 "정책이 나쁘다" 로만 보인다 (불변식 5).
+
+        학습과 다를 수밖에 없는 세 가지는 여기서 정하고 적어 둔다:
+
+        - **남은 스텝 비율**(portfolio[20]): 라이브에는 에피소드 끝이 없다.
+          세션을 에피소드 한복판(0.5)에 앉힌다 — 뒤로 에피소드 길이만큼의
+          거래일, 앞으로 같은 수의 자리(날짜는 자리표시)를 붙인 창을 쓴다.
+          0 이나 1 을 주면 정책이 에피소드 첫날·마지막날의 습관을 꺼내는데,
+          그런 날은 라이브에 없다.
+        - **보유 경과일**: 창 시작보다 오래 든 종목은 창 시작일로 잘라 센다.
+          학습에서는 에피소드가 현금으로 시작해 경과일이 에피소드 길이를 넘을
+          수 없었으므로, 넘는 값을 주면 정책이 본 적 없는 입력이 된다.
+        - **직전 회전율·반영률**: 호출자가 창고(`trades`·`realized_weights`)
+          에서 읽어 넘긴다. 환경 안에서는 스텝이 만들던 값이다.
+
+        관측 뒤 `decide_live` 로 액션을 목표 비중으로 푼다. `step` 은 부르지
+        않는다 — 체결·회계는 라이브 집행기(executor)와 장부의 몫이다.
+        """
+        span = self.params.episode_days
+        if session not in self._sessions:
+            raise ValueError(f"{session} 은 이 환경의 거래일 목록에 없다")
+        index = self._sessions.index(session)
+        past = self._sessions[max(0, index - (span - 1)) : index + 1]
+        # 앞쪽은 자리만 채운다. 거래일 달력은 1년 앞까지만 있고, 관측이 미래
+        # 날짜로 하는 일은 "남은 칸 수" 를 세는 것뿐이다 — 시세·신호 조회는
+        # 전부 `as_of`(오늘) 로 간다.
+        future = [session + timedelta(days=offset) for offset in range(1, span)]
+        window = past + future
+        cursor = len(past) - 1
+        clamped = {
+            entity: (day if day >= window[0] else window[0])
+            for entity, day in entered.items()
+            if day <= session
+        }
+        self._clock = ReplayClock(self._moment(session))
+        self._state = _EpisodeState(
+            sessions=window,
+            cursor=cursor,
+            book=book,
+            analysts=self._analyst_slots(),
+            entered=clamped,
+            nav=float(nav),
+            last_turnover=float(last_turnover),
+            last_reflection=float(last_reflection),
+            last_drawdown=max(0.0, float(drawdown_depth)),
+        )
+        self._last_prices = {}
+        # 평가(_value)가 보유 종목 시세를 `_last_prices` 에 채운다 — 실현
+        # 비중·최소스텝 중앙값이 그 시세를 본다. 학습에서는 직전 스텝의
+        # `_settle` 이 채워 두던 자리다. NAV 는 장부 쪽 값을 그대로 든다 —
+        # 회계는 한 곳(accounting)에서만 한다.
+        self._last_valuation = self._value()
+        return self._observe(candidates)
+
+    def decide_live(
+        self, action: Mapping[str, Any]
+    ) -> tuple[dict[str, float], dict[str, int]]:
+        """액션 → (종목별 목표 비중, 종목별 진입 지연). `observe_live` 뒤에 부른다.
+
+        `_decode` 와 같은 규칙이다 — 마스크 밖 비중은 현금, 종목 상한에서 깎인
+        몫도 현금. 학습 때 정책이 받던 처리와 실전에서 받는 처리가 같아야
+        액션 반영률이 집행기 얘기만 하게 된다.
+        """
+        if not self._state.sessions:
+            raise RuntimeError("observe_live() 를 먼저 불러야 한다")
+        targets, delays = self._decode(dict(action))
+        slots = self._state.slots
+        weights = {slot.entity_id: float(targets[i]) for i, slot in enumerate(slots)}
+        waits = {slot.entity_id: int(delays[i]) for i, slot in enumerate(slots)}
+        return weights, waits
 
     def _asset_features(self) -> tuple[Array, npt.NDArray[np.bool_]]:
         """종목 축 (N_max, 28). 후보가 모자라면 0 으로 패딩하고 마스크로 가린다."""

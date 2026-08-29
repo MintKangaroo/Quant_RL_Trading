@@ -638,7 +638,15 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
 #: 새 키를 심을 땐 이 목록·접두를 먼저 본다 — 지문은 "캐시 내용이 바뀌는 키" 만 세야 한다.
 #: `selector.exit_rank` 도 같다 — 완충 구간은 **보유 종목**이 있어야 서는데 캐시는 보유를 모르고
 #: 굽는다(`selection(... held=None)`), 그래서 구운 후보는 이 키와 무관하다.
-CONFIG_INDEPENDENT = frozenset({"exposure.regime_confirm_sessions", "selector.exit_rank"})
+CONFIG_INDEPENDENT = frozenset(
+    {
+        "exposure.regime_confirm_sessions",
+        "selector.exit_rank",
+        # 정책을 어느 장부에 끼우나 — 세션(allocator/live.py)만 읽는다. 환경은 모른다.
+        "allocator.rl.checkpoint",
+        "allocator.rl.modes",
+    }
+)
 
 
 def depends_on(name: str) -> bool:

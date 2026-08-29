@@ -96,6 +96,9 @@ allocator:
   n_max_candidates: 30
   gamma: 0.997
   gae_lambda: 0.95
+  rl:
+    checkpoint: ""                # 정책 체크포인트. 비면 어디서도 정책을 쓰지 않는다
+    modes: ["paper"]              # 정책이 결정하는 장부 모드 — paper 만. shadow·live 는 룰 (rl-training.md §13)
 
 fx:
   rebalance_deadband: 0.10   # 10%p 넘을 때만 환전

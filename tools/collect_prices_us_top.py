@@ -42,7 +42,10 @@ def main(argv: list[str] | None = None) -> int:
     store = build_store(args.data_root)
     caps, _ = market_caps(store, as_of=now, market="US")
     symbols = [e.split(":", 1)[1] for e in caps.sort_values(ascending=False).head(args.top).index] + list(ETFS)
-    have = store.get("prices", as_of=now, lookback=6, market="US", columns=["entity_id", "valid_from"])
+    # 이미 적재된 (종목, 세션) 키만 본다 — 종가 값은 안 읽으므로 휴장일 0 문제와 무관하다.
+    have = store.get(  # invariant-allow: price-read
+        "prices", as_of=now, lookback=6, market="US", columns=["entity_id", "valid_from"]
+    )
     have_keys = set(zip(have["entity_id"], have["valid_from"].dt.date)) if not have.empty else set()
     rows: list[dict] = []
     with httpx.Client() as client:

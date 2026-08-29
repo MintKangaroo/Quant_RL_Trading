@@ -45,6 +45,10 @@ def _moment(day: date) -> datetime:
 
 @pytest.fixture
 def warehouse(store):  # type: ignore[no-untyped-def]
+    return seed_warehouse(store)
+
+
+def seed_warehouse(store):  # type: ignore[no-untyped-def]
     """4종목 · 400세션 · 지수 · 환율 · IC 가중치.
 
     유니버스 필터(상장 180일·거래대금 하한)와 confidence(60거래일 롤링 IC)가

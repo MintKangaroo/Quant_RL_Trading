@@ -318,6 +318,15 @@ allocator:
   n_max_candidates: 30
   gamma: 0.997
   gae_lambda: 0.95
+  # -----------------------------------------------------------------------------
+  # 학습한 정책을 **실제 장부**에 끼우는 스위치 (allocator/live.py, session/daily.py).
+  # checkpoint 가 비면 어디서도 정책을 쓰지 않는다. modes 는 store/mode.py 의
+  # 코드 — paper(모의계좌)만 켜고 shadow 는 룰로 두면 둘이 같은 날 같은 후보로
+  # 병주해 RL 과 룰을 나란히 본다 (rl-training.md §13). 실전(live)은 승격 심사 뒤.
+  # **RL 캐시 지문에 넣지 않는다** — 환경은 이 값을 안 읽는다 (cache.CONFIG_INDEPENDENT).
+  rl:
+    checkpoint: ""
+    modes: ["paper"]
   # RL 환경(allocator/env.py) 전용. 학습에서만 읽는다.
   env:
     # 에피소드 시작 자본. **실계좌 잔고와 무관하다** — 학습은 같은 구간을

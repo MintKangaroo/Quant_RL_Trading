@@ -31,14 +31,15 @@ from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
 from quant_rl_trading.analysts.regime import RegimeAnalyst
-from quant_rl_trading.collectors.market_hours import Market, trading_days
-from quant_rl_trading.replay.clock import ReplayClock
-from quant_rl_trading.selector import exposure
 from quant_rl_trading.broker import Broker
+from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
+from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.replay.events import EventLog, payload_hash
+from quant_rl_trading.selector import exposure
 from quant_rl_trading.selector import pipeline as selector_pipeline
+from quant_rl_trading.store import mode as store_mode
 from quant_rl_trading.store.prices import adjust, read_prices
 
 if TYPE_CHECKING:
@@ -254,7 +255,32 @@ def run(
     )
     scores = {item.entity_id: item.score for item in selection.candidates}
     allocate_driver = str(params.baseline)
-    if params.baseline is Baseline.RISK_PARITY:
+    # **지연 import 다.** allocator.live → env → cache → 이 모듈로 도는 고리가
+    # 있다. risk_parity 와 같은 이유로 함수 안에서 문다.
+    from quant_rl_trading.allocator import live as live_rl
+
+    rl_params = live_rl.LiveParams.from_store(store, as_of=as_of)
+    policy_decision: live_rl.PolicyDecision | None = None
+    if rl_params.active_for(store_mode.of(store.root).code):
+        # **정책이 목표 비중을 낸다** (M4 → 모의계좌). 룰 베이스라인 자리에
+        # 그대로 끼운다 — 사이징·집행·실현 비중 기록은 아래 같은 길이다.
+        # 어느 장부에서 켜는지는 `allocator.rl.modes` 가 정한다: 모의계좌만
+        # 켜고 shadow 는 룰로 두면 둘이 같은 날 같은 후보로 병주한다.
+        policy_decision = live_rl.decide(
+            store,
+            as_of=as_of,
+            market=str(market),
+            book=book,
+            nav=equity,
+            drawdown=snapshot.drawdown,
+            candidates=[(item.entity_id, item.score) for item in selection.candidates],
+            params=rl_params,
+            hyper_as_of=as_of,
+        )
+        weights = dict(policy_decision.weights)
+        allocate_driver = "rl"
+        result.notes.extend(policy_decision.notes)
+    elif params.baseline is Baseline.RISK_PARITY:
         # **위험 구조로 나눈다** (§3). 창고를 타므로 순수 allocate 가 아니다.
         # 팩터 모델이 못 서면 스코어 비례로 물러서고, 그 사실을 driver 로 남긴다.
         #
@@ -314,14 +340,27 @@ def run(
         for day in [d for d in previous if d < as_of.date()][-(confirm - 1):]:
             earlier = as_of.replace(year=day.year, month=day.month, day=day.day)
             recent_states.append(regime.state(earlier))
-    decision = exposure.decide(
-        store,
-        as_of=as_of,
-        index_id=index_id,
-        regime_state=regime.state(as_of),
-        params=exposure_params,
-        recent_regime_states=recent_states,
-    )
+    if policy_decision is not None:
+        # 정책은 노출 배수를 모르고 배웠다 — 현금 비중이 액션의 한 칸이다.
+        # 그 위에 배수를 곱하면 정책의 현금 결정을 룰이 덮어쓴다(allocator/live.py).
+        # 레짐은 기록만 남긴다. 킬스위치는 집행기에 그대로 있다.
+        decision = exposure.ExposureDecision(
+            scale=1.0,
+            driver="rl:policy_cash",
+            notes=[
+                f"regime={regime.state(as_of)} — "
+                f"정책이 현금 {policy_decision.cash_weight:.1%} 를 직접 정했다"
+            ],
+        )
+    else:
+        decision = exposure.decide(
+            store,
+            as_of=as_of,
+            index_id=index_id,
+            regime_state=regime.state(as_of),
+            params=exposure_params,
+            recent_regime_states=recent_states,
+        )
     scaled = exposure.apply(weights, decision)
     result.weights = scaled
     # **allocate 를 먼저 적고 exposure 를 뒤에 적는다.** 로그는 일어난 순서를
@@ -333,7 +372,10 @@ def run(
     log.record(
         "allocate",
         allocate_driver,
-        {"weights": {name: round(value, 6) for name, value in weights.items()}},
+        {
+            "weights": {name: round(value, 6) for name, value in weights.items()},
+            **({"policy": policy_decision.as_dict()} if policy_decision is not None else {}),
+        },
     )
     log.record("exposure", decision.driver, decision.as_dict())
 
