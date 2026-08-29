@@ -141,14 +141,14 @@ def _record_trial(store: Store, *, trial: str, detail: str) -> None:
 def _price_panels(store: Store, sessions: list[date]) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     last = datetime.combine(sessions[-1], time(15, 40), tzinfo=SEOUL)
     frame = read_prices(
-        store, as_of=last, lookback=560, market=MARKET,
+        store, as_of=last, lookback=900, market=MARKET,  # 252일 창 피처가 첫 세션부터 서게 (560 은 171일만 남겼다)
         columns=["entity_id", "valid_from", "close", "volume"], adjusted=True,
     )
     frame["day"] = pd.to_datetime(frame["valid_from"]).dt.tz_convert(SEOUL).dt.date
     close = frame.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
     volume = frame.pivot_table(index="day", columns="entity_id", values="volume", aggfunc="last").sort_index()
     index_id = str(store.config("benchmark.kr_index", as_of=last))
-    idx = store.get("indices", as_of=last, lookback=560, entity=index_id, columns=["valid_from", "close"])
+    idx = store.get("indices", as_of=last, lookback=900, entity=index_id, columns=["valid_from", "close"])
     idx["day"] = pd.to_datetime(idx["valid_from"]).dt.tz_convert(SEOUL).dt.date
     index = idx.groupby("day")["close"].last().sort_index()
     return close, volume, index
