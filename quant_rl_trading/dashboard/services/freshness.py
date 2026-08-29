@@ -23,6 +23,9 @@ DATASETS: tuple[tuple[str, str, str, Market, str | None, str | None], ...] = (
     ("us_index", "미장 지수", "indices", Market.US, None, "US:IDX:SP500"),
     ("us_prices", "미장 시세", "prices", Market.US, "US", None),
     ("fx", "환율", "fx", Market.US, None, "FX:USDKRW"),
+    # FINRA 일별 공매도 거래량 — flow_us 의 입력. 2026-08-18 백필 뒤 일일 수집이 빠져
+    # 열흘을 조용히 멈춰 있었다(8/29 발견). 띠에 올려 두면 다음엔 하루 만에 보인다.
+    ("us_short", "미장 공매도", "short_flow", Market.US, "US", None),
 )
 
 
