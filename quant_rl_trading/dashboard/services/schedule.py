@@ -95,6 +95,8 @@ def month_schedule(store: Store, *, as_of: datetime, month: str | None = None) -
         rows = earnings[(when >= first) & (when <= last)]
         # 같은 종목이 다른 날로 옮겨 적혔으면 **나중에 관측된 것**이 지금의 일정이다.
         rows = rows.sort_values("observed_at").drop_duplicates(subset=["entity_id"], keep="last")
+        # 종류주(BF.A/BF.B)처럼 같은 회사가 심볼 둘로 오면 한 줄이다.
+        rows = rows.assign(_day=when.loc[rows.index].dt.date).drop_duplicates(subset=["name", "_day"])
         for row in rows.to_dict(orient="records"):
             at = pd.Timestamp(row["valid_from"]).tz_convert(SEOUL)
             timing = str(row.get("timing") or "unknown")
