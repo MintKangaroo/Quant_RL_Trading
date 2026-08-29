@@ -202,6 +202,10 @@ _SPECS: dict[str, TableSpec] = {
             "report_type": pa.string(),
         },
         natural_key=("entity_id", "valid_from", "metric"),
+        # 회계기간 말(valid_from)과 공시(observed_at) 사이가 DART·EDGAR 모두 최대 3개월 안팎이라
+        # 180일 하한이면 안 잘린다. 선언이 없으면 파티션 1,364개를 창과 무관하게 전부 연다 —
+        # 2026-08-29 검증 쿼리 OOM, IC 측정 OOM 이력의 뿌리.
+        observation_lag_days=180,
         doc="재무. 회계기간 종료일이 아니라 공시일 기준.",
     ),
     "fx": TableSpec(
