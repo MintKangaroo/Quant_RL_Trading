@@ -66,6 +66,16 @@ def evaluations() -> Any:
     )
 
 
+@bp.get("/curriculum")
+def curriculum() -> Any:
+    """훈련 단계 C0~C5 진행도 (rl-training.md §6)."""
+    current = scope()
+    return envelope(
+        current,
+        service.curriculum(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.get("/research-ledger")
 def research_ledger() -> Any:
     """자기개선 시행 대장 (self-improvement.md §7) — 누적 시행·예산·금고·DSR."""

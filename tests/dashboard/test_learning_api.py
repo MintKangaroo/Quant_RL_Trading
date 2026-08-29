@@ -358,3 +358,34 @@ def test_evaluations_report_latest_batch_and_spread(seeded) -> None:
     # 되감으면 나중 평가는 안 보인다 (불변식 9).
     earlier = body(client.get(f"/api/learning/evaluations?as_of={first.isoformat()}"))["data"]
     assert earlier["latest"]["envs"] == 4
+
+
+# -- 커리큘럼 (C0~C5) ------------------------------------------------------------
+
+
+def test_curriculum_marks_c1_failed_when_oos_is_overfit(seeded, tmp_path, monkeypatch) -> None:
+    """실행이 있는 단계만 상태가 붙고, 판정은 rl_evaluations 에서 온다. 나머지는 미착수."""
+    from quant_rl_trading.dashboard.services import system as system_service
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "gate-c1.log").write_text("[PASS] ①\n[PASS] ②\n[PASS] ③\nPASS 3 · FAIL 0 / 3\n")
+    monkeypatch.setenv(system_service.LOGS_DIR_ENV, str(logs))
+    at = NOW - timedelta(hours=1)
+    seeded.append("rl_updates", [{
+        "entity_id": "r6", "valid_from": at, "observed_at": at, "source": "test",
+        "update": 1220, "step": 1220 * 16384, "seed": 0, "market": "KR", "curriculum": "C1",
+        "explained_variance": 0.99, "approx_kl": 0.02, "entropy": -98.0, "grad_norm": 25.0,
+        "action_reflection": 0.67, "policy_churn": 0.25, "concentration_sum": 90.0,
+        "episode_reward": 0.016, "cash_weight": 0.025, "git_commit": "abc", "config_fingerprint": "f",
+    }], ingest_run_id="u")
+    seeded.append("rl_evaluations", _evaluation_rows("r6", at, envs=16, gap_oos=-0.0017),
+                  ingest_run_id="e")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get(f"/api/learning/curriculum?as_of={NOW.isoformat()}"))["data"]
+    by = {s["stage"]: s for s in data["stages"]}
+    assert by["C0"]["status"] == "passed"
+    assert by["C1"]["status"] == "failed"
+    assert "과적합" in by["C1"]["note"]
+    assert by["C2"]["status"] == "pending"
+    assert data["current"] == "C1"

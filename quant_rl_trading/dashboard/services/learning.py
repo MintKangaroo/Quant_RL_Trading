@@ -23,7 +23,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
@@ -471,3 +471,90 @@ def evaluations(store: Store, *, as_of: datetime, lookback: int = 90) -> dict[st
         "train_seeds": seeds,
         "runs_evaluated": sorted({str(v) for v in frame["entity_id"].unique()}),
     }
+
+
+#: rl-training.md §6 커리큘럼. 화면·문서가 같은 표를 쓴다 — 여기 적힌 기준이 바뀌면 문서도 바뀐다.
+CURRICULUM_STAGES: list[dict[str, str]] = [
+    {"stage": "C0", "label": "오라클 카나리", "criterion": "필요조건 셋 — 환경·용량·신용 (§0)"},
+    {"stage": "C1", "label": "국장만 · 비중 액션 · 비용 0", "criterion": "EV > 0.1 · 균등가중 초과 (OOS)"},
+    {"stage": "C2", "label": "비용·라운딩 추가", "criterion": "EV 유지 · 회전율 안정"},
+    {"stage": "C3", "label": "후보 30 · 진입 지연", "criterion": "EV 유지"},
+    {"stage": "C4", "label": "미장 추가 · KRW/USD 분리", "criterion": "EV 유지 · 환율 피처 기여"},
+    {"stage": "C5", "label": "KR/US 주간 배분", "criterion": "스코어 비례 대비 IR 우위"},
+]
+
+GATE_LOG = "gate-c1.log"
+
+
+def _canary_gate() -> dict[str, Any]:
+    """`tools/verify_canary_gate.py` 의 마지막 판정. 창고가 아니라 로그다 —
+    게이트는 학습 전 1회성 점검이라 표를 두지 않았다. 없으면 없다고 말한다."""
+    from quant_rl_trading.dashboard.services import system as system_service
+
+    path = system_service.logs_dir() / GATE_LOG
+    if not path.exists():
+        return {"checked": False, "passed": None, "detail": "게이트를 돌린 기록이 없다", "at": None}
+    text = path.read_text(encoding="utf-8", errors="replace")
+    passes = text.count("[PASS]")
+    fails = text.count("[FAIL]")
+    at = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat()
+    return {
+        "checked": True,
+        "passed": fails == 0 and passes >= 3,
+        "detail": f"PASS {passes} · FAIL {fails} / 3",
+        "at": at,
+    }
+
+
+def curriculum(store: Store, *, as_of: datetime, lookback: int = 90) -> dict[str, Any]:
+    """훈련 단계(C0~C5) 진행도 — **어느 단계에서 깨지는지가 곧 원인이다** (§6).
+
+    각 단계의 상태는 지어내지 않는다: C0 은 게이트 로그, C1~ 은 `rl_updates`
+    의 curriculum 값을 가진 실행과 그 실행의 `rl_evaluations` 판정에서만 온다.
+    실행이 없는 단계는 "미착수" 다.
+    """
+    runs = training_runs(store, as_of=as_of, lookback=max(lookback, 90))
+    evals = evaluations(store, as_of=as_of, lookback=max(lookback, 90))
+    verdict_by_run: dict[str, str] = {}
+    if evals["has_data"]:
+        # 최신 run 의 판정만 표에 있지만 history 는 같은 run 이라 run_id 하나로 족하다.
+        verdict_by_run[evals["latest"]["run_id"]] = str(evals["latest"]["verdict"])
+    gate = _canary_gate()
+    stages: list[dict[str, Any]] = []
+    for spec in CURRICULUM_STAGES:
+        entry: dict[str, Any] = {**spec, "status": "pending", "note": "미착수", "runs": []}
+        if spec["stage"] == "C0":
+            if gate["checked"]:
+                entry["status"] = "passed" if gate["passed"] else "failed"
+                entry["note"] = f"{gate['detail']} · {gate['at'][:10] if gate['at'] else ''}"
+            stages.append(entry)
+            continue
+        mine = [r for r in runs.get("runs", []) if r.get("curriculum") == spec["stage"]]
+        if mine:
+            entry["runs"] = [
+                {"run_id": r["run_id"], "status": r["status"],
+                 "last_update": r.get("last_update"), "total_updates": r.get("total_updates"),
+                 "verdict": verdict_by_run.get(r["run_id"])}
+                for r in mine
+            ]
+            latest = mine[0]
+            verdict = verdict_by_run.get(latest["run_id"])
+            if verdict == "generalizes":
+                entry["status"], entry["note"] = "passed", f"{latest['run_id']} · OOS 통과"
+            elif verdict in ("overfit", "untrained"):
+                entry["status"] = "failed"
+                entry["note"] = (
+                    f"{latest['run_id']} · 완주 · OOS "
+                    + ("과적합" if verdict == "overfit" else "학습 안 됨")
+                )
+            elif latest["status"] == "running":
+                entry["status"] = "running"
+                entry["note"] = f"{latest['run_id']} · {latest.get('last_update')}/{latest.get('total_updates')}"
+            else:
+                entry["status"] = "unevaluated"
+                entry["note"] = f"{latest['run_id']} · {latest['status']} · 평가 전"
+        stages.append(entry)
+    current = next((s["stage"] for s in stages if s["status"] in ("running", "failed", "unevaluated")), None)
+    if current is None:
+        current = next((s["stage"] for s in stages if s["status"] == "pending"), None)
+    return {"stages": stages, "gate": gate, "current": current}

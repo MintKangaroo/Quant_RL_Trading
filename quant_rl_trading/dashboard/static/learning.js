@@ -40,14 +40,16 @@ const SERIES_LABEL = {
 };
 
 async function renderM4Placeholders() {
-  const [statusBody, runsBody, evalBody] = await Promise.all([
+  const [statusBody, runsBody, evalBody, curBody] = await Promise.all([
     fetchJson("learning/status"),
     fetchJson("learning/training-runs"),
     fetchJson("learning/evaluations"),
+    fetchJson("learning/curriculum"),
   ]);
   const data = statusBody.data;
   const runs = runsBody.data;
   const evals = evalBody.data;
+  const curriculum = curBody.data;
   renderTrainingLive(runs);
 
   for (const widget of data.widgets) {
@@ -57,6 +59,10 @@ async function renderM4Placeholders() {
     // 그릴 수 있게 된 칸이면 그린다. 아니면 왜 비었는지를 말한다.
     if (runs.has_data && RUN_SERIES[widget.key]) {
       drawRunChart(target, widget.key, runs);
+      continue;
+    }
+    if (widget.key === "curriculum" && curriculum) {
+      renderCurriculum(target, curriculum);
       continue;
     }
     if (widget.key === "ir_vs_baseline" && evals.has_data) {
@@ -504,6 +510,40 @@ function renderEvaluationSpread(target, evals) {
       OOS 우위 편차 ${spread == null ? "—" : evalSigned(spread)} · 판정이 뒤집힌 횟수 <strong>${flips}</strong>.</p>
     <table class="dense">
       <thead><tr><th>평가</th><th class="num">env</th><th class="num">학습 우위</th><th class="num">OOS 우위</th><th>판정</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+
+const STAGE_LABEL = {
+  passed: ["통과", "ok"],
+  failed: ["불합격", "bad"],
+  running: ["학습 중", ""],
+  unevaluated: ["평가 전", ""],
+  pending: ["미착수", "dim"],
+};
+
+/* '훈련 단계와 사전 점검' — C0~C5. 상태는 게이트 로그·rl_updates·rl_evaluations 에서만 온다. */
+function renderCurriculum(target, data) {
+  const rows = data.stages.map((s) => {
+    const [text, cls] = STAGE_LABEL[s.status] || [s.status, ""];
+    const isCurrent = s.stage === data.current;
+    return `<tr class="${isCurrent ? "current" : ""}">
+      <td><strong>${s.stage}</strong>${isCurrent ? " ◀" : ""}</td>
+      <td>${s.label}<span class="code">${s.criterion}</span></td>
+      <td><span class="badge ${cls}">${text}</span></td>
+      <td class="mobile-hide">${s.note}</td>
+    </tr>`;
+  }).join("");
+  const gate = data.gate;
+  const gateLine = gate.checked
+    ? `카나리 게이트 ${gate.passed ? "통과" : "실패"} — ${gate.detail} (${gate.at ? gate.at.slice(0, 10) : ""})`
+    : "카나리 게이트를 돌린 기록이 없다";
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <p class="plain">${gateLine}. 지금 단계 <strong>${data.current || "—"}</strong> — 깨진 단계를 고치기 전에 다음으로 넘어가지 않는다.</p>
+    <table class="dense">
+      <thead><tr><th>단계</th><th>설정 · 통과 기준</th><th>상태</th><th class="mobile-hide">근거</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
