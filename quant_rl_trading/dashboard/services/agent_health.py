@@ -34,7 +34,7 @@ VERDICTS = "verdicts"
 PLANNED = {
     "chart": "가격 추세",
     "flow_kr": "투자자별 수급 (LS t1717)",
-    "flow_us": "미장 수급 — 데이터 없음",
+    "flow_us": "미장 수급 — FINRA 일별 공매도 거래량 (short_flow)",
     "fundamental": "DART 재무",
     "news": "공시·뉴스 필터 (Verdict)",
     "sns": "펌핑 탐지 (Verdict)",

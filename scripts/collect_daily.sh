@@ -156,6 +156,12 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         echo "  미장 시가총액 rc=$?"
         .venv/bin/python tools/collect_indices_us.py
         echo "  미장 지수(Yahoo) rc=$?"
+        #      FINRA 일별 공매도 거래량(short_flow, flow_us 의 입력). 하루 한 파일이고
+        #      받은 날은 건너뛰므로 열흘 창으로 부르면 빠진 날만 채운다. 2026-08-18
+        #      백필 뒤 이 줄이 없어 8/19 부터 멈춰 있었다(2026-08-29 발견).
+        .venv/bin/python tools/backfill_finra.py \
+            --start "$(date -d '-10 days' +%F)" --end "$(date +%F)"
+        echo "  미장 공매도(FINRA) rc=$?"
     fi
 
     # 2-3. 기업행위 조정계수. **공시 단계 뒤에 와야 한다** — 후보를 그 표
