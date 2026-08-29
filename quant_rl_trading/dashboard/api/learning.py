@@ -56,6 +56,16 @@ def training_runs() -> Any:
     )
 
 
+@bp.get("/evaluations")
+def evaluations() -> Any:
+    """정책 OOS 평가(rl_evaluations). 평가를 안 돌렸으면 ``has_data: false``."""
+    current = scope()
+    return envelope(
+        current,
+        service.evaluations(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.get("/research-ledger")
 def research_ledger() -> Any:
     """자기개선 시행 대장 (self-improvement.md §7) — 누적 시행·예산·금고·DSR."""

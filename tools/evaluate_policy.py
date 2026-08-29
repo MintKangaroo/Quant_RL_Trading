@@ -52,7 +52,7 @@ OOS = (date(2026, 7, 1), date(2026, 8, 22))
 BREAKDOWN = ("excess_return", "drawdown_penalty", "cost", "turnover", "drawdown")
 
 
-def _policy_from(checkpoint: Path, obs: dict, device) -> AllocatorPolicy:
+def _policy_from(checkpoint: Path, obs: dict, device) -> tuple[AllocatorPolicy, dict]:
     state = torch.load(checkpoint, map_location=device, weights_only=False)
     policy = AllocatorPolicy(PolicyConfig(
         n_max=int(obs["mask"].shape[1]),
@@ -64,7 +64,13 @@ def _policy_from(checkpoint: Path, obs: dict, device) -> AllocatorPolicy:
     policy.eval()
     print(f"체크포인트 {checkpoint.name} · 업데이트 {state.get('update')} · "
           f"시드 {state.get('seed')}", flush=True)
-    return policy
+    meta = {
+        "run_id": str(state.get("run_id") or checkpoint.stem),
+        "update": state.get("update"),
+        "seed": state.get("seed"),
+        "market": str(state.get("market") or "KR"),
+    }
+    return policy, meta
 
 
 def _run(
@@ -150,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--steps", type=int, default=30)
     parser.add_argument("--envs", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--save", action="store_true",
+                        help="rl_evaluations 에 적재 — 학습 탭이 이 표를 읽는다")
     args = parser.parse_args(argv)
 
     store = Store(root=Path(args.root))
@@ -166,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             episode_days=args.episode_days),
         hyper_as_of=now,
     )
-    policy = _policy_from(args.checkpoint, probe.reset(), device)
+    policy, meta = _policy_from(args.checkpoint, probe.reset(), device)
     del probe
 
     print(f"\n에피소드 {args.episode_days}일 · 스텝 {args.steps} · env {args.envs} "
@@ -194,6 +202,38 @@ def main(argv: list[str] | None = None) -> int:
         print("  → 학습 구간에서도 균등가중을 못 이긴다. 과적합 이전에 학습이 안 됐다.")
     print("\n  ※ OOS 는 36거래일뿐이라 판정력이 약하다. 이 표로 '조금 나빴다' 를")
     print("     결론 삼지 않는다 — 방향만 본다(카나리에서 배운 것).")
+
+    if args.save:
+        verdict = (
+            "generalizes" if oos_gap > 0 and train_gap > 0
+            else "overfit" if train_gap > 0 >= oos_gap
+            else "untrained"
+        )
+        rows = []
+        for (label, window_key), gap in (
+            (("학습구간(본 것)", "train"), train_gap), (("OOS(안 본 것)", "oos"), oos_gap)
+        ):
+            for who, arm in (("정책", "policy"), ("균등가중", "equal")):
+                r = out[f"{label}·{who}"]
+                rows.append({
+                    "entity_id": meta["run_id"], "valid_from": now, "observed_at": now,
+                    "source": "evaluate_policy",
+                    "eval_window": window_key, "arm": arm,
+                    "episode_days": args.episode_days, "envs": args.envs,
+                    "steps": args.steps, "eval_seed": args.seed,
+                    "train_seed": int(meta["seed"]) if meta["seed"] is not None else None,
+                    "market": meta["market"],
+                    "reward_mean": r["reward_mean"], "reward_sum": r["reward_sum"],
+                    "reward_std": r["reward_std"], "cash_weight": r["cash"],
+                    "action_reflection": r["reflection"], "cost": r["cost"],
+                    "turnover": r["turnover"], "drawdown": r["drawdown"],
+                    "gap_vs_equal": gap if arm == "policy" else None,
+                    "verdict": verdict if arm == "policy" else None,
+                    "checkpoint": str(args.checkpoint),
+                    "update": int(meta["update"]) if meta["update"] is not None else None,
+                })
+        store.append("rl_evaluations", rows, ingest_run_id=f"evaluate-{meta['run_id']}-{now:%Y%m%d%H%M%S}")
+        print(f"\n  rl_evaluations 적재 {len(rows)}행 · run {meta['run_id']} · 판정 {verdict}")
     return 0
 
 

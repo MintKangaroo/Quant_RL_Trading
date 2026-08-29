@@ -1098,3 +1098,11 @@ details.fold > summary::-webkit-details-marker { display: none; }
   td, th { padding-left: 2px; padding-right: 4px; }
   .day-detail { flex-wrap: wrap; }
 }
+
+/* 학습 탭 평가 칸 — 글로 말하는 판정과 그 밑의 촘촘한 표 */
+.plain { margin: 0 0 6px; line-height: 1.5; }
+.plain.ok strong { color: var(--up); }
+.plain.bad strong { color: var(--down); }
+.muted { color: var(--dim); font-size: 11px; margin: 6px 0 0; line-height: 1.4; }
+td.num.ok { color: var(--up); }
+td.num.bad { color: var(--down); }

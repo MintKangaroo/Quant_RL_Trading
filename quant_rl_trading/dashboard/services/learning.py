@@ -399,3 +399,75 @@ __all__ = [
     "research_ledger",
     "walk_forward_comparison",
 ]
+
+
+def evaluations(store: Store, *, as_of: datetime, lookback: int = 90) -> dict[str, Any]:
+    """정책 평가(`rl_evaluations`) — '기본 전략보다 나은가'·'운이었나 실력이었나'.
+
+    최신 평가 배치(같은 run·같은 valid_from)를 표로, 같은 run 의 평가 전부를
+    편차 재료로 준다. **학습 시드가 하나면 하나라고 말한다** — 시드 간 분산은
+    시드를 여럿 돌려야 나오는 값이고, 평가 표본을 바꿔 다시 잰 편차는 그
+    대용품이 아니라 별개의 사실이다(둘을 화면에서 다른 이름으로 부른다).
+    """
+    frame = store.get("rl_evaluations", as_of=as_of, lookback=lookback)
+    if frame.empty:
+        return {"has_data": False, "latest": None, "history": [], "train_seeds": []}
+    frame = frame.sort_values(["valid_from", "eval_window", "arm"])
+    run_id = str(frame.iloc[-1]["entity_id"])
+    mine = frame[frame["entity_id"] == run_id]
+    latest_at = mine["valid_from"].max()
+    batch = mine[mine["valid_from"] == latest_at]
+
+    def _cell(row: Any) -> dict[str, Any]:
+        return {
+            "reward_mean": float(row["reward_mean"]),
+            "reward_sum": float(row["reward_sum"]),
+            "cash_weight": float(row["cash_weight"]),
+            "action_reflection": float(row["action_reflection"]),
+            "cost": float(row["cost"]),
+            "turnover": float(row["turnover"]),
+            "drawdown": float(row["drawdown"]),
+        }
+
+    table: dict[str, dict[str, Any]] = {}
+    verdict = None
+    for row in batch.to_dict(orient="records"):
+        table.setdefault(str(row["eval_window"]), {})[str(row["arm"])] = _cell(row)
+        if row["arm"] == "policy":
+            table[str(row["eval_window"])]["gap"] = (
+                float(row["gap_vs_equal"]) if row["gap_vs_equal"] is not None else None
+            )
+            verdict = row["verdict"]
+    first = batch.iloc[0]
+    history = []
+    for at, group in mine[mine["arm"] == "policy"].groupby("valid_from"):
+        gaps = {str(r["eval_window"]): float(r["gap_vs_equal"]) for r in group.to_dict(orient="records")}
+        history.append({
+            "evaluated_at": at.isoformat(),
+            "envs": int(group.iloc[0]["envs"]),
+            "episode_days": int(group.iloc[0]["episode_days"]),
+            "eval_seed": int(group.iloc[0]["eval_seed"]),
+            "gap_train": gaps.get("train"),
+            "gap_oos": gaps.get("oos"),
+            "verdict": str(group.iloc[0]["verdict"]),
+        })
+    seeds = sorted(
+        {int(v) for v in frame["train_seed"].dropna().unique()}
+    )
+    return {
+        "has_data": True,
+        "latest": {
+            "run_id": run_id,
+            "evaluated_at": latest_at.isoformat(),
+            "checkpoint": str(first["checkpoint"]),
+            "update": int(first["update"]) if first["update"] is not None else None,
+            "episode_days": int(first["episode_days"]),
+            "envs": int(first["envs"]),
+            "steps": int(first["steps"]),
+            "verdict": verdict,
+            "table": table,
+        },
+        "history": history,
+        "train_seeds": seeds,
+        "runs_evaluated": sorted({str(v) for v in frame["entity_id"].unique()}),
+    }

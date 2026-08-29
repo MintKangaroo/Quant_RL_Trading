@@ -40,12 +40,14 @@ const SERIES_LABEL = {
 };
 
 async function renderM4Placeholders() {
-  const [statusBody, runsBody] = await Promise.all([
+  const [statusBody, runsBody, evalBody] = await Promise.all([
     fetchJson("learning/status"),
     fetchJson("learning/training-runs"),
+    fetchJson("learning/evaluations"),
   ]);
   const data = statusBody.data;
   const runs = runsBody.data;
+  const evals = evalBody.data;
   renderTrainingLive(runs);
 
   for (const widget of data.widgets) {
@@ -55,6 +57,19 @@ async function renderM4Placeholders() {
     // 그릴 수 있게 된 칸이면 그린다. 아니면 왜 비었는지를 말한다.
     if (runs.has_data && RUN_SERIES[widget.key]) {
       drawRunChart(target, widget.key, runs);
+      continue;
+    }
+    if (widget.key === "ir_vs_baseline" && evals.has_data) {
+      renderEvaluation(target, evals);
+      continue;
+    }
+    if (widget.key === "seed_variance" && evals.has_data) {
+      renderEvaluationSpread(target, evals);
+      continue;
+    }
+    if (runs.has_data && !RUN_SERIES[widget.key] && evals && !evals.has_data) {
+      target.innerHTML = "<strong>학습은 완주했지만 평가를 아직 안 돌렸다.</strong>"
+        + "<br>tools/evaluate_policy.py --save 가 rl_evaluations 를 채운다.";
       continue;
     }
     const why = RUN_SERIES[widget.key]
@@ -412,3 +427,83 @@ async function renderResearchLedger() {
 }
 
 runAll([renderKpis, renderM4Placeholders, renderGate, renderIcHistory, renderWalkForward, renderResearchLedger]);
+
+
+const VERDICT_LABEL = {
+  generalizes: ["두 구간 다 균등가중을 이긴다 — 일반화의 증거", "ok"],
+  overfit: ["학습 구간에서만 이긴다 — 과적합", "bad"],
+  untrained: ["학습 구간에서도 못 이긴다 — 학습이 안 됐다", "bad"],
+};
+
+function pct(v, digits = 2) {
+  return v == null || Number.isNaN(v) ? "—" : `${(v * 100).toFixed(digits)}%`;
+}
+
+function signed(v, digits = 5) {
+  return v == null || Number.isNaN(v) ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`;
+}
+
+/* '기본 전략보다 나은가' — 최신 평가 배치. **보상 기준·균등가중 대조군**이다.
+ * 스코어 비례(M3 룰)와의 비교는 아직 재지 않았으므로 그렇다고 적는다. */
+function renderEvaluation(target, evals) {
+  const latest = evals.latest;
+  const [verdictText, cls] = VERDICT_LABEL[latest.verdict] || [latest.verdict, ""];
+  const rows = [["train", "학습 구간(본 것)"], ["oos", "OOS(안 본 것)"]]
+    .filter(([key]) => latest.table[key])
+    .map(([key, label]) => {
+      const w = latest.table[key];
+      const p = w.policy || {};
+      const e = w.equal || {};
+      return `<tr><td>${label}</td>
+        <td class="num">${signed(p.reward_mean)}</td>
+        <td class="num">${signed(e.reward_mean)}</td>
+        <td class="num ${w.gap > 0 ? "ok" : "bad"}">${signed(w.gap)}</td>
+        <td class="num mobile-hide">${pct(p.cash_weight, 1)} / ${pct(e.cash_weight, 1)}</td>
+        <td class="num mobile-hide">${signed(p.cost)} / ${signed(e.cost)}</td>
+      </tr>`;
+    })
+    .join("");
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <p class="plain ${cls}"><strong>${verdictText}.</strong></p>
+    <table class="dense">
+      <thead><tr><th>구간</th><th class="num">정책</th><th class="num">균등가중</th>
+        <th class="num">차이</th><th class="num mobile-hide">현금 (정책/균등)</th>
+        <th class="num mobile-hide">비용/일</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="muted">보상 평균/일 = 초과수익 − 낙폭벌점 − 비용. ${latest.run_id} · 업데이트 ${latest.update ?? "—"}
+      · 에피소드 ${latest.episode_days}일 × env ${latest.envs} · 평가 ${new Date(latest.evaluated_at).toLocaleString("ko-KR")}.
+      대조군은 균등가중뿐 — 스코어 비례(M3 룰)와의 비교는 아직 안 쟀다.</p>`;
+}
+
+/* '운이었나 실력이었나' — 학습 시드 수와, 같은 run 을 자를 바꿔 다시 잰 편차.
+ * 시드가 하나면 시드 분산은 **없다**고 말한다. 평가 표본 편차는 다른 사실이다. */
+function renderEvaluationSpread(target, evals) {
+  const seeds = evals.train_seeds || [];
+  const history = evals.history || [];
+  const oos = history.map((h) => h.gap_oos).filter((v) => v != null);
+  const flips = history.length
+    ? new Set(history.map((h) => h.verdict)).size - 1
+    : 0;
+  const spread = oos.length > 1 ? Math.max(...oos) - Math.min(...oos) : null;
+  const seedLine = seeds.length > 1
+    ? `학습 시드 ${seeds.length}개(${seeds.join(", ")}) — 시드 간 비교 가능.`
+    : `학습 시드 <strong>${seeds.length}개</strong>(${seeds.join(", ") || "—"}) — 시드 간 분산은 <strong>잴 수 없다</strong>. 3시드가 §13 의 요구다.`;
+  const rows = history.slice(-6).reverse().map((h) => `<tr>
+      <td>${new Date(h.evaluated_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+      <td class="num">${h.envs}</td>
+      <td class="num">${signed(h.gap_train)}</td>
+      <td class="num ${h.gap_oos > 0 ? "ok" : "bad"}">${signed(h.gap_oos)}</td>
+      <td>${(VERDICT_LABEL[h.verdict] || [h.verdict])[0].split(" — ")[1] || h.verdict}</td>
+    </tr>`).join("");
+  target.classList.remove("empty");
+  target.innerHTML = `
+    <p class="plain">${seedLine}</p>
+    <p class="plain">같은 정책을 평가 표본만 바꿔 ${history.length}번 쟀다 —
+      OOS 우위 편차 ${spread == null ? "—" : signed(spread)} · 판정이 뒤집힌 횟수 <strong>${flips}</strong>.</p>
+    <table class="dense">
+      <thead><tr><th>평가</th><th class="num">env</th><th class="num">학습 우위</th><th class="num">OOS 우위</th><th>판정</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}

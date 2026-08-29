@@ -304,3 +304,57 @@ def test_쉬운_말_요약이_배우는_중인지_말한다(seeded) -> None:
     assert "배우고 있다" in run["plain"]
     assert "도망은 없다" in run["plain"]
     assert "55%" in run["plain"]
+
+
+# -- 정책 평가 (rl_evaluations) --------------------------------------------------
+
+
+def _evaluation_rows(run_id: str, at: datetime, *, envs: int, gap_oos: float) -> list[dict]:
+    rows = []
+    for window, gap in (("train", 0.001), ("oos", gap_oos)):
+        for arm in ("policy", "equal"):
+            rows.append({
+                "entity_id": run_id, "valid_from": at, "observed_at": at,
+                "source": "test", "eval_window": window, "arm": arm,
+                "episode_days": 20, "envs": envs, "steps": 30, "eval_seed": 0,
+                "train_seed": 0, "market": "KR",
+                "reward_mean": 0.004 if arm == "policy" else 0.006,
+                "reward_sum": 0.12, "reward_std": 0.01, "cash_weight": 0.18,
+                "action_reflection": 0.86, "cost": 0.00018, "turnover": 0.18,
+                "drawdown": 0.03,
+                "gap_vs_equal": gap if arm == "policy" else None,
+                "verdict": ("overfit" if gap_oos <= 0 else "generalizes") if arm == "policy" else None,
+                "checkpoint": "data/rl_checkpoints/x.pt", "update": 1220,
+            })
+    return rows
+
+
+def test_evaluations_are_absent_until_measured(client) -> None:
+    data = body(client.get(f"/api/learning/evaluations?as_of={NOW.isoformat()}"))["data"]
+    assert data["has_data"] is False
+    assert data["train_seeds"] == []
+
+
+def test_evaluations_report_latest_batch_and_spread(seeded) -> None:
+    """최신 배치가 표가 되고, 같은 run 의 이전 평가는 편차 이력이 된다.
+    학습 시드는 하나면 하나라고 말한다."""
+    first = NOW - timedelta(hours=2)
+    seeded.append("rl_evaluations", _evaluation_rows("r6", first, envs=4, gap_oos=-0.0019),
+                  ingest_run_id="e1")
+    seeded.append("rl_evaluations", _evaluation_rows("r6", NOW - timedelta(hours=1), envs=16,
+                                                     gap_oos=-0.0017), ingest_run_id="e2")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get(f"/api/learning/evaluations?as_of={NOW.isoformat()}"))["data"]
+    assert data["has_data"] is True
+    latest = data["latest"]
+    assert latest["run_id"] == "r6"
+    assert latest["envs"] == 16
+    assert latest["verdict"] == "overfit"
+    assert latest["table"]["oos"]["gap"] == pytest.approx(-0.0017)
+    assert latest["table"]["oos"]["policy"]["cash_weight"] == pytest.approx(0.18)
+    assert [h["envs"] for h in data["history"]] == [4, 16]
+    assert data["train_seeds"] == [0]
+
+    # 되감으면 나중 평가는 안 보인다 (불변식 9).
+    earlier = body(client.get(f"/api/learning/evaluations?as_of={first.isoformat()}"))["data"]
+    assert earlier["latest"]["envs"] == 4

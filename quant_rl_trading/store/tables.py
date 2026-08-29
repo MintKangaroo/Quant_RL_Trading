@@ -500,6 +500,42 @@ _SPECS: dict[str, TableSpec] = {
             "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
         ),
     ),
+    "rl_evaluations": TableSpec(
+        name="rl_evaluations",
+        columns={
+            "eval_window": pa.string(),   # train | oos  (window 는 SQL 예약어)
+            "arm": pa.string(),           # policy | equal
+            "episode_days": pa.int32(),
+            "envs": pa.int32(),
+            "steps": pa.int32(),
+            "eval_seed": pa.int32(),
+            "train_seed": pa.int32(),
+            "market": pa.string(),
+            "reward_mean": pa.float64(),
+            "reward_sum": pa.float64(),
+            "reward_std": pa.float64(),
+            "cash_weight": pa.float64(),
+            "action_reflection": pa.float64(),
+            "cost": pa.float64(),
+            "turnover": pa.float64(),
+            "drawdown": pa.float64(),
+            "gap_vs_equal": pa.float64(),  # 정책 행에만. 정책 − 균등가중 (같은 창)
+            "verdict": pa.string(),        # 정책 행에만. generalizes | overfit | untrained
+            "checkpoint": pa.string(),
+            "update": pa.int32(),
+        },
+        # 같은 run 을 같은 시각에 같은 자로 두 번 재지 않는다. 자(envs·episode_days)를
+        # 바꿔 다시 재면 valid_from 이 달라 새 행이다 — 그 편차가 "운이었나" 의 재료다.
+        natural_key=("entity_id", "valid_from", "eval_window", "arm"),
+        observation_lag_days=1,
+        market_prefixed_entity=False,
+        doc=(
+            "tools/evaluate_policy.py --save 의 결과. entity_id = run_id. "
+            "학습 구간과 OOS(홀드아웃)를 같은 자(짧은 에피소드)로 재고 균등가중과 견준 값. "
+            "학습 탭 '기본 전략보다 나은가'·'운이었나 실력이었나' 가 여기서 온다. "
+            "학습을 완주해도 이 표가 비어 있으면 평가를 안 돌린 것이지 결과가 없는 것이 아니다."
+        ),
+    ),
     # -- 자기개선 안전장치 (self-improvement.md §1) ---------------------------
     "research_trials": TableSpec(
         name="research_trials",
