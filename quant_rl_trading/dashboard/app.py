@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
@@ -19,10 +19,10 @@ from quant_rl_trading.dashboard.api import (
     briefing,
     data_quality,
     headlines,
-    thirteen_f,
     learning,
     market,
     system,
+    thirteen_f,
     trading,
 )
 from quant_rl_trading.dashboard.services.live_quotes import LiveIndexCache, LiveQuoteCache
@@ -150,6 +150,18 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
         # **캐시 금지.** 모바일 Safari 가 정적 JS 와 API GET 을 잠깐 캐시해서, 서버를
         # 재시작해도 옛 배지·옛 패널이 떴다(2026-08-28 실측 — 20분 뒤에도 "미연결").
         # 이 화면은 매 요청이 새 사실이어야 한다.
+        #
+        # **정적 파일은 예외다** (2026-08-29). no-store 를 /static 에도 걸었더니 휴대폰이
+        # 탭을 열 때마다 echarts 1MB 를 LTE 로 다시 받았고, 그게 늦으면 뒤 스크립트가
+        # "Can't find variable: echarts" 로 죽었다. 정적 파일은 ETag 재검증(304)으로
+        # 충분하다 — 서버를 재시작해도 파일이 바뀌면 ETag 가 바뀌고, 안 바뀌면 옛 것이
+        # 곧 지금 것이다. 벤더 라이브러리는 아예 하루 캐시.
+        if request.path.startswith("/static/"):
+            if request.path.endswith("echarts.min.js"):
+                response.headers["Cache-Control"] = "public, max-age=86400"
+            else:
+                response.headers["Cache-Control"] = "no-cache"
+            return response
         response.headers["Cache-Control"] = "no-store, max-age=0"
         return response
 
