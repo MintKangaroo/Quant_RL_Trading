@@ -1108,6 +1108,8 @@ td.num.ok { color: var(--up); }
 td.num.bad { color: var(--down); }
 
 /* 뉴스·일정 — 월별 일정 달력 */
+.sched-fold { display: none; font-size: 11px; margin-bottom: 6px; }
+@media (max-width: 640px) { .sched-fold { display: inline-block; } }
 .sched-week { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 10.5px; color: var(--dim); margin-bottom: 2px; }
 .sched-week span { text-align: center; }
 .sched-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
@@ -1137,6 +1139,8 @@ td.num.bad { color: var(--down); }
   .sched-cell.none { display: none; }
   .sched-cell { min-height: 0; }
   .sched-cell:not(.pick) { display: none; }
+  .sched:not(.show-past) .sched-cell.past { display: none; }
+  .sched-cell.today { outline: 1px solid var(--accent); }
   .sched-cell .d { display: inline-block; margin-right: 6px; }
   .sched-item { white-space: normal; }
 }

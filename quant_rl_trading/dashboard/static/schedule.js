@@ -23,6 +23,9 @@ function schedItem(item, { full = false } = {}) {
 
 function renderSchedule(target, data) {
   const [year, mon] = data.month.split("-").map(Number);
+  const now = new Date();
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  let pastWithItems = 0;
   const first = new Date(year, mon - 1, 1);
   const total = new Date(year, mon, 0).getDate();
   const cells = [];
@@ -33,15 +36,30 @@ function renderSchedule(target, data) {
     const shown = items.slice(0, 3).map((i) => schedItem(i)).join("");
     const more = items.length > 3 ? `<div class="sched-more">+${items.length - 3}</div>` : "";
     const dow = new Date(year, mon - 1, d).getDay();
+    const past = key < todayKey;
     cells.push(
-      `<div class="sched-cell${items.length ? " pick" : ""}${dow === 0 || dow === 6 ? " wk" : ""}" data-date="${key}">
+      `<div class="sched-cell${items.length ? " pick" : ""}${dow === 0 || dow === 6 ? " wk" : ""}${past ? " past" : ""}${key === todayKey ? " today" : ""}" data-date="${key}">
         <b class="d">${d}<small>${SCHED_WEEKDAYS[dow]}</small></b>${shown}${more}
       </div>`,
     );
   }
+  for (const key of Object.keys(data.days)) if (key < todayKey && key.startsWith(data.month)) pastWithItems += 1;
+  // 휴대폰은 격자가 아니라 날짜별 목록이다(CSS). 지난 날짜는 접어 두고 오늘부터 보인다 —
+  // 8/30 에 8/2 일정부터 스크롤하게 두면 "오늘 뭐 있지" 를 못 본다(2026-08-30 실측).
+  const fold = pastWithItems
+    ? `<button type="button" class="linky sched-fold" data-fold="past">지난 ${pastWithItems}일 보기</button>`
+    : "";
   target.innerHTML =
+    fold +
     `<div class="sched-week">${SCHED_WEEKDAYS.map((w) => `<span>${w}</span>`).join("")}</div>` +
     `<div class="sched-grid">${cells.join("")}</div>`;
+  const button = target.querySelector(".sched-fold");
+  if (button) {
+    button.onclick = () => {
+      target.classList.toggle("show-past");
+      button.textContent = target.classList.contains("show-past") ? "지난 날짜 접기" : `지난 ${pastWithItems}일 보기`;
+    };
+  }
   const label = document.getElementById("sched-label");
   if (label) {
     label.textContent = `${data.month} · 지표 ${data.counts.macro} · 실적 ${data.counts.earnings}` +
