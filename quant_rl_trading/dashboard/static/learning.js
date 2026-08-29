@@ -435,11 +435,11 @@ const VERDICT_LABEL = {
   untrained: ["학습 구간에서도 못 이긴다 — 학습이 안 됐다", "bad"],
 };
 
-function pct(v, digits = 2) {
+function evalPct(v, digits = 2) {
   return v == null || Number.isNaN(v) ? "—" : `${(v * 100).toFixed(digits)}%`;
 }
 
-function signed(v, digits = 5) {
+function evalSigned(v, digits = 5) {
   return v == null || Number.isNaN(v) ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(digits)}`;
 }
 
@@ -455,11 +455,11 @@ function renderEvaluation(target, evals) {
       const p = w.policy || {};
       const e = w.equal || {};
       return `<tr><td>${label}</td>
-        <td class="num">${signed(p.reward_mean)}</td>
-        <td class="num">${signed(e.reward_mean)}</td>
-        <td class="num ${w.gap > 0 ? "ok" : "bad"}">${signed(w.gap)}</td>
-        <td class="num mobile-hide">${pct(p.cash_weight, 1)} / ${pct(e.cash_weight, 1)}</td>
-        <td class="num mobile-hide">${signed(p.cost)} / ${signed(e.cost)}</td>
+        <td class="num">${evalSigned(p.reward_mean)}</td>
+        <td class="num">${evalSigned(e.reward_mean)}</td>
+        <td class="num ${w.gap > 0 ? "ok" : "bad"}">${evalSigned(w.gap)}</td>
+        <td class="num mobile-hide">${evalPct(p.cash_weight, 1)} / ${evalPct(e.cash_weight, 1)}</td>
+        <td class="num mobile-hide">${evalSigned(p.cost)} / ${evalSigned(e.cost)}</td>
       </tr>`;
     })
     .join("");
@@ -493,15 +493,15 @@ function renderEvaluationSpread(target, evals) {
   const rows = history.slice(-6).reverse().map((h) => `<tr>
       <td>${new Date(h.evaluated_at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
       <td class="num">${h.envs}</td>
-      <td class="num">${signed(h.gap_train)}</td>
-      <td class="num ${h.gap_oos > 0 ? "ok" : "bad"}">${signed(h.gap_oos)}</td>
+      <td class="num">${evalSigned(h.gap_train)}</td>
+      <td class="num ${h.gap_oos > 0 ? "ok" : "bad"}">${evalSigned(h.gap_oos)}</td>
       <td>${(VERDICT_LABEL[h.verdict] || [h.verdict])[0].split(" — ")[1] || h.verdict}</td>
     </tr>`).join("");
   target.classList.remove("empty");
   target.innerHTML = `
     <p class="plain">${seedLine}</p>
     <p class="plain">같은 정책을 평가 표본만 바꿔 ${history.length}번 쟀다 —
-      OOS 우위 편차 ${spread == null ? "—" : signed(spread)} · 판정이 뒤집힌 횟수 <strong>${flips}</strong>.</p>
+      OOS 우위 편차 ${spread == null ? "—" : evalSigned(spread)} · 판정이 뒤집힌 횟수 <strong>${flips}</strong>.</p>
     <table class="dense">
       <thead><tr><th>평가</th><th class="num">env</th><th class="num">학습 우위</th><th class="num">OOS 우위</th><th>판정</th></tr></thead>
       <tbody>${rows}</tbody>
