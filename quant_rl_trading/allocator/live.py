@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -112,6 +112,8 @@ class PolicyDecision:
     checkpoint: str
     update: int | None
     concentration_total: float
+    #: 정책이 현금을 직접 정했나(free). fixed 면 노출("얼마나")은 룰이 맡는다.
+    cash_from_policy: bool = True
     notes: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -125,14 +127,17 @@ class PolicyDecision:
             "checkpoint": self.checkpoint,
             "update": self.update,
             "concentration_total": round(self.concentration_total, 4),
+            "cash_from_policy": self.cash_from_policy,
             "notes": list(self.notes),
         }
 
 
-_POLICIES: dict[tuple[str, float, int], tuple[AllocatorPolicy, int | None]] = {}
+_POLICIES: dict[tuple[str, float, int], tuple[AllocatorPolicy, int | None, dict[str, Any]]] = {}
 
 
-def load_policy(checkpoint: Path, params: EnvParams) -> tuple[AllocatorPolicy, int | None]:
+def load_policy(
+    checkpoint: Path, params: EnvParams
+) -> tuple[AllocatorPolicy, int | None, dict[str, Any]]:
     """체크포인트 → 평가 모드 정책. 같은 파일은 한 번만 연다.
 
     지연 선택지 수는 **체크포인트가 말한다**(`delay_head` 출력 폭). 설정의
@@ -164,8 +169,15 @@ def load_policy(checkpoint: Path, params: EnvParams) -> tuple[AllocatorPolicy, i
     policy.load_state_dict(weights)
     policy.eval()
     update = state.get("update")
+    # 3회차부터 체크포인트가 환경 설계(cash_action·warm_start)를 들고 다닌다. 라이브는
+    # **학습이 쓴 설계**로 결정을 풀어야 한다 — 현금을 액션으로 배운 정책과 배분만 배운
+    # 정책은 같은 출력을 다르게 읽는다.
+    overrides = {
+        k: v for k, v in dict(state.get("env_overrides") or {}).items()
+        if k in ("cash_action", "warm_start")
+    }
     _POLICIES.clear()
-    _POLICIES[key] = (policy, int(update) if update is not None else None)
+    _POLICIES[key] = (policy, int(update) if update is not None else None, overrides)
     return _POLICIES[key]
 
 
@@ -265,9 +277,10 @@ def decide(
     import torch
 
     hyper = hyper_as_of or as_of
-    env_params = EnvParams.from_store(store, as_of=as_of, hyper_as_of=hyper)
+    base_params = EnvParams.from_store(store, as_of=as_of, hyper_as_of=hyper)
+    policy, update, overrides = load_policy(Path(params.checkpoint), base_params)
+    env_params = replace(base_params, **{k: v for k, v in overrides.items() if k == "cash_action"})
     env = build_env(store, as_of=as_of, market=market, params=env_params)
-    policy, update = load_policy(Path(params.checkpoint), env_params)
 
     obs, info = env.observe_live(
         session=as_of.date(),
@@ -287,7 +300,9 @@ def decide(
         )
         alpha = out.concentration[0]
         mean = (alpha / alpha.sum()).cpu().numpy().astype(np.float64)
-        delay = out.delay_logits[0].argmax(-1).cpu().numpy().astype(np.int64)
+        # **지연은 0 이다.** 학습기가 지연 머리를 고정했다(train.DELAY_FIXED — C1·C2 는
+        # 지연을 뽑지 않는다). 안 배운 머리의 argmax 는 결정이 아니라 잡음이다.
+        delay = np.zeros(out.delay_logits.shape[1], dtype=np.int64)
         total = float(alpha.sum().item())
 
     weights, delays = env.decide_live({"weights": mean, "delay": delay})
@@ -316,6 +331,7 @@ def decide(
         checkpoint=str(params.checkpoint),
         update=update,
         concentration_total=total,
+        cash_from_policy=env_params.cash_action != "fixed",
         notes=notes,
     )
 

@@ -52,6 +52,11 @@ OOS = (date(2026, 7, 1), date(2026, 8, 22))
 BREAKDOWN = ("excess_return", "drawdown_penalty", "cost", "turnover", "drawdown")
 
 
+def _window(text: str) -> tuple[date, date]:
+    start, end = text.split(":")
+    return date.fromisoformat(start), date.fromisoformat(end)
+
+
 def _policy_from(checkpoint: Path, obs: dict, device) -> tuple[AllocatorPolicy, dict]:
     state = torch.load(checkpoint, map_location=device, weights_only=False)
     policy = AllocatorPolicy(PolicyConfig(
@@ -69,6 +74,11 @@ def _policy_from(checkpoint: Path, obs: dict, device) -> tuple[AllocatorPolicy, 
         "update": state.get("update"),
         "seed": state.get("seed"),
         "market": str(state.get("market") or "KR"),
+        # 3회차부터 체크포인트가 자기 환경 설계(현금 액션·warm start)를 들고 다닌다.
+        # 평가는 **학습이 쓴 것과 같은 환경**이어야 한다 — 다른 환경에서 재면 정책이
+        # 아니라 환경 차이를 재게 된다.
+        "env_overrides": dict(state.get("env_overrides") or {}),
+        "train_window": state.get("train_window"),
     }
     return policy, meta
 
@@ -76,6 +86,7 @@ def _policy_from(checkpoint: Path, obs: dict, device) -> tuple[AllocatorPolicy, 
 def _run(
     store: Store, *, window: tuple[date, date], episode_days: int, steps: int,
     envs: int, policy: AllocatorPolicy | None, device, now: datetime, seed: int,
+    env_overrides: dict | None = None,
 ) -> dict[str, float]:
     """한 구간을 굴린다. ``policy`` 가 None 이면 균등가중 대조군이다.
 
@@ -89,7 +100,7 @@ def _run(
     env = VecLatticeEnv(
         store=store, train_start=window[0], train_end=window[1], market="KR",
         n_envs=envs, oracle_leak=False, seed=seed,
-        params=replace(base, episode_days=episode_days), hyper_as_of=now,
+        params=replace(base, episode_days=episode_days, **(env_overrides or {})), hyper_as_of=now,
     )
     obs = env.reset()
     n_slots = int(obs["mask"].shape[1])
@@ -147,7 +158,8 @@ def _line(label: str, r: dict[str, float]) -> str:
             f"· 비용 {r['cost']:+.5f} · 회전 {r['turnover']:.3f} · 낙폭 {r['drawdown']:.3f}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def evaluate(argv: list[str] | None = None) -> dict:
+    """평가를 돌리고 결과를 돌려준다. `main` 과 `select_checkpoint` 가 같이 쓴다."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--root", default="data")
@@ -158,6 +170,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save", action="store_true",
                         help="rl_evaluations 에 적재 — 학습 탭이 이 표를 읽는다")
+    parser.add_argument("--train-window", default=None, help="YYYY-MM-DD:YYYY-MM-DD (기본 2025-01-02:2026-06-30)")
+    parser.add_argument("--oos-window", default=None, help="YYYY-MM-DD:YYYY-MM-DD (기본 홀드아웃 2026-07-01:2026-08-22)")
+    parser.add_argument("--oos-label", default="oos", help="rl_evaluations.eval_window 값 — 검증 폴드면 valid")
+    parser.add_argument("--warm-start", dest="warm_start", action="store_true", default=None,
+                        help="체크포인트 설정 대신 warm start 강제")
+    parser.add_argument("--cash-action", choices=["free", "fixed"], default=None,
+                        help="체크포인트 설정 대신 강제")
     args = parser.parse_args(argv)
 
     store = Store(root=Path(args.root))
@@ -176,19 +195,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     policy, meta = _policy_from(args.checkpoint, probe.reset(), device)
     del probe
+    overrides = dict(meta.get("env_overrides") or {})
+    if args.warm_start is not None:
+        overrides["warm_start"] = bool(args.warm_start)
+    if args.cash_action is not None:
+        overrides["cash_action"] = args.cash_action
+    train_window = _window(args.train_window) if args.train_window else TRAIN
+    oos_window = _window(args.oos_window) if args.oos_window else OOS
+    oos_name = "검증폴드(안 본 것)" if args.oos_label == "valid" else "OOS(안 본 것)"
+    print(f"환경: {overrides or '기본(free · 현금 출발)'} · 학습 {train_window[0]}~{train_window[1]} "
+          f"· {args.oos_label} {oos_window[0]}~{oos_window[1]}")
 
     print(f"\n에피소드 {args.episode_days}일 · 스텝 {args.steps} · env {args.envs} "
           f"· **두 구간을 같은 자로 잰다**\n")
     out: dict[str, dict[str, float]] = {}
-    for name, window in (("학습구간(본 것)", TRAIN), ("OOS(안 본 것)", OOS)):
+    for name, window in (("학습구간(본 것)", train_window), ("OOS(안 본 것)", oos_window)):
         for who, pol in (("정책", policy), ("균등가중", None)):
             key = f"{name}·{who}"
             out[key] = _run(
                 store, window=window, episode_days=args.episode_days,
                 steps=args.steps, envs=args.envs, policy=pol, device=device,
-                now=now, seed=args.seed,
+                now=now, seed=args.seed, env_overrides=overrides,
             )
-            print(_line(key, out[key]), flush=True)
+            print(_line(key.replace("OOS(안 본 것)", oos_name), out[key]), flush=True)
 
     print("\n판정")
     train_gap = out["학습구간(본 것)·정책"]["reward_mean"] - out["학습구간(본 것)·균등가중"]["reward_mean"]
@@ -211,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         rows = []
         for (label, window_key), gap in (
-            (("학습구간(본 것)", "train"), train_gap), (("OOS(안 본 것)", "oos"), oos_gap)
+            (("학습구간(본 것)", "train"), train_gap), (("OOS(안 본 것)", args.oos_label), oos_gap)
         ):
             for who, arm in (("정책", "policy"), ("균등가중", "equal")):
                 r = out[f"{label}·{who}"]
@@ -234,6 +263,11 @@ def main(argv: list[str] | None = None) -> int:
                 })
         store.append("rl_evaluations", rows, ingest_run_id=f"evaluate-{meta['run_id']}-{now:%Y%m%d%H%M%S}")
         print(f"\n  rl_evaluations 적재 {len(rows)}행 · run {meta['run_id']} · 판정 {verdict}")
+    return {"train_gap": train_gap, "oos_gap": oos_gap, "out": out, "meta": meta}
+
+
+def main(argv: list[str] | None = None) -> int:
+    evaluate(argv)
     return 0
 
 

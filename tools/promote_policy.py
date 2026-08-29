@@ -134,8 +134,8 @@ def main() -> int:
 
         probe = build_store(Path(args.data_root) if args.data_root else None)
         params = EnvParams.from_store(probe, as_of=now, hyper_as_of=now)
-        _policy, update = live.load_policy(path, params)
-        print(f"체크포인트 열림: {path} · 업데이트 {update}")
+        _policy, update, overrides = live.load_policy(path, params)
+        print(f"체크포인트 열림: {path} · 업데이트 {update} · 환경 {overrides or '기본'}")
 
     if args.dry_run:
         return dry_run(Path(args.store), checkpoint=args.checkpoint, market=args.market, now=now)

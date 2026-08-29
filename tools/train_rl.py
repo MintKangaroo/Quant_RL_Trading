@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import subprocess
 import sys
 import time
@@ -42,6 +43,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
+from quant_rl_trading.allocator.env import EnvParams  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
 from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
 from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
@@ -62,7 +64,7 @@ def git_commit() -> str:
         return ""
 
 
-def build_optimizer(policy: AllocatorPolicy, ppo) -> torch.optim.Optimizer:  # noqa: ANN001
+def build_optimizer(policy: AllocatorPolicy, ppo) -> torch.optim.Optimizer:
     """가치 쪽 학습률을 2~3배 높인다 (§4).
 
     인코더는 정책·가치가 공유하므로 **정책 학습률**을 따른다. 공유부에 높은
@@ -99,6 +101,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--train-start", default="2025-01-02")
     parser.add_argument("--train-end", default="2026-06-30")
     parser.add_argument("--curriculum", default="C1")
+    # 3회차(2026-08-29) 설계 스위치. 체크포인트에 같이 저장돼 평가·라이브가 따른다.
+    parser.add_argument("--cash-action", choices=["free", "fixed"], default="free",
+                        help="fixed: 현금은 액션이 아니다 — 정책은 후보 사이 배분만")
+    parser.add_argument("--warm-start", action="store_true",
+                        help="에피소드를 첫날 후보 균등가중 장부에서 시작")
+    parser.add_argument("--keep-checkpoints", action="store_true",
+                        help="체크포인트마다 <run>-u<N>.pt 사본을 남긴다 (검증 폴드로 고르기 위해)")
+    parser.add_argument("--lr-decay", choices=["none", "cosine"], default="none",
+                        help="학습률 감쇠 — 후반 KL 상한 조기종료(2회차 66%%)를 줄인다")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--no-store", action="store_true", help="창고에 안 적는다")
     parser.add_argument(
@@ -136,6 +147,18 @@ def main(argv: list[str] | None = None) -> int:
     np.random.seed(args.seed)
 
     store = Store(root=Path(args.root))
+    now = datetime.now(UTC)  # invariant-allow: wallclock
+    # **설계는 오늘 것이다** (EnvParams.from_store 의 hyper_as_of). 구간 첫날 시점으로
+    # 읽으면 그 뒤에 바꾼 슬롯 수·에피소드 길이가 조용히 옛 값이 된다(2026-08-20).
+    env_params = replace(
+        EnvParams.from_store(
+            store, as_of=datetime.combine(date.fromisoformat(args.train_start), datetime.min.time(), tzinfo=UTC),
+            hyper_as_of=now,
+        ),
+        cash_action=args.cash_action,
+        warm_start=args.warm_start,
+    )
+    env_overrides = {"cash_action": args.cash_action, "warm_start": args.warm_start}
     env = VecLatticeEnv(
         store=store,
         train_start=date.fromisoformat(args.train_start),
@@ -145,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         oracle_leak=args.oracle_leak,
         curriculum_c1=args.c1,
         seed=args.seed,
+        params=env_params,
+        hyper_as_of=now,
     )
     obs = env.reset()
 
@@ -213,6 +238,10 @@ def main(argv: list[str] | None = None) -> int:
                 "ppo": ppo.__dict__,
                 "seed": args.seed,
                 "market": args.market,
+                "curriculum": args.curriculum,
+                "train_window": [args.train_start, args.train_end],
+                "env_overrides": env_overrides,
+                "base_lr": {"policy": ppo.lr_policy, "value": ppo.lr_value},
                 "normalizer": {
                     "mean": normalizer.rms.mean,
                     "var": normalizer.rms.var,
@@ -222,11 +251,20 @@ def main(argv: list[str] | None = None) -> int:
             temporary,
         )
         temporary.replace(checkpoint_path)
+        if args.keep_checkpoints:
+            import shutil
+
+            shutil.copyfile(checkpoint_path, checkpoint_dir / f"{run_id}-u{update}.pt")
 
     started = time.time()  # invariant-allow: wallclock
     for index in range(start_index, total_updates + 1):
         # 진행도는 선형 감쇠에 쓴다(§4 — 학습률·엔트로피 계수).
         progress = 1.0 - (index - 1) / total_updates
+        if args.lr_decay == "cosine":
+            # 코사인 감쇠 — 처음 100% 에서 끝 10% 로. 두 그룹(정책·가치)의 비율은 지킨다.
+            scale = 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * (1.0 - progress)))
+            for group, base in zip(optimizer.param_groups, (ppo.lr_policy, ppo.lr_value), strict=True):
+                group["lr"] = base * scale
         rollout = train_module.collect(
             env, policy, obs, ppo=ppo, normalizer=normalizer, device=device
         )

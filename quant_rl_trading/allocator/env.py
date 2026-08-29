@@ -172,6 +172,15 @@ class EnvParams:
     fill: FillParams
     sizing: sizing_module.SizingParams
     rates: Rates
+    #: 3회차(2026-08-29) — **외울 수 있는 자유도를 정책에서 뺀다.**
+    #: "free": 현금 칸이 액션이다(1·2회차). "fixed": 투자 비중은 1 − cash_buffer 로
+    #: 고정하고 정책은 후보 사이의 배분만 정한다. 2회차 OOS 판정에서 학습 구간이 가르친
+    #: 것이 현금 타이밍뿐이었고 그것이 통째로 외운 것이었다(rl-training.md 2회차 판정).
+    #: 노출("얼마나")은 룰(selector/exposure)이 맡는다.
+    cash_action: str = "free"
+    #: 에피소드를 현금이 아니라 **첫날 후보 균등가중으로 채운 장부**에서 시작한다.
+    #: 현금에서 출발하면 짧은 평가 창에서 "얼마나 빨리 들어가나" 가 성적을 지배한다.
+    warm_start: bool = False
 
     @classmethod
     def from_store(
@@ -487,8 +496,49 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             analysts=self._analyst_slots(),
             nav=self.params.initial_capital,
         )
+        # 직전 에피소드의 평가·시세가 첫 관측에 새어 들지 않게 비운다.
+        self._last_valuation = None
+        self._last_prices = {}
+        if self.params.warm_start:
+            self._warm_start()
         obs, info = self._observe()
         return obs, info
+
+    def _warm_start(self) -> None:
+        """첫날 종가로 후보를 균등하게 사서 시작한다 (`EnvParams.warm_start`).
+
+        수수료·세금은 실제 요율로 문다 — 공짜로 채운 장부는 첫 스텝의 NAV 를
+        높여 보상을 왜곡한다. 최소 스텝(1주 가격)이 배분 몫보다 큰 종목은 못
+        사고 현금으로 남는다 — 라이브에서도 그렇다.
+        """
+        state = self._state
+        selection = self.reader.selection(self.as_of, equity=state.nav)
+        entities = [entity for entity, _score in selection.candidates][: self.params.n_max]
+        if not entities:
+            return
+        prices = self.reader.stats(self.as_of, entities).prices
+        investable = max(0.0, 1.0 - self.params.cash_buffer)
+        weight = min(investable / len(entities), self.params.max_position_weight)
+        today = state.sessions[state.cursor]
+        for entity in entities:
+            price = float(prices.get(entity, 0.0))
+            if price <= 0:
+                continue
+            quantity = math.floor(state.nav * weight / price)
+            if quantity <= 0:
+                continue
+            gross = quantity * price
+            fee, tax = self.params.rates.costs(side=BookSide.BUY, gross=gross, currency=KRW)
+            state.book = state.book.with_trade(
+                Trade(
+                    entity_id=entity, side=BookSide.BUY, quantity=float(quantity),
+                    price=price, currency=KRW, fee=fee, tax=tax,
+                )
+            )
+            state.entered[entity] = today
+        valuation = self._value()
+        self._last_valuation = valuation
+        state.nav = valuation.nav
 
     def _analyst_slots(self) -> tuple[str, ...]:
         """이 에피소드가 쓸 Analyst 슬롯. **이름을 코드에 적지 않는다.**
@@ -648,8 +698,19 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         assets = np.where(mask, weights[:n_max], 0.0)
 
         cap = self.params.max_position_weight
-        assets = np.minimum(assets, cap)
         investable = max(0.0, 1.0 - self.params.cash_buffer)
+        if self.params.cash_action == "fixed" and float(assets.sum()) > 0:
+            # **현금은 액션이 아니다.** 유효 슬롯의 비중을 투자 가능분에 맞춰 늘리고,
+            # 상한에 걸려 남는 몫은 상한 아래 종목에 한 번 더 비례 배분한다. 그래도
+            # 남으면 현금 — 후보가 적어 상한 × 종목 수 < 투자분인 날이다.
+            assets = assets / float(assets.sum()) * investable
+            capped = np.minimum(assets, cap)
+            leftover = investable - float(capped.sum())
+            room = np.where(mask & (capped < cap), cap - capped, 0.0)
+            if leftover > 1e-12 and float(room.sum()) > 0:
+                capped = capped + room * min(1.0, leftover / float(room.sum()))
+            assets = capped
+        assets = np.minimum(assets, cap)
         excess = float(assets.sum()) - investable
         if excess > 0:
             # 현금 완충을 침범한 만큼만 비례로 깎는다. 체결·수수료 오차를

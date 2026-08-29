@@ -524,3 +524,49 @@ def test_관측_칸은_전부_O1_스케일이다(warehouse) -> None:
             break
     assert float(np.abs(obs["portfolio"]).max()) < 10.0, obs["portfolio"]
     assert float(np.abs(obs["assets"]).max()) < 10.0
+
+
+# -- 3회차 설계 (2026-08-29): 현금은 액션이 아니다 · 보유 상태 출발 ---------------
+
+
+def test_cash_action_fixed_는_투자분을_다_쓴다(warehouse) -> None:
+    """정책이 현금에 90% 를 줘도 fixed 면 투자 비중은 1 − cash_buffer 다."""
+    from dataclasses import replace
+
+    env = LatticeEnv(
+        warehouse, train_start=START, train_end=END,
+        params=replace(_params(warehouse), cash_action="fixed"),
+    )
+    obs, _ = env.reset(seed=0)
+    n_max = env.params.n_max
+    weights = np.zeros(n_max + 1, dtype=np.float32)
+    valid = np.flatnonzero(obs["mask"])
+    weights[valid] = 0.1 / len(valid)
+    weights[n_max] = 0.9
+    targets, _delays = env._decode({
+        "weights": weights, "delay": np.zeros(n_max, dtype=np.int64),
+        "fx_alloc": np.array([0.0], dtype=np.float32),
+    })
+    investable = 1.0 - env.params.cash_buffer
+    expected = min(investable, env.params.max_position_weight * len(valid))
+    assert float(targets[:n_max].sum()) == pytest.approx(expected, abs=1e-6)
+    assert float(targets[n_max]) == pytest.approx(1.0 - expected, abs=1e-6)
+    assert np.all(targets[:n_max] <= env.params.max_position_weight + 1e-6)
+
+
+def test_warm_start_는_첫날_후보를_들고_시작한다(warehouse) -> None:
+    from dataclasses import replace
+
+    env = LatticeEnv(
+        warehouse, train_start=START, train_end=END,
+        params=replace(_params(warehouse), warm_start=True),
+    )
+    obs, info = env.reset(seed=0)
+    held = [e for e, p in env._state.book.positions.items() if p.quantity > 0]
+    assert held, "warm start 인데 보유가 없다"
+    assert set(held) <= set(info["candidates"])
+    # 실현 비중이 첫 관측에 실려 있다 — 현금 출발이면 전부 0 이다.
+    assert float(obs["assets"][:, env_module.FEATURE_REALIZED_WEIGHT].sum()) > 0.3  # 후보 수 × 상한 15%
+    # 수수료를 물었으므로 NAV 는 초기 자본보다 조금 작다.
+    assert env._state.nav < env.params.initial_capital
+    assert env._state.nav > env.params.initial_capital * 0.99

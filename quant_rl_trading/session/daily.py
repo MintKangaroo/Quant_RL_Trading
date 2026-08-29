@@ -340,10 +340,10 @@ def run(
         for day in [d for d in previous if d < as_of.date()][-(confirm - 1):]:
             earlier = as_of.replace(year=day.year, month=day.month, day=day.day)
             recent_states.append(regime.state(earlier))
-    if policy_decision is not None:
-        # 정책은 노출 배수를 모르고 배웠다 — 현금 비중이 액션의 한 칸이다.
-        # 그 위에 배수를 곱하면 정책의 현금 결정을 룰이 덮어쓴다(allocator/live.py).
-        # 레짐은 기록만 남긴다. 킬스위치는 집행기에 그대로 있다.
+    if policy_decision is not None and policy_decision.cash_from_policy:
+        # 정책이 현금을 액션으로 배웠다(cash_action=free) — 그 위에 배수를 곱하면
+        # 정책의 현금 결정을 룰이 덮어쓴다(allocator/live.py). 레짐은 기록만 남긴다.
+        # cash_action=fixed 정책(3회차)은 배분만 배웠으므로 아래 룰 노출을 그대로 탄다.
         decision = exposure.ExposureDecision(
             scale=1.0,
             driver="rl:policy_cash",
