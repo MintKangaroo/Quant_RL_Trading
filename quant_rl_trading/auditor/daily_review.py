@@ -116,7 +116,7 @@ def _benchmark_move(store: Store, *, as_of: datetime, market: str) -> dict[str, 
     try:
         index_id = str(store.config(f"benchmark.{market.lower()}_index", as_of=as_of))
         frame = store.get("indices", as_of=as_of, lookback=12, entity=index_id, columns=["valid_from", "close"])
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     if frame.empty or len(frame) < 2:
         return None
