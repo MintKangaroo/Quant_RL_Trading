@@ -77,6 +77,20 @@ TOOL = {
 }
 
 
+def _session_moment(session: Any, fallback: datetime) -> datetime:
+    """회계 세션 날짜 → 그날 장 마감(15:40 KST). 없으면 호출 시각."""
+    from datetime import date, time
+    from zoneinfo import ZoneInfo
+
+    if not session:
+        return fallback
+    try:
+        day = date.fromisoformat(str(session)[:10])
+    except ValueError:
+        return fallback
+    return datetime.combine(day, time(15, 40), tzinfo=ZoneInfo("Asia/Seoul"))
+
+
 def gather_facts(store: Store, *, as_of: datetime, market: str) -> dict[str, Any]:
     """리뷰의 재료. **화면이 쓰는 함수 그대로** 부른다."""
     perf = performance_module.daily(store, as_of=as_of, fill_limit=12).as_dict()
@@ -166,6 +180,10 @@ class DailyReviewer:
         facts = gather_facts(self.facts_store, as_of=as_of, market=market)
         entity = f"{facts['mode']}:{market}"
         digest = features_hash(facts)
+        # 리뷰의 시각은 **그 장(회계 세션)** 이다 — 쓴 시각이 아니다. 23:35 에 쓴 리뷰가
+        # 오늘 날짜를 달면 화면은 "오늘 장" 으로 읽는데 내용은 어제 종가 회계다. 같은
+        # 세션은 한 편(자연키)이고, 언제 썼는지는 observed_at 이 든다.
+        as_of = _session_moment(facts.get("session"), as_of)
         key = CacheKey(agent=AGENT, agent_version=VERSION, entity_id=entity, as_of=as_of, features_hash=digest)
         cache = AgentCache(self.store, self.clock)
         cached = cache.get(key)
