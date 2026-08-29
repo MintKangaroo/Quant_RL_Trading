@@ -79,7 +79,39 @@ function bindScheduleDay(root, target, data) {
   };
 }
 
+const SCHED_MOBILE = window.matchMedia("(max-width: 640px)");
+
+/* 휴대폰 — 오늘부터 30일 목록. 달을 넘겨 이어 붙인다(월말에 "이달" 은 비어 보인다). */
+function renderUpcoming(target, data) {
+  const days = Object.keys(data.days);
+  if (!days.length) {
+    target.innerHTML = `<p class="empty">${data.from}~${data.to} 사이 등록된 일정이 없다.</p>`;
+  } else {
+    target.innerHTML = `<div class="sched-list">${days.map((key) => {
+      const d = new Date(`${key}T00:00:00`);
+      const label = `${d.getMonth() + 1}/${d.getDate()} <small>${SCHED_WEEKDAYS[d.getDay()]}</small>`;
+      return `<div class="sched-cell pick" data-date="${key}"><b class="d">${label}</b>${data.days[key].map((i) => schedItem(i)).join("")}</div>`;
+    }).join("")}</div>`;
+  }
+  const label = document.getElementById("sched-label");
+  if (label) label.textContent = `${data.from.slice(5)}~${data.to.slice(5)} · 지표 ${data.counts.macro} · 실적 ${data.counts.earnings}`;
+  for (const id of ["sched-prev", "sched-next"]) {
+    const el = document.getElementById(id);
+    if (el) el.hidden = true;
+  }
+}
+
 async function loadSchedule(month) {
+  if (SCHED_MOBILE.matches) {
+    const body = await fetchJson("headlines/schedule?days=30");
+    const grid = document.getElementById("schedule");
+    const day = document.getElementById("sched-day");
+    if (!grid) return;
+    day.hidden = true;
+    renderUpcoming(grid, body.data);
+    bindScheduleDay(grid, day, body.data);
+    return;
+  }
   const query = month ? `headlines/schedule?month=${month}` : "headlines/schedule";
   const body = await fetchJson(query);
   const data = body.data;

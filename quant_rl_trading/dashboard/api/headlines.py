@@ -30,6 +30,11 @@ def overview() -> Any:
 def schedule() -> Any:
     """월별 일정 — 지표 발표 · 실적 발표. ``month=YYYY-MM`` (없으면 as_of 의 달)."""
     current = scope()
+    days = request.args.get("days")
+    if days:
+        return envelope(
+            current, schedule_service.upcoming(store(), as_of=current.as_of, days=int(days))
+        )
     month = request.args.get("month") or None
     return envelope(
         current,

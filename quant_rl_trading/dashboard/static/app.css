@@ -1140,6 +1140,7 @@ td.num.bad { color: var(--down); }
   .sched-cell { min-height: 0; }
   .sched-cell:not(.pick) { display: none; }
   .sched:not(.show-past) .sched-cell.past { display: none; }
+  .sched-list .sched-cell { margin-bottom: 4px; }
   .sched-cell.today { outline: 1px solid var(--accent); }
   .sched-cell .d { display: inline-block; margin-right: 6px; }
   .sched-item { white-space: normal; }

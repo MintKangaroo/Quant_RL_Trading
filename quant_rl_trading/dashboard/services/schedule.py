@@ -128,3 +128,32 @@ def month_schedule(store: Store, *, as_of: datetime, month: str | None = None) -
         "prev": (first - timedelta(days=1)).strftime("%Y-%m"),
         "next": (last + timedelta(days=1)).strftime("%Y-%m"),
     }
+
+
+def upcoming(store: Store, *, as_of: datetime, days: int = 30) -> dict[str, Any]:
+    """오늘부터 ``days`` 일 — 휴대폰 목록용. 달 경계를 넘긴다.
+
+    월말에 "이달" 만 보여 주면 목록이 비어 보인다(2026-08-30 일요일 실측: 8월 남은
+    일정 0건). 달력이 아니라 "앞으로 뭐가 있나" 가 질문이므로 달을 넘겨 이어 붙인다.
+    """
+    today = as_of.astimezone(SEOUL).date()
+    last = today + timedelta(days=max(1, days))
+    months: list[str] = []
+    cursor = today.replace(day=1)
+    while cursor <= last:
+        months.append(cursor.strftime("%Y-%m"))
+        cursor = (cursor + timedelta(days=32)).replace(day=1)
+    merged: dict[str, list[dict[str, Any]]] = {}
+    for month in months:
+        for day, items in month_schedule(store, as_of=as_of, month=month)["days"].items():
+            if today.isoformat() <= day <= last.isoformat():
+                merged[day] = items
+    items = [i for day in sorted(merged) for i in merged[day]]
+    return {
+        "from": today.isoformat(), "to": last.isoformat(), "days": dict(sorted(merged.items())),
+        "counts": {
+            "macro": sum(1 for i in items if i["kind"] == "macro"),
+            "earnings": sum(1 for i in items if i["kind"] == "earnings"),
+            "estimated": sum(1 for i in items if i.get("estimated")),
+        },
+    }
