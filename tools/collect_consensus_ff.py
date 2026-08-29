@@ -56,8 +56,10 @@ def slug(title: str) -> str:
 def rows_from_feed(feed: list[dict], *, observed_at: datetime) -> list[dict]:
     out = []
     for item in feed:
-        if item.get("country") != "USD":
+        country = item.get("country")
+        if country not in ("USD", "KRW"):
             continue
+        market = "US" if country == "USD" else "KR"
         title = str(item.get("title") or "").strip()
         when = item.get("date")
         if not title or not when:
@@ -67,10 +69,10 @@ def rows_from_feed(feed: list[dict], *, observed_at: datetime) -> list[dict]:
         if not forecast and not previous:
             continue  # 연설 일정 등 — 예측치가 없는 것은 적을 것이 없다
         scheduled = datetime.fromisoformat(when)
-        entity = TITLE_MAP.get(title, f"US:FF:{slug(title)}")
+        entity = TITLE_MAP.get(title, f"{market}:FF:{slug(title)}") if market == "US" else f"KR:FF:{slug(title)}"
         out.append({
             "entity_id": entity, "valid_from": scheduled, "observed_at": observed_at, "source": SOURCE,
-            "market": "US", "title": title, "forecast": forecast, "previous": previous,
+            "market": market, "title": title, "forecast": forecast, "previous": previous,
             "actual": str(item.get("actual") or "").strip(), "impact": str(item.get("impact") or ""),
         })
     return out

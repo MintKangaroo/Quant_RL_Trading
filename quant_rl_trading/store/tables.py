@@ -500,6 +500,28 @@ _SPECS: dict[str, TableSpec] = {
             "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
         ),
     ),
+    "earnings_calendar": TableSpec(
+        name="earnings_calendar",
+        columns={
+            "market": pa.string(),
+            "name": pa.string(),
+            # pre | post | unknown | estimate — 장 전/장 후/시각 미정/작년 공시일 기준 추정
+            "timing": pa.string(),
+            "fiscal_quarter": pa.string(),
+            "eps_forecast": pa.string(),   # 피드 표기 그대로 ("$2.83")
+            "market_cap": pa.float64(),
+            "status": pa.string(),         # scheduled | estimated
+        },
+        # valid_from = 발표 예정 시각. **미래 시각이다** — 게이트는 observed_at 이 지키고,
+        # 같은 종목의 같은 예정 시각은 한 번만(날짜가 바뀌면 새 행, 옛 행은 남는다).
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=3,
+        doc=(
+            "실적 발표 일정. 미장은 Nasdaq 캘린더(확정·시각 포함), 국장은 DART 작년 같은 분기 "
+            "잠정실적 공시일을 1년 미룬 **추정**(status=estimated). 뉴스·일정 탭의 월별 달력이 "
+            "읽는다. 추정을 확정처럼 보이게 하지 않는다 — timing 이 말한다."
+        ),
+    ),
     "rl_evaluations": TableSpec(
         name="rl_evaluations",
         columns={

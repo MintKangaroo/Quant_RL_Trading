@@ -1106,3 +1106,37 @@ details.fold > summary::-webkit-details-marker { display: none; }
 .muted { color: var(--dim); font-size: 11px; margin: 6px 0 0; line-height: 1.4; }
 td.num.ok { color: var(--up); }
 td.num.bad { color: var(--down); }
+
+/* 뉴스·일정 — 월별 일정 달력 */
+.sched-week { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 10.5px; color: var(--dim); margin-bottom: 2px; }
+.sched-week span { text-align: center; }
+.sched-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.sched-cell { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; min-height: 64px; padding: 3px 4px; font-size: 10.5px; overflow: hidden; }
+.sched-cell.none { background: transparent; border-color: transparent; }
+.sched-cell.wk .d { color: var(--dim); }
+.sched-cell.pick { cursor: pointer; }
+.sched-cell.on { outline: 1px solid var(--accent); }
+.sched-cell .d { display: block; font-size: 11px; margin-bottom: 2px; }
+.sched-cell .d small { color: var(--dim); margin-left: 3px; font-weight: 400; }
+.sched-item { display: flex; gap: 4px; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; border-left: 2px solid var(--bench); padding-left: 3px; margin: 1px 0; }
+.sched-item i { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.sched-item em { font-style: normal; color: var(--dim); font-size: 9.5px; flex: none; }
+.sched-item span { overflow: hidden; text-overflow: ellipsis; }
+.sched-item.macro { border-left-color: var(--accent); }
+.sched-item.earnings { border-left-color: var(--up); }
+.sched-item.est { border-left-style: dashed; color: var(--muted); }
+.sched-item.hi span { font-weight: 600; }
+.sched-item small { display: block; color: var(--dim); white-space: normal; }
+.sched-more { color: var(--dim); font-size: 10px; }
+.sched-day { margin-top: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+.sched-day .sched-item { white-space: normal; flex-wrap: wrap; margin: 3px 0; }
+.sched-day .sched-item small { flex-basis: 100%; }
+@media (max-width: 640px) {
+  .sched-week { display: none; }
+  .sched-grid { grid-template-columns: 1fr; }
+  .sched-cell.none { display: none; }
+  .sched-cell { min-height: 0; }
+  .sched-cell:not(.pick) { display: none; }
+  .sched-cell .d { display: inline-block; margin-right: 6px; }
+  .sched-item { white-space: normal; }
+}
