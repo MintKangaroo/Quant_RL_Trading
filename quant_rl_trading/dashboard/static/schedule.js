@@ -79,7 +79,7 @@ function bindScheduleDay(root, target, data) {
   };
 }
 
-const SCHED_MOBILE = window.matchMedia("(max-width: 640px)");
+const SCHED_MOBILE = window.matchMedia ? window.matchMedia("(max-width: 640px)") : { matches: false };
 
 /* 휴대폰 — 오늘부터 30일 목록. 달을 넘겨 이어 붙인다(월말에 "이달" 은 비어 보인다). */
 function renderUpcoming(target, data) {

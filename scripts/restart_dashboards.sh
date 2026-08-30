@@ -20,6 +20,11 @@ TARGETS=(
   "5060:data/_shadow"
 )
 
+# 화면 프로세스의 메모리 상한. DuckDB 기본값은 RAM 의 80% 라 다섯 화면이 서로 밀어내고,
+# 한 화면이 1.5GB 까지 부풀었다(2026-08-30 실측, 스왑 3.8GB). glibc 아레나도 묶는다.
+export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-512MB}"
+export MALLOC_ARENA_MAX=2
+
 for spec in "${TARGETS[@]}"; do
     port="${spec%%:*}"
     root="${spec#*:}"
@@ -27,6 +32,11 @@ for spec in "${TARGETS[@]}"; do
     [ -n "${pid}" ] && kill "${pid}" 2>/dev/null
 done
 sleep 3
+
+# 화면 프로세스의 메모리 상한. DuckDB 기본값은 RAM 의 80% 라 다섯 화면이 서로 밀어내고,
+# 한 화면이 1.5GB 까지 부풀었다(2026-08-30 실측, 스왑 3.8GB). glibc 아레나도 묶는다.
+export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-512MB}"
+export MALLOC_ARENA_MAX=2
 
 for spec in "${TARGETS[@]}"; do
     port="${spec%%:*}"
@@ -49,6 +59,11 @@ sleep 7
 # 화면은 종가로 그려지므로 여기서 막을 이유가 없다.
 # 두 탭을 다 데운다 — **캐시가 다르다.** 트레이딩은 종목(t8407), 마켓은
 # 지수·ETF(t1511·g3104)라 한쪽을 데워도 다른 쪽은 여전히 첫 콜을 낸다.
+# 화면 프로세스의 메모리 상한. DuckDB 기본값은 RAM 의 80% 라 다섯 화면이 서로 밀어내고,
+# 한 화면이 1.5GB 까지 부풀었다(2026-08-30 실측, 스왑 3.8GB). glibc 아레나도 묶는다.
+export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-512MB}"
+export MALLOC_ARENA_MAX=2
+
 for spec in "${TARGETS[@]}"; do
     port="${spec%%:*}"
     curl -s -o /dev/null --max-time 40 "localhost:${port}/api/trading" &
@@ -57,6 +72,11 @@ done
 
 # **올라왔는지 확인한다.** 띄우고 안 보면 죽은 것을 모른다.
 fail=0
+# 화면 프로세스의 메모리 상한. DuckDB 기본값은 RAM 의 80% 라 다섯 화면이 서로 밀어내고,
+# 한 화면이 1.5GB 까지 부풀었다(2026-08-30 실측, 스왑 3.8GB). glibc 아레나도 묶는다.
+export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-512MB}"
+export MALLOC_ARENA_MAX=2
+
 for spec in "${TARGETS[@]}"; do
     port="${spec%%:*}"
     code=$(curl -s -o /dev/null -w "%{http_code}" "localhost:${port}/trading" 2>/dev/null)

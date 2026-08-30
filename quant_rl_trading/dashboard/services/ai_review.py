@@ -89,7 +89,11 @@ def _summarize_output(raw: Any) -> str:
 
 def agent_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     """에이전트·버전별 호출 현황. ``비용`` 은 없다 — 잴 방법이 없다."""
-    frame = store.get(CACHE, as_of=as_of, lookback=lookback)
+    # output(JSON 본문)은 안 읽는다 — 호출 수·시각만 세는 데 90일치 본문을 끌어오면 6초다.
+    frame = store.get(
+        CACHE, as_of=as_of, lookback=lookback,
+        columns=["entity_id", "agent", "agent_version", "computed_at"],
+    )
     if frame.empty:
         return {"agents": [], "total": 0, "by_market": []}
 
@@ -123,7 +127,8 @@ def agent_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str,
 
 def recent_calls(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
     """최근 호출 목록. 캐시에 새로 쌓인 순서(``computed_at``)로 본다."""
-    frame = store.get(CACHE, as_of=as_of, lookback=lookback)
+    # 최근 목록은 본문이 필요하다 — 대신 창을 7일로 줄인다(더 오래된 것은 목록에 안 실린다).
+    frame = store.get(CACHE, as_of=as_of, lookback=min(int(lookback), 7))
     if frame.empty:
         return []
     recent = frame.sort_values("computed_at", ascending=False).head(RECENT_LIMIT)

@@ -133,15 +133,25 @@ def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any
     return {"series": series, "points": len(frame)}
 
 
+#: 신호 현황 창(거래일 아닌 달력일). 90일 창은 통계가 아니라 부하였다.
+SIGNAL_ACTIVITY_DAYS = 14
+
+
 def signal_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     """Signal 기록 현황. '점수를 내고 있는가' 를 본다.
 
     가중치 0(관찰 모드)이어도 **Signal 은 계속 기록돼야 한다.** 기록이 멈추면
     나중에 그 Analyst 를 켤 근거를 만들 수 없다.
     """
-    frame = store.get(SIGNALS, as_of=as_of, lookback=lookback)
+    # 현황은 최근 2주면 답한다 — 90일 전 컬럼(evidence_json 등)을 3백만 행 읽던 것이
+    # Agent Health 탭 6초의 정체였다(2026-08-30). 창과 컬럼을 좁힌다.
+    window = min(int(lookback), SIGNAL_ACTIVITY_DAYS)
+    frame = store.get(
+        SIGNALS, as_of=as_of, lookback=window,
+        columns=["entity_id", "valid_from", "analyst", "analyst_version", "latency_ms", "confidence"],
+    )
     if frame.empty:
-        return {"analysts": [], "total": 0}
+        return {"analysts": [], "total": 0, "window_days": window}
 
     rows: list[dict[str, Any]] = []
     for (name, version), group in frame.groupby(["analyst", "analyst_version"]):
@@ -159,7 +169,7 @@ def signal_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str
                 "mean_confidence": float(group["confidence"].astype(float).mean()),
             }
         )
-    return {"analysts": sorted(rows, key=lambda item: str(item["analyst"])), "total": len(frame)}
+    return {"analysts": sorted(rows, key=lambda item: str(item["analyst"])), "total": len(frame), "window_days": window}
 
 
 def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:

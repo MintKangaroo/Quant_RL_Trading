@@ -1,428 +1,428 @@
 {
   "headlines": {
-    "as_of": "2026-08-19T05:42:28.010428+00:00",
+    "as_of": "2026-08-30T03:31:09.214506+00:00",
     "data": {
       "active_verdicts": 40,
       "documents": [
         {
-          "doc_id": "20260818900533",
-          "doc_type": "distress",
-          "entities": [
-            "KR:332290"
-          ],
-          "entity_names": [
-            "누보"
-          ],
-          "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900533"
-        },
-        {
-          "doc_id": "20260818900393",
-          "doc_type": "distress",
-          "entities": [
-            "KR:297570"
-          ],
-          "entity_names": [
-            "아틀라스링크"
-          ],
-          "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900393"
-        },
-        {
-          "doc_id": "20260818000299",
+          "doc_id": "20260828001955",
           "doc_type": "dilution",
           "entities": [
-            "KR:340810"
+            "KR:033790"
           ],
           "entity_names": [
-            "시선AI"
+            "피노"
           ],
-          "filer": "시선AI",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]주요사항보고서(유상증자결정)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818000299"
-        },
-        {
-          "doc_id": "20260818900520",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:335810"
-          ],
-          "entity_names": [
-            "프리시젼바이오"
-          ],
-          "filer": "프리시젼바이오",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "전환사채(해외전환사채포함)발행후만기전사채취득",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900520"
-        },
-        {
-          "doc_id": "20260818800303",
-          "doc_type": "contract",
-          "entities": [
-            "KR:326030"
-          ],
-          "entity_names": [
-            "SK바이오팜"
-          ],
-          "filer": "에스케이바이오팜",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800303"
-        },
-        {
-          "doc_id": "20260818900337",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:321370"
-          ],
-          "entity_names": [
-            "센서뷰"
-          ],
-          "filer": "센서뷰",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]유상증자또는주식관련사채등의청약결과(자율공시)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900337"
-        },
-        {
-          "doc_id": "20260818900122",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:321370"
-          ],
-          "entity_names": [
-            "센서뷰"
-          ],
-          "filer": "센서뷰",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "유상증자또는주식관련사채등의청약결과(자율공시)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900122"
-        },
-        {
-          "doc_id": "20260818000218",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:317770"
-          ],
-          "entity_names": [
-            "엑스페릭스"
-          ],
-          "filer": "엑스페릭스",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]주요사항보고서(전환사채권발행결정)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818000218"
-        },
-        {
-          "doc_id": "20260818000256",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:294090"
-          ],
-          "entity_names": [
-            "이오플로우"
-          ],
-          "filer": "이오플로우",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주요사항보고서(전환사채권발행결정)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818000256"
-        },
-        {
-          "doc_id": "20260818800616",
-          "doc_type": "contract",
-          "entities": [
-            "KR:010960"
-          ],
-          "entity_names": [
-            "삼호개발"
-          ],
-          "filer": "삼호개발",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]단일판매ㆍ공급계약체결",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800616"
-        },
-        {
-          "doc_id": "20260818000259",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:288980"
-          ],
-          "entity_names": [
-            "모아데이타"
-          ],
-          "filer": "모아데이타",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]주요사항보고서(유상증자결정)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818000259"
-        },
-        {
-          "doc_id": "20260818900238",
-          "doc_type": "distress",
-          "entities": [
-            "KR:288180"
-          ],
-          "entity_names": [
-            "케이피항공산업"
-          ],
-          "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주권매매거래정지              (단일판매공급계약)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900238"
-        },
-        {
-          "doc_id": "20260818900374",
-          "doc_type": "distress",
-          "entities": [
-            "KR:020180"
-          ],
-          "entity_names": [
-            "대신정보통신"
-          ],
-          "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주권매매거래정지해제              (액면병합 주권 변경상장)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900374"
-        },
-        {
-          "doc_id": "20260818900230",
-          "doc_type": "contract",
-          "entities": [
-            "KR:288180"
-          ],
-          "entity_names": [
-            "케이피항공산업"
-          ],
-          "filer": "케이피항공산업",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900230"
-        },
-        {
-          "doc_id": "20260818900465",
-          "doc_type": "distress",
-          "entities": [
-            "KR:285800"
-          ],
-          "entity_names": [
-            "진영"
-          ],
-          "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900465"
-        },
-        {
-          "doc_id": "20260818000126",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:257720"
-          ],
-          "entity_names": [
-            "실리콘투"
-          ],
-          "filer": "실리콘투",
-          "published_at": "2026-08-18T09:00:00+09:00",
+          "filer": "피노",
+          "published_at": "2026-08-28T09:00:00+09:00",
           "title": "주요사항보고서(유상증자결정)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818000126"
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828001955"
         },
         {
-          "doc_id": "20260818900149",
-          "doc_type": "contract",
-          "entities": [
-            "KR:011560"
-          ],
-          "entity_names": [
-            "세보엠이씨"
-          ],
-          "filer": "세보엠이씨",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결(자율공시)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900149"
-        },
-        {
-          "doc_id": "20260818900412",
+          "doc_id": "20260828900931",
           "doc_type": "distress",
           "entities": [
-            "KR:363260"
+            "KR:177350"
           ],
           "entity_names": [
-            "모비데이즈"
+            "베셀"
           ],
           "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900412"
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "기타시장안내              ((관리종목지정우려종목)(시가총액 200억원 미달))",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900931"
         },
         {
-          "doc_id": "20260818900105",
-          "doc_type": "contract",
-          "entities": [
-            "KR:192390"
-          ],
-          "entity_names": [
-            "윈하이텍"
-          ],
-          "filer": "윈하이텍",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900105"
-        },
-        {
-          "doc_id": "20260818800221",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:006200"
-          ],
-          "entity_names": [
-            "한국전자홀딩스"
-          ],
-          "filer": "한국전자홀딩스",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "자기교환사채만기전취득결정",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800221"
-        },
-        {
-          "doc_id": "20260818800175",
-          "doc_type": "contract",
-          "entities": [
-            "KR:002020"
-          ],
-          "entity_names": [
-            "코오롱"
-          ],
-          "filer": "코오롱",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결(자회사의 주요경영사항)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800175"
-        },
-        {
-          "doc_id": "20260818800172",
-          "doc_type": "contract",
-          "entities": [
-            "KR:003070"
-          ],
-          "entity_names": [
-            "코오롱글로벌"
-          ],
-          "filer": "코오롱글로벌",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800172"
-        },
-        {
-          "doc_id": "20260818800477",
-          "doc_type": "dilution",
-          "entities": [
-            "KR:003580"
-          ],
-          "entity_names": [
-            "HLB글로벌"
-          ],
-          "filer": "HLB글로벌",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "유상증자또는주식관련사채등의발행결과(자율공시)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800477"
-        },
-        {
-          "doc_id": "20260818900498",
+          "doc_id": "20260828900908",
           "doc_type": "distress",
           "entities": [
-            "KR:001000"
+            "KR:062970"
           ],
           "entity_names": [
-            "신라섬유"
+            "한국첨단소재"
           ],
           "filer": "코스닥시장본부",
-          "published_at": "2026-08-18T09:00:00+09:00",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "주권매매거래정지해제              (우회상장 미해당)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900908"
+        },
+        {
+          "doc_id": "20260828001511",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:009730"
+          ],
+          "entity_names": [
+            "이렘"
+          ],
+          "filer": "이렘",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]주요사항보고서(유상증자결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828001511"
+        },
+        {
+          "doc_id": "20260828001820",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:195990"
+          ],
+          "entity_names": [
+            "루트K"
+          ],
+          "filer": "루트K",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "주요사항보고서(자기전환사채만기전취득결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828001820"
+        },
+        {
+          "doc_id": "20260828900740",
+          "doc_type": "contract",
+          "entities": [
+            "KR:033540"
+          ],
+          "entity_names": [
+            "파라텍"
+          ],
+          "filer": "파라텍",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900740"
+        },
+        {
+          "doc_id": "20260828000921",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:900110"
+          ],
+          "entity_names": [
+            "딥커머스"
+          ],
+          "filer": "딥커머스",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]주요사항보고서(유상증자결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828000921"
+        },
+        {
+          "doc_id": "20260828001567",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:101000"
+          ],
+          "entity_names": [
+            "KS인더스트리"
+          ],
+          "filer": "KS인더스트리",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "주요사항보고서(자기전환사채만기전취득결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828001567"
+        },
+        {
+          "doc_id": "20260828900948",
+          "doc_type": "distress",
+          "entities": [
+            "KR:101000"
+          ],
+          "entity_names": [
+            "KS인더스트리"
+          ],
+          "filer": "코스닥시장본부",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "기타시장안내(관리종목지정우려종목)              (주가 1,000원 미달)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900948"
+        },
+        {
+          "doc_id": "20260828900964",
+          "doc_type": "distress",
+          "entities": [
+            "KR:101000"
+          ],
+          "entity_names": [
+            "KS인더스트리"
+          ],
+          "filer": "코스닥시장본부",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "기타시장안내(관리종목지정우려종목)              (시가총액 200억원 미달)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900964"
+        },
+        {
+          "doc_id": "20260828001290",
+          "doc_type": "buyback",
+          "entities": [
+            "KR:484870"
+          ],
+          "entity_names": [
+            "엠앤씨솔루션"
+          ],
+          "filer": "엠앤씨솔루션",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "주요사항보고서(자기주식취득신탁계약체결결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828001290"
+        },
+        {
+          "doc_id": "20260828900475",
+          "doc_type": "contract",
+          "entities": [
+            "KR:267320"
+          ],
+          "entity_names": [
+            "나인테크"
+          ],
+          "filer": "나인테크",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900475"
+        },
+        {
+          "doc_id": "20260828800872",
+          "doc_type": "contract",
+          "entities": [
+            "KR:004440"
+          ],
+          "entity_names": [
+            "삼일씨엔에스"
+          ],
+          "filer": "삼일씨엔에스",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828800872"
+        },
+        {
+          "doc_id": "20260828900386",
+          "doc_type": "contract",
+          "entities": [
+            "KR:123750"
+          ],
+          "entity_names": [
+            "알톤"
+          ],
+          "filer": "알톤",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900386"
+        },
+        {
+          "doc_id": "20260828000909",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:123010"
+          ],
+          "entity_names": [
+            "MSDI"
+          ],
+          "filer": "MSDI",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]주요사항보고서(전환사채권발행결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828000909"
+        },
+        {
+          "doc_id": "20260828000849",
+          "doc_type": "buyback",
+          "entities": [
+            "KR:051380"
+          ],
+          "entity_names": [
+            "피씨디렉트"
+          ],
+          "filer": "피씨디렉트",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "자기주식취득결과보고서",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828000849"
+        },
+        {
+          "doc_id": "20260828800397",
+          "doc_type": "dividend",
+          "entities": [
+            "KR:088260"
+          ],
+          "entity_names": [
+            "이리츠코크렙"
+          ],
+          "filer": "이리츠코크렙",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "부동산투자회사금전배당결정",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828800397"
+        },
+        {
+          "doc_id": "20260828900468",
+          "doc_type": "distress",
+          "entities": [
+            "KR:208860"
+          ],
+          "entity_names": [
+            "다산디엠씨"
+          ],
+          "filer": "코스닥시장본부",
+          "published_at": "2026-08-28T09:00:00+09:00",
           "title": "주권매매거래정지              (주식의 병합, 분할 등 전자등록 변경, 말소)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900498"
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900468"
         },
         {
-          "doc_id": "20260818800267",
-          "doc_type": "dividend",
-          "entities": [
-            "KR:005490"
-          ],
-          "entity_names": [
-            "POSCO홀딩스"
-          ],
-          "filer": "POSCO홀딩스",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "현금ㆍ현물배당결정(자회사의 주요경영사항)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800267"
-        },
-        {
-          "doc_id": "20260818800335",
-          "doc_type": "dividend",
-          "entities": [
-            "KR:006040"
-          ],
-          "entity_names": [
-            "동원산업"
-          ],
-          "filer": "동원산업",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]현금ㆍ현물배당을위한주주명부폐쇄(기준일)결정",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800335"
-        },
-        {
-          "doc_id": "20260818900500",
+          "doc_id": "20260828900407",
           "doc_type": "contract",
           "entities": [
-            "KR:950250"
+            "KR:088390"
           ],
           "entity_names": [
-            "테라뷰"
+            "이녹스"
           ],
-          "filer": "테라뷰",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "단일판매ㆍ공급계약체결",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900500"
-        },
-        {
-          "doc_id": "20260818800565",
-          "doc_type": "contract",
-          "entities": [
-            "KR:363280"
-          ],
-          "entity_names": [
-            "티와이홀딩스"
-          ],
-          "filer": "티와이홀딩스",
-          "published_at": "2026-08-18T09:00:00+09:00",
+          "filer": "이녹스",
+          "published_at": "2026-08-28T09:00:00+09:00",
           "title": "[기재정정]단일판매ㆍ공급계약체결(자회사의 주요경영사항)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818800565"
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900407"
         },
         {
-          "doc_id": "20260818900225",
+          "doc_id": "20260828001885",
           "doc_type": "dilution",
           "entities": [
-            "KR:475580"
+            "KR:105550"
           ],
           "entity_names": [
-            "에이럭스"
+            "엣지파운드리"
           ],
-          "filer": "에이럭스",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "[기재정정]유상증자결정(종속회사의주요경영사항)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900225"
+          "filer": "엣지파운드리",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]주요사항보고서(전환사채권발행결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828001885"
         },
         {
-          "doc_id": "20260818900361",
+          "doc_id": "20260828900807",
           "doc_type": "dilution",
           "entities": [
-            "KR:466100"
+            "KR:105550"
           ],
           "entity_names": [
-            "클로봇"
+            "엣지파운드리"
           ],
-          "filer": "클로봇",
-          "published_at": "2026-08-18T09:00:00+09:00",
-          "title": "유상증자또는주식관련사채등의청약결과(자율공시)",
-          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260818900361"
+          "filer": "엣지파운드리",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "전환사채(해외전환사채포함)발행후만기전사채취득",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900807"
+        },
+        {
+          "doc_id": "20260828800631",
+          "doc_type": "contract",
+          "entities": [
+            "KR:006120"
+          ],
+          "entity_names": [
+            "SK디스커버리"
+          ],
+          "filer": "SK디스커버리",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결(자회사의 주요경영사항)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828800631"
+        },
+        {
+          "doc_id": "20260828900385",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:900120"
+          ],
+          "entity_names": [
+            "씨엑스아이"
+          ],
+          "filer": "씨엑스아이",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "증권발행결과(자율공시)              (제3자배정 유상증자)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900385"
+        },
+        {
+          "doc_id": "20260828800933",
+          "doc_type": "contract",
+          "entities": [
+            "KR:210980"
+          ],
+          "entity_names": [
+            "SK디앤디"
+          ],
+          "filer": "SK디앤디",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828800933"
+        },
+        {
+          "doc_id": "20260828900458",
+          "doc_type": "contract",
+          "entities": [
+            "KR:066980"
+          ],
+          "entity_names": [
+            "한성크린텍"
+          ],
+          "filer": "한성크린텍",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900458"
+        },
+        {
+          "doc_id": "20260828900533",
+          "doc_type": "distress",
+          "entities": [
+            "KR:142760"
+          ],
+          "entity_names": [
+            "모아라이프플러스"
+          ],
+          "filer": "코스닥시장본부",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "주권매매거래정지해제              (액면병합 주권 변경상장)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900533"
+        },
+        {
+          "doc_id": "20260828000387",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:247660"
+          ],
+          "entity_names": [
+            "나노씨엠에스"
+          ],
+          "filer": "나노씨엠에스",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]주요사항보고서(유상증자결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828000387"
+        },
+        {
+          "doc_id": "20260828000455",
+          "doc_type": "buyback",
+          "entities": [
+            "KR:950190"
+          ],
+          "entity_names": [
+            "고스트스튜디오"
+          ],
+          "filer": "고스트스튜디오",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "주요사항보고서(자기주식취득결정)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828000455"
+        },
+        {
+          "doc_id": "20260828800876",
+          "doc_type": "contract",
+          "entities": [
+            "KR:004960"
+          ],
+          "entity_names": [
+            "한신공영"
+          ],
+          "filer": "한신공영",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]단일판매ㆍ공급계약체결",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828800876"
+        },
+        {
+          "doc_id": "20260828900766",
+          "doc_type": "dilution",
+          "entities": [
+            "KR:226330"
+          ],
+          "entity_names": [
+            "신테카바이오"
+          ],
+          "filer": "신테카바이오",
+          "published_at": "2026-08-28T09:00:00+09:00",
+          "title": "[기재정정]기타경영사항(자율공시)              (자기사채(제1,2회차 무기명식 이권부 무보증 사모 전환사채) 소각 결정의 건)",
+          "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260828900766"
         }
       ],
       "events": [
@@ -763,216 +763,108 @@
           "analyst": "news",
           "category": "delisting",
           "decision": "block",
-          "entity_id": "KR:002410",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "범양건영",
-          "reason": "실질심사: 기타시장안내              (상장적격성 실질심사 사유 발생)",
+          "entity_id": "KR:008290",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "원풍물산",
+          "reason": "상장폐지: 기타시장안내              (시가총액 미달에 따른 상장폐지 우려 관련 안내)",
           "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
-          "category": "accounting",
+          "category": "embezzlement",
           "decision": "block",
-          "entity_id": "KR:005110",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "한창",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
+          "entity_id": "KR:024950",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "삼천리자전거",
+          "reason": "횡령: 횡령ㆍ배임혐의진행사항",
           "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:008600",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "윌비스",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:009440",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "KC그린홀딩스",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:011000",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "진원생명과학",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:011810",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "STX",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:015020",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "이스타코",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "delisting",
           "decision": "block",
-          "entity_id": "KR:017040",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "광명전기",
-          "reason": "실질심사: 기타시장안내              (상장적격성 실질심사 사유 발생)",
+          "entity_id": "KR:036690",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "코맥스",
+          "reason": "실질심사: 상장적격성실질심사관련주요개선계획(자율공시)",
           "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:019490",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "엑시큐어하이트론",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:036420",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "콘텐트리중앙",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "delisting",
           "decision": "block",
-          "entity_id": "KR:052770",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "아이톡시",
-          "reason": "실질심사: 기타시장안내              (상장적격성 실질심사 사유추가)",
+          "entity_id": "KR:072770",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "멤레이비티",
+          "reason": "관리종목: 기타시장안내(관리종목지정우려종목)              (주가 1,000원 미달)",
           "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "embezzlement",
+          "decision": "block",
+          "entity_id": "KR:094850",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "참좋은여행",
+          "reason": "횡령: 횡령ㆍ배임혐의진행사항",
+          "severity": 1.0,
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "delisting",
           "decision": "block",
-          "entity_id": "KR:068240",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "다원시스",
-          "reason": "실질심사: 기타시장안내              (상장적격성 실질심사 사유 추가)",
+          "entity_id": "KR:121850",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "코이즈",
+          "reason": "상장폐지: 기타시장안내              (시가총액 미달에 따른 상장폐지 우려 관련 안내)",
           "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "accounting",
-          "decision": "block",
-          "entity_id": "KR:069460",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "대호에이엘",
-          "reason": "의견거절: 반기검토의견부적정,의견거절또는완전자본잠식사실발생",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "delisting",
-          "decision": "block",
-          "entity_id": "KR:082660",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "코스나인",
-          "reason": "관리종목: 기타시장안내              (관리종목 지정사유 추가 관련 시장조치사항 안내)",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "delisting",
-          "decision": "block",
-          "entity_id": "KR:203400",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "에이비온",
-          "reason": "실질심사: 주권매매거래정지              (상장적격성 실질심사 대상 (사유발생))",
-          "severity": 1.0,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "trading_halt",
           "decision": "block",
-          "entity_id": "KR:090150",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "아이윈",
-          "reason": "거래정지: 주권매매거래정지해제              (액면병합 주권 변경상장)",
+          "entity_id": "KR:062970",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "한국첨단소재",
+          "reason": "거래정지: 주권매매거래정지              (우회상장여부 및 요건충족확인)",
           "severity": 0.9,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "trading_halt",
           "decision": "block",
-          "entity_id": "KR:177350",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "베셀",
-          "reason": "거래정지: 주권매매거래정지해제              (액면병합 주권 변경상장)",
+          "entity_id": "KR:066410",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "버킷스튜디오",
+          "reason": "거래정지: 주권매매거래정지기간변경              (개선기간 부여)",
           "severity": 0.9,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
-          "category": "litigation",
+          "category": "trading_halt",
           "decision": "block",
-          "entity_id": "KR:000680",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "LS네트웍스",
-          "reason": "소송: 소송등의제기ㆍ신청(일정금액이상의청구)",
-          "severity": 0.6,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "entity_id": "KR:080720",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "한국유니온제약",
+          "reason": "거래정지: 주권매매거래정지기간변경              (투자자 보호)",
+          "severity": 0.9,
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
@@ -980,59 +872,107 @@
           "category": "litigation",
           "decision": "block",
           "entity_id": "KR:010130",
-          "expires_at": "2026-08-23T16:00:00+09:00",
+          "expires_at": "2026-09-02T16:00:00+09:00",
           "name": "고려아연",
-          "reason": "소송: [기재정정]소송등의제기ㆍ신청(경영권분쟁소송)",
+          "reason": "소송: 소송등의제기ㆍ신청(경영권분쟁소송)",
           "severity": 0.6,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "litigation",
           "decision": "block",
-          "entity_id": "KR:079160",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "CJ CGV",
-          "reason": "소송: [기재정정]소송등의판결ㆍ결정(일정금액이상의청구)",
+          "entity_id": "KR:012170",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "아센디오",
+          "reason": "소송: 소송등의제기ㆍ신청(경영권분쟁소송)",
           "severity": 0.6,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "litigation",
           "decision": "block",
-          "entity_id": "KR:088790",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "진도",
-          "reason": "소송: 소송등의판결ㆍ결정",
+          "entity_id": "KR:053260",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "금강철강",
+          "reason": "소송: 소송등의제기ㆍ신청(경영권분쟁소송)              (회사에 관한 소송)",
           "severity": 0.6,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "litigation",
           "decision": "block",
-          "entity_id": "KR:145720",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "덴티움",
-          "reason": "소송: [기재정정]소송등의판결ㆍ결정",
+          "entity_id": "KR:079940",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "가비아",
+          "reason": "소송: 소송등의제기ㆍ신청(경영권분쟁소송)              (이사회의사록열람등사허가신청)",
           "severity": 0.6,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
-          "category": "litigation",
+          "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:200350",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "아티스트스튜디오",
-          "reason": "소송: 소송등의판결ㆍ결정",
-          "severity": 0.6,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "entity_id": "KR:003620",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "KG모빌리티",
+          "reason": "전환사채: 주요사항보고서(전환사채권발행결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:009410",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "태영건설",
+          "reason": "유상증자: 주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:009810",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "MDS스피어",
+          "reason": "유상증자: 유상증자또는주식관련사채등의발행결과(자율공시)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:011000",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "진원생명과학",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:011040",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "경동제약",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
@@ -1040,47 +980,23 @@
           "category": "dilution",
           "decision": "block",
           "entity_id": "KR:011090",
-          "expires_at": "2026-08-23T16:00:00+09:00",
+          "expires_at": "2026-09-02T16:00:00+09:00",
           "name": "에넥스",
           "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
-          "decision": "block",
-          "entity_id": "KR:012170",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "아센디오",
-          "reason": "유상증자: 주요사항보고서(유상증자결정)",
-          "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "insider_sell",
           "decision": "block",
           "entity_id": "KR:026910",
-          "expires_at": "2026-08-23T16:00:00+09:00",
+          "expires_at": "2026-09-02T16:00:00+09:00",
           "name": "광진실업",
-          "reason": "최대주주: 최대주주변경을수반하는주식담보제공계약체결",
+          "reason": "전환사채: [기재정정]주요사항보고서(전환사채권발행결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "dilution",
-          "decision": "block",
-          "entity_id": "KR:033540",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "파라텍",
-          "reason": "전환사채: [첨부정정]주요사항보고서(전환사채권발행결정)",
-          "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
@@ -1088,157 +1004,1413 @@
           "category": "dilution",
           "decision": "block",
           "entity_id": "KR:043260",
-          "expires_at": "2026-08-23T16:00:00+09:00",
+          "expires_at": "2026-09-02T16:00:00+09:00",
           "name": "성호전자",
-          "reason": "전환사채: [기재정정]주요사항보고서(전환사채권발행결정)",
+          "reason": "신주인수권부사채: [기재정정]기타경영사항(자율공시)              (제14회차 신주인수권부사채 만기전 취득 후 재매각)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:082270",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "젬백스",
-          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
+          "entity_id": "KR:046120",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "오르비텍",
+          "reason": "전환사채: 주요사항보고서(전환사채권발행결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "dilution",
-          "decision": "block",
-          "entity_id": "KR:083660",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "CSA 코스믹",
-          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
-          "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "insider_sell",
           "decision": "block",
-          "entity_id": "KR:085620",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "미래에셋생명",
-          "reason": "최대주주: 최대주주등소유주식변동신고서",
+          "entity_id": "KR:054220",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "비츠로시스",
+          "reason": "최대주주: 최대주주변경을수반하는주식담보제공계약체결",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:101400",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "엔시트론",
-          "reason": "유상증자: 주요사항보고서(유상증자결정)",
+          "entity_id": "KR:060230",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "제이케이시냅스",
+          "reason": "전환사채: [기재정정]주요사항보고서(자기전환사채매도결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:060570",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "드림어스컴퍼니",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:107640",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "한중엔시에스",
-          "reason": "전환사채: 주요사항보고서(전환사채권발행결정)",
-          "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "dilution",
-          "decision": "block",
-          "entity_id": "KR:126340",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "비나텍",
-          "reason": "전환사채: 주요사항보고서(전환사채권발행결정)",
-          "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
-        },
-        {
-          "active": true,
-          "analyst": "news",
-          "category": "dilution",
-          "decision": "block",
-          "entity_id": "KR:175250",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "아이큐어",
+          "entity_id": "KR:065650",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "하이퍼코퍼레이션",
           "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:177830",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "파버나인",
-          "reason": "전환사채: 전환사채(해외전환사채포함)발행후만기전사채취득",
+          "entity_id": "KR:069920",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "엑시온그룹",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:179530",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "애드바이오텍",
+          "entity_id": "KR:070300",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "퀀텀레일",
           "reason": "전환사채: [기재정정]주요사항보고서(전환사채권발행결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:179900",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "유티아이",
+          "entity_id": "KR:073640",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "테라사이언스",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:079190",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "케스피온",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:083640",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "인콘",
           "reason": "전환사채: [기재정정]주요사항보고서(전환사채권발행결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:089140",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "넥스턴앤롤코리아",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:182360",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "큐브엔터",
-          "reason": "전환사채: 전환사채(해외전환사채포함)발행후만기전사채취득",
+          "entity_id": "KR:096690",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "에이루트",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
         },
         {
           "active": true,
           "analyst": "news",
           "category": "dilution",
           "decision": "block",
-          "entity_id": "KR:187420",
-          "expires_at": "2026-08-23T16:00:00+09:00",
-          "name": "HLB제넥스",
-          "reason": "전환사채: 전환사채(해외전환사채포함)발행후만기전사채취득",
+          "entity_id": "KR:105550",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "엣지파운드리",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
           "severity": 0.5,
-          "valid_from": "2026-08-18T16:00:00+09:00"
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:123010",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "MSDI",
+          "reason": "유상증자: [기재정정]주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:142760",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "모아라이프플러스",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:159910",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "에코글로우",
+          "reason": "유상증자: 주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:178320",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "서진시스템",
+          "reason": "전환사채: 주요사항보고서(전환사채권발행결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "insider_sell",
+          "decision": "block",
+          "entity_id": "KR:187220",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "디티앤씨",
+          "reason": "최대주주: [기재정정]최대주주변경을수반하는주식담보제공계약체결",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
+        },
+        {
+          "active": true,
+          "analyst": "news",
+          "category": "dilution",
+          "decision": "block",
+          "entity_id": "KR:191410",
+          "expires_at": "2026-09-02T16:00:00+09:00",
+          "name": "육일씨엔에쓰",
+          "reason": "유상증자: 주요사항보고서(유상증자결정)",
+          "severity": 0.5,
+          "valid_from": "2026-08-28T16:00:00+09:00"
         }
       ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "headlines/schedule": {
+    "as_of": "2026-08-30T03:31:14.557406+00:00",
+    "data": {
+      "counts": {
+        "earnings": 0,
+        "estimated": 0,
+        "macro": 38
+      },
+      "days": {
+        "2026-08-02": [
+          {
+            "date": "2026-08-02",
+            "detail": "TREASURY_3Y · 이전 3.794",
+            "entity_id": "KR:TREASURY_3Y",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "국고채(3년)",
+            "market": "KR",
+            "time": "08:00"
+          },
+          {
+            "date": "2026-08-02",
+            "detail": "BASE_RATE · 이전 2.5",
+            "entity_id": "KR:BASE_RATE",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "한국은행 기준금리",
+            "market": "KR",
+            "time": "08:00"
+          }
+        ],
+        "2026-08-04": [
+          {
+            "date": "2026-08-04",
+            "detail": "CPI · 이전 119.99",
+            "entity_id": "KR:CPI",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "소비자물가지수(2020＝100)",
+            "market": "KR",
+            "time": "08:00"
+          },
+          {
+            "date": "2026-08-04",
+            "detail": "JOLTS · 이전 7537.0",
+            "entity_id": "US:JOLTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Job Openings and Labor Turnover Survey",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-04",
+            "detail": "TRADE_BALANCE · 이전 -77647.0",
+            "entity_id": "US:TRADE_BALANCE",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "U.S. International Trade in Goods and Services",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-06": [
+          {
+            "date": "2026-08-06",
+            "detail": "JOBLESS_CLAIMS · 이전 212000.0",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-07": [
+          {
+            "date": "2026-08-07",
+            "detail": "EMPLOYMENT · 이전 4.2",
+            "entity_id": "US:EMPLOYMENT",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Employment Situation",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-12": [
+          {
+            "date": "2026-08-12",
+            "detail": "UNEMPLOYMENT · 이전 2.8",
+            "entity_id": "KR:UNEMPLOYMENT",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "성/연령별 실업률",
+            "market": "KR",
+            "time": "08:00"
+          },
+          {
+            "date": "2026-08-12",
+            "detail": "CPI · 이전 332.568",
+            "entity_id": "US:CPI",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Consumer Price Index",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-13": [
+          {
+            "date": "2026-08-13",
+            "detail": "PPI · 이전 286.279",
+            "entity_id": "US:PPI",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Producer Price Index",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-13",
+            "detail": "JOBLESS_CLAIMS · 이전 207000.0",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-14": [
+          {
+            "date": "2026-08-14",
+            "detail": "RETAIL_ADVANCE · 이전 768072.0",
+            "entity_id": "US:RETAIL_ADVANCE",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Advance Monthly Sales for Retail and Food Services",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-14",
+            "detail": "RETAIL_SALES · 이전 768072.0",
+            "entity_id": "US:RETAIL_SALES",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Monthly Retail Trade and Food Services",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-18": [
+          {
+            "date": "2026-08-18",
+            "detail": "INDUSTRIAL_PRODUCTION · 이전 102.7868",
+            "entity_id": "US:INDUSTRIAL_PRODUCTION",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "G.17 Industrial Production and Capacity Utilization",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-18",
+            "detail": "HOUSING_STARTS · 이전 1415.0",
+            "entity_id": "US:HOUSING_STARTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "New Residential Construction",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-20": [
+          {
+            "date": "2026-08-20",
+            "detail": "JOBLESS_CLAIMS · 이전 207000.0",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-08-22": [
+          {
+            "date": "2026-08-22",
+            "detail": "PPI · 이전 129.92",
+            "entity_id": "KR:PPI",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "생산자물가지수(기본분류)",
+            "market": "KR",
+            "time": "08:00"
+          }
+        ],
+        "2026-08-25": [
+          {
+            "date": "2026-08-25",
+            "detail": "이전 9.5K",
+            "entity_id": "US:FF:ADP_WEEKLY_EMPLOYMENT_CHANGE",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "ADP Weekly Employment Change",
+            "market": "US",
+            "time": "21:15"
+          },
+          {
+            "date": "2026-08-25",
+            "detail": "HOUSING_STARTS · 이전 1415.0",
+            "entity_id": "US:HOUSING_STARTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "New Residential Construction",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-25",
+            "detail": "예측 0.2% · 이전 0.3%",
+            "entity_id": "US:FF:HPI_M_M",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "HPI m/m",
+            "market": "US",
+            "time": "22:00"
+          },
+          {
+            "date": "2026-08-25",
+            "detail": "예측 1.8% · 이전 1.6%",
+            "entity_id": "US:FF:S_P_CS_COMPOSITE_20_HPI_Y_Y",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "S&P/CS Composite-20 HPI y/y",
+            "market": "US",
+            "time": "22:00"
+          },
+          {
+            "date": "2026-08-25",
+            "detail": "예측 90.3 · 이전 90.8",
+            "entity_id": "US:FF:CB_CONSUMER_CONFIDENCE",
+            "impact": "Medium",
+            "importance": 2,
+            "kind": "macro",
+            "label": "CB Consumer Confidence",
+            "market": "US",
+            "time": "23:00"
+          },
+          {
+            "date": "2026-08-25",
+            "detail": "예측 620K · 이전 628K",
+            "entity_id": "US:FF:NEW_HOME_SALES",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "New Home Sales",
+            "market": "US",
+            "time": "23:00"
+          },
+          {
+            "date": "2026-08-25",
+            "detail": "예측 6 · 이전 5",
+            "entity_id": "US:FF:RICHMOND_MANUFACTURING_INDEX",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Richmond Manufacturing Index",
+            "market": "US",
+            "time": "23:00"
+          }
+        ],
+        "2026-08-26": [
+          {
+            "date": "2026-08-26",
+            "detail": "예측 0.2% · 이전 0.1%",
+            "entity_id": "US:PCE",
+            "impact": "High",
+            "importance": 3,
+            "kind": "macro",
+            "label": "Core PCE Price Index m/m",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-26",
+            "detail": "예측 1.5% · 이전 1.5%",
+            "entity_id": "US:GDP",
+            "impact": "High",
+            "importance": 3,
+            "kind": "macro",
+            "label": "Prelim GDP q/q",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-26",
+            "detail": "예측 6.2% · 이전 6.2%",
+            "entity_id": "US:FF:PRELIM_GDP_PRICE_INDEX_Q_Q",
+            "impact": "Medium",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Prelim GDP Price Index q/q",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-26",
+            "detail": "예측 0.6% · 이전 0.6%",
+            "entity_id": "US:FF:CORE_DURABLE_GOODS_ORDERS_M_M",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Core Durable Goods Orders m/m",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-26",
+            "detail": "예측 0.4% · 이전 0.3%",
+            "entity_id": "US:FF:DURABLE_GOODS_ORDERS_M_M",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Durable Goods Orders m/m",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-26",
+            "detail": "예측 1.6M · 이전 4.4M",
+            "entity_id": "US:FF:CRUDE_OIL_INVENTORIES",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Crude Oil Inventories",
+            "market": "US",
+            "time": "23:30"
+          }
+        ],
+        "2026-08-27": [
+          {
+            "date": "2026-08-27",
+            "detail": "예측 208K · 이전 206K",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "Medium",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Claims",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-27",
+            "detail": "예측 -100.8B · 이전 -101.5B",
+            "entity_id": "US:FF:GOODS_TRADE_BALANCE",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Goods Trade Balance",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-27",
+            "detail": "예측 0.2% · 이전 0.2%",
+            "entity_id": "US:FF:PRELIM_WHOLESALE_INVENTORIES_M_M",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Prelim Wholesale Inventories m/m",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-08-27",
+            "detail": "예측 19B · 이전 16B",
+            "entity_id": "US:FF:NATURAL_GAS_STORAGE",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Natural Gas Storage",
+            "market": "US",
+            "time": "23:30"
+          }
+        ],
+        "2026-08-28": [
+          {
+            "date": "2026-08-28",
+            "detail": "예측 57.9 · 이전 57.6",
+            "entity_id": "US:FF:CHICAGO_PMI",
+            "impact": "Low",
+            "importance": 1,
+            "kind": "macro",
+            "label": "Chicago PMI",
+            "market": "US",
+            "time": "22:45"
+          },
+          {
+            "date": "2026-08-28",
+            "detail": "이전 -911K",
+            "entity_id": "US:FF:PRELIM_BENCHMARK_PAYROLLS_REVISION",
+            "impact": "High",
+            "importance": 3,
+            "kind": "macro",
+            "label": "Prelim Benchmark Payrolls Revision",
+            "market": "US",
+            "time": "23:00"
+          },
+          {
+            "date": "2026-08-28",
+            "detail": "예측 51.0 · 이전 51.0",
+            "entity_id": "US:FF:REVISED_UOM_CONSUMER_SENTIMENT",
+            "impact": "Medium",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Revised UoM Consumer Sentiment",
+            "market": "US",
+            "time": "23:00"
+          },
+          {
+            "date": "2026-08-28",
+            "detail": "이전 4.3%",
+            "entity_id": "US:FF:REVISED_UOM_INFLATION_EXPECTATIONS",
+            "impact": "Medium",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Revised UoM Inflation Expectations",
+            "market": "US",
+            "time": "23:00"
+          }
+        ]
+      },
+      "month": "2026-08",
+      "next": "2026-09",
+      "prev": "2026-07"
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "headlines/schedule?days=30": {
+    "as_of": "2026-08-30T03:31:14.700096+00:00",
+    "data": {
+      "counts": {
+        "earnings": 40,
+        "estimated": 4,
+        "macro": 15
+      },
+      "days": {
+        "2026-09-01": [
+          {
+            "date": "2026-09-01",
+            "detail": "장 전 · EPS 예측 $1.38",
+            "entity_id": "US:MDT",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Medtronic plc 실적",
+            "market": "US",
+            "time": "21:00"
+          },
+          {
+            "date": "2026-09-01",
+            "detail": "장 전 · EPS 예측 ($0.07)",
+            "entity_id": "US:NIO",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "NIO Inc. 실적",
+            "market": "US",
+            "time": "21:00"
+          },
+          {
+            "date": "2026-09-01",
+            "detail": "JOLTS",
+            "entity_id": "US:JOLTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Job Openings and Labor Turnover Survey",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-09-01",
+            "detail": "예상 · 작년 2025-09-01 공시(Q3) 기준",
+            "entity_id": "KR:000270",
+            "estimated": true,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "기아 실적 (예상)",
+            "market": "KR",
+            "time": ""
+          },
+          {
+            "date": "2026-09-01",
+            "detail": "예상 · 작년 2025-09-01 공시(Q3) 기준",
+            "entity_id": "KR:005380",
+            "estimated": true,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "현대자동차 실적 (예상)",
+            "market": "KR",
+            "time": ""
+          }
+        ],
+        "2026-09-02": [
+          {
+            "date": "2026-09-02",
+            "detail": "장 후 · EPS 예측 $4.72",
+            "entity_id": "US:DELL",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Dell Technologies Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-02",
+            "detail": "장 후 · EPS 예측 $0.51",
+            "entity_id": "US:PANW",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Palo Alto Networks, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-02",
+            "detail": "장 후 · EPS 예측 $0.91",
+            "entity_id": "US:CRDO",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Credo Technology Group Holding Ltd 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-02",
+            "detail": "장 후 · EPS 예측 $0.08",
+            "entity_id": "US:MDB",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "MongoDB, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-02",
+            "detail": "장 전",
+            "entity_id": "US:BF.A",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Brown Forman Corporation 실적",
+            "market": "US",
+            "time": "21:00"
+          }
+        ],
+        "2026-09-03": [
+          {
+            "date": "2026-09-03",
+            "detail": "장 후 · EPS 예측 $2.83",
+            "entity_id": "US:AVGO",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Broadcom Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "장 후 · EPS 예측 ($0.51)",
+            "entity_id": "US:SNOW",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Snowflake Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "장 후 · EPS 예측 $1.32",
+            "entity_id": "US:FIVE",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Five Below, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "장 후 · EPS 예측 $0.82",
+            "entity_id": "US:HPE",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Hewlett Packard Enterprise Company 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "장 후 · EPS 예측 $1.72",
+            "entity_id": "US:NTAP",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "NetApp, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "장 전 · EPS 예측 $1.45",
+            "entity_id": "US:CIEN",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Ciena Corporation 실적",
+            "market": "US",
+            "time": "21:00"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "TRADE_BALANCE",
+            "entity_id": "US:TRADE_BALANCE",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "U.S. International Trade in Goods and Services",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-09-03",
+            "detail": "JOBLESS_CLAIMS",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-04": [
+          {
+            "date": "2026-09-04",
+            "detail": "시각 미정 · EPS 예측 $0.39",
+            "entity_id": "US:CPRT",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Copart, Inc. 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-04",
+            "detail": "장 후 · EPS 예측 $0.44",
+            "entity_id": "US:DOCU",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "DocuSign, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-04",
+            "detail": "장 후 · EPS 예측 $0.49",
+            "entity_id": "US:GWRE",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Guidewire Software, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-04",
+            "detail": "장 후 · EPS 예측 $0.02",
+            "entity_id": "US:IOT",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Samsara Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-04",
+            "detail": "장 후 · EPS 예측 $0.06",
+            "entity_id": "US:ZS",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Zscaler, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-04",
+            "detail": "장 후 · EPS 예측 $1.79",
+            "entity_id": "US:LULU",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "lululemon athletica inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-04",
+            "detail": "EMPLOYMENT",
+            "entity_id": "US:EMPLOYMENT",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Employment Situation",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-09": [
+          {
+            "date": "2026-09-09",
+            "detail": "시각 미정 · EPS 예측 $1.40",
+            "entity_id": "US:ORCL",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Oracle Corporation 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-09",
+            "detail": "장 후 · EPS 예측 $6.59",
+            "entity_id": "US:CASY",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Caseys General Stores, Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-09",
+            "detail": "장 전 · EPS 예측 $0.08",
+            "entity_id": "US:SAIL",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "SailPoint, Inc. 실적",
+            "market": "US",
+            "time": "21:00"
+          },
+          {
+            "date": "2026-09-09",
+            "detail": "장 전 · EPS 예측 $0.98",
+            "entity_id": "US:SUNB",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Sunbelt Rentals Holdings, Inc. 실적",
+            "market": "US",
+            "time": "21:00"
+          }
+        ],
+        "2026-09-10": [
+          {
+            "date": "2026-09-10",
+            "detail": "장 후 · EPS 예측 $1.11",
+            "entity_id": "US:COO",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "The Cooper Companies, Inc.  실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-10",
+            "detail": "PPI",
+            "entity_id": "US:PPI",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Producer Price Index",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-09-10",
+            "detail": "JOBLESS_CLAIMS",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-11": [
+          {
+            "date": "2026-09-11",
+            "detail": "장 후 · EPS 예측 $4.86",
+            "entity_id": "US:ADBE",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Adobe Inc. 실적",
+            "market": "US",
+            "time": "05:30"
+          },
+          {
+            "date": "2026-09-11",
+            "detail": "장 전 · EPS 예측 $1.05",
+            "entity_id": "US:KR",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Kroger Company (The) 실적",
+            "market": "US",
+            "time": "21:00"
+          },
+          {
+            "date": "2026-09-11",
+            "detail": "CPI",
+            "entity_id": "US:CPI",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Consumer Price Index",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-15": [
+          {
+            "date": "2026-09-15",
+            "detail": "예상 · 작년 2025-09-15 공시(Q3) 기준",
+            "entity_id": "KR:009540",
+            "estimated": true,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "HD한국조선해양 실적 (예상)",
+            "market": "KR",
+            "time": ""
+          },
+          {
+            "date": "2026-09-15",
+            "detail": "예상 · 작년 2025-09-15 공시(Q3) 기준",
+            "entity_id": "KR:329180",
+            "estimated": true,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "HD현대중공업 실적 (예상)",
+            "market": "KR",
+            "time": ""
+          }
+        ],
+        "2026-09-16": [
+          {
+            "date": "2026-09-16",
+            "detail": "RETAIL_ADVANCE",
+            "entity_id": "US:RETAIL_ADVANCE",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Advance Monthly Sales for Retail and Food Services",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-09-16",
+            "detail": "RETAIL_SALES",
+            "entity_id": "US:RETAIL_SALES",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Monthly Retail Trade and Food Services",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-17": [
+          {
+            "date": "2026-09-17",
+            "detail": "HOUSING_STARTS",
+            "entity_id": "US:HOUSING_STARTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "New Residential Construction",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-09-17",
+            "detail": "JOBLESS_CLAIMS",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-18": [
+          {
+            "date": "2026-09-18",
+            "detail": "시각 미정 · EPS 예측 $2.07",
+            "entity_id": "US:DRI",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Darden Restaurants, Inc. 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-18",
+            "detail": "시각 미정 · EPS 예측 $4.30",
+            "entity_id": "US:FDS",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "FactSet Research Systems Inc. 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-18",
+            "detail": "시각 미정 · EPS 예측 $1.31",
+            "entity_id": "US:LEN",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Lennar Corporation 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-18",
+            "detail": "INDUSTRIAL_PRODUCTION",
+            "entity_id": "US:INDUSTRIAL_PRODUCTION",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "G.17 Industrial Production and Capacity Utilization",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-22": [
+          {
+            "date": "2026-09-22",
+            "detail": "시각 미정 · EPS 예측 $0.33",
+            "entity_id": "US:KEP",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Korea Electric Power Corporation 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-22",
+            "detail": "장 전 · EPS 예측 $55.08",
+            "entity_id": "US:AZO",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "AutoZone, Inc. 실적",
+            "market": "US",
+            "time": "21:00"
+          }
+        ],
+        "2026-09-23": [
+          {
+            "date": "2026-09-23",
+            "detail": "장 전 · EPS 예측 $0.73",
+            "entity_id": "US:GIS",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "General Mills, Inc. 실적",
+            "market": "US",
+            "time": "21:00"
+          }
+        ],
+        "2026-09-24": [
+          {
+            "date": "2026-09-24",
+            "detail": "시각 미정 · EPS 예측 $1.35",
+            "entity_id": "US:CTAS",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Cintas Corporation 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-24",
+            "detail": "HOUSING_STARTS",
+            "entity_id": "US:HOUSING_STARTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "New Residential Construction",
+            "market": "US",
+            "time": "21:30"
+          },
+          {
+            "date": "2026-09-24",
+            "detail": "JOBLESS_CLAIMS",
+            "entity_id": "US:JOBLESS_CLAIMS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Unemployment Insurance Weekly Claims Report",
+            "market": "US",
+            "time": "21:30"
+          }
+        ],
+        "2026-09-25": [
+          {
+            "date": "2026-09-25",
+            "detail": "시각 미정 · EPS 예측 $3.86",
+            "entity_id": "US:JBL",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "Jabil Inc. 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-25",
+            "detail": "시각 미정 · EPS 예측 $4.38",
+            "entity_id": "US:SNX",
+            "estimated": false,
+            "impact": "",
+            "importance": 2,
+            "kind": "earnings",
+            "label": "TD SYNNEX Corporation 실적",
+            "market": "US",
+            "time": "01:00"
+          },
+          {
+            "date": "2026-09-25",
+            "detail": "장 후 · EPS 예측 $6.51",
+            "entity_id": "US:COST",
+            "estimated": false,
+            "impact": "",
+            "importance": 3,
+            "kind": "earnings",
+            "label": "Costco Wholesale Corporation 실적",
+            "market": "US",
+            "time": "05:30"
+          }
+        ],
+        "2026-09-29": [
+          {
+            "date": "2026-09-29",
+            "detail": "JOLTS",
+            "entity_id": "US:JOLTS",
+            "impact": "",
+            "importance": 2,
+            "kind": "macro",
+            "label": "Job Openings and Labor Turnover Survey",
+            "market": "US",
+            "time": "21:30"
+          }
+        ]
+      },
+      "from": "2026-08-30",
+      "to": "2026-09-29"
     },
     "live": true,
     "lookback_days": 90,

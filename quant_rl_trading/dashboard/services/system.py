@@ -243,7 +243,7 @@ def job_history(store: Store) -> list[dict[str, Any]]:
 #: 수명이 짧은 이유는 이 값이 "지금 배관이 도는가" 라서다 — 오래 들고 있으면
 #: 크론이 방금 채운 것을 화면이 모른다.
 _FRESHNESS_TTL_SEC = 20.0
-_freshness_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}
+_freshness_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]], datetime]] = {}
 
 
 #: **신선도 경보를 걸지 않는 테이블.** 여기 있는 것은 매일 생기는 것이 아니라
@@ -292,10 +292,11 @@ def table_freshness(
     """
     key = (str(store.root), lookback)
     now = monotonic()
-    if live:
-        hit = _freshness_cache.get(key)
-        if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC:
-            return hit[1]
+    # 되감기(as_of 과거)는 캐시하지 않는다 — 그 답은 as_of 마다 다르다. 지금 시각 조회는
+    # 35개 표를 훑는 데 수 초가 들어(2026-08-30 실측 17초, 부하 중) 60초 동안 재사용한다.
+    hit = _freshness_cache.get(key)
+    if hit is not None and now - hit[0] < (_FRESHNESS_TTL_SEC if live else _FRESHNESS_TTL_SEC * 3) and (live or hit[2] == as_of):
+        return hit[1]
 
     out: list[dict[str, Any]] = []
     for name in table_names():
@@ -352,7 +353,7 @@ def table_freshness(
             }
         )
     if live:
-        _freshness_cache[key] = (now, out)
+        _freshness_cache[key] = (now, out, as_of)
     return out
 
 

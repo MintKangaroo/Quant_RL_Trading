@@ -34,7 +34,7 @@ PAYLOADS = Path(__file__).parent / "payloads"
 #: 브라우저에서는 되는데 테스트만 ReferenceError 로 죽는다.
 TABS = [
     ("market", "market.html", "market.js", ("candles.js",)),
-    ("headlines", "headlines.html", "headlines.js", ()),
+    ("headlines", "headlines.html", "headlines.js", ("schedule.js",)),
     ("system", "system.html", "system.js", ()),
     ("learning", "learning.html", "learning.js", ()),
     ("ai_review", "ai_review.html", "ai_review.js", ()),
