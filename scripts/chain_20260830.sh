@@ -5,8 +5,8 @@ cd "$(dirname "$0")/.."
 S=logs/night-chain-20260829.log
 say() { echo "$(date '+%F %T') $*" | tee -a "$S"; }
 say "체인(재기동) 시작 — §7 완료 대기"
-until grep -q "^rc=" logs/compare-baselines-20260829.log 2>/dev/null; do sleep 60; done
-say "§7 끝 ($(grep '^rc=' logs/compare-baselines-20260829.log | tail -1)) — 미장 IC 시작"
+until grep -q "^rc=" logs/compare-baselines-20260830.log 2>/dev/null; do sleep 60; done
+say "§7 끝 ($(grep '^rc=' logs/compare-baselines-20260830.log | tail -1)) — 미장 IC 시작"
 QUANT_RL_DUCKDB_MEMORY_LIMIT=2GB nice -n 5 .venv/bin/python -u tools/measure_ic.py --market US --sessions 300 --save > logs/ic-us-20260829.log 2>&1
 say "미장 IC 끝 rc=$? — 시행 A 시작"
 QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB .venv/bin/python -u tools/trial_analyst_features.py --trial A --save > logs/trial-a-20260829.log 2>&1
