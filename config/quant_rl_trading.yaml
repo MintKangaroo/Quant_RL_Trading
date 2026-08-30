@@ -99,6 +99,14 @@ universe:
   # 비교되지만, US 거래대금은 달러라 환산 없이는 못 건다. 미장 자본·환율
   # 처리가 설계되기 전까지 US 는 절대 하한만 쓴다 (us-market-deferred).
   turnover_capacity_multiple: 1.6
+  # **순위 하한** — 절대 하한을 통과한 뒤 상위 N 만 남긴다. 0 이면 끄고 절대 하한만 쓴다.
+  # 하한(원 단위)은 자본이 커지면 따라 오르지만 시장 전체가 얼어붙은 날에는 의미가 없다.
+  # 순위는 그날의 시장을 기준으로 잘라서 "가장 잘 거래되는 것들" 을 남긴다.
+  # **켜기 전에 사전등록 시행으로 잰다**(docs/protocols/universe-rank-2026-09.md) — 유니버스를
+  # 좁히는 것은 알파를 늘리는 것이 아니라 후보를 줄이는 것이고, 둘은 다른 사실이다.
+  top_turnover_rank: 0       # 20일 평균 거래대금 상위 N 종목
+  top_volume_rank: 0         # 20일 평균 거래량(주수) 상위 N 종목
+  top_market_cap_rank: 0     # 시가총액 상위 N 종목
   min_listed_days: 180
   max_price_ratio: 0.15      # 1주 가격 / 자본
   exclude_flags: [관리종목, 거래정지, 정리매매]
@@ -403,7 +411,7 @@ thirteen_f:
   min_mapped_value: 0.8
 
 llm:
-  monthly_budget_usd: 50
+  monthly_budget_usd: 100   # 2026-08-30 사용자가 50 → 100 으로 올림
   news_screen_model: haiku
   news_deep_model: sonnet
   review_model: sonnet

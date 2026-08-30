@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.store.errors import ConfigNotFound
 from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
@@ -29,6 +30,8 @@ DOCUMENTS = "documents"
 
 #: 거래대금 평균을 낼 창(거래일).
 TURNOVER_WINDOW = 20
+#: 시가총액이 사는 표 (reporting.briefing 과 같은 이름을 쓴다)
+MARKET_STATS = "market_stats"
 
 #: 부실 공시를 이 기간 안에 냈으면 매매 대상에서 뺀다. 관리종목 지정·불성실
 #: 공시는 한 번 나면 한동안 유효한 사실이다.
@@ -45,6 +48,11 @@ class FilterParams:
     #: ``max(min_turnover, capacity_multiple × 자본)`` 이다 (KR 만).
     #: 0 이면 배수를 끄고 절대 하한만 쓴다.
     capacity_multiple: float
+    #: 순위 하한 — 절대 하한을 통과한 뒤 상위 N 만 남긴다. 0 이면 안 쓴다
+    #: (config `universe.top_*_rank`, 사전등록 시행으로 켠다).
+    top_turnover_rank: int = 0
+    top_volume_rank: int = 0
+    top_market_cap_rank: int = 0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime, market: str) -> FilterParams:
@@ -56,6 +64,9 @@ class FilterParams:
             capacity_multiple=float(
                 store.config("universe.turnover_capacity_multiple", as_of=as_of)
             ),
+            top_turnover_rank=_rank_config(store, "top_turnover_rank", as_of=as_of),
+            top_volume_rank=_rank_config(store, "top_volume_rank", as_of=as_of),
+            top_market_cap_rank=_rank_config(store, "top_market_cap_rank", as_of=as_of),
         )
 
     def effective_floor(self, *, market: str, equity: float) -> float:
@@ -68,6 +79,14 @@ class FilterParams:
         if market != "KR" or equity <= 0 or self.capacity_multiple <= 0:
             return self.min_turnover
         return max(self.min_turnover, self.capacity_multiple * equity)
+
+
+def _rank_config(store: Store, name: str, *, as_of: datetime) -> int:
+    """순위 하한 설정. **없으면 0(끔)** — 이 키가 없던 시점의 as_of 조회도 돌아야 한다."""
+    try:
+        return int(store.config(f"universe.{name}", as_of=as_of))
+    except ConfigNotFound:
+        return 0
 
 
 @dataclass(frozen=True)
@@ -195,7 +214,71 @@ def tradable_universe(
             continue
         kept.append(entity)
 
+    kept = _apply_rank_caps(
+        store, kept, dropped,
+        as_of=as_of, market=market, params=params, turnover=turnover, prices=recent,
+    )
     return FilterResult(kept=tuple(sorted(kept)), dropped=dropped)
+
+
+def _apply_rank_caps(
+    store: Store,
+    kept: list[str],
+    dropped: dict[str, str],
+    *,
+    as_of: datetime,
+    market: str,
+    params: FilterParams,
+    turnover: pd.Series,
+    prices: pd.DataFrame,
+) -> list[str]:
+    """순위 하한 — 절대 하한을 통과한 것들 중 **상위 N** 만 남긴다.
+
+    절대 하한(원)은 시장이 통째로 얼어붙은 날에는 의미가 없고, 자본이 커지면
+    "못 사는 종목" 을 거르는 쪽으로 성격이 바뀐다. 순위는 **그날의 시장 안에서**
+    자른다. 셋 다 0 이면 아무것도 안 한다(기본값).
+
+    **셋은 교집합이다** — 거래대금 상위 300 ∧ 시총 상위 300 이면 둘 다 드는 것만
+    남는다. 합집합으로 두면 "상위" 라는 말이 무의미해진다.
+    """
+    if not kept:
+        return kept
+    caps: list[tuple[str, int, pd.Series]] = []
+    if params.top_turnover_rank > 0:
+        caps.append(("거래대금 순위 밖", params.top_turnover_rank, turnover))
+    if params.top_volume_rank > 0:
+        volume = prices.groupby("entity_id")["volume"].tail(TURNOVER_WINDOW)
+        volume = prices.loc[volume.index].groupby("entity_id")["volume"].mean()
+        caps.append(("거래량 순위 밖", params.top_volume_rank, volume))
+    if params.top_market_cap_rank > 0:
+        caps.append(("시총 순위 밖", params.top_market_cap_rank, _market_caps(store, as_of=as_of, market=market)))
+    for reason, limit, series in caps:
+        ranked = series.reindex(kept).dropna()
+        if ranked.empty:
+            # 잴 값이 없으면 **거르지 않는다** — 관측이 없는 것을 "순위 밖" 으로
+            # 적으면 수집 사고가 조용히 유니버스를 비운다.
+            continue
+        survivors = set(ranked.nlargest(limit).index)
+        for entity in kept:
+            if entity in ranked.index and entity not in survivors:
+                dropped[entity] = reason
+        kept = [entity for entity in kept if entity not in ranked.index or entity in survivors]
+    return kept
+
+
+def _market_caps(store: Store, *, as_of: datetime, market: str) -> pd.Series:
+    """종목별 최신 시가총액. 없으면 빈 시리즈 — 호출자가 "거르지 않는다" 로 받는다."""
+    frame = store.get(
+        MARKET_STATS, as_of=as_of, lookback=20, until=as_of, market=market,
+        columns=["entity_id", "metric", "value", "valid_from"],
+    )
+    if frame.empty:
+        return pd.Series(dtype=float)
+    caps = frame[frame["metric"] == "market_cap"]
+    if caps.empty:
+        return pd.Series(dtype=float)
+    caps = caps.sort_values("valid_from").groupby("entity_id")["value"].last()
+    return caps.astype(float)
 
 
 def distressed(store: Store, *, as_of: datetime, market: str) -> set[str]:

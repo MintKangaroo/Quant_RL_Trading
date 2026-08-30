@@ -284,3 +284,37 @@ def test_정정본은_마지막_행_판정을_바꾼다(store) -> None:
 
     assert result.kept == ()
     assert result.dropped["KR:000100"] == "상장폐지·거래불가"
+
+
+# -- 순위 하한 (2026-08-30) ------------------------------------------------------
+
+
+def _ranked(store, **kw):  # type: ignore[no-untyped-def]
+    from dataclasses import replace
+
+    return filters.tradable_universe(
+        store, as_of=NOW, market="KR", params=replace(PARAMS, **kw), equity=100_000_000.0
+    )
+
+
+def test_순위_하한이_꺼져_있으면_아무것도_안_거른다(seeded) -> None:
+    """기본값 0 — 켜기 전에는 오늘과 같은 유니버스여야 한다."""
+    assert _run(seeded).kept == _ranked(
+        seeded, top_turnover_rank=0, top_volume_rank=0, top_market_cap_rank=0
+    ).kept
+
+
+def test_거래대금_상위_N_만_남는다(seeded) -> None:
+    full = _run(seeded)
+    assert len(full) >= 2, "시험 창고에 종목이 둘 이상 남아야 순위가 의미 있다"
+    capped = _ranked(seeded, top_turnover_rank=1)
+
+    assert len(capped) == 1
+    assert capped.kept[0] in full.kept
+    # 이유를 남긴다 — 후보가 준 날 설명할 수 있어야 한다.
+    assert "거래대금 순위 밖" in capped.dropped.values()
+
+
+def test_시총_관측이_없으면_거르지_않는다(seeded) -> None:
+    """수집 사고가 조용히 유니버스를 비우면 안 된다."""
+    assert _ranked(seeded, top_market_cap_rank=1).kept == _run(seeded).kept
