@@ -78,7 +78,7 @@ KST = ZoneInfo("Asia/Seoul")
 #: 최근 파티션 확인 창(일). 전체 창고 크기가 아니라 "오늘 것이 들어왔나" 가
 #: 목적이라 짧게 잡는다 — flows 처럼 파티션이 109만 개인 테이블도 이 창이면
 #: 최근 며칠치만 연다.
-TABLE_LOOKBACK_DAYS = 10
+TABLE_LOOKBACK_DAYS = 4  # 경고선(table_stale_warn_days 3)+1. 10일 창은 35개 표를 훑는 데 17초였다(2026-08-30)
 
 #: 표에 실을 최근 실행 횟수.
 RUN_HISTORY_LIMIT = 8
@@ -295,7 +295,11 @@ def table_freshness(
     # 되감기(as_of 과거)는 캐시하지 않는다 — 그 답은 as_of 마다 다르다. 지금 시각 조회는
     # 35개 표를 훑는 데 수 초가 들어(2026-08-30 실측 17초, 부하 중) 60초 동안 재사용한다.
     hit = _freshness_cache.get(key)
-    if hit is not None and now - hit[0] < (_FRESHNESS_TTL_SEC if live else _FRESHNESS_TTL_SEC * 3) and (live or hit[2] == as_of):
+    if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC * 3 and (
+        live or abs((as_of - hit[2]).total_seconds()) < 120
+    ):
+        # 화면은 요청마다 "지금" 을 as_of 로 보내므로 초 단위로 다르다. 2분 안이면 같은 답이다 —
+        # 되감기(과거 as_of)는 다른 시각이라 캐시를 안 탄다.
         return hit[1]
 
     out: list[dict[str, Any]] = []
