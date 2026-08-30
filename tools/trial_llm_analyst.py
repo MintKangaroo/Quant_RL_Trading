@@ -41,6 +41,7 @@ from quant_rl_trading.analysts.llm_pick import (  # noqa: E402
 )
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.replay.clock import ReplayClock  # noqa: E402
+from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from tools.trial_analyst_features import (  # noqa: E402
     HOLDOUT_START,
@@ -253,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="호출 없이 입력·비용만")
     parser.add_argument("--save", action="store_true")
     args = parser.parse_args(argv)
+    load_env()  # .env 의 ANTHROPIC_API_KEY
 
     store = Store(root=Path(args.root))
     sessions = _sessions(args.sessions)
