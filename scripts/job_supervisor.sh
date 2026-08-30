@@ -17,7 +17,17 @@ cd "$(dirname "$0")/.."
 LOG=logs/supervisor.log
 say() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
-running() { pgrep -f "$1" | grep -qv "^$$\$"; }
+# 살아 있나 — **python 프로세스만** 센다. `bash -c "... python ..."` 래퍼도 같은 문자열을
+# 명령줄에 들고 있어서, python 이 죽고 래퍼만 남은 상태를 "돌고 있다" 로 오판한다
+# (2026-08-30 실측). 대괄호 패턴으로 자기 셸 매칭은 이미 피한다.
+running() {
+  local pid comm
+  for pid in $(pgrep -f "$1" 2>/dev/null); do
+    comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
+    case "$comm" in python*) return 0;; esac
+  done
+  return 1
+}
 
 start() { # 이름 · 완료표시패턴 · 완료표시파일 · 프로세스패턴 · 명령
   local name="$1" done_pat="$2" done_file="$3" proc_pat="$4" cmd="$5"
