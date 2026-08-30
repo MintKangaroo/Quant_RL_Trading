@@ -500,6 +500,28 @@ _SPECS: dict[str, TableSpec] = {
             "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
         ),
     ),
+    "insider_trades": TableSpec(
+        name="insider_trades",
+        columns={
+            "market": pa.string(),
+            "rcept_no": pa.string(),
+            "reporter": pa.string(),
+            "registered_executive": pa.string(),  # 등기임원 | 비등기임원 | -
+            "position": pa.string(),
+            "major_shareholder": pa.string(),      # 주요주주 여부 표기 그대로
+            "shares": pa.float64(),                # 보고 후 보유 특정증권 수
+            "change": pa.float64(),                # 증감 (+취득 / −처분)
+            "rate": pa.float64(),
+            "change_rate": pa.float64(),
+        },
+        # 한 보고서에 보고자가 여럿일 수 있다.
+        natural_key=("entity_id", "valid_from", "rcept_no", "reporter"),
+        observation_lag_days=3,
+        doc=(
+            "DART elestock — 임원ㆍ주요주주 특정증권등 소유상황보고. valid_from = 보고일 18:00 KST"
+            "(공시 시각 미상 → 장 마감 뒤로 보수적). 내부자 순매수 신호(사전등록 시행 D)의 재료."
+        ),
+    ),
     "earnings_calendar": TableSpec(
         name="earnings_calendar",
         columns={
