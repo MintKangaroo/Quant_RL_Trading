@@ -318,3 +318,15 @@ def test_거래대금_상위_N_만_남는다(seeded) -> None:
 def test_시총_관측이_없으면_거르지_않는다(seeded) -> None:
     """수집 사고가 조용히 유니버스를 비우면 안 된다."""
     assert _ranked(seeded, top_market_cap_rank=1).kept == _run(seeded).kept
+
+
+def test_참조표에는_창을_걸지_않는다() -> None:
+    """`sectors` 는 참조 표다 — 창을 걸면 지도가 조용히 빈다 (2026-08-30).
+
+    DART 업종은 한 날짜(2021-08-11)로 백필돼 있어서 30일 창이 그 행을 통째로
+    잘랐고, 그 위의 팩터 공분산·섹터 제약이 전부 무력화됐다. 예외도 경고도
+    없었다 — 그래서 상수로 못 박아 지킨다.
+    """
+    from quant_rl_trading.selector import candidates
+
+    assert candidates.SECTOR_LOOKBACK_DAYS is None

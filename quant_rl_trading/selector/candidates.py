@@ -41,8 +41,21 @@ if TYPE_CHECKING:
 VERDICTS = "verdicts"
 SECTORS = "sectors"
 
-#: 섹터를 읽는 창(거래일). 며칠 안 받아진 날이 있어도 직전 관측을 찾을 만큼.
-SECTOR_LOOKBACK_DAYS = 30
+#: 섹터를 읽는 창. **None = 창을 안 건다** (2026-08-30 수정).
+#:
+#: 30일이었다. `sectors` 는 `reference_data=True` 인 참조 표라 게이트가
+#: ``valid_from`` 으로 걸리는데(store/reader.py), DART 업종은 **2021-08-11 한 날짜로**
+#: 백필돼 있다. 30일 창은 그 행을 통째로 잘라 **섹터 지도를 조용히 비웠다** —
+#: 예외도 경고도 없이 빈 dict 가 돌아왔고, 그 위에서
+#:   · 팩터 공분산(`portfolio/factor_model._build`)이 None → risk_parity 가
+#:     **매일 스코어 비례로 폴백**(2026-08-30 실측: 76/76 세션 `risk_parity:fallback`,
+#:     그래서 §7 비교의 두 팔 NAV 가 소수점까지 같았다)
+#:   · 섹터 하방베타 상한·섹터 집중 제약도 같은 이유로 무력
+#: 이 셋이 전부 "안 걸린 것" 이 아니라 "잴 수 없었던 것" 이다.
+#:
+#: 참조 표에 창을 거는 것 자체가 틀렸다. 업종은 사건이 아니라 속성이라
+#: "최근 30일에 관측된 업종" 이라는 질문이 성립하지 않는다.
+SECTOR_LOOKBACK_DAYS: int | None = None
 
 #: 상관을 재는 창(거래일). selector.md §5-4.
 CORRELATION_WINDOW = 60
@@ -199,7 +212,7 @@ def sector_map(
     entities: Sequence[str],
     market: str,
     source: str,
-    lookback: int = SECTOR_LOOKBACK_DAYS,
+    lookback: int | None = SECTOR_LOOKBACK_DAYS,
 ) -> dict[str, str]:
     """{entity_id: 섹터}. 종목마다 **as_of 이전 가장 최근** 관측 하나.
 
