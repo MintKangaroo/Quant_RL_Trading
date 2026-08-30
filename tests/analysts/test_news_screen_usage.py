@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from quant_rl_trading.analysts.news_screen import AGENT, VERSION, Candidate, NewsScreen
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.schemas.verdict import Category
@@ -124,3 +126,81 @@ def test_usage_records_once_per_call_not_per_item(store) -> None:  # type: ignor
     usage = store.get("llm_usage", as_of=AS_OF, lookback=1)
     assert len(usage) == 1
     assert usage.iloc[0]["items"] == 2
+
+
+# -- 감성 점수 (시행 F 선행 배선) -------------------------------------------------
+
+
+def test_sentiment_row_is_written_alongside_verdicts(store) -> None:  # type: ignore[no-untyped-def]
+    """판정과 함께 news_sentiment 에 종목·세션당 한 행. 기각한 건의 점수도 평균에 든다."""
+    candidates = [make_candidate("KR:005930"), make_candidate("KR:000660")]
+    response = FakeResponse(
+        content=[FakeBlock(type="tool_use", input={"verdicts": [
+            {"id": candidates[0].fingerprint, "keep": False, "reason": "오탐",
+             "sentiment": 0.6, "sentiment_confidence": 0.9},
+            {"id": candidates[1].fingerprint, "keep": True, "reason": "유지",
+             "sentiment": -0.8, "sentiment_confidence": 0.7},
+        ]})],
+        usage=FakeUsage(),
+    )
+    screener = NewsScreen(
+        store=store, clock=ReplayClock(AS_OF), api_key="unused", client=FakeClient(response)
+    )
+
+    kept = screener.screen(candidates, as_of=AS_OF)
+
+    # **차단 동작은 그대로다** — 감성은 판정을 만지지 않는다.
+    assert [c.entity_id for c in kept] == ["KR:000660"]
+    assert [c.entity_id for c, _reason in screener.rejected] == ["KR:005930"]
+
+    rows = store.get("news_sentiment", as_of=AS_OF, lookback=1).sort_values("entity_id")
+    assert len(rows) == 2
+    first = rows.iloc[1]  # KR:005930 — 기각한 건도 점수는 남는다
+    assert first["entity_id"] == "KR:005930"
+    assert first["sentiment"] == pytest.approx(0.6)
+    assert first["headline_count"] == 1
+    assert rows.iloc[0]["sentiment"] == pytest.approx(-0.8)
+
+
+def test_cached_verdict_without_sentiment_does_not_recall_the_client(store) -> None:  # type: ignore[no-untyped-def]
+    """옛 캐시(점수 없는 판정)는 점수 없음으로 두고 다시 묻지 않는다."""
+    candidate = make_candidate()
+    response = FakeResponse(
+        content=[FakeBlock(type="tool_use", input={"verdicts": [
+            {"id": candidate.fingerprint, "keep": True, "reason": "유지"},  # 옛 형식 — 점수 없음
+        ]})],
+        usage=FakeUsage(),
+    )
+    client = FakeClient(response)
+    screener = NewsScreen(store=store, clock=ReplayClock(AS_OF), api_key="unused", client=client)
+
+    screener.screen([candidate], as_of=AS_OF)   # 첫 호출 — 캐시 적재(점수 없음)
+    screener.screen([candidate], as_of=AS_OF)   # 둘째 호출 — 캐시 히트
+
+    assert client.messages.calls == 1
+    assert store.get("news_sentiment", as_of=AS_OF, lookback=1).empty
+
+
+def test_cached_sentiment_is_reused_on_replay(store) -> None:  # type: ignore[no-untyped-def]
+    """캐시에 점수가 있으면 리플레이에서도 news_sentiment 가 다시 서고, 클라이언트는 안 부른다."""
+    candidate = make_candidate()
+    response = FakeResponse(
+        content=[FakeBlock(type="tool_use", input={"verdicts": [
+            {"id": candidate.fingerprint, "keep": True, "reason": "유지",
+             "sentiment": -0.3, "sentiment_confidence": 0.5},
+        ]})],
+        usage=FakeUsage(),
+    )
+    client = FakeClient(response)
+    screener = NewsScreen(store=store, clock=ReplayClock(AS_OF), api_key="unused", client=client)
+    screener.screen([candidate], as_of=AS_OF)
+    assert client.messages.calls == 1
+
+    other = NewsScreen(store=store, clock=ReplayClock(AS_OF), api_key="unused",
+                       client=FakeClient(response))
+    other.screen([candidate], as_of=AS_OF)
+
+    assert client.messages.calls == 1  # 원 클라이언트 그대로
+    assert other.client.messages.calls == 0
+    rows = store.get("news_sentiment", as_of=AS_OF, lookback=1)
+    assert len(rows) == 1 and rows.iloc[0]["sentiment"] == pytest.approx(-0.3)

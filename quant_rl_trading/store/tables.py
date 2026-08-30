@@ -426,6 +426,26 @@ _SPECS: dict[str, TableSpec] = {
             "없다. 차단된 종목의 이후 수익률로 성적표를 만든다."
         ),
     ),
+    "news_sentiment": TableSpec(
+        name="news_sentiment",
+        columns={
+            "market": pa.string(),
+            "analyst": pa.string(),
+            "analyst_version": pa.string(),
+            "sentiment": pa.float64(),        # −1(악재) ~ +1(호재), 그 세션 헤드라인 평균
+            "confidence": pa.float64(),       # 0 ~ 1
+            "headline_count": pa.int32(),
+            "model": pa.string(),
+            "features_hash": pa.string(),     # 합쳐진 헤드라인 지문들의 해시
+        },
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=3,
+        doc=(
+            "뉴스 감성 점수 — **측정 전용**(사전등록 시행 F, new-sources-2026-09.md). 차단 판정과 "
+            "별개로 Claude 가 같은 헤드라인에서 낸 방향 점수. 보상·가중치에 안 들어간다(불변식 8). "
+            "60세션 쌓인 뒤 IC 를 재서 통과해야 Analyst 피처가 된다."
+        ),
+    ),
     "short_flow": TableSpec(
         name="short_flow",
         columns={
