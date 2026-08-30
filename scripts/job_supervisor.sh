@@ -42,8 +42,16 @@ start "§7" "^rc=" logs/compare-baselines-20260830.log "compare_baselines_overni
   "cd $(pwd) && QUANT_RL_DUCKDB_MEMORY_LIMIT=2GB nice -n 5 .venv/bin/python -u tools/compare_baselines_overnight.py --start 2026-04-01 --end 2026-06-30 >> logs/compare-baselines-20260830.log 2>&1; echo rc=\$? >> logs/compare-baselines-20260830.log"
 
 # 2) 시행 G — LLM Analyst. agent_cache 덕에 이어 돌리면 이미 채점한 세션은 공짜다.
+#
+# **§7 이 도는 동안은 띄우지 않는다** (2026-08-30). 둘을 겹쳐 돌렸더니 9.7GB 머신에서
+# 가용이 200MB 로 떨어져 시행 G 가 두 번 죽었고, 감시자가 그때마다 되살려 캐시 재생만
+# 반복했다. 재시작이 싸다고 해서 겹쳐 돌려도 되는 것은 아니다(training-shares-no-machine).
+if grep -aq "^rc=" logs/compare-baselines-20260830.log 2>/dev/null; then
 start "시행G" "판정 G" logs/trial-g-20260830.log "trial_llm_analys[t]" \
   "cd $(pwd) && QUANT_RL_DUCKDB_MEMORY_LIMIT=600MB nice -n 5 .venv/bin/python -u tools/trial_llm_analyst.py --sessions 60 --sample 120 --save >> logs/trial-g-20260830.log 2>&1"
+else
+  say "시행G 는 §7 이 끝난 뒤에 띄운다 (메모리)"
+fi
 
 # 3) 체인 — §7 뒤 미장 IC → 시행 A → 3회차(파일럿→학습→판정→모의계좌)
 start "체인" "3회차 체인 끝" logs/night-chain-20260829.log "chain_2026083[0]" \
