@@ -12,19 +12,27 @@ cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 mkdir -p logs
 
 # "포트:창고" — 창고가 `-` 면 기본(실전).
+#
+# **하나만 띄운다** (2026-08-31). 다섯 화면이 합쳐 ~2.4GB 를 상시 점유했고, 학습
+# 스파이크와 겹치면 가용이 100MB 아래로 떨어져 스왑 지옥 → 시스템 멈춤 → 재부팅으로
+# 이어졌다(당일 OOM 킬 2건 실측). 실전 3개(5057·5058·5073)는 같은 창고의 중복이었고,
+# 지금 실제로 보는 화면은 모의계좌(5059)다. 다른 창고가 필요하면 이 목록에
+# 한 줄 추가해 재기동한다.
 TARGETS=(
-  "5057:-"
-  "5058:-"
-  "5073:-"
   "5059:data/_paper"
-  "5060:data/_shadow"
 )
+# 이전에 띄우던 포트들 — 재기동 때 남아 있으면 내린다 (메모리 회수).
+RETIRED_PORTS=(5057 5058 5073 5060)
 
 # 화면 프로세스의 메모리 상한. DuckDB 기본값은 RAM 의 80% 라 다섯 화면이 서로 밀어내고,
 # 한 화면이 1.5GB 까지 부풀었다(2026-08-30 실측, 스왑 3.8GB). glibc 아레나도 묶는다.
 export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-512MB}"
 export MALLOC_ARENA_MAX=2
 
+for port in "${RETIRED_PORTS[@]}"; do
+    pid=$(ss -tlnp 2>/dev/null | grep ":${port} " | grep -oP 'pid=\K[0-9]+' | head -1)
+    [ -n "${pid}" ] && kill "${pid}" 2>/dev/null && echo "  ${port} (은퇴 포트) 내림"
+done
 for spec in "${TARGETS[@]}"; do
     port="${spec%%:*}"
     root="${spec#*:}"
