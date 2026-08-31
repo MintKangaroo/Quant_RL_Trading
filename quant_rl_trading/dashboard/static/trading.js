@@ -1150,7 +1150,8 @@ async function loadTrading() {
   renderOrders(body);
   renderPerformance(body);
   renderEquity(body);
-  renderUnderwater(body);
+  // renderUnderwater 는 뺐다 (사용자 요청 2026-08-31 — 낙폭이 0 이라 안 보였다).
+  // 함수는 /calendar 재사용 위해 남겨 둔다.
   renderCalendarPanel(body);
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
