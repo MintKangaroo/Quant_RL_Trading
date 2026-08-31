@@ -11,7 +11,8 @@
 # 규칙
 # - 완료 표시가 로그에 있으면 다시 안 띄운다(작업마다 자기 표시가 있다).
 # - `pgrep -f` 는 **자기 셸도 매칭**하므로 대괄호 패턴으로 피한다(background-job-hygiene).
-# - 재시작이 싼 작업만 여기 둔다. 학습(train_rl)은 체크포인트가 있어 체인이 알아서 잇는다.
+# - 재시작이 싼 작업만 여기 둔다. 학습(train_rl)은 체인이 --resume 으로 체크포인트에서
+#   이어 붙인다 (2026-08-31 에 실제로 그렇게 만들었다 — 그 전까지 이 줄은 거짓이었다).
 set -uo pipefail
 cd "$(dirname "$0")/.."
 LOG=logs/supervisor.log
@@ -77,4 +78,17 @@ elif running_orch "chain_2026083[0]"; then
 else
   say "체인 이 안 돌고 있다 — 다시 띄운다"
   setsid bash -c "cd $(pwd) && bash scripts/chain_20260830.sh" > /dev/null 2>&1 < /dev/null &
+fi
+
+# 4) 3회차 체인을 **직접** 지킨다. 바깥 체인(chain_20260830)이 죽고 이것만 고아로
+# 남는 경우가 있고(2026-08-31 실측), 반대로 이것만 죽는 경우도 있다. 학습은
+# --resume 으로 체크포인트에서 이어지므로 되살리는 값이 크다 — 46시간짜리다.
+# 바깥 체인이 살아 있으면 그쪽이 알아서 부르므로 여기서는 손대지 않는다.
+if [ -f logs/chain-r7.log ] && grep -aq "^.*완료 — 다음 08:40\|중단 —" logs/chain-r7.log; then
+  :
+elif running_orch "chain_r7_ful[l]" || running_orch "chain_2026083[0]"; then
+  :
+elif [ -f logs/chain-r7.log ]; then
+  say "3회차 체인이 시작됐는데 안 돌고 있다 — 체크포인트에서 이어 띄운다"
+  setsid bash -c "cd $(pwd) && bash scripts/chain_r7_full.sh" > /dev/null 2>&1 < /dev/null &
 fi

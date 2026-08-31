@@ -12,6 +12,17 @@ say() { echo "$(date '+%F %T') $*" | tee -a "$S"; }
 say "=== 3회차 체인 시작 · run ${RUN}"
 free -m | sed -n 2p | tee -a "$S"
 
+# 이 판의 롤링 체크포인트가 있으면 --resume 인자를 만들어 준다.
+#
+# **없으면 46시간 학습이 재부팅 한 번에 0 으로 돌아간다.** train_rl 은 --resume 을
+# 진작 갖고 있었는데 이 체인이 안 넘겨서, 감시자 주석의 "체인이 알아서 잇는다" 가
+# 사실이 아니었다 (2026-08-31 발견). 이 기계는 8/30 에 두 번, 8/31 에 한 번 죽었다.
+# `{run}.pt` 는 train_rl 이 매 체크포인트마다 원자적으로 갈아 끼우는 최신본이다.
+resume_arg() {
+  local path="data/rl_checkpoints/$1.pt"
+  [ -f "${path}" ] && printf -- "--resume %s" "${path}"
+}
+
 say "[1/5] 파일럿 게이트 (150업데이트 + 검증폴드)"
 bash scripts/pilot_r7.sh "${PILOT}" > logs/pilot-r7.log 2>&1
 gate=$?
@@ -21,12 +32,15 @@ if [ "${gate}" -ne 0 ]; then
   exit 2
 fi
 
-say "[2/5] 본 학습 시작 — 15M 스텝(≈915업데이트), 시작점 반복 ≈124"
+RESUME="$(resume_arg "${RUN}")"
+say "[2/5] 본 학습 시작 — 15M 스텝(≈915업데이트), 시작점 반복 ≈124 ${RESUME:+· 이어서(${RESUME#--resume })}"
+# 로그는 **덮어쓰지 않는다**(>>) — 이어 돌린 판이 앞 판의 기록을 지우면 어디서
+# 끊겼는지 못 본다.
 QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB nice -n 5 .venv/bin/python -u tools/train_rl.py \
   --market KR --seed 0 --curriculum C2 --cash-action fixed --warm-start \
   --keep-checkpoints --lr-decay cosine --timesteps 15000000 \
   --train-start 2023-01-02 --train-end 2025-12-31 --threads 6 \
-  --checkpoint-every 20 --run-id "${RUN}" > logs/train-r7.log 2>&1
+  --checkpoint-every 20 --run-id "${RUN}" ${RESUME} >> logs/train-r7.log 2>&1
 say "[2/5] 본 학습 rc=$? — $(grep -a '^완료' logs/train-r7.log | tail -1)"
 
 say "[3/5] 검증 폴드로 체크포인트 선택"

@@ -8,13 +8,18 @@ cd "$(dirname "$0")/.."
 RUN="${1:-m4-round3-s0-c2-pilot}"
 UPDATES=150
 TIMESTEPS=$((UPDATES * 32 * 512))
-echo "=== $(date '+%F %T') 파일럿 ${RUN} · ${UPDATES}업데이트 ==="
+# 롤링 체크포인트가 있으면 이어서 돈다. 파일럿도 8시간짜리라 재부팅 한 번이면
+# 처음부터가 된다 — 이 기계는 8/30 두 번, 8/31 한 번 죽었다 (2026-08-31).
+CKPT="data/rl_checkpoints/${RUN}.pt"
+RESUME=""
+[ -f "${CKPT}" ] && RESUME="--resume ${CKPT}"
+echo "=== $(date '+%F %T') 파일럿 ${RUN} · ${UPDATES}업데이트 ${RESUME:+· 이어서 ${CKPT}} ==="
 free -m | sed -n 2p
 QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB nice -n 5 .venv/bin/python -u tools/train_rl.py \
   --market KR --seed 0 --curriculum C2 --cash-action fixed --warm-start \
   --keep-checkpoints --lr-decay cosine --timesteps "${TIMESTEPS}" \
   --train-start 2023-01-02 --train-end 2025-12-31 --threads 6 \
-  --checkpoint-every 10 --run-id "${RUN}"
+  --checkpoint-every 10 --run-id "${RUN}" ${RESUME}
 echo "train rc=$?"
 QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB .venv/bin/python -u tools/select_checkpoint.py \
   --run "${RUN}" --train-window 2023-01-02:2025-12-31 --valid-window 2026-01-02:2026-06-30 \
