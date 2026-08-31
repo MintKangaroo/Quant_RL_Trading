@@ -43,6 +43,35 @@
   .positions-pie { height: 180px; min-width: 0; }
 }
 
+/* -- ORDERS: 좁은 화면 ------------------------------------------------------ */
+
+/* 시각의 인라인 사본(종목 칸 아래 줄). 데스크톱은 시각이 자기 열에 있으므로
+   숨긴다 — watchlist 의 .pnl-inline 과 같은 두-벌 관용구다. */
+.time-inline { display: none; }
+
+@media (max-width: 768px) {
+  /* 시각 열이 접히면 첫 번째 **보이는** 열은 종목이지만, app.css 의 고정
+     규칙은 :first-child(= display:none 된 시각 td)를 잡아 아무것도 안
+     붙는다. 이 표만 두 번째 자식(종목)으로 고정 앵커를 옮긴다 — 옆으로
+     밀어도 어느 종목 행인지가 남는 것이 sticky 의 존재 이유다. */
+  #orders td:first-child, #orders th:first-child { position: static; }
+  #orders td:nth-child(2), #orders th:nth-child(2) {
+    position: sticky;
+    left: 0;
+    background: var(--panel);
+    z-index: 1;
+  }
+  #orders thead th:nth-child(2) { z-index: 2; }
+
+  .time-inline {
+    display: block;
+    color: var(--dim);
+    font-size: 10px;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+}
+
 /* -- WATCHLIST: 좁은 화면 -------------------------------------------------- */
 
 /* 데스크톱에서는 PnL 이 자기 열에 있고, 포지션 칸의 인라인 사본은 숨는다.

@@ -539,7 +539,12 @@ function renderOrders(body) {
       `<p class="empty">기록된 주문이 없다. Session 이 돌면 여기 쌓인다.</p>`;
     return;
   }
-  const head = `<thead><tr><th>시각</th><th>종목</th><th class="mid">방향</th>
+  /* 시각 열은 모바일에서 접고 종목 칸 아래 줄로 내린다(watchlist 의 pnl-inline
+     과 같은 관용구). 두 가지가 같이 풀린다: ① 스크롤 고정 첫 열이 시각이라
+     옆으로 밀면 종목명이 사라져 어느 행인지 몰랐다 — 행의 정체성은 종목이다.
+     ② 16자 시각이 폭을 먹어 실현손익이 화면 밖으로 잘렸다(실측 2026-08-31
+     아이폰). 시점은 지운 게 아니라 자리만 옮겼다(data-must-be-dated). */
+  const head = `<thead><tr><th class="mobile-hide">시각</th><th>종목</th><th class="mid">방향</th>
     <th class="r mobile-hide">지정가</th><th class="r">체결가</th><th class="r">수량</th>
     <th class="r mobile-hide">체결수량</th><th class="r mobile-hide">비용</th><th class="r">실현손익</th>
     <th class="r">수익률</th><th class="r mobile-hide">목표비중</th>
@@ -548,8 +553,8 @@ function renderOrders(body) {
     `<table class="ledger">${head}${rows
       .map(
         (row) => `<tr class="click" data-entity="${row.entity_id}">
-      <td class="mono">${row.time.slice(0, 16).replace("T", " ")}</td>
-      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
+      <td class="mono mobile-hide">${row.time.slice(0, 16).replace("T", " ")}</td>
+      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span><span class="time-inline mono">${row.time.slice(5, 16).replace("T", " ")}</span></td>
       <td class="mid side ${row.side}">${row.side.toUpperCase()}</td>
       <td class="r mono mobile-hide">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
       <td class="r mono">${row.fill_price ? num(Math.round(row.fill_price)) : "—"}</td>
