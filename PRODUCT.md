@@ -56,6 +56,8 @@ web
 ## Brand Commitments
 
 공식 명칭 **Quant_RL_Trading** (2026-08-31 확정) — 화면·문서에 이대로 쓴다.
+추구미 (사용자 지정 2026-08-31): **"스마트한 퀀트 투자 HFT 프로그램을 관제하는
+대시보드"** — 관제실(mission control) 감각. 구속력 있는 방향이다.
 시각 기준 참조물: `docs/design/fund-reference.html` (색·타이포·밀도의 기준, 구현물 아님).
 
 ## Evidence on Hand
