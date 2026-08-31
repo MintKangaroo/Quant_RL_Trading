@@ -37,6 +37,7 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.analysts.base import Analyst, rank_score
+from quant_rl_trading.store.errors import DuplicateIngestRun
 from quant_rl_trading.analysts.fundamental import (
     FLOW_METRICS,
     FUNDAMENTALS,
@@ -461,18 +462,25 @@ class LlmPickAnalyst(Analyst):
                 # 충돌한다 — 강제 종료 후 재개한 시행 G 가 여기서 DuplicateIngestRun
                 # 으로 두 번 죽었다(2026-08-31). record_usage 와 같은 관용구.
                 cache_run_id = f"{AGENT}-{entity}-{as_of:%Y%m%dT%H%M%S}"
-                if not cache.store.ingest_run_recorded("agent_cache", cache_run_id):
-                    cache.put(
-                        CacheKey(
-                            agent=AGENT,
-                            agent_version=VERSION,
-                            entity_id=entity,
-                            as_of=as_of,
-                            features_hash=features_hash(payload),
-                        ),
-                        answer,
-                        ingest_run_id=cache_run_id,
-                    )
+                try:
+                    if not cache.store.ingest_run_recorded("agent_cache", cache_run_id):
+                        cache.put(
+                            CacheKey(
+                                agent=AGENT,
+                                agent_version=VERSION,
+                                entity_id=entity,
+                                as_of=as_of,
+                                features_hash=features_hash(payload),
+                            ),
+                            answer,
+                            ingest_run_id=cache_run_id,
+                        )
+                except DuplicateIngestRun:
+                    # 사전 검사와 적재 사이의 어긋남까지 방어한다. 캐시 재적재
+                    # 실패는 답을 잃는 것이 아니다 — answer 는 이미 손에 있고
+                    # 다음 조회는 기존 캐시 행을 그대로 쓴다. 측정을 죽일
+                    # 이유가 없다 (2026-08-31: 시행 G 가 여기서 세 번 죽었다).
+                    logger.info("캐시 중복 적재 무시: %s", cache_run_id)
                 outlook = _finite(answer.get("outlook"))
                 if outlook is None:
                     continue
