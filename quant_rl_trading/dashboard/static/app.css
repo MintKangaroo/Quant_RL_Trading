@@ -413,14 +413,16 @@ table.news { table-layout: fixed; }
 table.news th:first-child, table.news td:first-child { width: 172px; }
 
 .alerts { display: grid; gap: 6px; }
+/* 경고 줄 — 가는 전체 테두리. 왼쪽 굵은 띠(side-tab)는 흔한 생성형 UI 관용구라
+   피한다. 경고의 지위는 색(경고색 글자·테두리)이 이미 말한다. */
 .alert {
   background: var(--panel2);
-  border-left: 3px solid var(--warn);
+  border: 1px solid var(--warn);
   padding: 6px 10px;
   color: var(--warn);
   border-radius: 2px;
 }
-.alert.ok { border-left-color: var(--dim); color: var(--muted); }
+.alert.ok { border-color: var(--border); color: var(--muted); }
 
 .empty { color: var(--dim); padding: 12px 0; }
 .error { color: var(--warn); }
@@ -1112,11 +1114,13 @@ details.fold > summary::-webkit-details-marker { display: none; }
 .plain { margin: 0 0 6px; line-height: 1.5; }
 .plain.ok strong { color: var(--up); }
 .plain.bad strong { color: var(--down); }
-/* 학습 탭 쉬운말 요약 — 강조 왼줄. learning.js 인라인 style 을 걷어 온 것. */
+/* 학습 탭 쉬운말 요약 — 본문과 구분되는 조용한 카드. 왼쪽 굵은 강조 띠는
+   side-tab 관용구라 쓰지 않는다 (위 .alert 와 같은 이유). */
 .plain.note-accent {
   margin: 0 0 10px;
   padding: 10px 12px;
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border);
+  border-radius: 3px;
   background: var(--panel2);
   font-size: 13px;
 }
