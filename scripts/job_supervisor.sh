@@ -92,3 +92,14 @@ elif [ -f logs/chain-r7.log ]; then
   say "3회차 체인이 시작됐는데 안 돌고 있다 — 체크포인트에서 이어 띄운다"
   setsid bash -c "cd $(pwd) && bash scripts/chain_r7_full.sh" > /dev/null 2>&1 < /dev/null &
 fi
+
+# 5) 시행 C·D (PEAD·내부자) — 3회차 파일럿 불합격 뒤 재료 쪽으로 방향을 튼 작업.
+# 직렬 스크립트라 running_orch 로 세고, 완료 표식은 자기 로그에 남긴다.
+if [ -f logs/trials-cd-20260901.log ] && grep -aq "시행 C·D 끝" logs/trials-cd-20260901.log; then
+  :
+elif running_orch "trials_c[d]" || running "trial_new_source[s]"; then
+  :
+else
+  say "시행 C·D 가 안 돌고 있다 — 다시 띄운다"
+  setsid bash -c "cd $(pwd) && bash scripts/trials_cd.sh" > /dev/null 2>&1 < /dev/null &
+fi
