@@ -1028,23 +1028,16 @@ function renderPositionsPie(body) {
   const rest = sorted.slice(POSITIONS_PIE_TOP_N);
   const restValue = rest.reduce((sum, row) => sum + (row.value || 0), 0);
 
-  // 색은 이 화면의 규칙을 그대로 쓴다 — 손익 부호(초록↑·빨강↓). 파이는
-  // 구성이 아니라 "그 조각이 지금 벌고 있나" 를 같이 말한다. 현금은
-  // 손익이 없으니 중립색이다.
-  const sliceColor = (row) =>
-    row.pnl_pct === null || row.pnl_pct === undefined
-      ? COLOR.muted
-      : row.pnl_pct > 0
-      ? COLOR.up
-      : row.pnl_pct < 0
-      ? COLOR.down
-      : COLOR.muted;
-
+  // 색은 **종목 구분**이다 (COLOR.series). 처음엔 손익 부호(초록↑·빨강↓)로
+  // 칠했는데, 다 오르는 날엔 조각 전부가 초록이라 어느 조각이 어느 종목인지
+  // 구분되지 않았다 (2026-08-31 아이폰 실측). 손익은 툴팁·보유 표가 이미
+  // 말하므로 파이는 구성 하나만 말한다. 현금·기타는 팔레트 밖 중립색 —
+  // 종목처럼 보이면 안 된다.
   const data = [
-    ...top.map((row) => ({
+    ...top.map((row, i) => ({
       name: `${row.name} (${row.entity_id})`,
       value: row.value || 0,
-      itemStyle: { color: sliceColor(row) },
+      itemStyle: { color: COLOR.series[i % COLOR.series.length] },
     })),
     ...(rest.length
       ? [

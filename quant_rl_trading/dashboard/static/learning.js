@@ -131,19 +131,19 @@ function renderTrainingLive(runs) {
   const fmt = (v, d = 4) => (v == null ? "—" : Number(v).toFixed(d));
 
   const plain = run.plain
-    ? `<p class="plain" style="margin:0 0 10px;padding:10px 12px;border-left:3px solid #4C9AFF;background:var(--panel2);font-size:13px;line-height:1.5">${run.plain}</p>`
+    ? `<p class="plain note-accent">${run.plain}</p>`
     : "";
   const rows = [
     ["상태", `<span class="${tone}">${statusText}</span>${lastAt ? ` · 마지막 기록 ${lastAt.toLocaleString("ko-KR", { hour12: false })} (${minutesLabel(run.silent_minutes)} 전)` : ""}`],
     ["진행", `${lastUpdate == null ? "—" : lastUpdate.toLocaleString()} / ${total == null ? "—" : total.toLocaleString()} 업데이트 (${pct.toFixed(1)}%)
-      <div style="height:6px;background:var(--line,#333);border-radius:3px;margin-top:4px"><div style="width:${pct.toFixed(1)}%;height:6px;background:#4C9AFF;border-radius:3px"></div></div>`],
+      <div class="meter"><i style="width:${pct.toFixed(1)}%"></i></div>`],
     ["페이스", `${run.pace_minutes == null ? "—" : run.pace_minutes.toFixed(1) + "분/업데이트"} · 남은시간 ${minutesLabel(run.eta_minutes ?? null)}`],
     ["보상 추이", `최근 50 평균 ${fmt(recent)} · 그 앞 50 평균 ${fmt(before)}${recent != null && before != null ? ` · 차이 ${(recent - before >= 0 ? "+" : "") + (recent - before).toFixed(5)}` : ""}`],
     ["마지막 지표", `EV ${fmt(last("explained_variance"), 3)} · KL ${fmt(last("approx_kl"), 5)} · grad ${fmt(last("grad_norm"), 2)} · 반영률 ${fmt(last("action_reflection"), 3)} · 현금 ${fmt(last("cash_weight"), 3)}`],
     ["실행", `${run.run_id} · seed ${run.seed ?? "—"} · ${run.curriculum || "—"} · ${run.git_commit ? run.git_commit.slice(0, 7) : "—"}`],
   ];
   target.innerHTML = plain + `<table class="kv">${rows
-    .map(([k, v]) => `<tr><th style="white-space:nowrap;text-align:left;padding-right:12px;vertical-align:top">${k}</th><td>${v}</td></tr>`)
+    .map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`)
     .join("")}</table>`;
 }
 
@@ -156,8 +156,8 @@ function drawRunChart(target, key, runs) {
     return;
   }
   // 차트가 들어갈 자리를 만든다 — 자리표시자 문구가 남아 있으면 겹친다.
-  target.innerHTML = `<div id="chart-${key}" style="height:220px"></div>
-    <div class="dim" style="font-size:11px;margin-top:4px">
+  target.innerHTML = `<div id="chart-${key}" class="chart"></div>
+    <div class="dim subnote">
       ${run.run_id} · seed ${run.seed ?? "—"} ${run.git_commit ? `· ${run.git_commit.slice(0, 7)}` : ""}
     </div>`;
 
@@ -169,7 +169,7 @@ function drawRunChart(target, key, runs) {
     showSymbol: false,
     data: run.series[k],
     lineStyle: { width: 2 },
-    itemStyle: { color: ["#4C9AFF", "#F5A623", "#9B7BF7"][i % 3] },
+    itemStyle: { color: COLOR.series[i % COLOR.series.length] },
     // 경고선은 문서(§10)에서 온 값이다. 화면이 따로 정하지 않는다.
     markLine: guards[k]?.floor !== undefined
       ? {
@@ -273,15 +273,9 @@ async function renderIcHistory() {
   // 손익 색(up/down)은 **쓰지 않는다.** 이 차트에서 초록·빨강은 "올랐다/
   // 내렸다" 가 아니라 그냥 계열 구분인데, 같은 화면의 다른 패널에서는 손익을
   // 뜻해서 한 색이 두 가지를 말하게 된다.
-  const SERIES_COLORS = [
-    "#4C9AFF", // 파랑
-    "#F5A623", // 주황
-    "#9B7BF7", // 보라
-    "#22C7A9", // 청록
-    "#E06C9F", // 분홍
-    "#8FA3B8", // 회청
-  ];
-  const colorOf = (index) => SERIES_COLORS[index % SERIES_COLORS.length];
+  // 팔레트는 scope.js COLOR.series (:root --s1~--s6) — 여기 다시 적으면
+  // 토큰을 고친 날 이 파일만 옛 색으로 남는다.
+  const colorOf = (index) => COLOR.series[index % COLOR.series.length];
 
   // **최신값을 범례에 넣는다.** 선 끝에 라벨을 달았더니 값이 가까운 계열끼리
   // 겹쳐서 `0.074`·`0.072` 가 한 덩어리로 뭉갰다(2026-08-19 아이폰 실측).

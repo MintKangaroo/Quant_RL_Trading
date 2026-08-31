@@ -22,6 +22,9 @@ const COLOR = {
   panel: token("--panel"), panel2: token("--panel2"),
   warn: token("--warn"), up: token("--up"), down: token("--down"),
   bench: token("--bench"), accent: token("--accent"),
+  // 범주 팔레트 — 종목·시리즈 **구분**용, 손익 의미 없음 (:root --s1~--s6).
+  // learning IC 차트와 포지션 도넛이 같은 순서로 쓴다. 하드코딩하면 화면마다 갈린다.
+  series: ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"].map(token),
 };
 
 const AXIS = {
@@ -32,9 +35,17 @@ const AXIS = {
 
 const BASE = {
   backgroundColor: "transparent",
-  animation: false, // 움직이는 대시보드는 아마추어처럼 보인다
+  animation: false, // 움직이는 대시보드는 아마추어처럼 보인다 (reduced-motion 배려이기도 하다)
+  // 스크린리더가 차트 내용을 읽을 수 있게 한다 — ECharts 가 시리즈 요약을
+  // aria-label 로 만들어 붙인다. 장중 수시 확인은 휴대폰이고(PRODUCT.md),
+  // 접근성 트리는 iOS VoiceOver 가 그대로 쓴다.
+  aria: { enabled: true },
   grid: { left: 52, right: 52, top: 18, bottom: 28 },
-  tooltip: { trigger: "axis", backgroundColor: COLOR.panel, borderColor: COLOR.border,
+  // confine — 툴팁이 화면 밖으로 나가지 않는다. 좁은 휴대폰에서 오른쪽 끝
+  // 점을 탭하면 툴팁이 잘려 안 보이던 것. triggerOn 에 click 을 더해 터치
+  // (탭)에서도 툴팁이 뜬다 — 모바일엔 mousemove 가 없다.
+  tooltip: { trigger: "axis", triggerOn: "mousemove|click", confine: true,
+             backgroundColor: COLOR.panel, borderColor: COLOR.border,
              textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 } },
   legend: { textStyle: { color: COLOR.muted, fontSize: 11 }, top: 0, right: 0 },
 };

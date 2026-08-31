@@ -32,6 +32,15 @@
      지금은 상관없다" 는 뜻일 때만 쓴다 — --dim 과 같은 자리에 섞으면
      의미가 없는데 안 보이는 것과 지금 안 쓰는 것이 구분 안 된다. */
   --faint: #39414d;
+  /* 범주 팔레트 — 종목·시리즈 **구분**용 (손익 의미 없음). 손익색(--up/--down)
+     과 헷갈리지 않게 초록·빨강 계열을 피한다. learning IC 차트와 포지션 도넛이
+     같은 순서로 쓴다 — 한 파일이 하드코딩하면 색이 화면마다 갈린다. */
+  --s1: #4c9aff;  /* 파랑 */
+  --s2: #f5a623;  /* 주황 */
+  --s3: #9b7bf7;  /* 보라 */
+  --s4: #06b6d4;  /* 시안 (청록 #22C7A9 는 --up 과 헷갈려 교체) */
+  --s5: #e06c9f;  /* 분홍 */
+  --s6: #8fa3b8;  /* 회청 */
   /* 헤더 그림자·정지 버튼 아래 등 어두운 바탕 위에 깊이를 주는 자리.
      하드코딩된 rgba(0,0,0,…) 이 여기저기 흩어져 있던 것을 모았다. */
   --shadow: rgba(0, 0, 0, 0.35);
@@ -1103,6 +1112,21 @@ details.fold > summary::-webkit-details-marker { display: none; }
 .plain { margin: 0 0 6px; line-height: 1.5; }
 .plain.ok strong { color: var(--up); }
 .plain.bad strong { color: var(--down); }
+/* 학습 탭 쉬운말 요약 — 강조 왼줄. learning.js 인라인 style 을 걷어 온 것. */
+.plain.note-accent {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--panel2);
+  font-size: 13px;
+}
+/* 진행 막대(학습 진도 등). 채움 폭(%)만 데이터라 인라인으로 남는다. */
+.meter { height: 6px; background: var(--border); border-radius: 3px; margin-top: 4px; }
+.meter > i { display: block; height: 6px; background: var(--accent); border-radius: 3px; }
+/* 키-값 표 머리(왼쪽 라벨 열). */
+.kv th { white-space: nowrap; text-align: left; padding-right: 12px; vertical-align: top; }
+/* 차트 아래 한 줄 각주(run id·seed 등). */
+.subnote { font-size: 11px; margin-top: 4px; }
 .muted { color: var(--dim); font-size: 11px; margin: 6px 0 0; line-height: 1.4; }
 td.num.ok { color: var(--up); }
 td.num.bad { color: var(--down); }
@@ -1154,3 +1178,16 @@ td.num.bad { color: var(--down); }
 .review-headline.down { color: var(--down); }
 .review-headline.dim { color: var(--muted); }
 .review-body { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 4px 0 0; white-space: pre-line; }
+
+/* ---------------------------------------------------------------------------
+   움직임 줄이기 (prefers-reduced-motion) — 전정계 민감 사용자 배려.
+   차트는 scope.js BASE 가 animation:false 라 원래 안 움직이고, CSS 쪽 전이
+   하나(더보기 시트)도 여기서 끈다. 기능은 그대로, 이동만 즉시 반영된다.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
