@@ -29,6 +29,20 @@ running() {
   return 1
 }
 
+# 오케스트레이터(체인)용 — **bash 프로세스**가 살아 있으면 돌고 있는 것으로 본다.
+# 체인은 단계마다 다른 python(measure_ic·trial·train_rl)을 자식으로 돌리므로 python
+# comm 만 세는 running() 으로는 "현재 자식 이름이 안 맞아" 죽은 걸로 오판하고 두 번째
+# 체인을 띄운다 (2026-08-31 실측: 미장 IC 가 두 개 돌았다). 단발 래퍼와 달리 체인의
+# 각 단계는 foreground 블로킹이라 bash 가 살아 있으면 진짜로 일하는 중이다.
+running_orch() {
+  local pid comm
+  for pid in $(pgrep -f "$1" 2>/dev/null); do
+    comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
+    case "$comm" in bash|python*) return 0;; esac
+  done
+  return 1
+}
+
 start() { # 이름 · 완료표시패턴 · 완료표시파일 · 프로세스패턴 · 명령
   local name="$1" done_pat="$2" done_file="$3" proc_pat="$4" cmd="$5"
   if [ -f "$done_file" ] && grep -aq "$done_pat" "$done_file"; then return 0; fi
@@ -54,5 +68,13 @@ else
 fi
 
 # 3) 체인 — §7 뒤 미장 IC → 시행 A → 3회차(파일럿→학습→판정→모의계좌)
-start "체인" "3회차 체인 끝" logs/night-chain-20260829.log "chain_2026083[0]" \
-  "cd $(pwd) && bash scripts/chain_20260830.sh"
+# 체인은 bash 오케스트레이터라 running_orch 로 센다 (running() 은 python 자식 이름이
+# 단계마다 바뀌어 오판한다 — 위 running_orch 주석 참고).
+if [ -f logs/night-chain-20260829.log ] && grep -aq "3회차 체인 끝" logs/night-chain-20260829.log; then
+  :
+elif running_orch "chain_2026083[0]"; then
+  :
+else
+  say "체인 이 안 돌고 있다 — 다시 띄운다"
+  setsid bash -c "cd $(pwd) && bash scripts/chain_20260830.sh" > /dev/null 2>&1 < /dev/null &
+fi
