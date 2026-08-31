@@ -10,37 +10,44 @@
    필요 없다. */
 
 :root {
-  --bg: #070a0f;
-  --panel: #0d1219;
-  --panel2: #141b24;
-  --border: #1e2733;
+  --bg: #0e1116;
+  --panel: #161a20;
+  --panel2: #1b2028;
+  --border: #262c35;
   /* 패널 머리글 줄. 본문보다 한 단계 밝아야 카드의 경계가 읽힌다. */
-  --head: #111823;
+  --head: #191e25;
   --text: #e6e9ee;
   --muted: #8a93a0;
   --dim: #5a626d;
   --warn: #f5a524;
-  /* 상승 = 초록으로 통일. 국장·미장을 같이 하므로 화면마다 다르면 사고가
-     난다 (dashboard.md §10). */
-  --up: #22c55e;
-  --down: #ef4444;
+  /* 손익 — 한국 증권 관습: 상승 빨강 · 하락 파랑 (기준 참조물 fund-reference,
+     사용자 확정 2026-08-31). 국장·미장 모두 이 규약 하나로 통일한다 —
+     화면마다 다르면 사고가 난다 (dashboard.md §10). 상태(ok/bad)의 초록·빨강
+     과는 별개다: 초록 점은 "정상 가동"이지 "올랐다"가 아니다. */
+  --up: #e5484d;
+  --down: #3e7bfa;
   --bench: #6b7280;
+  /* 상태색 — 손익과 별개의 축. ok 는 "정상 가동·통과"(참조물의 초록 점),
+     bad 는 "실패·위험". 손익이 빨강↑/파랑↓ 가 된 순간(2026-08-31) 상태까지
+     --up/--down 을 빌려 쓰면 "통과가 빨갛게" 되는 의미 붕괴가 난다. */
+  --ok: #3fb950;
+  --bad: #e5484d;
   /* 강조. 손익이 아닌 것 — 선택·초점·구조선 — 에만 쓴다. 손익 색과 겹치면
      "이 파랑이 손실인가 선택인가" 를 매번 생각하게 된다. */
-  --accent: #38bdf8;
+  --accent: #4c6ef5;
   /* --dim 보다 한 단계 더 죽인 글자. 꺼진 버튼·못 잰 이유처럼 "있지만
      지금은 상관없다" 는 뜻일 때만 쓴다 — --dim 과 같은 자리에 섞으면
      의미가 없는데 안 보이는 것과 지금 안 쓰는 것이 구분 안 된다. */
   --faint: #39414d;
   /* 범주 팔레트 — 종목·시리즈 **구분**용 (손익 의미 없음). 손익색(--up/--down)
-     과 헷갈리지 않게 초록·빨강 계열을 피한다. learning IC 차트와 포지션 도넛이
+     과 헷갈리지 않게 순빨강·순파랑 계열을 피한다. learning IC 차트와 포지션 도넛이
      같은 순서로 쓴다 — 한 파일이 하드코딩하면 색이 화면마다 갈린다. */
-  --s1: #4c9aff;  /* 파랑 */
-  --s2: #f5a623;  /* 주황 */
+  --s1: #4c6ef5;  /* 인디고 (참조물 '국장') */
+  --s2: #2aa198;  /* 틸 (참조물 '미장') */
   --s3: #9b7bf7;  /* 보라 */
-  --s4: #06b6d4;  /* 시안 (청록 #22C7A9 는 --up 과 헷갈려 교체) */
-  --s5: #e06c9f;  /* 분홍 */
-  --s6: #8fa3b8;  /* 회청 */
+  --s4: #e06c9f;  /* 분홍 */
+  --s5: #8fa3b8;  /* 회청 */
+  --s6: #62b0db;  /* 하늘 — 손익 파랑(--down)보다 밝고 탁하게 */
   /* 헤더 그림자·정지 버튼 아래 등 어두운 바탕 위에 깊이를 주는 자리.
      하드코딩된 rgba(0,0,0,…) 이 여기저기 흩어져 있던 것을 모았다. */
   --shadow: rgba(0, 0, 0, 0.35);
@@ -87,7 +94,7 @@ header {
   align-items: center;
   gap: 14px;
   padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
-  background: linear-gradient(180deg, #0e151e 0%, var(--panel) 100%);
+  background: linear-gradient(180deg, #12161c 0%, var(--panel) 100%);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -166,7 +173,7 @@ header .sub { color: var(--muted); font-size: 12px; }
   font-size: 11px;
   border: 1px solid var(--border);
 }
-.tag.pass { color: var(--up); border-color: var(--up); }
+.tag.pass { color: var(--ok); border-color: var(--ok); }
 .tag.observe { color: var(--warn); border-color: var(--warn); }
 .tag.dim { color: var(--dim); }
 
@@ -176,7 +183,7 @@ a { color: var(--text); text-decoration: none; }
 a:hover { text-decoration: underline; }
 a:focus-visible { outline: 1px solid var(--warn); outline-offset: 2px; }
 
-.good { color: var(--up); }
+.good { color: var(--ok); }
 .weak { color: var(--muted); }
 
 .note {
@@ -701,7 +708,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .donut { position: relative; width: 62px; height: 62px; flex: none; }
 .donut svg { transform: rotate(-90deg); display: block; }
 .donut .ring-bg { stroke: var(--panel2); }
-.donut .ring { stroke: var(--up); stroke-linecap: round; }
+.donut .ring { stroke: var(--accent); stroke-linecap: round; }
 .donut .mid {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -1087,7 +1094,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 /* 데이터 기준일 띠 — 모든 탭 머리 */
 .freshness { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; font-size: 11px; }
 .fresh { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--panel2); color: var(--muted); }
-.fresh.ok { border-color: rgba(76,175,80,.4); color: var(--up); }
+.fresh.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok); }
 .fresh.stale { border-color: var(--down); color: var(--down); font-weight: 600; }
 
 /* 접힌 부가 패널 (트레이딩 탭) */
@@ -1112,8 +1119,8 @@ details.fold > summary::-webkit-details-marker { display: none; }
 
 /* 학습 탭 평가 칸 — 글로 말하는 판정과 그 밑의 촘촘한 표 */
 .plain { margin: 0 0 6px; line-height: 1.5; }
-.plain.ok strong { color: var(--up); }
-.plain.bad strong { color: var(--down); }
+.plain.ok strong { color: var(--ok); }
+.plain.bad strong { color: var(--bad); }
 /* 학습 탭 쉬운말 요약 — 본문과 구분되는 조용한 카드. 왼쪽 굵은 강조 띠는
    side-tab 관용구라 쓰지 않는다 (위 .alert 와 같은 이유). */
 .plain.note-accent {
@@ -1132,8 +1139,8 @@ details.fold > summary::-webkit-details-marker { display: none; }
 /* 차트 아래 한 줄 각주(run id·seed 등). */
 .subnote { font-size: 11px; margin-top: 4px; }
 .muted { color: var(--dim); font-size: 11px; margin: 6px 0 0; line-height: 1.4; }
-td.num.ok { color: var(--up); }
-td.num.bad { color: var(--down); }
+td.num.ok { color: var(--ok); }
+td.num.bad { color: var(--bad); }
 
 /* 뉴스·일정 — 월별 일정 달력 */
 .sched-fold { display: none; font-size: 11px; margin-bottom: 6px; }

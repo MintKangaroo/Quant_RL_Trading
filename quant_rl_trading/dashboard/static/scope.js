@@ -22,6 +22,7 @@ const COLOR = {
   panel: token("--panel"), panel2: token("--panel2"),
   warn: token("--warn"), up: token("--up"), down: token("--down"),
   bench: token("--bench"), accent: token("--accent"),
+  ok: token("--ok"), bad: token("--bad"),
   // 범주 팔레트 — 종목·시리즈 **구분**용, 손익 의미 없음 (:root --s1~--s6).
   // learning IC 차트와 포지션 도넛이 같은 순서로 쓴다. 하드코딩하면 화면마다 갈린다.
   series: ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"].map(token),

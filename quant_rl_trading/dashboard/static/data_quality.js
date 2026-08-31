@@ -37,8 +37,8 @@ async function renderCoverage() {
     series: [{
       name: "종목 수", type: "line", showSymbol: false,
       data: data.points.map((p) => p.entities),
-      lineStyle: { width: 1.4, color: COLOR.down },
-      areaStyle: { color: COLOR.down, opacity: 0.08 },
+      lineStyle: { width: 1.4, color: COLOR.accent },
+      areaStyle: { color: COLOR.accent, opacity: 0.08 },
     }],
   }, true);
 }
@@ -95,7 +95,7 @@ async function renderLatency() {
     series: ["p50", "p90", "p99"].map((key, index) => ({
       name: key, type: "bar",
       data: data.stages.map((s) => s[key]),
-      itemStyle: { color: [COLOR.bench, COLOR.down, COLOR.warn][index] },
+      itemStyle: { color: [COLOR.bench, COLOR.bad, COLOR.warn][index] },
     })),
   }, true);
 }

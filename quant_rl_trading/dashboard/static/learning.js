@@ -338,7 +338,7 @@ async function renderIcHistory() {
         // 계열이 "쓰이는 쪽" 에 있는지가 한눈에 들어온다.
         markArea: {
           silent: true,
-          itemStyle: { color: COLOR.up, opacity: 0.06 },
+          itemStyle: { color: COLOR.ok, opacity: 0.06 },
           data: [[{ yAxis: data.threshold }, { yAxis: "max" }]],
         },
       },

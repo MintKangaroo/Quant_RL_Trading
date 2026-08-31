@@ -667,8 +667,8 @@ function hexToRgb(hex) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-/* 등락률 → 색. **상승 초록 · 하락 빨강** — 이 대시보드의 고정 색 규칙이다
- * (scope.js COLOR.up/down). 한국식(빨강↑)을 쓰면 다른 탭과 색이 갈린다.
+/* 등락률 → 색. **상승 빨강 · 하락 파랑** — 한국 증권 관습으로 통일한 이
+ * 대시보드의 고정 색 규칙이다 (scope.js COLOR.up/down, 2026-08-31 확정).
  * 등락을 못 잰 종목은 회색(COLOR.dim)이다 — 0% 로 칠하면 "보합" 이라는
  * 다른 사실이 된다. */
 function treemapColor(change) {
