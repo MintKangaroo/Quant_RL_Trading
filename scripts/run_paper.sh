@@ -28,6 +28,12 @@ RC=0
         reconcile)
             .venv/bin/python tools/reconcile_fills.py --market KR --sandbox "${SANDBOX}"
             RC=$?
+            # 주문별 대사 **뒤에** 스냅샷 대사로 잔여 드리프트를 청소한다. 이 순서라야
+            # 오늘 체결이 이미 order_id 로 기록돼 스냅샷 delta 가 잔여만 남고 이중계상이
+            # 없다(장중 실행 금지 — reconcile 은 마감 뒤 15:45 에 돈다). 스냅샷 실패가
+            # 주문대사 rc 를 덮지 않게 rc 는 따로 로그만.
+            .venv/bin/python tools/reconcile_snapshot.py --market KR --sandbox "${SANDBOX}" --apply
+            echo "snapshot rc=$?"
             ;;
         *)
             echo "모르는 단계: ${STEP} (session|reconcile)"; RC=2
