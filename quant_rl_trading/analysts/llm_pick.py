@@ -456,17 +456,23 @@ class LlmPickAnalyst(Analyst):
                 answer = answers.get(entity)
                 if answer is None:
                     continue
-                cache.put(
-                    CacheKey(
-                        agent=AGENT,
-                        agent_version=VERSION,
-                        entity_id=entity,
-                        as_of=as_of,
-                        features_hash=features_hash(payload),
-                    ),
-                    answer,
-                    ingest_run_id=f"{AGENT}-{entity}-{as_of:%Y%m%dT%H%M%S}",
-                )
+                # 같은 run_id 가 이미 있으면 건너뛴다. run_id 에는 features_hash 가
+                # 없어서, 피처가 바뀌면 캐시 조회(get)는 빗나가는데 적재(put)는
+                # 충돌한다 — 강제 종료 후 재개한 시행 G 가 여기서 DuplicateIngestRun
+                # 으로 두 번 죽었다(2026-08-31). record_usage 와 같은 관용구.
+                cache_run_id = f"{AGENT}-{entity}-{as_of:%Y%m%dT%H%M%S}"
+                if not cache.store.ingest_run_recorded("agent_cache", cache_run_id):
+                    cache.put(
+                        CacheKey(
+                            agent=AGENT,
+                            agent_version=VERSION,
+                            entity_id=entity,
+                            as_of=as_of,
+                            features_hash=features_hash(payload),
+                        ),
+                        answer,
+                        ingest_run_id=cache_run_id,
+                    )
                 outlook = _finite(answer.get("outlook"))
                 if outlook is None:
                     continue
