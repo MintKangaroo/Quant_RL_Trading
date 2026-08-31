@@ -144,6 +144,34 @@ def main(argv: list[str] | None = None) -> int:
             params=params,
         )
 
+    # 종결된 주문은 상태를 revision 으로 되적는다 — 안 적으면 status 가 sent 로
+    # 영영 남아, 다음 회차가 이미 끝난 주문에 또 취소를 내고 01433("정정/취소할
+    # 수량이 없습니다")을 매번 받는다 (2026-08-31 실측). pipeline 의
+    # _record_submit_result(revision=2) 와 같은 관용구, 그 위 revision=3.
+    terminal = {
+        o.order_id: o.status.value
+        for o in outcome.orders
+        if o.status in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.ABANDONED)
+    }
+    if terminal:
+        by_id = {
+            f"{session_id}|{r.entity_id}|{r.slice_seq}": r for r in frame.itertuples(index=False)
+        }
+        rows = []
+        for order_id, status in terminal.items():
+            src = by_id.get(order_id)
+            if src is None:
+                continue
+            row = {c: getattr(src, c) for c in frame.columns}
+            row["status"] = status
+            row["revision"] = int(getattr(src, "revision", 2) or 2) + 1
+            row["observed_at"] = now
+            rows.append(row)
+        run_id = f"chase-final-{session_id}-{now:%Y%m%dT%H%M%S}"
+        if rows and not store.ingest_run_recorded(ORDERS, run_id):
+            store.append(ORDERS, rows, ingest_run_id=run_id, source="chase_orders")
+            print(f"  상태 되적음: {len(rows)}건 ({', '.join(sorted(set(terminal.values())))})")
+
     for action in outcome.actions:
         o = action.order
         print(f"  {action.type.value:8s} {o.order_id} 잔량 {o.remaining_quantity} @ {o.limit_price:,.0f} — {action.reason or ''}")
