@@ -43,20 +43,37 @@ STATUS_SENT = "sent"
 
 
 def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_id: str) -> list[PendingFill]:
-    """``sent`` 주문 → PendingFill. 주문번호가 없는 ``sent`` 는 대사할 수 없다 — 그 사실을 남긴다."""
-    frame = store.get(ORDERS, as_of=as_of, lookback=7)
+    """``sent`` 주문 → PendingFill. 주문번호가 없는 ``sent`` 는 대사할 수 없다 — 그 사실을 남긴다.
+
+    **현재 세션만 보지 않는다.** 예전에는 ``session_id`` 로 걸러 그날 세션 주문만
+    대사했는데, 대사가 코드 버그·네트워크로 한 번 실패하면(2026-08-28 실측) 그 세션의
+    ``sent`` 주문은 영영 고아가 됐다 — 다음 날 대사는 새 세션만 보기 때문이다. 그렇게
+    8/27 주문 70건이 미체결로 남아 계좌가 87% 현금으로 굳었다.
+    브로커 매칭은 세션이 아니라 행별 ``broker_order_no`` 로 하므로, **미기록 sent 를
+    세션 불문 전부** 대상으로 삼는다. 이미 장부에 든 체결은 sync_fills 의
+    ``_recorded_quantities`` 가 중복을 막는다.
+    """
+    frame = store.get(ORDERS, as_of=as_of, lookback=14)
     if frame.empty:
         return []
-    frame = frame[(frame["session_id"] == session_id) & (frame["status"] == STATUS_SENT)]
+    # 시장을 섞지 않는다 — KR 대사에 US 주문이 들어오면 계좌·조회 경로가 어긋난다.
+    # entity_id 접두사(``KR:``/``US:``)로 이 시장 것만 남긴다.
+    frame = frame[
+        (frame["status"] == STATUS_SENT)
+        & frame["entity_id"].astype(str).str.startswith(f"{market}:")
+    ]
     out: list[PendingFill] = []
     for row in frame.itertuples(index=False):
         reason = str(getattr(row, "reason", "") or "")
+        # 행이 자기 세션을 들고 있으면 그걸 쓴다(옛 세션 고아도 정확히 식별). 없으면
+        # 넘겨받은 현재 세션으로 메운다.
+        row_session = str(getattr(row, "session_id", "") or session_id)
         if not reason.startswith(BROKER_ORDER_NO_PREFIX):
             print(f"  ⚠️  {row.entity_id} slice {row.slice_seq}: sent 인데 주문번호가 없다 — 대사 불가", file=sys.stderr)
             continue
         out.append(
             PendingFill(
-                order_id=f"{session_id}|{row.entity_id}|{row.slice_seq}",
+                order_id=f"{row_session}|{row.entity_id}|{row.slice_seq}",
                 entity_id=str(row.entity_id),
                 side=Side(str(row.side)),
                 market=market,
