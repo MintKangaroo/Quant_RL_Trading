@@ -103,3 +103,15 @@ else
   say "시행 C·D 가 안 돌고 있다 — 다시 띄운다"
   setsid bash -c "cd $(pwd) && bash scripts/trials_cd.sh" > /dev/null 2>&1 < /dev/null &
 fi
+
+# 6) 미장 신호 백필 — 여지 지도가 미장을 잴 수 있게 과거를 연다 (2026-09-01).
+# 외부 호출이 없어 재시작이 안전하다. 두 단계 중 어디서 죽어도 처음부터 다시
+# 돌면 되고, 창고가 중복을 거부하므로 두 번 적재되지 않는다.
+if [ -f logs/backfill-us-signals-20260901.log ] && grep -aq "끝$" logs/backfill-us-signals-20260901.log; then
+  :
+elif running_orch "backfill_us_signal[s]" || running "backfill_ic_histor[y]" || running "backfill_signal[s]"; then
+  :
+elif [ -f logs/backfill-us-signals-20260901.log ]; then
+  say "미장 신호 백필이 안 돌고 있다 — 다시 띄운다"
+  setsid bash -c "cd $(pwd) && bash scripts/backfill_us_signals.sh" > /dev/null 2>&1 < /dev/null &
+fi
