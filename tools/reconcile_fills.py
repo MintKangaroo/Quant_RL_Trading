@@ -9,15 +9,22 @@
 말해 준다. ``execution.pending`` 은 ``sent`` 를 봉으로 체결시키지 않으므로, 이
 도구가 안 돌면 그 주문은 장부에 영원히 없다. 그래서 종료코드가 말한다:
 
-    0  전부 확인(체결·미체결·취소 중 하나로 확정)
+    0  전부 확인(체결·미체결·취소·만료 중 하나로 확정)
     1  하나라도 "모른다"(조회 실패) — 다음 실행이 다시 본다
     2  대사할 주문이 없다 (오늘 세션이 안 돌았거나 sent 가 0건)
+
+STALE_DAYS 를 넘긴 "모른다" 는 ``expired`` 로 확정한다 — 브로커가 며칠 지난 주문을
+안 돌려주므로 영원히 모름으로 남아 매일 rc=1 을 만들기 때문이다. 체결을 0 으로 적는
+것이 아니라 주문만 종결시키며, 포지션 진실은 ``reconcile_snapshot`` 이 계좌 잔고와
+대조해 따로 맞춘다.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+
+import pandas as pd
 from datetime import date, datetime
 from pathlib import Path
 
@@ -40,6 +47,7 @@ from tools.verify_live_order import resolve_profile  # noqa: E402
 
 ORDERS = "orders"
 STATUS_SENT = "sent"
+SOURCE_EXPIRE = "reconcile_expire"
 
 
 def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_id: str) -> list[PendingFill]:
@@ -82,6 +90,45 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
             )
         )
     return out
+
+
+
+#: 이 일수를 넘긴 sent 주문이 계속 "모른다" 면 만료로 확정한다. 브로커의 체결
+#: 조회 창(며칠)보다 넉넉히 잡되, 늦게 오는 체결을 놓치지 않을 만큼은 기다린다.
+STALE_DAYS = 3
+
+
+def _expire_stale(
+    store: Store, clock, *, now: datetime, market: str, result
+) -> int:
+    """오래된 UNKNOWN 주문을 ``expired`` revision 으로 되적는다. 적은 건수를 돌려준다."""
+    unknown_ids = {
+        o.order_id for o in result.outcomes if o.state is FillState.UNKNOWN
+    }
+    if not unknown_ids:
+        return 0
+    frame = store.get(ORDERS, as_of=now, lookback=30)
+    frame = frame[frame["status"] == STATUS_SENT]
+    cutoff = pd.Timestamp(now) - pd.Timedelta(days=STALE_DAYS)
+    rows = []
+    for row in frame.itertuples(index=False):
+        oid = f"{getattr(row, 'session_id', '')}|{row.entity_id}|{row.slice_seq}"
+        if oid not in unknown_ids:
+            continue
+        if pd.Timestamp(row.observed_at) > cutoff:
+            continue  # 아직 늦게 올 수 있다
+        record = {c: getattr(row, c) for c in frame.columns}
+        record["status"] = "expired"
+        record["revision"] = int(getattr(row, "revision", 2) or 2) + 1
+        record["observed_at"] = now
+        rows.append(record)
+    if not rows:
+        return 0
+    run_id = f"expire-stale-{market}-{now:%Y%m%dT%H%M%S}"
+    if store.ingest_run_recorded(ORDERS, run_id):
+        return 0
+    store.append(ORDERS, rows, ingest_run_id=run_id, source=SOURCE_EXPIRE)
+    return len(rows)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -128,6 +175,20 @@ def main(argv: list[str] | None = None) -> int:
         price = f" @ {outcome.fill.price:,.0f}" if outcome.fill else ""
         print(f"  {mark:<4} {outcome.order_id} · {qty if qty is not None else '-'}주{price} {outcome.detail}")
     print(f"trades {result.rows_written}행 적재 · 모름 {unknown}건")
+
+    # **오래된 '모름' 은 만료로 확정한다.** 브로커는 며칠 지난 주문의 체결을 안
+    # 돌려주므로(4일이면 "주문 없음"), 그 주문들은 영원히 UNKNOWN 으로 남아 매
+    # 대사마다 조회되고 rc=1 을 만든다 — 2026-08-27 주문 70건이 그랬다. 정상
+    # 상태를 매일 실패로 보고하면 감시가 무뎌진다.
+    #
+    # **0 체결로 적는 것이 아니다** — trades 는 손대지 않는다. 주문만 종결로
+    # 옮겨 더 쫓지 않게 한다. 그 사이 실제로 체결됐더라도 포지션 진실은
+    # `reconcile_snapshot` 이 계좌 잔고와 대조해 따로 맞춘다. 그 안전망이 있어야
+    # 이 만료 처리가 안전하다.
+    stale = _expire_stale(store, clock, now=now, market=args.market, result=result)
+    if stale:
+        print(f"만료 확정 {stale}건 — {STALE_DAYS}일 넘게 브로커가 모른다고 답한 주문")
+        unknown -= stale
     return 1 if unknown else 0
 
 
