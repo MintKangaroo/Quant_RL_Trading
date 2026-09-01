@@ -43,6 +43,7 @@ from quant_rl_trading.store import Store  # noqa: E402
 ORDERS = "orders"
 TRADES = "trades"
 PRICES = "prices"
+INTRADAY = "prices_intraday"
 
 
 def _decision_prices(orders: pd.DataFrame) -> pd.DataFrame:
@@ -72,6 +73,45 @@ def _decision_prices(orders: pd.DataFrame) -> pd.DataFrame:
         errors="coerce",
     ).dt.date
     return frame[["order_id", "entity_id", "side", "limit_price", "quantity", "session_day"]]
+
+
+
+def _same_day_benchmarks(store: Store, *, now, days: int) -> pd.DataFrame:
+    """분봉 → 종목·일자별 (VWAP, 시가).
+
+    VWAP 은 **거래량 가중 대표가격** Σ(대표가×거래량)/Σ(거래량) 으로 낸다.
+    대표가는 (고+저+종)/3 이다. 봉마다의 종가를 그냥 평균내면 거래가 없던 봉이
+    있던 봉과 같은 무게를 가져 실제 체결 분포와 어긋난다.
+
+    ``value`` 열을 안 쓰는 이유: **단위가 백만원이다** (2026-09-01 실측 —
+    959주 × 26,000원 = 25백만 인데 ``value`` 는 25). 그걸 원 단위로 착각하면
+    VWAP 이 백만분의 1 이 되고 실행격차가 99억 bps 로 나온다(실제로 그랬다).
+    거래량만 쓰면 그 함정 자체가 없다.
+    """
+    try:
+        bars = store.get(INTRADAY, as_of=now, lookback=days + 2)
+    except Exception:
+        return pd.DataFrame(columns=["entity_id", "day", "vwap", "day_open"])
+    if bars.empty:
+        return pd.DataFrame(columns=["entity_id", "day", "vwap", "day_open"])
+    bars = bars.copy()
+    bars["ts"] = pd.to_datetime(bars["valid_from"])
+    bars["day"] = bars["ts"].dt.date
+    bars["volume"] = bars["volume"].astype(float)
+    typical = (
+        bars["high"].astype(float) + bars["low"].astype(float) + bars["close"].astype(float)
+    ) / 3.0
+    bars["pv"] = typical * bars["volume"]
+    grouped = bars.sort_values("ts").groupby(["entity_id", "day"])
+    out = grouped.agg(
+        pv=("pv", "sum"),
+        traded_volume=("volume", "sum"),
+        day_open=("open", "first"),
+    ).reset_index()
+    out["vwap"] = np.where(
+        out["traded_volume"] > 0, out["pv"] / out["traded_volume"], np.nan
+    )
+    return out[["entity_id", "day", "vwap", "day_open"]]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -133,14 +173,26 @@ def main(argv: list[str] | None = None) -> int:
         (filled - merged["limit_price"].astype(float))
         / merged["limit_price"].astype(float) * 10000.0 * sign
     )
+
+    # **같은 날 안의 벤치마크 — 여기가 집행 품질이다.** 도착가(전 세션 종가) 대비는
+    # 그날 시장이 갭한 만큼을 같이 재서, 하락장에서는 가만히 있어도 "잘 샀다" 로
+    # 보인다(2026-09-01 실측 -104bps 가 그랬다). 그날의 VWAP 과 비교하면 시장
+    # 움직임이 분자·분모에서 함께 상쇄되고 **"같은 날 남들 평균보다 잘 샀나"**만
+    # 남는다 — 그것이 집행이 실제로 통제하는 부분이다.
+    # 체결 시각 기준 일자 — 분봉 벤치마크와 맞추려면 **실제 체결일**이어야 한다
+    # (주문 행은 세션일로 찍히므로 그것과 다르다).
+    merged["day"] = pd.to_datetime(merged["observed_at"]).dt.date
+    bench = _same_day_benchmarks(store, now=now, days=args.days)
+    merged = merged.merge(bench, on=["entity_id", "day"], how="left")
+    for col, label in (("vwap", "vs_vwap_bps"), ("day_open", "vs_open_bps")):
+        base = merged[col].astype(float)
+        merged[label] = np.where(base > 0, (filled - base) / base * 10000.0 * sign, np.nan)
     merged["gross"] = filled * merged["quantity"].astype(float)
     merged["cost_bps"] = (
         (merged["fee"].astype(float) + merged["tax"].astype(float))
         / merged["gross"].replace(0.0, np.nan)
         * 10000.0
     )
-    merged["day"] = pd.to_datetime(merged["observed_at"]).dt.date
-
     # 금액가중이 진실이다 — 1주짜리 체결과 1억짜리 체결을 같은 무게로 평균내면
     # 실제로 새는 돈과 무관한 숫자가 나온다.
     total_gross = merged["gross"].sum()
@@ -159,6 +211,17 @@ def main(argv: list[str] | None = None) -> int:
     w_lim = float((merged["vs_limit_bps"] * merged["gross"]).sum() / total_gross)
     print(f"{'(참고) 지정가 대비':<19}{w_lim:>12.2f}{'':>10}{'':>10}  bps ← 남긴 버퍼, 집행 품질 아님")
 
+    print("\n같은 날 벤치마크 대비 — **여기가 집행 품질이다** (시장 움직임이 상쇄된다):")
+    for col, name in (("vs_vwap_bps", "당일 VWAP 대비"), ("vs_open_bps", "당일 시가 대비")):
+        ok = merged[merged[col].notna()]
+        if ok.empty:
+            print(f"  {name:<16} 데이터 없음 (분봉 미수집 종목)")
+            continue
+        w = float((ok[col] * ok["gross"]).sum() / ok["gross"].sum())
+        cover = ok["gross"].sum() / total_gross * 100
+        verdict = "비싸게 샀다" if w > 0 else "싸게 샀다"
+        print(f"  {name:<16}{w:>9.2f} bps  ({verdict}) · 중앙값 {ok[col].median():>7.2f} · 거래대금 커버 {cover:.0f}%")
+
     by_side = merged.groupby(merged["side"].astype(str).str.lower()).apply(
         lambda g: pd.Series({
             "건수": len(g),
@@ -170,23 +233,34 @@ def main(argv: list[str] | None = None) -> int:
     print("\n방향별:")
     print(by_side.to_string())
 
-    print("\n일자별 (금액가중 슬리피지 bps):")
+    print("\n일자별 (금액가중 bps · 손해가 양수):")
+    def _wavg(g: pd.DataFrame, col: str) -> float:
+        ok = g[g[col].notna()]
+        return float((ok[col] * ok["gross"]).sum() / ok["gross"].sum()) if len(ok) else float("nan")
     daily = merged.groupby("day").apply(
-        lambda g: (g["slip_bps"] * g["gross"]).sum() / g["gross"].sum(),
+        lambda g: pd.Series({
+            "건수": len(g),
+            "도착가대비": _wavg(g, "slip_bps"),
+            "VWAP대비": _wavg(g, "vs_vwap_bps"),
+            "시가대비": _wavg(g, "vs_open_bps"),
+        }),
         include_groups=False,
     )
     print(daily.tail(10).to_string())
 
-    # **판단은 사람이 한다** — 여기서는 크기만 말한다. 연 환산은 회전율에
-    # 달렸으므로 지어내지 않는다.
-    annual_hint = w_slip + w_cost
+    # **판단은 사람이 한다** — 여기서는 크기와 표본만 말한다. 연 환산은 회전율에
+    # 달렸고, 며칠짜리 표본으로 연 비용을 말하면 그 자체가 거짓말이 된다.
+    days_n = merged["day"].nunique()
+    print(f"\n수수료·세금 {w_cost:.2f}bps 는 고정비다 — 집행으로 줄일 수 없다.")
     print(
-        f"\n한 번 사고팔 때 왕복 대략 {annual_hint * 2:.0f}bps "
-        f"({annual_hint * 2 / 100:.2f}%) 가 비용으로 나간다."
+        f"집행이 실제로 통제하는 것은 'VWAP 대비' 하나뿐이고, 지금 표본은 {days_n}일 "
+        f"· 체결 {len(merged):,}건이다."
     )
-    print(
-        "RL 집행이 노릴 수 있는 것은 위 '실행격차' 뿐이다 — 수수료·세금은 고정비다."
-    )
+    if days_n < 20:
+        print(
+            "  ⚠️  **표본이 작아 판정 불가.** 일자별 표의 부호가 뒤집히는지 보라 —"
+            " 뒤집히면 지금 값은 실력이 아니라 그날 시장이다."
+        )
     return 0
 
 
