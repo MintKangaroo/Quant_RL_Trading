@@ -112,7 +112,9 @@ fi
 # 주려고 멈춘 것을 감시자가 10분 뒤 되살리면 그 배려가 무의미해진다.
 if [ -f logs/.pause-us-backfill ]; then
   :
-elif [ -f logs/backfill-us-signals-20260901.log ] && grep -aq "끝$" logs/backfill-us-signals-20260901.log; then
+# 완료 표식은 `=== ... 끝 ===` 이라 `끝$` 로는 안 맞는다 — 그러면 감시자가 끝난
+# 작업을 영원히 되살린다(2026-09-02 실측: 1단계가 rc=0 으로 끝났는데 또 띄웠다).
+elif [ -f logs/backfill-us-signals-20260901.log ] && grep -aq "\[2/2\] rc=0" logs/backfill-us-signals-20260901.log; then
   :
 elif running_orch "backfill_us_signal[s]" || running "backfill_ic_histor[y]" || running "backfill_signal[s]"; then
   :
