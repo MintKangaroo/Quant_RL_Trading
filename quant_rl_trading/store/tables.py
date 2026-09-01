@@ -169,7 +169,15 @@ _SPECS: dict[str, TableSpec] = {
         doc=(
             "공매도. **T+1~2 에 공표된다** — observed_at 이 세션 당일이면 "
             "flow_kr 이 통째로 미래를 본다. backfill.shorting_lag_days 로 "
-            "거래일 단위로 늦춰 찍는다."
+            "거래일 단위로 늦춰 찍는다.\n\n"
+            "**⚠️ 이 표는 비어 있고, 그것이 맞다 (2026-09-01 확인).** 유일한 구현인 "
+            "`krx_source.shorting_on` 은 pykrx 를 쓰는데 pykrx 는 약관상 자동화 "
+            "수집이 금지돼 있다(collectors/panels.py OPENAPI_PANELS 주석). 정식 "
+            "KRX Open API 에는 공매도 엔드포인트가 없다 — 시세(/sto/*)와 "
+            "지수(/idx/*) 뿐이다. 그래서 수집 일정에 안 걸려 있는 것이 의도이고, "
+            "**빈 표를 보고 '수집기가 고장났다' 로 읽지 마라.** 국장 공매도를 쓰려면 "
+            "약관을 지키는 새 경로(정식 API 확장·유료 벤더)를 먼저 구해야 한다. "
+            "미장 공매도는 별개다 — `short_flow` 가 FINRA 에서 받아 채운다."
         ),
     ),
     "indices": TableSpec(

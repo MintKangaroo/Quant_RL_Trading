@@ -59,7 +59,12 @@ from quant_rl_trading.schemas.verdict import Category
 AGENT_CACHE = "agent_cache"
 SENTIMENT_TABLE = "news_sentiment"
 AGENT = "news-screen"
-VERSION = "news-screen-v0.1.0"
+# **v0.2.0 — 감성 점수를 출력에 더하면서 올렸다 (2026-09-01).**
+# 2026-08-30 에 sentiment 를 스키마에 넣고도 이 버전을 안 올려서, 옛 캐시(점수
+# 없는 판정 510행)가 그대로 맞아떨어져 **다시 묻지 않았다.** 그래서 news_sentiment
+# 가 한 달 내내 0행이었다 — 기능은 들어갔는데 조용히 아무것도 안 쌓았다.
+# 출력 스키마를 바꾸면 이 값을 올린다. 캐시 키가 이 값을 포함하는 이유가 이것이다.
+VERSION = "news-screen-v0.2.0"
 
 KEY_ENV = "ANTHROPIC_API_KEY"
 
