@@ -35,6 +35,9 @@ fi
 VICTIMS=(
   "trial_llm_analys[t]"        # agent_cache 덕에 재개가 공짜
   "trial_new_source[s]"        # 측정 재실행 싸다
+  "backfill_ic_histor[y]"      # 작업 디렉터리에 중간 산출물이 남아 이어 돌 수 있다
+  "backfill_signal[s]"         # 창고가 중복을 거부하므로 다시 돌려도 안전
+  "measure_headroo[m]"         # 순수 계산, 언제든 다시 잰다
   "measure_i[c].py"            # 세션 단위 재실행
   "compare_baselines_overnigh[t]" # 재실행 비싸지만 시스템 멈춤보단 낫다
   "train_r[l].py"              # 체크포인트에서 잇는다 — 마지막 수단
