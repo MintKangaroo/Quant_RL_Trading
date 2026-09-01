@@ -39,8 +39,20 @@ logger = logging.getLogger(__name__)
 SIGNALS = "signals"
 FAILURES = "analyst_failures"
 
-#: 점수를 내는 Analyst. **시장별로 돌릴 수 있는 것이 다르다** — 미장은 재무·
-#: 이벤트·수급 데이터가 없어서, 돌려봤자 나오는 것은 신호가 아니라 빈 프레임이다.
+#: 점수를 내는 Analyst. **시장별로 돌릴 수 있는 것이 다르다** — 데이터가 없는
+#: Analyst 를 돌리면 나오는 것은 신호가 아니라 빈 프레임이다.
+#:
+#: **2026-09-01: 미장에 fundamental·event 를 켰다.** 이 명단은 원래 "미장은 재무·
+#: 이벤트 데이터가 없다" 는 전제로 만들어졌는데, EDGAR 백필과 문서 수집이 들어온
+#: 뒤로 그 전제가 옛말이 됐다. 창고 실측:
+#:
+#:   fundamentals  US 129,686행 / 4,939종목   (EDGAR)
+#:   documents     US  61,383행 / 5,216종목   (event 가 읽는 표)
+#:
+#: 그리고 어제 미장 IC 가 둘 다 합격선을 넘겼다 — fundamental +0.0500 · event
+#: +0.0367 (합격선 0.03). **재려면 데이터가 있어야 하므로, 잴 수 있었다는 것이
+#: 곧 데이터가 있다는 증거다.** 데이터가 들어와도 이 명단을 안 고치면 신호가
+#: 안 나고, 신호가 없으면 후보에 못 오른다 — 명단이 조용한 관문이었다.
 SCORERS: dict[Market, dict[str, type[Analyst]]] = {
     Market.KR: {
         "chart": ChartAnalyst,
@@ -53,9 +65,11 @@ SCORERS: dict[Market, dict[str, type[Analyst]]] = {
     },
     Market.US: {
         "chart": ChartAnalyst,
+        "event": EventAnalyst,
+        "flow_us": FlowUsAnalyst,
+        "fundamental": FundamentalAnalyst,
         "regime": RegimeAnalyst,
         "risk": RiskAnalyst,
-        "flow_us": FlowUsAnalyst,
         "volume": VolumeAnalyst,
     },
 }
