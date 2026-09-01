@@ -22,8 +22,12 @@ mkdir -p "$WORK"
       --market US --start 2025-08 --end 2026-06 --work "$WORK" --save
   echo "[1/2] rc=$?"
   echo "=== $(date '+%F %T') [2/2] signals 적재 ==="
+  # **--save 가 없다.** 이 도구는 기본이 저장이고 --dry-run 으로 끈다 — 두 도구의
+  # 규약이 반대다(backfill_ic_history 는 --save 로 켠다). 2026-09-01 에 --save 를
+  # 붙였다가 "unrecognized arguments" 로 rc=2 를 받았고, 1단계를 몇 시간 돌린 뒤
+  # 마지막에서 죽는 구조였다.
   QUANT_RL_DUCKDB_MEMORY_LIMIT=1500MB nice -n 5 .venv/bin/python tools/backfill_signals.py \
-      --market US --start 2025-08-01 --end 2026-06-30 --work "$WORK" --save
+      --market US --start 2025-08-01 --end 2026-06-30 --work "$WORK"
   echo "[2/2] rc=$?"
   echo "=== $(date '+%F %T') 끝 ==="
 } >> "$LOG" 2>&1
