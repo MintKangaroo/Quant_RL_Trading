@@ -233,10 +233,17 @@ def _scope(
         # entity_id 의 시장 접두어와 market 값이 다르면 애초에 append 를
         # 거부한다(TableSpec.market_prefixed_entity, 2026-08-15 사고 이후
         # 추가 — KR 백필이 US 종목 6,648개를 market="KR" 로 찍었었다).
-        if "market" not in spec.all_columns:
+        if "market" in spec.all_columns:
+            predicates.append("market = ?")
+            params.append(market)
+        elif spec.market_prefixed_entity:
+            # market 컬럼은 없어도 entity_id 접두어가 곧 시장이다(signals 등).
+            # 이 경우까지 거부하면 호출자는 pandas 로 거를 수밖에 없고, 그게
+            # 여지 측정을 두 번 죽인 RSS 7.9GB 였다(2026-09-02).
+            predicates.append("starts_with(entity_id, ?)")
+            params.append(f"{market}:")
+        else:
             raise SchemaViolation(f"{spec.name} 에는 market 컬럼이 없다")
-        predicates.append("market = ?")
-        params.append(market)
 
     return predicates, params
 

@@ -89,7 +89,6 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(f"가중치: {weights}")
 
-    prefix = f"{args.market}:"
     # **창은 신호가 있는 구간까지 닿아야 한다.** sessions+horizon+40 으로 잡으면
     # 오늘부터 그만큼만 읽는데, 백필로 채운 신호는 훨씬 과거에 있다 — 미장 신호가
     # 2025-08~2026-02 인데 시세 창이 2026-02-13 까지라 겹치는 세션이 0 이었다
@@ -99,8 +98,16 @@ def main(argv: list[str] | None = None) -> int:
     # 신호를 **한 번만** 읽고 그 범위로 시세 창을 정한다. 예전에는 여기서
     # lookback*3 로 훑고 아래에서 또 읽어 같은 표를 두 번 메모리에 올렸다 —
     # 미장 460만 행에서 RSS 8.5GB 가 됐고 램 가드가 내렸다(2026-09-02 07:44).
-    signals = store.get("signals", as_of=now, lookback=SIGNAL_LOOKBACK)
-    signals = signals[signals["entity_id"].astype(str).str.startswith(prefix)].copy()
+    # **시장은 SQL 에서 거른다.** 한 번만 읽어도 양쪽 시장 460만 행을 다 올린 뒤
+    # pandas 로 거르면 RSS 7.9GB 는 그대로였다(2026-09-02 08:46, 두 번째 희생).
+    # 컬럼도 combined_scores 가 쓰는 것만 — 문자열 컬럼이 메모리의 대부분이다.
+    signals = store.get(
+        "signals",
+        as_of=now,
+        lookback=SIGNAL_LOOKBACK,
+        market=args.market,
+        columns=["entity_id", "analyst", "score", "confidence", "valid_from", "observed_at"],
+    )
     signals["day"] = pd.to_datetime(signals["valid_from"]).dt.date
     signals = signals[signals["day"] < HOLDOUT_START]
     # 판정에 쓸 세션만 남긴다 — 오래된 것까지 들고 있을 이유가 없다.
@@ -113,9 +120,13 @@ def main(argv: list[str] | None = None) -> int:
     # 수익이 생기고, 오라클은 정확히 그것만 골라낸다(첫 실행에서 완벽 선정이
     # 25,589bp = 5일 256% 로 나왔다 — 알파가 아니라 데이터 사고였다).
     prices = read_prices(
-        store, as_of=now, lookback=lookback, columns=["close"], adjusted=True
+        store,
+        as_of=now,
+        lookback=lookback,
+        columns=["close"],
+        adjusted=True,
+        market=args.market,
     )
-    prices = prices[prices["entity_id"].astype(str).str.startswith(prefix)].copy()
     prices["day"] = pd.to_datetime(prices["valid_from"]).dt.date
     wide = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last")
     wide = wide.sort_index()
