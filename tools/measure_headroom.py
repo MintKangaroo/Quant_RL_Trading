@@ -48,6 +48,10 @@ HOLDOUT_START = pd.Timestamp("2026-07-01").date()
 #: 통째로 지배한다 — 첫 실행이 그래서 5일 256% 라는 값을 냈다.
 MAX_MOVE = 0.5
 
+#: 신호를 훑을 창(일). 백필한 과거까지 닿아야 하지만, 무한정 넓히면 표가
+#: 메모리에 안 들어간다 — 2년이면 충분하다.
+SIGNAL_LOOKBACK = 730
+
 #: 무작위 기준선을 몇 번 뽑아 평균낼지. 한 번이면 그 표본의 운이 기준선이 된다.
 RANDOM_DRAWS = 20
 
@@ -86,7 +90,25 @@ def main(argv: list[str] | None = None) -> int:
     print(f"가중치: {weights}")
 
     prefix = f"{args.market}:"
+    # **창은 신호가 있는 구간까지 닿아야 한다.** sessions+horizon+40 으로 잡으면
+    # 오늘부터 그만큼만 읽는데, 백필로 채운 신호는 훨씬 과거에 있다 — 미장 신호가
+    # 2025-08~2026-02 인데 시세 창이 2026-02-13 까지라 겹치는 세션이 0 이었다
+    # (2026-09-02 실측: "신호와 가격이 겹치는 세션이 없다"). 신호를 먼저 훑어
+    # 그 시작일까지 닿게 창을 늘린다.
     lookback = args.sessions + args.horizon + 40
+    # 신호를 **한 번만** 읽고 그 범위로 시세 창을 정한다. 예전에는 여기서
+    # lookback*3 로 훑고 아래에서 또 읽어 같은 표를 두 번 메모리에 올렸다 —
+    # 미장 460만 행에서 RSS 8.5GB 가 됐고 램 가드가 내렸다(2026-09-02 07:44).
+    signals = store.get("signals", as_of=now, lookback=SIGNAL_LOOKBACK)
+    signals = signals[signals["entity_id"].astype(str).str.startswith(prefix)].copy()
+    signals["day"] = pd.to_datetime(signals["valid_from"]).dt.date
+    signals = signals[signals["day"] < HOLDOUT_START]
+    # 판정에 쓸 세션만 남긴다 — 오래된 것까지 들고 있을 이유가 없다.
+    keep_days = sorted(signals["day"].unique())[-args.sessions:]
+    signals = signals[signals["day"].isin(set(keep_days))]
+    if not signals.empty:
+        span = (pd.Timestamp(now).date() - min(keep_days)).days
+        lookback = max(lookback, span + args.horizon + 40)
     # **수정주가를 쓴다.** 액면분할·병합이 안 반영되면 5일에 +900% 같은 가짜
     # 수익이 생기고, 오라클은 정확히 그것만 골라낸다(첫 실행에서 완벽 선정이
     # 25,589bp = 5일 256% 로 나왔다 — 알파가 아니라 데이터 사고였다).
@@ -108,11 +130,6 @@ def main(argv: list[str] | None = None) -> int:
     # 자르는 것 자체가 판단이라 값을 밝혀 둔다: 5거래일에 ±MAX_MOVE 를 넘는 것은
     # 알파가 아니라 사건으로 본다.
     forward = forward.mask(forward.abs() > MAX_MOVE)
-
-    signals = store.get("signals", as_of=now, lookback=lookback)
-    signals = signals[signals["entity_id"].astype(str).str.startswith(prefix)].copy()
-    signals["day"] = pd.to_datetime(signals["valid_from"]).dt.date
-    signals = signals[signals["day"] < HOLDOUT_START]
 
     days = sorted(set(signals["day"]) & set(wide.index))[-args.sessions :]
     if not days:
