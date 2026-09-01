@@ -18,7 +18,10 @@
 max_retries 는 **한 회차 안**의 상한이고, 회차 간 상한은 크론 간격과 슬리피지
 상한이 맡는다. 타이머(retry_after_sec)는 주문 행의 observed_at 에서 잰다.
 
-    */20 9-14 * * 1-5  chase_orders.py --market KR   # 장중 재호가
+    20,40 9 · */20 10-14 · 평일   chase_orders.py --market KR   # 장중 재호가
+    # **09:00 에는 안 돈다** — 시가 단일가가 막 체결되는 순간이라 주문 상태가
+    # 요동친다. 2026-09-01 09:00 실측: 82건 중 52건이 01433("정정할 수량 없음"),
+    # 5건이 01442(정정수량 초과)였다. 09:20 부터 시작한다.
     20 15 * * 1-5      chase_orders.py --market KR --close  # 마감 전 취소
 """
 from __future__ import annotations
@@ -52,6 +55,9 @@ from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 
 ORDERS = "orders"
 STATUS_SENT = "sent"
+#: LS 응답코드 — "정정/취소할 수량이 없습니다". 주문이 이미 체결·소멸했다는 뜻이라
+#: 오류가 아니라 **상태 정보**로 읽는다.
+BROKER_ORDER_GONE = "01433"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -153,6 +159,16 @@ def main(argv: list[str] | None = None) -> int:
         for o in outcome.orders
         if o.status in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.ABANDONED)
     }
+    # 브로커가 "정정/취소할 수량이 없다"(01433) 고 하면 그 주문은 계좌에서 이미
+    # 끝난 것이다 — 체결 조회가 아직 안 따라왔을 뿐이다. 종결로 적지 않으면 다음
+    # 회차가 같은 주문에 또 재호가를 내고 같은 오류를 받는다 (2026-09-01 09:00:
+    # 52건이 그랬다). **브로커의 이 응답이 우리 장부보다 최신이다.**
+    #
+    # 01442(정정수량이 정정가능수량 초과)는 다르다 — 일부는 아직 살아 있다는 뜻이라
+    # 종결로 적지 않는다. 다음 회차가 체결을 다시 대사하면 잔량이 맞아 든다.
+    for order_id, message in outcome.errors:
+        if BROKER_ORDER_GONE in message:
+            terminal.setdefault(order_id, OrderStatus.FILLED.value)
     if terminal:
         by_id = {
             f"{session_id}|{r.entity_id}|{r.slice_seq}": r for r in frame.itertuples(index=False)
@@ -178,13 +194,18 @@ def main(argv: list[str] | None = None) -> int:
     for order_id, why_skip in outcome.skipped:
         print(f"  건너뜀   {order_id} — {why_skip}")
     for order_id, err in outcome.errors:
-        print(f"  실패     {order_id} — {err}", file=sys.stderr)
+        if BROKER_ORDER_GONE in err:
+            print(f"  이미종결 {order_id} — 브로커에 남은 수량 없음(01433)")
+        else:
+            print(f"  실패     {order_id} — {err}", file=sys.stderr)
     filled = sum(1 for o in outcome.orders if o.status is OrderStatus.FILLED)
     print(
         f"조치 {len(outcome.actions)} · 체결종결 {filled} · 건너뜀 {len(outcome.skipped)}"
         f" · 실패 {len(outcome.errors)} · 계속 지켜볼 것 {len(outcome.open)}"
     )
-    return 1 if outcome.errors else 0
+    # 01433 은 오류가 아니라 "이미 끝났다" 는 사실이라 rc 를 올리지 않는다.
+    real_errors = [e for e in outcome.errors if BROKER_ORDER_GONE not in e[1]]
+    return 1 if real_errors else 0
 
 
 if __name__ == "__main__":
