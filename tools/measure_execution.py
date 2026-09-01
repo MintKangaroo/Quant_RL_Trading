@@ -39,6 +39,7 @@ import pandas as pd  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 ORDERS = "orders"
 TRADES = "trades"
@@ -148,12 +149,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # **도착가를 붙인다** — 세션이 결정할 때 본 마지막 종가. 이것이 실행격차의
     # 기준이다(지정가가 아니다 — 모듈 docstring 참고).
-    prices = store.get(PRICES, as_of=now, lookback=args.days + 10)
-    prices = prices.copy()
+    # **read_prices 를 경유한다** (불변식). raw store.get 은 휴장일 종가 0 을
+    # 그대로 주고, 그 0 이 도착가가 되면 실행격차가 통째로 뒤집힌다.
+    prices = read_prices(
+        store, as_of=now, lookback=args.days + 10, columns=["close"]
+    ).copy()
     prices["session_day"] = pd.to_datetime(prices["valid_from"]).dt.date
+    # read_prices 는 as_of 해석을 마친 뷰라 observed_at 이 없다 — 세션일 기준으로
+    # 한 행만 남기면 된다.
     arrival = (
-        prices.sort_values("observed_at")
-        .drop_duplicates(subset=["entity_id", "session_day"], keep="last")
+        prices.drop_duplicates(subset=["entity_id", "session_day"], keep="last")
         [["entity_id", "session_day", "close"]]
         .rename(columns={"close": "arrival"})
     )

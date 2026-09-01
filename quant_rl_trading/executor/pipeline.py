@@ -237,9 +237,18 @@ def run(
     result.planned = tuple(planned)
 
     record_orders(store, clock, planned=planned, as_of=as_of, market=market)
+    # **조각을 한꺼번에 내보내지 않는다.** 기록은 전부 남기고(위 record_orders),
+    # 전송은 지금 시각에 해당하는 조각만 한다 — 나머지는 ``planned`` 로 남아
+    # ``tools/release_slices.py`` 가 시간이 되면 낸다. 세션 시각의 elapsed 는 0
+    # 이므로 여기서는 0번 조각만 나간다(slice_interval_sec<=0 이면 전부).
+    now_due = orders_module.due_slices(planned, params=slice_params, elapsed_sec=0.0)
+    if len(now_due) != len(planned):
+        result.notes.append(
+            f"조각 분할 전송 — 지금 {len(now_due)}건 · 나중에 {len(planned) - len(now_due)}건"
+        )
     result.acks = tuple(
         submit_orders(
-            store, clock, active_broker, planned=planned, as_of=as_of, market=market
+            store, clock, active_broker, planned=now_due, as_of=as_of, market=market
         )
     )
     # 8. **절대 생략 금지.**

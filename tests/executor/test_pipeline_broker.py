@@ -51,6 +51,20 @@ class FakeBroker:
 @pytest.fixture
 def seeded(store):  # type: ignore[no-untyped-def]
     store.seed_config_defaults()
+    # **조각을 한꺼번에 내보내는 모드로 고정한다.** 이 파일의 시험 대상은
+    # 멱등성과 거부 격리이고, 그 둘은 "여러 조각이 같은 회차에 나간다" 를
+    # 전제로만 검증된다. 시간 분할(slice_interval_sec>0)이 켜지면 세션에서
+    # 0번 조각만 나가 그 성질을 아예 못 본다 — 분할 자체는
+    # test_slice_release.py 가 따로 지킨다.
+    store.append(
+        "config",
+        [{
+            "entity_id": "execution.slice_interval_sec", "valid_from": NOW - timedelta(days=30),
+            "observed_at": NOW - timedelta(days=30), "source": "test",
+            "value_json": "0",
+        }],
+        ingest_run_id="cfg-slice-interval-0",
+    )
     rows = []
     for offset in range(5):
         day = NOW - timedelta(days=offset)

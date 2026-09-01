@@ -138,6 +138,30 @@ class PlannedOrder:
         }
 
 
+
+def due_slices(
+    planned: list[PlannedOrder], *, params: SliceParams, elapsed_sec: float
+) -> list[PlannedOrder]:
+    """지금 내보낼 조각만 고른다 — 나머지는 ``planned`` 로 남아 나중에 나간다.
+
+    조각 ``seq`` 는 세션 시작 후 ``seq × slice_interval_sec`` 이 지나야 나간다.
+    세션 시각(``elapsed_sec=0``)에는 0번만 나가고, 나머지는 ``release_slices``
+    가 시간이 되면 낸다.
+
+    **왜 나눠 내나** — 지금은 네 조각이 전부 08:40 에 나가 09:00 개장 단일가에서
+    한꺼번에 체결된다(2026-09-01 실측: 82건 중 57건이 개장에 즉시 종결). 하루 중
+    스프레드가 가장 넓고 호가가 가장 얇은 순간이고, 우리 주문은 일거래대금의
+    0.9~2.4% 라 무시할 크기가 아니다.
+
+    ``slice_interval_sec <= 0`` 이면 **전부 지금 낸다** — 예전 동작 그대로다.
+    설정 하나로 되돌릴 수 있어야 한다(하드코딩 금지, 불변식 10).
+    """
+    interval = int(params.slice_interval_sec)
+    if interval <= 0:
+        return list(planned)
+    return [item for item in planned if item.slice_seq * interval <= elapsed_sec]
+
+
 def plan_slices(
     *,
     entity_id: str,
