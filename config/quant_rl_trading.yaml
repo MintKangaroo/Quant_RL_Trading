@@ -265,11 +265,20 @@ exposure:
 
 allocator:
   action_reflection_floor: 0.30   # 미만이면 경고 — RL이 아니라 룰 시스템이다
-  # M3 룰 베이스라인. equal | score | score_inverse_vol
-  # 기본을 score 로 두는 이유: M4 에서 RL 의 진짜 경쟁자가 될 것이기 때문이다.
-  # 동일가중은 이기기 쉬운 상대라, 그걸 기준으로 삼으면 RL 이 실제로 나은지
-  # 모르는 채로 승격시키게 된다.
-  baseline: score
+  # M3 룰 베이스라인. equal | score | score_inverse_vol | risk_parity
+  #
+  # **2026-09-01 risk_parity 로 바꿨다** (§7 비교, 사용자 확정). 그 전까지 score 였고
+  # 이유는 "RL 의 진짜 경쟁자를 세운다" 였는데, §7 이 그보다 나은 경쟁자를 찾았다:
+  #
+  #   구간 2026-04~06 (하락장)   수익      MDD
+  #   score                    -11.76%   -26.92%
+  #   risk_parity               -1.28%   -19.37%
+  #
+  # 수익·낙폭 **둘 다** 이겼다. 이 비교가 늦은 이유는 섹터 표를 30일 창으로 읽어
+  # 못 찾는 버그 때문에 risk_parity 가 76/76 세션 score 로 폴백해, 몇 달간 두 팔의
+  # NAV 가 바이트 단위로 같았기 때문이다(SECTOR_LOOKBACK_DAYS=None 으로 수정).
+  # 회전율은 더 높다(6.78 vs 4.98) — 비용 후 초과수익 판정에서 주시할 것.
+  baseline: risk_parity
   max_position_weight: 0.15   # 한 종목이 이보다 커지면 분산이 아니다
   cash_buffer: 0.05           # 체결·수수료·환율 오차를 흡수할 여유
   # -----------------------------------------------------------------------------
