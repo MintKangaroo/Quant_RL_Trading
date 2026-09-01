@@ -49,7 +49,13 @@ def main(argv: list[str] | None = None) -> int:
     for ts, close in zip(stamps, closes, strict=False):
         if close is None:
             continue
-        day = datetime.fromtimestamp(ts, UTC).date()
+        # **서울 시각으로 날짜를 만든다.** UTC 로 만들면 하루씩 밀린다 — 아시아
+        # 세션 봉은 UTC 로 전날 21:00 에 찍히기 때문이다 (2026-09-01 실측:
+        # ts=1788130800 이 UTC 로는 8/30 일요일인데 서울로는 8/31 월요일이다).
+        # 그래서 창고에 **일요일 환율**이 들어 있었고, 모든 환율이 하루씩 밀려
+        # 저장돼 화면이 늘 "1세션 지연" 을 띄웠다. valid_from 을 SEOUL 로 짓는
+        # 아래 줄과 기준이 어긋나 있던 것이 근인이다.
+        day = datetime.fromtimestamp(ts, SEOUL).date()
         if day >= now.date() or day in have_days:
             continue  # 오늘 것은 아직 안 끝났을 수 있다 — 어제까지만
         rows.append({
