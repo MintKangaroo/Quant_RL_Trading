@@ -306,10 +306,18 @@ def run(
         mark = perf_counter()
 
         # 4. 결정 — 주문을 만들고 기록한다. 보내지는 않는다.
+        #
+        # **이 시장의 보유만 넘긴다.** 장부 하나에 국장·미장이 함께 들어 있을 때
+        # (shadow 가 두 시장을 같은 창고에 쌓는다) 전체를 넘기면 미장 세션이
+        # 국장 보유를 "팔 대상" 으로 잡고, realized_weights 가 KR: 종목을
+        # market='US' 로 찍으려다 스키마 가드에 걸린다 (2026-09-01 미장 shadow
+        # 첫 실행에서 실제로 그랬다). 시장이 다른 포지션은 그 시장의 세션이
+        # 관리한다 — 여기서 손대면 두 세션이 같은 포지션을 서로 판다.
+        prefix = f"{market}:"
         holdings = {
             entity: int(position.quantity)
             for entity, position in book.positions.items()
-            if position.quantity > 0
+            if position.quantity > 0 and str(entity).startswith(prefix)
         }
         session = daily_module.run(
             store,
