@@ -107,7 +107,12 @@ fi
 # 6) 미장 신호 백필 — 여지 지도가 미장을 잴 수 있게 과거를 연다 (2026-09-01).
 # 외부 호출이 없어 재시작이 안전하다. 두 단계 중 어디서 죽어도 처음부터 다시
 # 돌면 되고, 창고가 중복을 거부하므로 두 번 적재되지 않는다.
-if [ -f logs/backfill-us-signals-20260901.log ] && grep -aq "끝$" logs/backfill-us-signals-20260901.log; then
+# **일시정지 표식**이 있으면 안 띄운다. 야간 수집·run_daily 와 겹치면 서로 메모리를
+# 뺏는다(2026-09-01: run_daily 가 8GB ulimit 에 걸려 죽었다). 사람이 자리를 비켜
+# 주려고 멈춘 것을 감시자가 10분 뒤 되살리면 그 배려가 무의미해진다.
+if [ -f logs/.pause-us-backfill ]; then
+  :
+elif [ -f logs/backfill-us-signals-20260901.log ] && grep -aq "끝$" logs/backfill-us-signals-20260901.log; then
   :
 elif running_orch "backfill_us_signal[s]" || running "backfill_ic_histor[y]" || running "backfill_signal[s]"; then
   :
