@@ -302,3 +302,23 @@ tbody tr:hover td { background: #0c0c0c; }
 }
 /* 패널 머리글의 부제·건수는 한 단계 더 조용히. */
 .panel h2 .right .sub { color: var(--dim); }
+
+/* ---- 밀도 (2026-09-02 사용자 지적: 데스크톱 트레이딩 탭의 빈 여백) ------------
+   전폭 1,900px 에 3~4열짜리 표를 펼치면 숫자 사이가 화면의 절반이 된다. 표는
+   **내용 폭**으로 조이고, 절 사이 세로 간격도 한 단계 줄인다. 폭이 좁은 화면
+   (모바일 블록)에서는 원래대로 100% 다. */
+@media (min-width: 769px) {
+  .panel { padding-bottom: 8px; margin-top: 2px; }
+  .panel h2 { padding: 8px 0 5px; margin-bottom: 4px; }
+  .kpi { padding: 8px 12px 7px; }
+  /* 계좌 대조·성과 체결 같은 키-값·소수 열 표: 내용 폭 + 열 간격 32px. */
+  #account-kpis table, #perf-fills table, .kv { width: auto; min-width: 0; }
+  #account-kpis td, #account-kpis th, #perf-fills td, #perf-fills th { padding-right: 32px; }
+  #account-kpis td:last-child, #account-kpis th:last-child,
+  #perf-fills td:last-child, #perf-fills th:last-child { padding-right: 0; }
+  .perf-summary { display: flex; flex-wrap: wrap; gap: 4px 48px; }
+  .perf-cell { min-width: 180px; }
+  .alerts { margin: 4px 0 2px; }
+  .panel.review { padding: 8px 0; }
+  .chart { height: 220px; }
+}
