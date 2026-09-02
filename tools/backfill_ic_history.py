@@ -81,14 +81,18 @@ from quant_rl_trading.collectors.publication import (  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock, ReplayClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
+from quant_rl_trading.session.signals import SCORERS  # noqa: E402
 from tools.measure_ic import ANALYSTS, score_sessions, target_span  # noqa: E402
 
 #: 알파가 아닌(제약으로 옮긴) Analyst 도 계속 잰다. 측정과 사용은 다른 일이다 —
 #: risk 의 IC 는 알파 가중치가 아니라 **제약 임계치를 판단할 때** 쓴다
 #: (selector/constraints.py). 안 재면 그 판단의 근거가 사라진다.
-DEFAULT_ANALYSTS = (
-    "chart", "event", "flow_kr", "fundamental", "regime", "risk", "volume",
-)
+#:
+#: **시장별로 다르다.** 미장에 flow_kr 을 돌리면 빈 점수가 나오고, 정작 flow_us 는
+#: 채점이 안 돼 backfill_signals 가 "채점 결과 없음" 으로 건너뛴다 — 2026-09-02 에
+#: 그렇게 미장 이력에 flow_us 만 없었다. 명단의 단일 소스는 session/signals.SCORERS.
+def default_analysts(market: Market) -> list[str]:
+    return sorted(SCORERS[market])
 
 
 def month_ends(start: str, end: str) -> list[date]:
@@ -417,9 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", default="2024-08", help="YYYY-MM")
     parser.add_argument("--end", default="2026-08", help="YYYY-MM")
-    parser.add_argument(
-        "--analyst", nargs="+", default=list(DEFAULT_ANALYSTS), choices=sorted(ANALYSTS)
-    )
+    parser.add_argument("--analyst", nargs="+", choices=sorted(ANALYSTS))
     parser.add_argument("--sessions", type=int, default=300, help="시점마다 잴 거래일 수")
     parser.add_argument("--market", default="KR", choices=[m.value for m in Market])
     parser.add_argument("--data-root", type=Path)
@@ -431,6 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     load_env()
     store = build_store(args.data_root)
     market = Market(args.market)
+    if not args.analyst:
+        args.analyst = default_analysts(market)
     work: Path = args.work
     work.mkdir(parents=True, exist_ok=True)
 
