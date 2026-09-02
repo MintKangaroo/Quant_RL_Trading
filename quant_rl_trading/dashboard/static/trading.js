@@ -186,6 +186,10 @@ function renderKpis(body) {
   const simpleReturn = k.principal && totalPnl !== null && totalPnl !== undefined
     ? totalPnl / k.principal : null;
   // 오늘 수익 두 칸의 부제. 셋을 구분한다 — 장중 / 마감(종가) / 장 열기 전.
+  const cumReturnNow = useLive && k.cumulative_return !== null && k.cumulative_return !== undefined
+    && todayReturn !== null && todayReturn !== undefined
+    ? (1 + k.cumulative_return) * (1 + todayReturn) - 1
+    : k.cumulative_return;
   const todayFoot = liveOn ? `${stampNow()} 기준`
     : closed ? "종가 기준 · 일봉 수집 전" : "TWR 기준";
 
@@ -203,9 +207,15 @@ function renderKpis(body) {
         `원금 ${k.principal ? num(Math.round(k.principal)) : "—"} 대비 · ${useLive ? (liveOn ? "장중 참고" : closeBadge) : closeBadge}`
         + (simpleReturn === null ? "" : ` · ${pct(simpleReturn)}`), false,
         { unit: "KRW", tone: tone(totalPnl) }),
-    kpi("총 수익률", pct(k.cumulative_return),
-        `TWR 누적 · ${closeBadge} · 입금 시점 영향 없음 — 원금 대비 %와 다른 것이 맞다`, false,
-        { tone: tone(k.cumulative_return), spark: indexLine }),
+    // **총 수익률도 총 수익금과 같은 시각이어야 한다.** 종가 TWR 만 두면 옆 칸의
+    // 총 수익금(장중)은 음수인데 여기는 양수가 되어 둘이 다른 날을 가리킨다
+    // (2026-09-02 폰 실측: -3,835,028 옆에 +1.12%). 장중엔 어제 종가 TWR 에 오늘
+    // 수익률을 이어 붙인다 — 장중 입출금은 없으므로 TWR 연결로 정확하다.
+    kpi("총 수익률", pct(cumReturnNow),
+        useLive && cumReturnNow !== k.cumulative_return
+          ? `TWR 누적 · ${liveOn ? "장중 참고" : closeBadge} (어제 종가 ${pct(k.cumulative_return)}) · 입금 시점 영향 없음`
+          : `TWR 누적 · ${closeBadge} · 입금 시점 영향 없음 — 원금 대비 %와 다른 것이 맞다`, false,
+        { tone: tone(cumReturnNow), spark: indexLine }),
     kpi("승률", k.win_rate === null ? "—" : pct(k.win_rate, 0),
         // 무엇을 세는지 적는다. 매도 기준 승률과 다른 숫자다.
         k.win_rate === null ? "표본 없음" : `일간 ${k.win_samples}일 중 · ${closeBadge}`),
