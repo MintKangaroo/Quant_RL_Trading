@@ -665,6 +665,10 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     """
     as_of = context.as_of
     frame = store.get(ORDERS, as_of=as_of, lookback=10)
+    # 이 시장 것만 — shadow 장부엔 국장·미장 주문이 같이 살아 미장 보기에 국장 매도가 섰다
+    # (2026-09-03 폰 실측). 포지션과 같은 규칙이다.
+    if not frame.empty:
+        frame = frame[frame["entity_id"].astype(str).str.startswith(f"{context.market}:")]
     trades = store.get(TRADES, as_of=as_of, lookback=10)
     filled: dict[str, dict[str, Any]] = {}
     if not trades.empty:
