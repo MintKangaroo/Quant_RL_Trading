@@ -200,6 +200,31 @@ _SPECS: dict[str, TableSpec] = {
             "지수가 종목 유니버스에 끼면 커버리지 통계와 횡단면 z 가 오염된다."
         ),
     ),
+    "consensus": TableSpec(
+        name="consensus",
+        columns={
+            "market": pa.string(),
+            # 네이버 금융 종목 페이지의 컨센서스 요약. **미래를 담은 유일한 변수**다 —
+            # 우리 재무 피처는 전부 과거(ROE·마진·성장)인데 추정 EPS 는 애널리스트의
+            # 앞을 보는 수치이고, 그 **수정(revision)** 이 세계에서 두 번째로 견고한
+            # 팩터다(방향 ③, 2026-09-02). 이력이 없어 매일 쌓아야 IC 를 잰다(≥200일).
+            "rating": pa.float64(),        # 투자의견 점수 (1~5, 5 = 강력매수)
+            "target_price": pa.float64(),  # 목표주가 (원)
+            "eps_ttm": pa.float64(),       # 최근 4분기 EPS
+            "per_ttm": pa.float64(),
+            "eps_fwd": pa.float64(),       # 추정 EPS (컨센서스)
+            "per_fwd": pa.float64(),
+            "pbr": pa.float64(),
+            "dividend_yield": pa.float64(),  # %
+        },
+        natural_key=("entity_id", "valid_from"),
+        # 그날 장 마감 뒤 긁는다. 정정본은 하한 위.
+        observation_lag_days=3,
+        doc=(
+            "애널리스트 컨센서스 요약(네이버 금융 종목 페이지). 페이지는 '지금' 값만 보여주므로 "
+            "valid_from = 긁은 날의 세션, observed_at = 긁은 시각. 이력은 여기서만 생긴다."
+        ),
+    ),
     "fundamentals": TableSpec(
         name="fundamentals",
         columns={
