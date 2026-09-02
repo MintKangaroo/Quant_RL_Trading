@@ -192,6 +192,9 @@ function renderKpis(body) {
   const cards = [
     kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn, closed), false,
         { unit: "KRW", spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
+    // 2열(폰)에서 짝이 맞게 순서를 둔다(사용자 요청 2026-09-02): 총자산|익스포저,
+    // 오늘 수익금|오늘 수익률, 총 수익금|총 수익률, 승률|MDD, 반영률|AI, 거부|정지.
+    kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
     kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
         { unit: "KRW", tone: tone(todayPnl) }),
@@ -214,7 +217,6 @@ function renderKpis(body) {
           ? `현재 ${pct(k.live_drawdown)} · ${risk.band_message} · 킬스위치는 ${closeBadge}`
           : `현재 ${pct(k.drawdown)} · ${risk.band_message} · ${closeBadge}`,
         risk.band !== "free", { spark: ddLine, tone: "down" }),
-    kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
     kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
         k.action_reflection < k.action_reflection_floor),
     kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",

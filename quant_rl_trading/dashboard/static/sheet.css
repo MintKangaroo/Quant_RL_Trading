@@ -328,7 +328,7 @@ tbody tr:hover td { background: #0c0c0c; }
 /* 왼쪽은 표 폭만큼(max-content), 나머지는 오른쪽이 다 쓴다 — 5:7 로 나누면 표 옆이 비어
    L 자 공백이 생겼다(2026-09-02 사용자 지적). 오른쪽엔 리뷰·성과·자산 곡선이 세로를 채운다. */
 .grid-top { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 40px; align-items: start; }
-.grid-top-left { max-width: 46vw; }
+@media (min-width: 1101px) { .grid-top-left { max-width: 46vw; } }  /* 폰에서 46vw 는 180px 이라 표가 반쪽이 됐다(2026-09-02 실기 확인) */
 .grid-top > div { min-width: 0; }
 @media (max-width: 1100px) { .grid-top { grid-template-columns: minmax(0, 1fr); } }
 .kpi-stop button { white-space: nowrap; padding: 7px 10px; }
