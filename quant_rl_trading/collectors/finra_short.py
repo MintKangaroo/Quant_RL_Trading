@@ -188,3 +188,147 @@ class ShortVolumeBackfiller:
             SHORT_FLOW, rows, ingest_run_id=run_id, source=SOURCE
         )
         return DailyResult(day, written)
+
+
+# -- 공매도 잔고 (kind = interest) -------------------------------------------
+#
+# 결제일(매월 15일·말일, 휴일이면 직전 영업일) 기준 집계를 FINRA 가 **약 8영업일
+# 뒤**에 공표한다. 공표 시각을 API 가 주지 않으므로 보수적으로 잡는다 — 결제일
+# 뒤 10영업일 18:00 ET. 하루라도 이르게 찍으면 그 반월 전체가 미래를 본다.
+# 2026-09-02 실측: 08-14 결제분은 있고 08-31 결제분은 없다(공표 전).
+
+INTEREST_PUBLISH_LAG_BDAYS = 10
+INTEREST_PAGE = 5000  # API 한 페이지 상한 — 그 이상을 요청해도 5,000 이다
+
+
+def interest_run_id(settlement: date) -> str:
+    return f"finra-shortint-{settlement.isoformat()}"
+
+
+def settlement_dates(start: date, end: date, *, sessions: list[date]) -> list[date]:
+    """구간 안의 결제일 — 매월 15일과 말일, 영업일이 아니면 **직전** 영업일.
+
+    ``sessions`` 는 미장 거래일 목록(`market_hours.trading_days`). 달력을 여기서
+    다시 만들지 않는다.
+    """
+    if not sessions:
+        return []
+    ordered = sorted(sessions)
+    out: list[date] = []
+
+    def prior_session(day: date) -> date | None:
+        candidates = [s for s in ordered if s <= day]
+        return candidates[-1] if candidates else None
+
+    cursor = date(start.year, start.month, 1)
+    while cursor <= end:
+        year, month = cursor.year, cursor.month
+        next_month = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
+        month_end = date.fromordinal(next_month.toordinal() - 1)
+        for anchor in (date(year, month, 15), month_end):
+            settled = prior_session(anchor)
+            if settled is not None and start <= settled <= end and settled not in out:
+                out.append(settled)
+        cursor = next_month
+    return sorted(out)
+
+
+def interest_publish_moment(settlement: date, *, sessions: list[date]) -> datetime:
+    """결제일 뒤 ``INTEREST_PUBLISH_LAG_BDAYS`` 영업일 18:00 ET. 거래일 목록이 그
+    뒤까지 없으면 달력일로 14일을 더한다(영업일 10일보다 늦다 — 보수 쪽)."""
+    later = [s for s in sorted(sessions) if s > settlement]
+    if len(later) >= INTEREST_PUBLISH_LAG_BDAYS:
+        day = later[INTEREST_PUBLISH_LAG_BDAYS - 1]
+    else:
+        day = date.fromordinal(settlement.toordinal() + 14)
+    return publish_moment(day)
+
+
+def parse_interest(text: str, *, observed_at: datetime) -> list[dict[str, Any]]:
+    """API CSV → `short_flow` 행(kind=interest). 열 이름으로 찾는다 — 순서에 기대지 않는다."""
+    import csv
+    import io
+
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        return []
+    needed = {"symbolCode", "settlementDate", "currentShortPositionQuantity"}
+    if not needed.issubset(set(reader.fieldnames)):
+        raise FinraUnavailable(f"머리글이 예상과 다르다: {reader.fieldnames[:6]!r}")
+
+    def number(value: str | None) -> float | None:
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+    rows: list[dict[str, Any]] = []
+    for record in reader:
+        symbol = (record.get("symbolCode") or "").strip().upper()
+        stamp = (record.get("settlementDate") or "").strip()
+        position = number(record.get("currentShortPositionQuantity"))
+        if not symbol or len(stamp) != 10 or position is None:
+            continue
+        settled = date.fromisoformat(stamp)
+        rows.append({
+            "entity_id": f"US:{symbol}",
+            "valid_from": datetime(settled.year, settled.month, settled.day, tzinfo=UTC),
+            "observed_at": observed_at,
+            "source": SOURCE,
+            "market": MARKET,
+            "kind": "interest",
+            "short_position": position,
+            "previous_short_position": number(record.get("previousShortPositionQuantity")),
+            "days_to_cover": number(record.get("daysToCoverQuantity")),
+            "average_daily_volume": number(record.get("averageDailyVolumeQuantity")),
+        })
+    return rows
+
+
+@dataclass
+class ShortInterestBackfiller:
+    """결제일 축. 결제일 하나가 5,000행 페이지 서너 장이다."""
+
+    store: Any
+    post: Any  # (url, json) -> str
+    clock: Any
+    sessions: list[date]
+
+    def plan(self, start: date, end: date) -> list[date]:
+        return settlement_dates(start, end, sessions=self.sessions)
+
+    def run_settlement(self, settlement: date) -> DailyResult:
+        run_id = interest_run_id(settlement)
+        if self.store.ingest_run_recorded(SHORT_FLOW, run_id):
+            return DailyResult(settlement, 0, skipped=True)
+        observed_at = interest_publish_moment(settlement, sessions=self.sessions)
+        if observed_at > self.clock.now():
+            return DailyResult(settlement, 0, error="아직 공표 전")
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        try:
+            while True:
+                body = {
+                    "limit": INTEREST_PAGE,
+                    "offset": offset,
+                    "compareFilters": [{
+                        "compareType": "EQUAL",
+                        "fieldName": "settlementDate",
+                        "fieldValue": settlement.isoformat(),
+                    }],
+                }
+                page = parse_interest(self.post(INTEREST_URL, body), observed_at=observed_at)
+                rows.extend(page)
+                if len(page) < INTEREST_PAGE:
+                    break
+                offset += INTEREST_PAGE
+        except Exception as error:  # noqa: BLE001
+            return DailyResult(settlement, 0, error=str(error))
+        if not rows:
+            # 결제일인데 행이 없다 — 공표 전이거나 결제일 계산이 틀렸다. **기록하지
+            # 않는다.** run_id 를 남기면 다음에 안 받는다.
+            return DailyResult(settlement, 0)
+        written = self.store.append(SHORT_FLOW, rows, ingest_run_id=run_id, source=SOURCE)
+        return DailyResult(settlement, written)
