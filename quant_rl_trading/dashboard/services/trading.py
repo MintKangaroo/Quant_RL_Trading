@@ -431,7 +431,12 @@ def positions(store: Store, context: Context) -> list[dict[str, Any]]:
     signals = _latest_scores(store, as_of=context.as_of)
 
     rows: list[dict[str, Any]] = []
+    # 장부 하나에 두 시장이 살 수 있다(shadow). 이 시장 것만 — 미장 보기에 국장
+    # 24종목이 서면 "미장 포지션" 으로 읽힌다(2026-09-02 실측).
+    prefix = f"{context.market}:"
     for entity_id, position in sorted(context.book.positions.items()):
+        if not str(entity_id).startswith(prefix):
+            continue
         if position.quantity <= 0:
             continue
         price = context.prices.get(entity_id)
