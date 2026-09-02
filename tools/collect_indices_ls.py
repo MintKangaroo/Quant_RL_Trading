@@ -38,6 +38,9 @@ from quant_rl_trading.collectors.market_hours import (  # noqa: E402
     SPECS, Market, is_trading_day, local_time,
 )
 from quant_rl_trading.collectors.panels import session_timestamp  # noqa: E402
+from quant_rl_trading.collectors.publication import (  # noqa: E402
+    NotYetPublished, publication_policy,
+)
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
@@ -107,6 +110,17 @@ def rows_from_client(client, *, day: date, observed_at: datetime) -> list[dict]:
     return out
 
 
+def observed_moment(store: Store, *, day: date, clock: LiveClock) -> datetime:
+    """이 세션 지수의 관측시각 = **공표 정책 시각**(15:30 마감 + 지연 = 16:00:00 KST).
+
+    벽시계로 찍으면 16:00:04 같은 값이 되고, 세션·회계 새로고침은 정확히 16:00:00 을
+    as_of 로 쓰므로 그 몇 초 때문에 지수를 못 봐 벤치마크가 NaN 이 된다(2026-08-27~09-01
+    모의계좌·shadow 실측). 종가 수집기와 같은 규약이다 — 관측시각은 "공개된 시각" 이다.
+    아직 공표 전이면 `NotYetPublished` 가 난다.
+    """
+    return publication_policy(store, Market.KR, clock=clock).for_session(day)
+
+
 def already_loaded(store: Store, *, day: date, as_of: datetime) -> set[str]:
     frame = store.get(TABLE, as_of=as_of, lookback=5)
     if frame.empty:
@@ -145,7 +159,12 @@ def main(argv: list[str] | None = None) -> int:
         live_trading=False,  # t1511 은 조회 TR(PAPER_ALLOWED_TR) — 주문 경로가 없다
         min_interval_sec=profile.min_interval_sec,
     )
-    rows = [r for r in rows_from_client(client, day=day, observed_at=now) if r["entity_id"] in wanted]
+    try:
+        observed_at = observed_moment(store, day=day, clock=clock)
+    except NotYetPublished as error:
+        print(f"아직 공표 전 — {error}")
+        return 0
+    rows = [r for r in rows_from_client(client, day=day, observed_at=observed_at) if r["entity_id"] in wanted]
     for r in rows:
         print(f"  {r['entity_id']} {day} 종가 {r['close']:,.2f} (시 {r['open']} 고 {r['high']} 저 {r['low']})")
     if not rows:

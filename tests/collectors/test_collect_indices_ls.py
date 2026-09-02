@@ -41,3 +41,23 @@ def test_t1511_응답을_indices_행으로_바꾼다() -> None:
     assert row["close"] == 6912.37 and row["open"] == 6996.12 and row["low"] == 6841.88
     assert row["valid_from"] == datetime(2026, 8, 27, tzinfo=UTC)
     assert row["observed_at"] == now and row["source"] == "ls_t1511" and row["board"] == "KOSPI"
+
+
+def test_관측시각은_벽시계가_아니라_공표_정책_시각이다(store) -> None:
+    """16:00:04 로 찍으면 16:00:00 as_of 의 세션·회계가 지수를 못 본다."""
+    from datetime import UTC, date, datetime
+    from zoneinfo import ZoneInfo
+
+    import pytest
+
+    from quant_rl_trading.collectors.publication import NotYetPublished
+    from quant_rl_trading.replay.clock import ReplayClock
+    from tools.collect_indices_ls import observed_moment
+
+    store.seed_config_defaults()
+    seoul = ZoneInfo("Asia/Seoul")
+    late = ReplayClock(datetime(2026, 9, 1, 16, 0, 4, tzinfo=seoul).astimezone(UTC))
+    assert observed_moment(store, day=date(2026, 9, 1), clock=late) == datetime(2026, 9, 1, 16, 0, tzinfo=seoul)
+    early = ReplayClock(datetime(2026, 9, 1, 15, 50, tzinfo=seoul).astimezone(UTC))
+    with pytest.raises(NotYetPublished):
+        observed_moment(store, day=date(2026, 9, 1), clock=early)
