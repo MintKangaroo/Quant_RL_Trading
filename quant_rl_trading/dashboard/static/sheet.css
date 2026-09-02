@@ -316,7 +316,8 @@ tbody tr:hover td { background: #0c0c0c; }
   #account-kpis td, #account-kpis th, #perf-fills td, #perf-fills th { padding-right: 32px; }
   #account-kpis td:last-child, #account-kpis th:last-child,
   #perf-fills td:last-child, #perf-fills th:last-child { padding-right: 0; }
-  .perf-summary { display: flex; flex-wrap: wrap; gap: 4px 48px; }
+  /* 탭 CSS(trading.css)가 뒤에 실려 grid 로 되돌린다 — id 로 이긴다. */
+  #perf-summary.perf-summary { display: flex; flex-wrap: wrap; gap: 4px 56px; }
   .perf-cell { min-width: 180px; }
   .alerts { margin: 4px 0 2px; }
   .panel.review { padding: 8px 0; }
@@ -324,7 +325,10 @@ tbody tr:hover td { background: #0c0c0c; }
 }
 
 /* 트레이딩 탭 머리 — 계좌 대조 | 경고·리뷰·성과. */
-.grid-top { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); column-gap: 40px; align-items: start; }
+/* 왼쪽은 표 폭만큼(max-content), 나머지는 오른쪽이 다 쓴다 — 5:7 로 나누면 표 옆이 비어
+   L 자 공백이 생겼다(2026-09-02 사용자 지적). 오른쪽엔 리뷰·성과·자산 곡선이 세로를 채운다. */
+.grid-top { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: 40px; align-items: start; }
+.grid-top-left { max-width: 46vw; }
 .grid-top > div { min-width: 0; }
 @media (max-width: 1100px) { .grid-top { grid-template-columns: minmax(0, 1fr); } }
 .kpi-stop button { white-space: nowrap; padding: 7px 10px; }
@@ -365,3 +369,6 @@ tbody tr:hover td { background: #0c0c0c; }
   header .statusbar .badge:nth-child(4) { display: none; }
   header .statusbar .badge:nth-child(5)::before { content: "·"; color: var(--faint); margin-right: 10px; }
 }
+
+.grid-top-right { min-width: 0; }
+#chart-equity { width: 100%; }

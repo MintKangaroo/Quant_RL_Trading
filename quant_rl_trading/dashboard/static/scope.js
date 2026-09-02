@@ -85,7 +85,14 @@ function ensureSheetTheme() {
 function chart(id) {
   if (!charts[id]) {
     ensureSheetTheme();
-    charts[id] = echarts.init(document.getElementById(id), "sheet", { renderer: "canvas" });
+    const el = document.getElementById(id);
+    charts[id] = echarts.init(el, "sheet", { renderer: "canvas" });
+    // 칸 폭이 나중에 바뀐다 — 옆 칸의 표가 그려진 뒤 그리드가 다시 잡히면 차트가
+    // 먼저 잰 폭으로 남아 칸 밖으로 넘친다(2026-09-02 트레이딩 탭 실측). 컨테이너를
+    // 직접 관찰해 다시 잰다. window resize 만으로는 이 경우를 못 잡는다.
+    if (window.ResizeObserver) {
+      new ResizeObserver(() => { if (charts[id]) charts[id].resize(); }).observe(el);
+    }
   }
   return charts[id];
 }
