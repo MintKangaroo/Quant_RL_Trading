@@ -194,13 +194,20 @@ async function renderFreshness() {
   const items = (body.data && body.data.items) || [];
   if (!items.length) return;
   const md = (iso) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "—");
-  target.innerHTML = items.map((it) => {
+  // 모바일 요약 한 줄(sheet.css 가 폭에 따라 하나만 보인다): 지연이 없으면 "전부 최신",
+  // 있으면 지연된 것만 이름을 부른다 — 정상 여섯을 늘어놓는 것은 폰에서 두 줄이다.
+  const stale = items.filter((it) => it.status === "stale");
+  const latest = items.map((it) => it.observed).filter(Boolean).sort().pop();
+  const summary = stale.length
+    ? `<span class="fresh stale">지연 ${stale.map((it) => `${it.label} ${it.lag_sessions}세션`).join(" · ")}</span>`
+    : `<span class="fresh ok">데이터 ${md(latest)} · ${items.length}종 최신</span>`;
+  target.innerHTML = `<span class="fresh-summary">${summary}</span>` + items.map((it) => {
     // 상태는 글리프가 아니라 앞의 점(CSS ::before)이 말한다 — ✓·⚠ 같은 문자
     // 기호는 글꼴마다 다르게 그려져 화면이 들쭉날쭉해진다.
     if (it.status === "ok") return `<span class="fresh ok">${it.label} ${md(it.observed)}</span>`;
     if (it.status === "stale") return `<span class="fresh stale">${it.label} ${md(it.observed)} · ${it.lag_sessions}세션 지연 (기대 ${md(it.expected)})</span>`;
     return `<span class="fresh unknown">${it.label} 없음</span>`;
-  }).join("");
+  }).map((html) => `<span class="fresh-item">${html}</span>`).join("");
   target.hidden = false;
 }
 if (typeof document !== "undefined" && document.getElementById("freshness")) {
