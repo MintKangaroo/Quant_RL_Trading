@@ -34,6 +34,8 @@
      막는 자원이라 못 받으면 **화면이 통째로 검게 남는다** — 2026-08-24 에
      정확히 그랬다. app.css 의 대체 글꼴(system-ui·ui-monospace)로 충분하다. #}
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  {# 시트 문법(카드 → 괘선). app.css 뒤에 실려 같은 선택자를 덮는다 (sheet.css 머리 주석). #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='sheet.css') }}">
   {# 탭 전용 CSS 자리. app.css 는 공통이라 여러 화면이 동시에 고치면 서로 덮는다.
      탭마다 자기 파일(static/<탭>.css)을 여기에 건다. 공통 규칙(색·간격·밀도)은
      app.css 에 두고, 여기에는 그 탭에서만 쓰는 것만 둔다. #}
@@ -64,6 +66,30 @@
   </div>
 </noscript>
 {% block body %}{% endblock %}
+<script>
+/* 헤더 높이 → --hdr-h. KPI 스트립이 그 밑에 sticky 로 붙는다(sheet.css). 헤더는
+   상태 문장·기준일 줄 때문에 높이가 화면마다 달라 CSS 만으로는 못 잰다. */
+(function () {
+  var head = document.querySelector("header");
+  if (!head) return;
+  function measure() { document.documentElement.style.setProperty("--hdr-h", head.offsetHeight + "px"); }
+  measure();
+  if (window.ResizeObserver) new ResizeObserver(measure).observe(head);
+  else window.addEventListener("resize", measure);
+})();
+</script>
+<script>
+/* [설명] 토글 — 패널 밑 설명 문단(.note)은 평소 접혀 있다(sheet.css). 상태는
+   저장하지 않는다(localStorage 금지) — 새로 열면 다시 접힌다. */
+(function () {
+  var btn = document.querySelector(".notes-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var on = document.body.classList.toggle("show-notes");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+})();
+</script>
 <script>
 /* 하단 탭 바(모바일 전용) — 상단 nav.tabs(_scope.html) 를 그대로 소스로
    쓴다. 탭 목록을 여기 다시 적으면 _scope.html 에서 탭이 늘 때 두 곳을

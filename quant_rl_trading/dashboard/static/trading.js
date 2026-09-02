@@ -234,7 +234,6 @@ function emergencyStopCard(engaged) {
     <button type="button" id="emergency-stop" data-engaged="${engaged}"
             title="신규매수 차단 — 매도는 막지 않는다">
       ${engaged ? "킬스위치 해제" : "EMERGENCY STOP"}
-      <span class="glyph">${engaged ? "⏻" : "✋"}</span>
     </button>
   </div>`;
 }

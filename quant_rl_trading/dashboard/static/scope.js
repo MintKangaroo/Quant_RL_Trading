@@ -53,8 +53,40 @@ const BASE = {
 
 const charts = {};
 
+/* 차트 테마 — 축·격자·글자를 토큰으로. 각 화면이 AXIS 를 안 펴면 ECharts 기본
+   (#E0E6F1 흰 격자·#6E7079 축)이 그대로 나와 검은 시트 위에서 혼자 밝았다
+   (2026-09-02 학습 탭 실측). init 에 테마를 물리면 옵션이 빠진 차트도 같은
+   선을 쓴다 — 옵션에 적힌 값이 있으면 그쪽이 이긴다. */
+const SHEET_THEME = {
+  backgroundColor: "transparent",
+  textStyle: { color: COLOR.muted, fontFamily: "IBM Plex Mono" },
+  categoryAxis: { axisLine: { lineStyle: { color: COLOR.border } }, axisTick: { lineStyle: { color: COLOR.border } },
+                  axisLabel: { color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10 },
+                  splitLine: { lineStyle: { color: COLOR.border, opacity: 0.6 } } },
+  valueAxis:    { axisLine: { lineStyle: { color: COLOR.border } }, axisTick: { lineStyle: { color: COLOR.border } },
+                  axisLabel: { color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10 },
+                  splitLine: { lineStyle: { color: COLOR.border, opacity: 0.6 } } },
+  timeAxis:     { axisLine: { lineStyle: { color: COLOR.border } }, axisLabel: { color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10 },
+                  splitLine: { lineStyle: { color: COLOR.border, opacity: 0.6 } } },
+  legend: { textStyle: { color: COLOR.muted } },
+  tooltip: { backgroundColor: COLOR.panel2, borderColor: COLOR.border, textStyle: { color: COLOR.text } },
+};
+// 등록은 **첫 차트를 만들 때** 한다. 이 파일은 echarts.min.js(defer) 보다 먼저
+// 실행될 수 있어 파일 상단에서 부르면 echarts 가 아직 없다(2026-09-02 실측: 등록이
+// 조용히 건너뛰어져 학습 탭 격자가 흰색 기본값이었다). 렌더 테스트의 스텁에는
+// registerTheme 이 없으므로 있을 때만 부른다.
+let sheetThemeReady = false;
+function ensureSheetTheme() {
+  if (sheetThemeReady) return;
+  if (typeof echarts !== "undefined" && typeof echarts.registerTheme === "function") echarts.registerTheme("sheet", SHEET_THEME);
+  sheetThemeReady = true;
+}
+
 function chart(id) {
-  if (!charts[id]) charts[id] = echarts.init(document.getElementById(id), null, { renderer: "canvas" });
+  if (!charts[id]) {
+    ensureSheetTheme();
+    charts[id] = echarts.init(document.getElementById(id), "sheet", { renderer: "canvas" });
+  }
   return charts[id];
 }
 
@@ -115,10 +147,13 @@ function kpi(label, value, note, warn, extra = {}) {
   const line = extra.spark
     ? spark(extra.spark, extra.tone === "down" ? COLOR.down : extra.tone === "up" ? COLOR.up : COLOR.muted)
     : "";
+  // 각주는 두 줄에서 잘린다(sheet.css). 잘려도 마우스를 올리면 전문이 뜬다 —
+  // 잘린 글을 못 읽게 두는 것과 화면을 각주로 채우는 것 사이의 절충이다.
+  const plain = String(note || "").replace(/<[^>]+>/g, "").replace(/"/g, "&quot;");
   return `<div class="kpi${warn ? " warn" : ""}${tone}">
     <div class="kpi-label">${label}</div>
     <div class="kpi-value">${value}${unit}</div>
-    <div class="kpi-note">${note || ""}</div>
+    <div class="kpi-note" title="${plain}">${note || ""}</div>
     ${line}
   </div>`;
 }
@@ -141,7 +176,7 @@ function showScope(body) {
   label.hidden = false;
   label.classList.add("rewound");
   const stamp = String(body.as_of).replace("T", " ").slice(0, 16);
-  label.textContent = `⏱ ${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
+  label.textContent = `${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
 }
 
 /** 데이터 기준일 띠. **날짜 없는 숫자는 없다** — 어느 세션 값인지, 늦었으면 며칠인지. */
@@ -153,8 +188,10 @@ async function renderFreshness() {
   if (!items.length) return;
   const md = (iso) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "—");
   target.innerHTML = items.map((it) => {
-    if (it.status === "ok") return `<span class="fresh ok">${it.label} ${md(it.observed)} ✓</span>`;
-    if (it.status === "stale") return `<span class="fresh stale">${it.label} ${md(it.observed)} ⚠ ${it.lag_sessions}세션 지연 (기대 ${md(it.expected)})</span>`;
+    // 상태는 글리프가 아니라 앞의 점(CSS ::before)이 말한다 — ✓·⚠ 같은 문자
+    // 기호는 글꼴마다 다르게 그려져 화면이 들쭉날쭉해진다.
+    if (it.status === "ok") return `<span class="fresh ok">${it.label} ${md(it.observed)}</span>`;
+    if (it.status === "stale") return `<span class="fresh stale">${it.label} ${md(it.observed)} · ${it.lag_sessions}세션 지연 (기대 ${md(it.expected)})</span>`;
     return `<span class="fresh unknown">${it.label} 없음</span>`;
   }).join("");
   target.hidden = false;

@@ -12,7 +12,7 @@
  * 배색(정상=초록/위험=빨강)을 그 규칙과 같은 방향으로 맞춰 뒤집지 않았다.
  */
 
-.sys-wrap { max-width: 1100px; margin: 0 auto; }
+.sys-wrap { max-width: none; margin: 0; }
 
 .sys-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .sys-bar h2 { font-size: 18px; margin: 0; }
@@ -141,3 +141,22 @@
 .sys-wrap .panel > * {
   min-width: 0;
 }
+
+
+/* ---- 시트 문법 (sheet.css 와 짝, 2026-09-02) — 카드를 걷고 괘선으로. ------ */
+.sys-bar h2 { font-size: 13px; font-weight: 600; }
+.sys-wrap .panel, .sys-card {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 10px 0 12px;
+}
+.sys-grid { gap: 0 28px; }
+.sys-card h3 { font-size: 10.5px; font-weight: 500; margin-bottom: 8px; }
+.big { font-size: 24px; font-weight: 500; }
+.sys-bar-track { height: 4px; border-radius: 0; background: #151515; border: 0; margin-top: 8px; }
+.sys-bar-track > div { border-radius: 0; background: var(--muted); }
+.sys-rec { background: transparent; border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; }
+.sys-rec h3 { color: var(--text); font-size: 12px; }
+.sys-rec .row { border-bottom: 1px solid var(--border); font-size: 12px; }

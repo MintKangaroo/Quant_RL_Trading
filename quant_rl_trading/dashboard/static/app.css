@@ -9,16 +9,39 @@
    768px 아래에서 이미 이 파일이 처리하므로 탭별 CSS 는 다시 정의할
    필요 없다. */
 
+/* 서체 — **자체 호스팅**한다. 바깥 CDN 은 폰이 Tailscale 로 붙는 경로에서
+   안 뚫려 화면이 통째로 검게 남은 이력이 있어(2026-08-24) 금지이고, 그렇다고
+   시스템 글꼴로 떨어뜨리면 숫자 화면이 아마추어처럼 보인다. 파일은
+   static/fonts 에 있고 `font-display: swap` 이라 늦게 와도 화면을 막지 않는다.
+   본문·라벨은 Pretendard(가변, 한글 UI 표준), 숫자는 IBM Plex Mono. */
+@font-face {
+  font-family: "Pretendard";
+  src: url("fonts/PretendardVariable.woff2") format("woff2-variations"),
+       url("fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/IBMPlexMono-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/IBMPlexMono-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/IBMPlexMono-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+
 :root {
-  --bg: #0e1116;
-  --panel: #161a20;
-  --panel2: #1b2028;
-  --border: #262c35;
-  /* 패널 머리글 줄. 본문보다 한 단계 밝아야 카드의 경계가 읽힌다. */
-  --head: #191e25;
-  --text: #e6e9ee;
-  --muted: #8a93a0;
-  --dim: #5a626d;
+  /* 바탕은 **블랙** (사용자 결정 2026-09-02 — "애매한 네이비" 였던 슬레이트를
+     걷어냈다). 파랑 기운이 없는 무채색 계단이다: 바탕 → 패널 → 패널2 → 괘선.
+     화면 문법은 카드가 아니라 **괘선으로 나눈 시트**(프라임브로커 리스크
+     리포트)라 패널은 바탕과 거의 같고, 경계는 1px 괘선이 말한다 (sheet.css). */
+  --bg: #050505;
+  --panel: #080808;
+  --panel2: #111111;
+  --border: #1f1f1f;
+  /* 패널 머리글 줄 — 시트 문법에서는 머리글에 바탕을 깔지 않는다. 남겨 두는
+     이유는 탭 전용 CSS 가 아직 참조하기 때문이고, 값은 바탕과 같다. */
+  --head: #080808;
+  /* 괘선 두 단계: --border 는 행·칸 사이, --rule 은 절(section) 사이. */
+  --rule: #2a2a2a;
+  --text: #e8e8e8;
+  --muted: #8f8f8f;
+  --dim: #5f5f5f;
   --warn: #f5a524;
   /* 손익 — 상승 초록 · 하락 빨강. 국장·미장 모두 이 규약 하나로 통일한다 —
      화면마다 다르면 사고가 난다 (dashboard.md §10).
@@ -39,7 +62,7 @@
   /* --dim 보다 한 단계 더 죽인 글자. 꺼진 버튼·못 잰 이유처럼 "있지만
      지금은 상관없다" 는 뜻일 때만 쓴다 — --dim 과 같은 자리에 섞으면
      의미가 없는데 안 보이는 것과 지금 안 쓰는 것이 구분 안 된다. */
-  --faint: #39414d;
+  --faint: #3a3a3a;
   /* 범주 팔레트 — 종목·시리즈 **구분**용 (손익 의미 없음). learning IC 차트와
      포지션 도넛이 같은 순서로 쓴다 — 한 파일이 하드코딩하면 색이 화면마다 갈린다.
      **의미를 이미 가진 색은 뺀다**: 초록(--up)·빨강(--down)은 손익, 인디고
@@ -51,7 +74,7 @@
   --s3: #e06c9f;  /* 분홍 */
   --s4: #62b0db;  /* 하늘 */
   --s5: #c99a4e;  /* 오커 — 경고색(--warn)보다 어둡고 탁하게 */
-  --s6: #8fa3b8;  /* 회청 */
+  --s6: #9a9a9a;  /* 회색 */
   /* 헤더 그림자·정지 버튼 아래 등 어두운 바탕 위에 깊이를 주는 자리.
      하드코딩된 rgba(0,0,0,…) 이 여기저기 흩어져 있던 것을 모았다. */
   --shadow: rgba(0, 0, 0, 0.35);
@@ -71,7 +94,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+  font-family: "Pretendard", "IBM Plex Sans KR", system-ui, -apple-system, sans-serif;
   font-size: 13px;
   line-height: 1.45;
   /* 표의 가로 스크롤은 .scroll 컨테이너 안에서만 일어나야 한다. 어딘가
