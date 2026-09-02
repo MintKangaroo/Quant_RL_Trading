@@ -1041,7 +1041,7 @@ function renderDailyReturns(body) {
     tooltip: { trigger: "axis", backgroundColor: COLOR.panel2, borderColor: COLOR.border, textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
       formatter: (ps) => `${ps[0].axisValue}<br>${pct(ps[0].value)}` },
     xAxis: { type: "category", data: days.map((d) => d.session.slice(5)), ...AXIS, axisLabel: { ...AXIS.axisLabel, interval: 4 } },
-    yAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(1) + "%" } },
+    yAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(2) + "%" } },
     series: [{ type: "bar", data: days.map((d) => ({ value: d.return, itemStyle: { color: d.return >= 0 ? COLOR.up : COLOR.down } })), barMaxWidth: 12 }],
   });
 }

@@ -429,6 +429,10 @@ main { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 1100px) { .perf-equity { grid-template-columns: minmax(0, 1fr); } }
 
 /* 포지션 패널: 표 | 파이 | 일별 수익률 막대 */
+/* 1행 표 전폭 · 2행 파이 | 일별 수익률 막대. 셋을 한 줄에 두면 좁은 칸에서 막대가
+   아래로 밀려 파이 "옆" 이 아니라 "밑" 이 됐다(2026-09-02 실측). */
 .positions-body { flex-wrap: wrap; }
-.positions-daily { flex: 1 1 320px; min-width: 260px; height: 260px; }
+.positions-body > #positions { flex: 1 1 100%; }
+.positions-body > .positions-pie { flex: 1 1 42%; min-width: 260px; }
+.positions-daily { flex: 1 1 52%; min-width: 260px; height: 260px; }
 @media (max-width: 768px) { .positions-daily { height: 180px; } }
