@@ -322,3 +322,9 @@ tbody tr:hover td { background: #0c0c0c; }
   .panel.review { padding: 8px 0; }
   .chart { height: 220px; }
 }
+
+/* 트레이딩 탭 머리 — 계좌 대조 | 경고·리뷰·성과. */
+.grid-top { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); column-gap: 40px; align-items: start; }
+.grid-top > div { min-width: 0; }
+@media (max-width: 1100px) { .grid-top { grid-template-columns: minmax(0, 1fr); } }
+.kpi-stop button { white-space: nowrap; padding: 7px 10px; }

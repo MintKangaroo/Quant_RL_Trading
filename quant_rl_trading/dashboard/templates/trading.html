@@ -14,11 +14,18 @@
 
   {# 증권사 계좌가 말하는 숫자 — 장부(KPI)와 나란히 둔다. 둘이 다르면 어느
      쪽이 틀렸는지 묻는 자리다. 외부 조회(t0424)라 KPI 와 따로 늦게 그린다. #}
+  {# 데스크톱에서는 **가로 두 칸**이다 — 왼쪽 계좌 대조(키-값 표), 오른쪽 경고·AI 리뷰·
+     오늘의 성과. 한 줄에 하나씩 쌓으면 1,900px 의 4분의 3이 빈다(2026-09-02 사용자 지적).
+     모바일에서는 세로로 돌아간다(sheet.css .grid-top). #}
+  <section class="grid-top">
+    <div class="grid-top-left">
   <section class="panel" id="account-panel" style="display:none">
     <h2>증권사 계좌 <span class="sub" id="account-sub">t0424 조회 · 장부와 대조</span></h2>
     <div id="account-kpis" class="scroll"></div>
   </section>
 
+    </div>
+    <div class="grid-top-right">
   <section class="alerts" id="alerts"></section>
 
   {# Claude 일일 리뷰 헤드라인 (M5). 해설자이지 심판이 아니다 — 숫자는 아래 성과 칸과
@@ -48,6 +55,8 @@
     </p>
   </section>
 
+    </div>
+  </section>
   {# 총자산 일별 꺾은선 — 원 단위, 한 축 (사용자 요청 2026-08-28: 지수+낙폭 두 축은 읽기 어렵다) #}
   <section class="panel" id="panel-equity">
     <div>
