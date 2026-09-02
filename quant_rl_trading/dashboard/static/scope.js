@@ -100,7 +100,9 @@ function chart(id) {
 function params() {
   const search = new URLSearchParams(window.location.search);
   const out = new URLSearchParams();
-  for (const key of ["as_of", "lookback"]) {
+  // market·ledger 도 실어 보낸다 — 미장 shadow 장부(?market=US&ledger=shadow)를 볼 때
+  // 모든 API 가 같은 장부·같은 시장을 봐야 한다. 빠지면 KPI 는 미장인데 표는 국장이 된다.
+  for (const key of ["as_of", "lookback", "market", "ledger"]) {
     const value = search.get(key);
     if (value) out.set(key, value);
   }

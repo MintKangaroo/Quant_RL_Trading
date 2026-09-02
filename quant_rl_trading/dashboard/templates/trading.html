@@ -9,6 +9,22 @@
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
 
 <main class="terminal">
+  {# 장부 전환 — 국장은 LS 모의계좌 장부(data/_paper), 미장은 shadow 장부(data/_shadow).
+     LS 모의투자가 해외주식을 막아 두 장부가 갈렸다(2026-09-02). market·ledger 는 URL 로
+     흐르고(scope.js params) 모든 API 가 그걸 같이 받는다. #}
+  <nav class="ledger-switch seg" aria-label="장부">
+    <a href="/trading" data-ledger="paper">국장 · 모의계좌</a>
+    <a href="/trading?market=US&amp;ledger=shadow" data-ledger="shadow">미장 · shadow</a>
+  </nav>
+  <script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var on = (q.get("ledger") || "paper").toLowerCase();
+    document.querySelectorAll(".ledger-switch a").forEach(function (a) {
+      if (a.dataset.ledger === on) a.classList.add("on");
+    });
+  })();
+  </script>
   <!-- KPI 줄. 마지막 칸이 EMERGENCY STOP 이다 (trading.js 가 채운다). -->
   <section class="kpis" id="kpis"></section>
 

@@ -58,6 +58,16 @@ def store() -> Store:
     inner: Store = current_app.config["QUANT_RL_STORE"]
     if not has_request_context():
         return inner
+    # ``?ledger=shadow`` — 미장 paper 슬리브는 shadow 장부(data/_shadow)에 산다
+    # (LS 모의투자가 해외를 막아 국장 모의계좌 장부와 다른 장부다, 2026-09-02).
+    # 같은 화면 프로세스가 두 장부를 요청 단위로 갈라 본다. 없으면 기본 장부.
+    shadow: Store | None = current_app.config.get("QUANT_RL_STORE_SHADOW")
+    if shadow is not None and (request.args.get("ledger") or "").lower() == "shadow":
+        cached = g.get("quant_rl_store_shadow")
+        if cached is None:
+            cached = MemoStore(shadow)
+            g.quant_rl_store_shadow = cached
+        return cached  # type: ignore[no-any-return]
     cached = g.get("quant_rl_store")
     if cached is None:
         cached = MemoStore(inner)

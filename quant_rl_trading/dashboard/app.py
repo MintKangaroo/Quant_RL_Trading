@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from pathlib import Path
+
 from flask import Flask, render_template, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
@@ -78,6 +80,13 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.json = SafeJSONProvider(app)
     app.config["QUANT_RL_STORE"] = store if store is not None else Store()
+    # 미장 paper 는 shadow 장부다. 주 장부가 data/_paper 이면 옆의 data/_shadow 를
+    # 두 번째 장부로 연다(?ledger=shadow). 없으면 None — 전환 버튼만 안 뜬다.
+    main_root = Path(app.config["QUANT_RL_STORE"].root)
+    shadow_root = main_root.parent / "_shadow"
+    app.config["QUANT_RL_STORE_SHADOW"] = (
+        Store(root=shadow_root) if main_root.name == "_paper" and shadow_root.is_dir() else None
+    )
     app.config["QUANT_RL_CLOCK"] = clock if clock is not None else LiveClock()
     # 장중 시세 캐시. **회계와 무관한 참고 값 전용**이다(services/live_quotes 참고).
     # 자격증명이 없거나 장외면 빈 결과를 돌려주므로, 여기서 실패를 따지지 않는다 —
