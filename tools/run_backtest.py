@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     end = date.fromisoformat(args.end)
     # 임계치는 설정에서 온다 (불변식 10). 시점은 평가 시작일의 스냅샷 시각이다.
     probe = loop.snapshot_moment(store, start, as_of=loop.datetime.combine(
-        start, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=loop.SEOUL))
+        start, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=loop.SEOUL), market=loop.Market(args.market))
     warmup = (
         args.warmup
         if args.warmup is not None

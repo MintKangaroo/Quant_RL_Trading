@@ -81,7 +81,7 @@ def last_settled_day(store: Store, market: Market, now: datetime) -> date | None
     """
     for day in reversed(trading_days(market, now.date() - timedelta(days=14), now.date())):
         probe = datetime.combine(day, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=loop.SEOUL)
-        if loop.snapshot_moment(store, day, as_of=probe) <= now:
+        if loop.snapshot_moment(store, day, as_of=probe, market=market) <= now:
             return day
     return None
 

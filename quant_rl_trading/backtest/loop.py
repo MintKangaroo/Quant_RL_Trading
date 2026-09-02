@@ -111,7 +111,9 @@ class BacktestResult:
         )
 
 
-def snapshot_moment(store: Store, day: date, *, as_of: datetime) -> datetime:
+def snapshot_moment(
+    store: Store, day: date, *, as_of: datetime, market: Market = Market.KR
+) -> datetime:
     """그날 세션의 기준 시각. **신호 공표 시각과 스냅샷 시각 중 늦은 쪽이다.**
 
     회계 스냅샷은 15:40 이다(accounting.md §2). 그런데 Analyst 신호는 종가
@@ -127,6 +129,17 @@ def snapshot_moment(store: Store, day: date, *, as_of: datetime) -> datetime:
     ``as_of`` 는 설정을 읽기 위한 시점이다 — 임계치도 이중시간이라 그날 유효한
     값을 봐야 한다.
     """
+    # **미장 세션의 시각은 미장 종가 공표 시각이다.** 국장 기준(16:00 KST)을 그대로
+    # 쓰면 그 시각은 ET 03:00 — 그날 미장이 열리기도 전이라 세션이 그날 종가·신호를
+    # 못 보고 전날 것으로 결정하며, 다음 날 체결 단계도 그날 봉을 못 찾아 체결 0 이
+    # 된다(2026-09-02 실측: 미장 shadow 가 16:00 KST 로 찍혀 체결 0). 미장은 회계
+    # 스냅샷(15:40 KST)과 무관하게 ET 16:00 + 공표 지연으로 잡는다 — 한국 시간으로
+    # 다음 날 새벽이라 국장 스냅샷과 valid_from 이 겹치지 않는다.
+    if market is not Market.KR:
+        policy = publication_policy(store, market, clock=ReplayClock(as_of))
+        settled = replace(policy, clock=ReplayClock(as_of + timedelta(days=3)))
+        return settled.for_session(day)
+
     try:
         raw = str(store.config("accounting.snapshot_time", as_of=as_of))
         moment = time.fromisoformat(raw)
@@ -245,9 +258,11 @@ def run(
     # 어긴다. 첫 거래일의 기본 스냅샷 시각을 탐침으로 쓴다 — 설정은 이중시간이라
     # 그날 유효한 값이 나온다.
     probe = datetime.combine(sessions[0], DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL)
-    first = snapshot_moment(store, sessions[0], as_of=probe)
+    first = snapshot_moment(store, sessions[0], as_of=probe, market=market_enum)
     if capital > 0:
-        opening = snapshot_moment(store, sessions[0], as_of=first) - timedelta(days=1)
+        opening = snapshot_moment(
+            store, sessions[0], as_of=first, market=market_enum
+        ) - timedelta(days=1)
         seed_capital(store, ReplayClock(opening), amount=capital, as_of=opening)
 
     warmup_set = set(warmup)
@@ -260,7 +275,7 @@ def run(
     previous_session: str | None = None
 
     for day in sessions:
-        as_of = snapshot_moment(store, day, as_of=first)
+        as_of = snapshot_moment(store, day, as_of=first, market=market_enum)
         clock = ReplayClock(as_of)
         elapsed: dict[str, float] = {}
         mark = perf_counter()

@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
@@ -193,6 +194,22 @@ def run(
     # 시점으로 기록된다.
     snapshot = snapshot_module.take(store, clock, as_of=as_of, book=book)
     equity = snapshot.valuation.nav
+    # **자본은 그 시장의 통화로 넘긴다.** NAV 는 원화인데 미장 사이징이 그 숫자를
+    # 달러로 받으면 목표금액이 환율배(1,377배)로 부풀어 한 종목에 조각당 317,133주
+    # ($1.6M) 를 냈다(2026-09-02 미장 shadow 실측). 주문가능금액도 그 통화의
+    # 현금이다 — 원화 현금으로 미장 주식을 살 수는 없다.
+    currency = KRW
+    fx_rate = 1.0
+    if Market(market) is Market.US:
+        fx_rate = float(snapshot.valuation.fx_rate)
+        if fx_rate <= 0:
+            result = DailySession(as_of=as_of, market=market, equity=0.0)
+            result.notes.append("환율이 없다. 원화 NAV 를 달러 자본으로 바꿀 수 없다")
+            log.record("decide", "session", {"skipped": "no_fx"})
+            log.flush()
+            return result
+        equity = equity / fx_rate
+        currency = USD
     # **자본과 주문가능금액은 다른 숫자다** (accounting.md §1). 자본은 목표
     # 비중을 금액으로 바꾸는 데 쓰고, 살 수 있는 한도는 결제가 끝난 현금이다.
     # 둘을 같다고 보면 미결제 대금까지 쓰게 된다 — 그게 이 백테스트를
@@ -208,9 +225,11 @@ def run(
         book=book,
         settlement_days=settlement_days,
         market=market,
+        currency=currency,
     )
     log.record(
-        "observe", "accounting", {"nav": round(equity, 4), "available_cash": round(cash, 4)}
+        "observe", "accounting",
+        {"nav": round(equity, 4), "available_cash": round(cash, 4), "currency": currency},
     )
 
     result = DailySession(as_of=as_of, market=market, equity=equity)
@@ -408,6 +427,7 @@ def run(
         market_open=market_open,
         board=board,
         broker=broker,
+        fx_rate=fx_rate,
     )
     result.orders = execution.planned
     result.notes.extend(execution.notes)

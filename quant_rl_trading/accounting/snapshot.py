@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -296,7 +296,11 @@ def write(
         row["revision"] = int(latest["revision"]) + 1
 
     revision = int(row.get("revision", 0))
-    run_id = f"nav-{snapshot.as_of.date().isoformat()}"
+    # 날짜만 쓰면 국장 스냅샷(16:00 KST = 07:00 UTC)과 미장 스냅샷(16:20 ET = 20:20
+    # UTC)이 같은 UTC 날짜에 떨어져 뒤의 것이 "이미 적재됨" 으로 막힌다. 시각까지
+    # 넣는다. 예전 행의 `nav-YYYY-MM-DD` 는 그대로 두며, 같은 값 재실행은 위의
+    # valid_from 비교가 이미 막는다.
+    run_id = f"nav-{snapshot.as_of.astimezone(UTC):%Y-%m-%dT%H%M}"
     if revision:
         run_id = f"{run_id}-r{revision}"
     if store.ingest_run_recorded(ledger.NAV_DAILY, run_id):

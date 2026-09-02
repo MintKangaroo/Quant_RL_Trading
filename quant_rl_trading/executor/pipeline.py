@@ -97,6 +97,7 @@ def run(
     board: str = "KOSPI",
     liquidation_only: bool = False,
     broker: Broker | None = None,
+    fx_rate: float = 1.0,
 ) -> ExecutionResult:
     """한 세션의 집행. 주문을 만들고, 창고에 적고, 전송한다.
 
@@ -197,7 +198,8 @@ def run(
             result.notes.append(f"{defer.reason} — 신규매수 보류")
 
     # 5~6. 수량 변환과 상한
-    sizing_params = SizingParams.from_store(store, as_of=as_of)
+    # 원화 임계치를 시장 통화로. 국장은 1.0, 미장은 USD/KRW 환율.
+    sizing_params = SizingParams.from_store(store, as_of=as_of, fx_rate=fx_rate)
     # ``cash`` 는 주문가능금액이다. NAV 로 대신하면 미결제 대금까지 쓸 수 있게
     # 되고, 그 길로 이 저장소는 레버리지 2.83배까지 갔다 (accounting.md §1).
     sized, skipped = size_orders(

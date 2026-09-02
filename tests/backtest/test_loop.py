@@ -291,3 +291,21 @@ def test_선정_사유가_하루_결과까지_올라온다(warehouse) -> None:
     # 국장은 가중치가 있으므로 사유가 붙지 않는다.
     healthy = loop.run(warehouse, start=END, end=END, market="KR", capital=100_000_000.0)
     assert healthy.days[-1].fault == ""
+
+
+def test_미장_세션_시각은_미장_종가_공표_시각이다(store) -> None:
+    """국장 기준(16:00 KST)으로 찍으면 ET 03:00 — 그날 미장이 열리기 전이다. 미장은
+    ET 16:00 + 공표 지연(1,200초)이어야 그날 종가·신호를 본다."""
+    from datetime import UTC, date, datetime
+
+    from quant_rl_trading.backtest import loop
+    from quant_rl_trading.collectors.market_hours import Market
+
+    store.seed_config_defaults()
+    day = date(2026, 9, 1)
+    probe = datetime.combine(day, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=loop.SEOUL)
+    kr = loop.snapshot_moment(store, day, as_of=probe)
+    us = loop.snapshot_moment(store, day, as_of=probe, market=Market.US)
+    assert kr == datetime(2026, 9, 1, 16, 0, tzinfo=loop.SEOUL)
+    assert us == datetime(2026, 9, 1, 20, 20, tzinfo=UTC), us
+    assert us > kr
