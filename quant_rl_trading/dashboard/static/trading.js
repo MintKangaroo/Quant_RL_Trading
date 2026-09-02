@@ -222,8 +222,11 @@ function renderKpis(body) {
     // MDD 는 **장중을 포함해 보여주되**(사용자 결정 2026-08-19), 킬스위치는
     // 여전히 종가로 판정한다. 그 사실을 부제가 말한다 — 안 적으면 화면의
     // 빨간 숫자를 보고 "왜 킬스위치가 안 걸렸지" 를 묻게 된다.
-    kpi("MDD", pct(liveOn && k.live_mdd !== null ? k.live_mdd : k.mdd),
-        liveOn && k.live_drawdown !== null && k.live_drawdown !== undefined
+    // 총자산·수익과 같은 규칙: 실시간 값이 있으면 장중이든 마감 직후든 쓴다. 장중에만
+    // 쓰면 15:30 마감 직후 일봉 수집 전까지 MDD 만 어제 종가(0.00%)로 되돌아가
+    // 옆의 -1.85% 와 다른 날을 가리켰다(2026-09-02 폰 실측).
+    kpi("MDD", pct(useLive && k.live_mdd !== null && k.live_mdd !== undefined ? k.live_mdd : k.mdd),
+        useLive && k.live_drawdown !== null && k.live_drawdown !== undefined
           ? `현재 ${pct(k.live_drawdown)} · ${risk.band_message} · 킬스위치는 ${closeBadge}`
           : `현재 ${pct(k.drawdown)} · ${risk.band_message} · ${closeBadge}`,
         risk.band !== "free", { spark: ddLine, tone: "down" }),
