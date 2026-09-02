@@ -1,7 +1,8 @@
 """flow_us Analyst — 미장 수급.
 
-**아직 빈 신호를 낸다. 다만 이유가 2026-08-19 로 바뀌었다.** 입력이 없어서가
-아니라, 있는 입력(13F)으로는 **아직 잴 수가 없어서**다. 아래 실측 참고.
+**지금 입력은 FINRA 공매도 잔고다** (2026-09-02, 시행 I — 맨 아래 문단). 그 전
+역사: 13F 는 잴 수 없었고(분기 둘뿐), 일별 공매도 거래량은 IC 미달이었다.
+아래는 그 기록이다 — 같은 실수를 되풀이하지 않기 위해 남긴다.
 
 ## 왜 빈 파일이 아니라 이 파일인가
 
@@ -69,6 +70,15 @@ IC 를 쟀다(`tools/backfill_ic_history.py --market US --analyst flow_us`,
 
 지연이 큰 데이터뿐이라, 붙일 때 horizon 5일이 맞는지부터 다시 본다. 13F 는
 분기 데이터라 5일 horizon 자체가 안 맞을 수 있다.
+
+## 잔고로 교체 (2026-09-02, 시행 I — new-sources-2026-09.md)
+
+위 거래량 피처 셋은 뺐다. 잔고(short interest)는 빌려서 판 채 들고 있는
+포지션이라 방향성 베팅이고, 학계의 결과도 잔고다. 결제일(매월 15일·말일)
+집계를 FINRA 가 약 8영업일 뒤 공표하며, 수집기는 관측시각을 **결제일 뒤
+10영업일 18:00 ET** 로 보수적으로 찍는다 — 그래서 여기서는 `store.get` 이
+돌려주는 **최신 공표 잔고 하나**만 쓰면 미래를 안 본다. 반월 값을 매일
+관측된 것처럼 펴지 않는다(그건 "변화 없음" 이 아니라 "관측됨" 으로 읽힌다).
 """
 
 from __future__ import annotations
@@ -81,93 +91,57 @@ import pandas as pd
 from quant_rl_trading.analysts.base import Analyst, combine, rank_score
 
 #: 붙일 때 쓸 테이블. ``filings_13f``·``security_ids`` 는 **이미 창고에
-#: 있다**(읽는 길은 ``store/holdings.py``). 나머지 셋은 아직 없다 — 있다고
+#: 있다**(읽는 길은 ``store/holdings.py``). 나머지는 아직 없다 — 있다고
 #: 가정하고 읽지 않는다.
 REQUIRED_TABLES = (
     "filings_13f",
     "security_ids",
-    "short_interest",
+    "short_flow",
     "etf_flows",
     "options_oi",
 )
 
 SHORT_FLOW = "short_flow"
+KIND_INTEREST = "interest"
 
-#: 공매도 비율의 창. 짧은 창이 "오늘 얼마나 이례적인가", 긴 창이 "이 종목의
-#: 평소" 다. 20일은 한 달치 거래일이라 실적발표 한 사이클이 들어간다.
-SHORT_WINDOW = 5
-LONG_WINDOW = 20
-#: 평소를 재려면 최소 이만큼은 관측돼야 한다. 며칠짜리 표본으로 "평소" 를
-#: 말하면 그 편차는 잡음이다.
-MIN_OBSERVATIONS = 12
-LOOKBACK_DAYS = 45
+#: 최신 잔고 하나가 항상 창 안에 있게 — 반월 주기 + 공표 지연 10영업일이면
+#: 최대 30일 안팎이다. 60일이면 결제일 하나를 건너뛰어도 직전 것이 남는다.
+LOOKBACK_DAYS = 60
 
-#: 피처 가중치. **전부 같은 부호다** — 공매도 압력이 높을수록 낮은 점수.
-#: 이 부호가 맞는지는 IC 가 말한다. 반대로 나오면(음의 IC) 숏스퀴즈 쪽이
-#: 이긴다는 뜻이고, 그때 부호를 뒤집는 것은 **측정 결과이지 추측이 아니다.**
+#: 피처 가중치. **전부 같은 부호다** — 잔고가 크거나 늘수록 낮은 점수.
+#: 부호는 사전등록(시행 I)에서 고정했고 사후에 뒤집지 않는다.
 WEIGHTS: dict[str, float] = {
-    "short_pressure": 0.5,
-    "short_acceleration": 0.3,
-    "short_exempt": 0.2,
+    "days_to_cover": 0.5,
+    "short_interest_change": 0.5,
 }
 
 
 class FlowUsAnalyst(Analyst):
     name = "flow_us"
-    version = "flow_us-v0.0.0"
+    version = "flow_us-v0.1.0"
 
     def features(self, as_of: datetime) -> pd.DataFrame:
-        """FINRA 공매도 거래량에서 만든다 (#50).
+        """FINRA 공매도 잔고에서 만든다 (시행 I).
 
-        **13F 는 여전히 안 넣는다** — 잴 수 있는 분기가 둘뿐이라 58일의 IC 가
-        사실상 같은 순위 하나를 되풀이한 것이다(모듈 docstring 의 실측).
-        공매도 거래량은 매일·전 종목이라 그 한계가 없다.
+        - ``days_to_cover`` — 잔고 / 일평균거래량 (FINRA 산출값). 크면 되사기가 오래 걸린다.
+        - ``short_interest_change`` — 잔고 / 직전 잔고 − 1. 늘고 있는가.
 
-        ## 수준이 아니라 편차다
-
-        공매도 비율의 중앙값이 0.50 이다(2026-08-14 실측 0.4992). FINRA 집계에
-        시장조성자 헤지가 섞여 있어서 그렇다 — "절반이 공매도" 가 아니라
-        **그게 기준선**이다. 그래서 절대 수준을 쓰지 않고 **그 종목의 평소
-        대비 얼마나 높은가**를 쓴다.
+        종목마다 **최신 공표 잔고 하나**. 결측은 횡단면 순위 중앙(0).
         """
-        panel = self._short_panel(as_of)
-        if panel is None:
+        latest = self._latest_interest(as_of)
+        if latest is None:
             return pd.DataFrame()
-
-        ratio = panel["ratio"]
-        # 그 종목의 평소. 관측이 얇으면 "평소" 를 말할 수 없으므로 뺀다.
-        counts = ratio.notna().sum()
-        usable = counts[counts >= MIN_OBSERVATIONS].index
-        if usable.empty:
-            return pd.DataFrame()
-        ratio = ratio[usable]
-
-        base = ratio.tail(LONG_WINDOW)
-        mean = base.mean()
-        # 표준편차 0 은 나눗셈이 아니라 결측이다. 매일 같은 값이면 편차를
-        # 말할 수 없다.
-        spread = base.std().replace(0.0, np.nan)
-
-        recent = ratio.tail(SHORT_WINDOW).mean()
-        raw = pd.DataFrame(index=usable)
-        # 오늘(최근 5일)이 평소보다 몇 표준편차 위인가.
-        raw["short_pressure"] = (recent - mean) / spread
-        # 가속. 5일이 20일보다 높아지고 있는가 — 수준이 높아도 식고 있으면
-        # 다른 이야기다.
-        raw["short_acceleration"] = recent - mean
-        # 면제 공매도 비중. 업틱룰 면제라 대개 시장조성 활동이고, 그 비중이
-        # 크면 위 신호가 방향성이 아닐 가능성이 높다 — **감점 요인이다.**
-        exempt = panel["exempt_ratio"].tail(LONG_WINDOW).mean()
-        raw["short_exempt"] = exempt.reindex(usable)
-
+        raw = pd.DataFrame(index=latest.index)
+        raw["days_to_cover"] = latest["days_to_cover"].astype(float)
+        previous = latest["previous_short_position"].astype(float).replace(0.0, np.nan)
+        raw["short_interest_change"] = latest["short_position"].astype(float) / previous - 1.0
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if raw.empty:
             return pd.DataFrame()
-        # 결측은 횡단면 순위 중앙(0). 앞뒤로 채우면 미래를 본다.
         return raw.apply(rank_score).fillna(0.0)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
-        """**부호를 뒤집는다** — 공매도 압력이 높을수록 낮은 점수.
+        """**부호를 뒤집는다** — 공매도 잔고가 클수록 낮은 점수.
 
         가중치는 전부 양수이고 여기서 한 번만 뒤집는다. 가중치에 음수를 섞으면
         어느 피처가 어느 방향인지 표에서 안 보인다.
@@ -176,42 +150,31 @@ class FlowUsAnalyst(Analyst):
 
     # -- 관측 -------------------------------------------------------------------
 
-    def _short_panel(self, as_of: datetime) -> dict[str, pd.DataFrame] | None:
-        """(session × entity) 공매도 비율 표 둘. 관측이 없으면 None.
+    def _latest_interest(self, as_of: datetime) -> pd.DataFrame | None:
+        """종목별 최신 공표 잔고 한 행 (index = entity_id). 관측이 없으면 None.
 
-        비율은 **여기서** 만든다. 창고에는 분자·분모가 따로 있는데, 그건
-        나중에 다르게 물을 수 있게 하려는 것이지 읽는 쪽이 매번 다르게
-        계산하라는 뜻이 아니다.
+        `store.get(as_of=)` 이 observed_at 으로 걸러 주므로 여기서는 "가장 최근
+        결제일" 만 고르면 된다. 일별 거래량(kind=volume)은 읽지 않는다.
         """
         frame = self.store.get(
             SHORT_FLOW,
             as_of=as_of,
             lookback=LOOKBACK_DAYS,
+            market=str(self.market),
             columns=[
                 "entity_id", "valid_from", "kind",
-                "short_volume", "short_exempt_volume", "total_volume",
+                "short_position", "previous_short_position", "days_to_cover",
             ],
         )
         if frame.empty:
             return None
-        # **일별 계열만 쓴다.** 잔고(interest)는 월 2회라 같은 창에서 섞으면
-        # 발표 사이 구간에 같은 값이 반복되고, 그게 "변화 없음" 이 아니라
-        # "관측됨" 으로 읽힌다.
-        frame = frame[frame["kind"].astype(str) == "volume"]
+        frame = frame[frame["kind"].astype(str) == KIND_INTEREST]
         if frame.empty:
             return None
-
-        total = frame["total_volume"].astype(float).replace(0.0, np.nan)
-        frame = frame.assign(
-            ratio=frame["short_volume"].astype(float) / total,
-            exempt_ratio=frame["short_exempt_volume"].astype(float) / total,
+        latest = (
+            frame.sort_values("valid_from")
+            .groupby("entity_id", sort=False)
+            .tail(1)
+            .set_index("entity_id")
         )
-        out: dict[str, pd.DataFrame] = {}
-        for column in ("ratio", "exempt_ratio"):
-            out[column] = (
-                frame.pivot_table(
-                    index="valid_from", columns="entity_id", values=column,
-                    aggfunc="last",
-                ).sort_index()
-            )
-        return out
+        return latest
