@@ -24,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.publication import NotYetPublished, publication_policy
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
@@ -78,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     load_env()
     now = LiveClock().now()
     store = build_store(args.data_root)
+    # 관측시각은 벽시계가 아니라 **공표 정책 시각**(ET 16:00 + 지연) — 국장 LS 수집기와
+    # 같은 이유. 벽시계(08:40 KST)로 찍으면 미장 시각(16:20 ET) 스냅샷이 그날 지수를 못 본다.
+    policy = publication_policy(store, Market.US, clock=LiveClock())
     have = store.get(TABLE, as_of=now, lookback=20)
     have_keys = set(zip(have["entity_id"], have["valid_from"].dt.date)) if not have.empty else set()
     rows: list[dict] = []
@@ -94,9 +99,15 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                 if (entity, day) in have_keys:
                     continue
+                try:
+                    observed_at = policy.for_session(day)
+                except NotYetPublished:
+                    continue
+                except Exception:  # 거래일이 아닌 날짜(반일장 등 달력 불일치)는 벽시계로 남긴다
+                    observed_at = now
                 rows.append({
                     "entity_id": entity, "valid_from": datetime(day.year, day.month, day.day, tzinfo=UTC),
-                    "observed_at": now, "source": SOURCE, "market": "US", "board": "index",
+                    "observed_at": observed_at, "source": SOURCE, "market": "US", "board": "index",
                     "open": bar["open"], "high": bar["high"], "low": bar["low"], "close": bar["close"],
                     "volume": bar["volume"], "value": None,
                 })

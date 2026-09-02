@@ -41,7 +41,7 @@ API·LS `t1511`·FRED 세 곳 다 TR 도 배당수익률 필드도 주지 않는
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -49,7 +49,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting import ledger
 from quant_rl_trading.accounting.nav import BASE_INDEX, blended_benchmark
-from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.market_hours import SPECS, Market, trading_days
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -58,10 +58,24 @@ INDICES = "indices"
 
 SEOUL = ZoneInfo("Asia/Seoul")
 
-#: 그 시장의 종가가 스냅샷 시각에 **몇 거래일 늦게** 도착하는가.
-#: 스냅샷은 한국시간 15:40 이라 국장은 그날 종가가 이미 있고(0), 미장은 그날
-#: 장이 아직 안 끝나 직전 거래일 종가가 최신이다(1) — accounting.md §2.
-KNOWABLE_LAG = {Market.KR: 0, Market.US: 1}
+#: 그 시장의 종가가 **마지막으로 마감한 세션** 기준으로 몇 거래일 늦게 도착해도
+#: 봐주는가. "마지막으로 마감한 세션" 은 `_expected_close_day` 가 시각으로 가른다 —
+#: 예전엔 한국 날짜를 그냥 썼고 미장은 그날 장이 안 끝났으니 1 을 봐줬다. 그러면
+#: 미장 시각(05:20 KST)의 스냅샷이 국장에 "오늘(아직 안 연 날) 종가" 를 요구해
+#: NaN 이 됐다(2026-09-02 미장 shadow 실측). 이제 둘 다 0 이다.
+KNOWABLE_LAG = {Market.KR: 0, Market.US: 0}
+
+
+def _expected_close_day(market: Market, as_of: datetime) -> date:
+    """``as_of`` 에 종가가 있어야 하는 마지막 세션. 그 시장의 정규장 마감 전이면
+    오늘 종가는 있을 수 없으므로 직전 거래일이다."""
+    spec = SPECS[market]
+    local = as_of.astimezone(ZoneInfo(spec.timezone))
+    day = local.date()
+    if local.time() < spec.regular_close or not trading_days(market, day, day):
+        earlier = trading_days(market, day - timedelta(days=20), day - timedelta(days=1))
+        return earlier[-1] if earlier else day
+    return day
 
 
 @dataclass(frozen=True)
@@ -120,9 +134,11 @@ def _close(
         return None
 
     close_day = pd.Timestamp(latest["valid_from"]).tz_convert(SEOUL).date()
-    today = as_of.astimezone(SEOUL).date()
-    if close_day > today:
-        return None
+    today = _expected_close_day(market, as_of)
+    # 기대보다 늦은 세션의 종가가 이미 관측돼 있으면(store.get 이 observed_at 으로
+    # 걸렀으니 알 수 있었던 값이다) 그것이 최신이다 — 구멍이 아니다.
+    if close_day >= today:
+        return float(close)
     # 종가 다음날부터 오늘까지 그 시장이 장을 연 날. 있으면 우리가 알았어야
     # 하는 종가가 빠진 것이다 — 미장은 §2 만큼(거래일 1) 봐준다.
     missed = trading_days(market, close_day + timedelta(days=1), today)

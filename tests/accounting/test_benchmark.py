@@ -233,3 +233,28 @@ def test_벤치마크는_NAV_와_같은_시각_같은_환율로_잰다(funded) -
     assert again.index_value == pytest.approx(float(row["benchmark_index"]))
     # US +10%, KR 0% → 혼합 +5%
     assert again.index_value == pytest.approx(105.0)
+
+
+def test_마감_전_시각엔_오늘_종가를_요구하지_않는다(store) -> None:
+    """미장 시각(05:20 KST)의 스냅샷이 국장에 아직 열지도 않은 날의 종가를 요구해
+    벤치마크가 NaN 이 됐다. 마감 전이면 직전 거래일 종가가 최신이다."""
+    from datetime import UTC, date, datetime
+    from zoneinfo import ZoneInfo
+
+    from quant_rl_trading.accounting import benchmark as bm
+    from quant_rl_trading.collectors.market_hours import Market
+
+    store.seed_config_defaults()
+    seoul = ZoneInfo("Asia/Seoul")
+    store.append("indices", [{
+        "entity_id": "KR:IDX:KOSPI", "valid_from": datetime(2026, 9, 1, tzinfo=UTC),
+        "observed_at": datetime(2026, 9, 1, 16, 0, tzinfo=seoul), "source": "t", "market": "KR",
+        "board": "KOSPI", "open": 1.0, "high": 1.0, "low": 1.0, "close": 6835.8, "volume": 0.0, "value": None,
+    }], ingest_run_id="idx-test", source="t")
+    dawn = datetime(2026, 9, 2, 5, 20, tzinfo=seoul)
+    assert bm._expected_close_day(Market.KR, dawn) == date(2026, 9, 1)
+    assert bm._close(store, entity="KR:IDX:KOSPI", market=Market.KR, as_of=dawn, search_days=10) == 6835.8
+    # 9/2 마감 뒤에는 9/2 종가가 있어야 한다 — 9/1 것은 구멍이다
+    evening = datetime(2026, 9, 2, 16, 0, tzinfo=seoul)
+    assert bm._expected_close_day(Market.KR, evening) == date(2026, 9, 2)
+    assert bm._close(store, entity="KR:IDX:KOSPI", market=Market.KR, as_of=evening, search_days=10) is None
