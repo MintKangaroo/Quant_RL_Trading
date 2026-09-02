@@ -3,6 +3,7 @@
     .venv/bin/python tools/trial_new_sources.py --trial C [--save]   # PEAD
     .venv/bin/python tools/trial_new_sources.py --trial D [--save]   # 내부자 순매수
     .venv/bin/python tools/trial_new_sources.py --trial E [--save]   # 월 리밸런스
+    .venv/bin/python tools/trial_new_sources.py --trial H [--save]   # 국장 공매도
 
 기준을 여기서 바꾸지 않는다. 채택 기준은 프로토콜 문서에 있고, 이 도구는 숫자만 낸다.
 `--save` 는 research_trials 에 family `sources` 1행을 적는다(시행 1회 소진).
@@ -441,15 +442,93 @@ def trial_e(store: Store, *, save: bool) -> None:
         _record_trial(store, trial="E", detail=json.dumps(result, ensure_ascii=False, default=float))
 
 
+# --------------------------------------------------------------------------- 시행 H — 국장 공매도
+
+#: 시행 H 표본 규칙 — 판정 세션이 이보다 적으면 결과는 채택도 기각도 아닌 **보류**다.
+MIN_SESSIONS_H = 120
+SHORT_LONG_WINDOW = 20
+SHORT_SHORT_WINDOW = 5
+
+
+def _shorting_panel(store: Store, sessions: list[date]) -> pd.DataFrame:
+    """`shorting.short_ratio` 를 **알 수 있게 된 세션** 축으로 편 판(세션 × 종목).
+
+    행의 valid_from 은 거래일이지만 공표(observed_at)는 T+2~4 16:00 이다. valid_from 축으로
+    펴면 공표 전 값을 그날 쓰는 것이 되어 미래를 본다. 그래서 각 행을 observed_at 뒤 **첫
+    세션**에 붙인다 — 같은 종목의 두 행이 같은 세션에 붙으면 valid_from 이 늦은 쪽이 남는다.
+    """
+    last = _last_moment(sessions)
+    frame = store.get(
+        "shorting", as_of=last, lookback=900, market=MARKET,
+        columns=["entity_id", "valid_from", "observed_at", "short_ratio"],
+    )
+    if frame.empty:
+        return pd.DataFrame()
+    frame = frame.dropna(subset=["short_ratio"])
+    observed = pd.to_datetime(frame["observed_at"]).dt.tz_convert(SEOUL).dt.date
+    days = np.array(sessions)
+    # observed_at 이 16:00 이므로 그날은 못 쓴다 — 그 날짜보다 **뒤** 첫 세션.
+    pos = np.searchsorted(days, observed.to_numpy(), side="right")
+    frame = frame.assign(available=[days[i] if i < len(days) else None for i in pos])
+    frame = frame.dropna(subset=["available"]).sort_values("valid_from")
+    return frame.pivot_table(
+        index="available", columns="entity_id", values="short_ratio", aggfunc="last"
+    ).reindex(sessions)
+
+
+def trial_h(store: Store, *, save: bool) -> None:
+    sessions = _sessions()
+    tradable = _tradable()
+    t5, t20 = _targets(5), _targets(20)
+    panel = _shorting_panel(store, sessions)
+    if panel.empty or panel.notna().any(axis=1).sum() == 0:
+        print("\nshorting 이 비어 있다(또는 판정 구간에 행이 없다). 시행은 소진하지 않는다.")
+        return
+    covered = panel.index[panel.notna().any(axis=1)]
+    # 창은 **관측이 있는 세션**끼리 굴린다. 공백(수집 중단) 뒤 첫 세션이 옛 값을 끌고 오지
+    # 않도록 min_periods 를 두고, 값이 없는 세션은 신호도 없다.
+    long_mean = panel.rolling(SHORT_LONG_WINDOW, min_periods=SHORT_LONG_WINDOW // 2).mean()
+    short_mean = panel.rolling(SHORT_SHORT_WINDOW, min_periods=SHORT_SHORT_WINDOW).mean()
+    n_judge = int(long_mean.notna().any(axis=1).sum())
+    print(f"세션 {len(sessions)} ({sessions[0]}~{sessions[-1]}) · 공매도 관측 세션 {len(covered)} "
+          f"({covered[0]}~{covered[-1]}) · 종목 {panel.shape[1]} · 신호 있는 세션 {n_judge}")
+
+    def _long(wide: pd.DataFrame) -> pd.DataFrame:
+        out = wide.stack().rename("signal").reset_index()
+        out.columns = ["session", "entity_id", "signal"]
+        return out[["entity_id", "session", "signal"]]
+
+    # 부호 − : 공매도가 많을수록 점수가 낮아야 한다. 순위 정규화 앞에서 뒤집는다.
+    print(f"\nH1 short_ratio_20 — 최근 {SHORT_LONG_WINDOW}세션 공매도 비중 평균, 부호 −")
+    primary = _judge_signal(store, "shorting", _long(-long_mean), tradable, t5, t20)
+    print(f"\nH2 (탐색·기록만) short_ratio_chg — {SHORT_SHORT_WINDOW}세션 평균 − {SHORT_LONG_WINDOW}세션 평균, 부호 −")
+    secondary = _judge_signal(store, "shorting_chg", _long(-(short_mean - long_mean)), tradable, t5, t20)
+
+    thin = n_judge < MIN_SESSIONS_H
+    if thin:
+        verdict = "보류"
+    else:
+        verdict = "채택" if primary["adopt"] else "기각"
+    print(f"\n판정 H: {verdict} — 판정 세션 {n_judge} (기준 ≥ {MIN_SESSIONS_H}), "
+          f"한계기여 NW t {primary.get('delta_t', float('nan')):+.2f} (기준 ≥ {T_GATE})")
+    if thin:
+        print("  표본 규칙: 120세션 미만은 채택도 기각도 아니다. 백필이 되살아나 표본이 차면 다시 잰다.")
+    result = {"sessions": n_judge, "primary": primary, "secondary": secondary, "verdict": verdict}
+    if save and not thin:
+        _record_trial(store, trial="H", detail=json.dumps(result, ensure_ascii=False, default=float))
+    elif save:
+        print("  --save 무시 — 표본이 얇아 시행을 소진하지 않는다.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--trial", choices=["C", "D", "E"], required=True)
+    parser.add_argument("--trial", choices=["C", "D", "E", "H"], required=True)
     parser.add_argument("--root", default="data")
     parser.add_argument("--save", action="store_true")
     args = parser.parse_args(argv)
     store = Store(root=Path(args.root))
     print(f"=== 시행 {args.trial} — {PROTOCOL} (판정은 {HOLDOUT_START} 이전 세션만) ===")
-    {"C": trial_c, "D": trial_d, "E": trial_e}[args.trial](store, save=args.save)
+    {"C": trial_c, "D": trial_d, "E": trial_e, "H": trial_h}[args.trial](store, save=args.save)
     return 0
 
 
