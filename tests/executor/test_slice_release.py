@@ -65,3 +65,27 @@ def test_이미_지난_조각은_다시_고르지_않는다() -> None:
     second = due_slices(planned, params=params, elapsed_sec=120)
     assert [i.slice_seq for i in first] == [0, 1]
     assert [i.slice_seq for i in second] == [0, 1, 2]
+
+
+def test_기준점은_세션_시계가_아니라_오늘_개장이다() -> None:
+    """09-01 세션 조각(observed_at 09-01 16:00 KST)을 09-02 09:00 에 보면 경과 0 이어야
+    한다. 세션 시계로 재면 1,020분이라 네 조각이 개장 단일가에 한꺼번에 나간다."""
+    from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
+
+    from quant_rl_trading.collectors.market_hours import Market
+    from tools.release_slices import release_anchor
+
+    seoul = ZoneInfo("Asia/Seoul")
+    recorded = datetime(2026, 9, 1, 16, 0, tzinfo=seoul).astimezone(UTC)
+    at_open = datetime(2026, 9, 2, 9, 0, tzinfo=seoul).astimezone(UTC)
+    anchor = release_anchor(Market.KR, recorded_at=recorded, now=at_open)
+    assert (at_open - anchor).total_seconds() == 0
+
+    # 11:00 이면 개장 뒤 120분 — 3600초 간격이면 조각 0·1·2 까지가 시간이 됐다
+    later = datetime(2026, 9, 2, 11, 0, tzinfo=seoul).astimezone(UTC)
+    assert (later - release_anchor(Market.KR, recorded_at=recorded, now=later)).total_seconds() == 7200
+
+    # 장중에 기록된 조각(재실행 등)은 기록 시각이 기준이다 — 개장으로 당기지 않는다
+    midday = datetime(2026, 9, 2, 10, 30, tzinfo=seoul).astimezone(UTC)
+    assert release_anchor(Market.KR, recorded_at=midday, now=later) == midday

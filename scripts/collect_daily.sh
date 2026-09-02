@@ -162,6 +162,12 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         .venv/bin/python tools/backfill_finra.py \
             --start "$(date -d '-10 days' +%F)" --end "$(date +%F)"
         echo "  미장 공매도(FINRA) rc=$?"
+        #      공매도 잔고(kind=interest). 결제일(15일·말일) 뒤 10영업일이 지나야
+        #      공표된 것으로 보고 받는다 — 45일 창이면 결제일 셋이 들어와 공표
+        #      시각을 넘긴 것만 새로 채워진다. 받은 결제일은 건너뛴다.
+        .venv/bin/python tools/backfill_finra.py --kind interest \
+            --start "$(date -d '-45 days' +%F)" --end "$(date +%F)"
+        echo "  미장 공매도 잔고(FINRA) rc=$?"
     fi
 
     # 2-3. 기업행위 조정계수. **공시 단계 뒤에 와야 한다** — 후보를 그 표

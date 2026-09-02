@@ -66,6 +66,18 @@ def _planned_rows(store: Store, *, as_of: datetime, session_id: str, market: str
     return frame[frame["status"] == STATUS_PLANNED]
 
 
+def release_anchor(market: Market, *, recorded_at: datetime, now: datetime) -> datetime:
+    """경과 시간의 기준점 — 조각이 기록된 시각과 **오늘 정규장 개장** 중 늦은 쪽.
+
+    조각의 observed_at 은 세션 시계(데이터 날짜 16:00)라 다음 날 아침에는 이미
+    "1,000분 경과" 다. 그대로 쓰면 개장 첫 회차에 전부 나간다(2026-09-02 실측 72건).
+    """
+    spec = market_hours.SPECS[market]
+    here = market_hours.local_time(market, now)
+    today_open = datetime.combine(here.date(), spec.regular_open, tzinfo=here.tzinfo)
+    return max(recorded_at, today_open)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--market", default="KR", choices=["KR", "US"])
@@ -105,10 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     # 실측). 시간차 분할의 뜻은 **장중에 흩는 것**이므로 기준점은 그 조각이 기록된
     # 시각과 **오늘 정규장 개장** 중 늦은 쪽이다. 개장 전엔 어차피 체결이 없다.
     recorded_at = pd.Timestamp(pending["observed_at"].min()).to_pydatetime()
-    spec = market_hours.SPECS[market]
-    here = market_hours.local_time(market, now)
-    today_open = datetime.combine(here.date(), spec.regular_open, tzinfo=here.tzinfo)
-    anchor = max(recorded_at, today_open)
+    anchor = release_anchor(market, recorded_at=recorded_at, now=now)
     elapsed = (now - anchor).total_seconds()
 
     planned: list[PlannedOrder] = []
