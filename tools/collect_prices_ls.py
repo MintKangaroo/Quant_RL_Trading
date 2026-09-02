@@ -44,6 +44,12 @@ def rows_from_block(rows: list[dict], *, day: date, observed_at: datetime) -> li
         if not code or close <= 0:
             continue
         num = lambda k: (float(row.get(k)) if row.get(k) not in (None, "") else None)  # noqa: E731
+        # **개장 전 스텁을 버린다.** 장이 열리기 전에 t8407 을 부르면 현재가엔 전일 종가가,
+        # 시·고·저·거래량엔 0 이 온다. 2026-09-02 06:30(브리핑 전 보충)에 그게 9/1 봉으로
+        # 2,874행 적혔다 — 차트는 0 에서 시작하는 봉을 그렸고, low 0 은 체결 시뮬레이션·
+        # 슬리피지 측정을 오염시킨다. 시·고·저·거래량 중 하나라도 0 이면 그날 봉이 아니다.
+        if any((num(k) or 0.0) <= 0 for k in ("open", "high", "low", "volume")):
+            continue
         value = num("value")
         out.append({
             "entity_id": f"KR:{code}",
