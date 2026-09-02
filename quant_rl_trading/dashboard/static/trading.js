@@ -198,7 +198,10 @@ function renderKpis(body) {
         { unit: "KRW", spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
     // 2열(폰)에서 짝이 맞게 순서를 둔다(사용자 요청 2026-09-02): 총자산|익스포저,
     // 오늘 수익금|오늘 수익률, 총 수익금|총 수익률, 승률|MDD, 반영률|AI, 거부|정지.
-    kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
+    kpi("익스포저", pct(k.exposure),
+        (params().get("market") || "KR") === "US"
+          ? `현금 $${num(Math.round(k.cash_usd || 0))}`
+          : `현금 ${num(Math.round(k.cash_krw))}`),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
     kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
         { unit: "KRW", tone: tone(todayPnl) }),
@@ -1025,6 +1028,24 @@ function renderCalendarPanel(body) {
  */
 const POSITIONS_PIE_TOP_N = 6;
 
+/* 일별 수익률 막대 — 최근 20세션 TWR. 초록/빨강은 손익 규약. */
+function renderDailyReturns(body) {
+  const target = document.getElementById("chart-daily-returns");
+  if (!target) return;
+  const days = ((body.data.calendar || {}).days || []).slice(-20);
+  if (!days.length) { target.innerHTML = `<p class="empty">일별 수익률이 아직 없다.</p>`; return; }
+  chart("chart-daily-returns").setOption({
+    backgroundColor: "transparent", animation: false,
+    title: { text: "일별 수익률 · 최근 20세션", left: 0, top: 0, textStyle: { color: COLOR.muted, fontSize: 11, fontWeight: 500 } },
+    grid: { left: 44, right: 8, top: 28, bottom: 22 },
+    tooltip: { trigger: "axis", backgroundColor: COLOR.panel2, borderColor: COLOR.border, textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
+      formatter: (ps) => `${ps[0].axisValue}<br>${pct(ps[0].value)}` },
+    xAxis: { type: "category", data: days.map((d) => d.session.slice(5)), ...AXIS, axisLabel: { ...AXIS.axisLabel, interval: 4 } },
+    yAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(1) + "%" } },
+    series: [{ type: "bar", data: days.map((d) => ({ value: d.return, itemStyle: { color: d.return >= 0 ? COLOR.up : COLOR.down } })), barMaxWidth: 12 }],
+  });
+}
+
 function renderPositionsPie(body) {
   const target = document.getElementById("chart-positions-pie");
   if (!target) return;
@@ -1036,7 +1057,11 @@ function renderPositionsPie(body) {
   }
 
   const nav = k.nav;
-  const cashValue = (k.cash_krw || 0) + (k.cash_usd || 0) * (k.fx_rate || 0);
+  // 보고 있는 시장의 현금만 — 미장 보기에 원화 현금이 서면 "미장 현금 6.9억" 이 된다.
+  const market = params().get("market") || "KR";
+  const cashValue = market === "US"
+    ? (k.cash_usd || 0) * (k.fx_rate || 0)
+    : (k.cash_krw || 0);
   const sorted = [...rows].sort((a, b) => (b.value || 0) - (a.value || 0));
   const top = sorted.slice(0, POSITIONS_PIE_TOP_N);
   const rest = sorted.slice(POSITIONS_PIE_TOP_N);
@@ -1159,6 +1184,7 @@ async function loadTrading() {
   renderRisk(body);
   renderPositions(body);
   renderPositionsPie(body);
+  renderDailyReturns(body);
   renderOrders(body);
   renderPerformance(body);
   renderEquity(body);

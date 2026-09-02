@@ -511,7 +511,17 @@ def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
     scores = _latest_scores(store, as_of=as_of)
     if not scores:
         return []
-    top = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:WATCHLIST_ROWS]
+    targets = _target_weights(store, as_of=as_of)
+    # **선정된 후보 그 자체를 보여준다** — 점수 상위 12 는 "관찰 목록" 이라 KPI 의
+    # "후보 24" 와 어긋나 읽는 사람이 무엇인지 몰랐다(사용자 지적 2026-09-02). 목표
+    # 비중이 기록된 종목이 곧 그날의 후보이고, 정렬은 합성 점수다. 목표 비중이
+    # 없는 날(세션 전)만 점수 상위로 대신한다.
+    prefix = f"{context.market}:"
+    chosen = [e for e in targets if str(e).startswith(prefix)] if targets else []
+    if chosen:
+        top = sorted(((e, scores.get(e, 0.0)) for e in chosen), key=lambda item: item[1], reverse=True)
+    else:
+        top = sorted(scores.items(), key=lambda item: item[1], reverse=True)[:WATCHLIST_ROWS]
     entities = [entity for entity, _ in top]
     names = _names(store, as_of=as_of, entities=entities)
     quotes = _quotes(store, as_of=as_of, entities=entities, market=context.market)
@@ -520,7 +530,6 @@ def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
         for entity, position in context.book.positions.items()
         if position.quantity > 0
     }
-    targets = _target_weights(store, as_of=as_of)
 
     rows: list[dict[str, Any]] = []
     for entity, score in top:

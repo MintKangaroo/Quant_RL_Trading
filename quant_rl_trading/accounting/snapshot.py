@@ -185,9 +185,16 @@ def take(
         )
 
     previous_nav = float(previous["nav"])
-    inflow = ledger.daily_inflow(
-        store, as_of=as_of, since=pd.Timestamp(previous["valid_from"]).to_pydatetime()
-    )
+    # **입금은 "직전 스냅샷이 몰랐던 돈" 이다 — 발효 시각 창이 아니라.**
+    # valid_from 창((직전, 이번])으로 세면 **뒤늦게 관측된 입금**이 새어 나간다: 달러
+    # 입금을 05:00 에 발효시켰는데 05:20 스냅샷이 찍힌 뒤에야 관측됐다(2026-09-02
+    # 미장 shadow 실측). 그 행은 05:20 창엔 관측이 안 됐고 16:00 창엔 발효가 밖이라
+    # 어느 창에도 안 들어가, $370k 가 통째로 수익(+97%)이 될 참이었다. 원금을 두
+    # 지식 상태(직전 스냅샷 시점·지금)로 각각 재서 빼면 "새로 알게 된 입금" 이
+    # 정확히 나온다 — store.get(as_of=) 가 observed_at 을 거르기 때문이다.
+    # NAV 도 같은 지식 상태의 장부에서 나오므로 둘이 어긋나지 않는다.
+    previous_as_of = pd.Timestamp(previous["valid_from"]).to_pydatetime()
+    inflow = ledger.principal(store, as_of=as_of) - ledger.principal(store, as_of=previous_as_of)
     daily = twr_return(nav=valuation.nav, previous_nav=previous_nav, inflow=inflow)
     index_value = float(previous["index_value"]) * (1.0 + daily)
 
