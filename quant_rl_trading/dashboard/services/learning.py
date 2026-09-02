@@ -23,6 +23,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from datetime import UTC, datetime
 from typing import Any
 
@@ -558,3 +561,41 @@ def curriculum(store: Store, *, as_of: datetime, lookback: int = 90) -> dict[str
     if current is None:
         current = next((s["stage"] for s in stages if s["status"] == "pending"), None)
     return {"stages": stages, "gate": gate, "current": current}
+
+
+# -- 연구 작업 (2026-09-03) ----------------------------------------------------------
+#: 학습 탭의 "지금 돌고 있는 학습" 은 rl_updates(RL) 만 본다. 시행·채점·복구 같은 연구
+#: 스크립트는 창고에 안 적히므로 화면에 없었다 — 사용자 지적. 프로세스와 로그로 보여준다.
+RESEARCH_CMD = re.compile(
+    r"tools/(trial_[a-z_0-9]+|backfill_ic_history|backfill_signals|backfill_finra|measure_[a-z_]+|repair_[a-z_]+|collect_consensus_naver)\.py"
+)
+RESEARCH_LOG_PREFIXES = ("trial-", "ic-history-", "repair-", "consensus-", "backfill-", "headroom-")
+RESEARCH_LOG_ROWS = 8
+
+
+def research_jobs(root: Path) -> dict[str, Any]:
+    """지금 도는 연구 스크립트 + 최근 연구 로그의 마지막 줄. /proc 와 logs/ 만 읽는다."""
+    from quant_rl_trading.dashboard.services import system as system_service
+
+    procs = system_service.project_processes(root).get("processes", [])
+    running = []
+    for proc in procs:
+        m = RESEARCH_CMD.search(str(proc.get("command", "")))
+        if m:
+            running.append({**proc, "script": m.group(1)})
+    logs: list[dict[str, Any]] = []
+    log_dir = root / "logs"
+    if log_dir.is_dir():
+        files = [f for f in log_dir.glob("*.log") if f.name.startswith(RESEARCH_LOG_PREFIXES)]
+        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in files[:RESEARCH_LOG_ROWS]:
+            try:
+                lines = [ln.strip() for ln in f.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+            except OSError:
+                lines = []
+            logs.append({
+                "log": f.name,
+                "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(timespec="seconds"),
+                "last": (lines[-1] if lines else "")[:160],
+            })
+    return {"running": running, "logs": logs}

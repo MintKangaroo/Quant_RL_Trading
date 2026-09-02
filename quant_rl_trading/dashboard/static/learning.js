@@ -541,3 +541,25 @@ function renderCurriculum(target, data) {
       <tbody>${rows}</tbody>
     </table>`;
 }
+
+
+/* 연구 작업 — 프로세스 + 로그. 실패해도 나머지 화면을 막지 않는다. */
+async function renderResearchJobs() {
+  const target = document.getElementById("research-jobs");
+  if (!target) return;
+  let body;
+  try { body = await fetchJson("learning/research-jobs"); } catch (e) { target.innerHTML = `<p class="empty">연구 작업 목록을 못 읽었다.</p>`; return; }
+  const d = body.data || {};
+  const running = d.running || []; const logs = d.logs || [];
+  const runRows = running.length
+    ? running.map((p) => `<tr><td class="mono">${p.pid}</td><td>${p.script}</td><td class="num">${p.cpu_pct}%</td><td class="num">${p.rss_mb} MB</td><td class="num">${p.uptime_h} h</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">지금 도는 연구 스크립트 없음</td></tr>`;
+  const logRows = logs.map((l) => `<tr><td class="mono">${l.log}</td><td class="mono">${String(l.modified).replace("T", " ").slice(5, 16)}</td><td>${l.last}</td></tr>`).join("");
+  target.innerHTML = `
+    <table class="dense"><thead><tr><th>PID</th><th>스크립트</th><th class="num">CPU</th><th class="num">RSS</th><th class="num">가동</th></tr></thead><tbody>${runRows}</tbody></table>
+    <h3>최근 로그</h3>
+    <table class="dense"><thead><tr><th>로그</th><th>수정</th><th>마지막 줄</th></tr></thead><tbody>${logRows || '<tr><td colspan="3" class="empty">없음</td></tr>'}</tbody></table>`;
+}
+if (typeof document !== "undefined" && document.getElementById("research-jobs")) {
+  renderResearchJobs().catch(() => {});
+}

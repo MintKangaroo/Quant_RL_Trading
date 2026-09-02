@@ -93,3 +93,13 @@ def walk_forward() -> Any:
         current,
         service.walk_forward_comparison(store(), as_of=current.as_of, lookback=current.lookback),
     )
+
+
+@bp.get("/research-jobs")
+def research_jobs() -> Any:
+    """지금 도는 연구 스크립트와 최근 연구 로그. 창고가 아니라 /proc·logs 라 as_of 를 안 받는다
+    (시스템 탭 프로세스 목록과 같은 이유 — 되감기지 않는 '지금' 이다)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    return envelope(service.research_jobs(root), as_of=scope().as_of)
