@@ -423,3 +423,7 @@ main { grid-template-columns: minmax(0, 1fr); }
 .ledger-switch a.on { color: var(--text); }
 .ledger-switch a.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; background: var(--accent); }
 .ledger-switch a.on:first-child::after { left: 0; }
+/* 오른쪽 칸 안의 성과 | 총자산 곡선 — 반반, 위쪽 괘선은 하나만. */
+.perf-equity { column-gap: 28px; align-items: start; }
+.perf-equity > .panel { min-width: 0; }
+@media (max-width: 1100px) { .perf-equity { grid-template-columns: minmax(0, 1fr); } }
