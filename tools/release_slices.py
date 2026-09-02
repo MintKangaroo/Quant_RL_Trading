@@ -29,6 +29,7 @@ if str(REPO_ROOT) not in sys.path:
 import pandas as pd  # noqa: E402
 
 from quant_rl_trading.broker import factory as broker_factory  # noqa: E402
+from quant_rl_trading.collectors import market_hours  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.executor import orders as orders_module  # noqa: E402
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams  # noqa: E402
@@ -79,8 +80,9 @@ def main(argv: list[str] | None = None) -> int:
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
 
+    market = Market(args.market)
     day = date.fromisoformat(args.day) if args.day else last_settled_day(
-        store, Market(args.market), now
+        store, market, now
     )
     if day is None:
         print("거래일을 찾지 못했다.", file=sys.stderr)
@@ -97,10 +99,17 @@ def main(argv: list[str] | None = None) -> int:
     if pending.empty:
         return 0
 
-    # 경과 시간은 **그 조각이 기록된 시각**(세션 시각)부터 잰다. 세션이 몇 시에
-    # 돌았는지는 날마다 다를 수 있으므로 벽시계 08:40 을 가정하지 않는다.
-    session_at = pd.Timestamp(pending["observed_at"].min()).to_pydatetime()
-    elapsed = (now - session_at).total_seconds()
+    # 경과 시간의 기준점. 조각의 observed_at 은 **세션 시계**(데이터 날짜 16:00)라
+    # 실제로 낸 벽시계가 아니다 — 09-01 세션을 09-02 08:40 에 돌리면 09:00 첫
+    # 회차에 "1020분 경과" 가 되어 72건이 개장 단일가에 한꺼번에 나갔다(2026-09-02
+    # 실측). 시간차 분할의 뜻은 **장중에 흩는 것**이므로 기준점은 그 조각이 기록된
+    # 시각과 **오늘 정규장 개장** 중 늦은 쪽이다. 개장 전엔 어차피 체결이 없다.
+    recorded_at = pd.Timestamp(pending["observed_at"].min()).to_pydatetime()
+    spec = market_hours.SPECS[market]
+    here = market_hours.local_time(market, now)
+    today_open = datetime.combine(here.date(), spec.regular_open, tzinfo=here.tzinfo)
+    anchor = max(recorded_at, today_open)
+    elapsed = (now - anchor).total_seconds()
 
     planned: list[PlannedOrder] = []
     for row in pending.itertuples(index=False):
@@ -127,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
 
     due = orders_module.due_slices(planned, params=params, elapsed_sec=elapsed)
     print(
-        f"  세션 뒤 {elapsed / 60:.0f}분 경과 · 간격 {params.slice_interval_sec}초"
+        f"  기준점({anchor:%H:%M}) 뒤 {elapsed / 60:.0f}분 경과 · 간격 {params.slice_interval_sec}초"
         f" → 지금 낼 조각 {len(due)}건"
     )
     if not due:
