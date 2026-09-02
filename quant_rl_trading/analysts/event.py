@@ -64,7 +64,7 @@ DART 공시목록이 들어오면서 **날짜가 박힌 진짜 이벤트**가 �
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import timedelta, date, datetime
 
 import numpy as np
 import pandas as pd
@@ -103,6 +103,7 @@ FILING_SIGNS = {
 #:
 #: 부호는 값에 이미 들어가 있다(``FILING_SIGNS``). 여기서는 전부 양수다.
 WEIGHTS = {
+    "sue": 1.00,           # 미장 전용 — 실적 서프라이즈(시행 J). 국장 피처엔 이 열이 없다
     "buyback": 0.20,       # 자사주 취득
     "distress": 0.20,      # 불성실공시·관리종목 (값이 음수)
     "dilution": 0.15,      # 유상증자·CB (값이 음수)
@@ -129,11 +130,32 @@ def is_quarter_end_month(day: date) -> bool:
     return day.month in (3, 6, 9, 12)
 
 
+FUNDAMENTALS = "fundamentals"
+#: SUE 에 필요한 분기 이력 창. 같은 분기 전년 비교 + 표준편차 3개면 최소 2년, 넉넉히 3년.
+SUE_LOOKBACK_DAYS = 1100
+SUE_MAX_AGE_DAYS = 120
+SUE_HISTORY = 8
+SUE_MIN_HISTORY = 3
+
+
+def _same_quarter_prior_year(label: str) -> str:
+    """'2026Q1' → '2025Q1'. 형식이 다르면 빈 문자열(짝이 없는 것으로 처리)."""
+    try:
+        year, q = label.split("Q")
+        return f"{int(year) - 1}Q{q}"
+    except (ValueError, AttributeError):
+        return ""
+
+
 class EventAnalyst(Analyst):
     name = "event"
-    version = "event-v0.1.0"
+    version = "event-v0.2.0"
 
     def features(self, as_of: datetime) -> pd.DataFrame:
+        # 미장은 DART 공시도 상장 경과일 창도 없다 — 실적 서프라이즈 하나로 잰다
+        # (docs/protocols/new-sources-2026-09.md 시행 J). 국장 경로와 섞지 않는다.
+        if str(self.market) == "US":
+            return self._sue_features(as_of)
         # **시장은 SQL 에서 거른다.** 예전에는 전부 퍼온 뒤 pandas 로 걸렀는데,
         # 미장이 창고에 들어온 순간 그것만으로 죽었다 — 실측 2026-08-18~20 에
         # 세 세션 연속 MemoryError 였다(`universe` 248만행 중 68%, `prices`
@@ -182,6 +204,56 @@ class EventAnalyst(Analyst):
         for name, series in self._filing_features(as_of, state.index).items():
             raw[name] = series
 
+        raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+        return raw.apply(rank_score).fillna(0.0)
+
+    def _sue_features(self, as_of: datetime) -> pd.DataFrame:
+        """미장 SUE — 계절 랜덤워크 실적 서프라이즈 (시행 J, 측정 전 고정).
+
+        10-Q 분기 순이익만 쓴다(10-K 는 연간값). 최신 분기 L 의 순이익에서 같은 분기
+        전년값을 뺀 d_L 을, 그 전 같은-분기 쌍들의 d 표준편차(최대 8개, 최소 3개)로
+        나눈다. L 의 회계기간 말이 as_of 에서 120일 넘게 지났으면 결측 — 드리프트는
+        발표 뒤 두 분기 안에 끝난다.
+        """
+        frame = self.store.get(
+            FUNDAMENTALS, as_of=as_of, lookback=SUE_LOOKBACK_DAYS, market=str(self.market),
+            columns=["entity_id", "valid_from", "metric", "value", "fiscal_period", "report_type"],
+        )
+        if frame.empty:
+            return pd.DataFrame()
+        frame = frame[(frame["metric"] == "net_income") & (frame["report_type"] == "edgar_10q")]
+        if frame.empty:
+            return pd.DataFrame()
+        frame = frame.dropna(subset=["value", "fiscal_period"]).copy()
+        frame["end"] = frame["valid_from"].dt.date
+        # 같은 분기 라벨이 정정본으로 여럿이면 마지막 것.
+        frame = frame.sort_values("valid_from").drop_duplicates(["entity_id", "fiscal_period"], keep="last")
+        cutoff = (as_of - timedelta(days=SUE_MAX_AGE_DAYS)).date()
+        out: dict[str, float] = {}
+        for entity, g in frame.groupby("entity_id"):
+            by_q = dict(zip(g["fiscal_period"], g["value"]))
+            latest = g.iloc[-1]
+            if latest["end"] < cutoff:
+                continue
+            diffs: list[float] = []
+            for label, value in by_q.items():
+                prior = _same_quarter_prior_year(label)
+                if prior in by_q:
+                    diffs.append(float(value - by_q[prior]))
+            prior_l = _same_quarter_prior_year(str(latest["fiscal_period"]))
+            if prior_l not in by_q:
+                continue
+            d_l = float(latest["value"] - by_q[prior_l])
+            history = [d for d in diffs][:-1][-SUE_HISTORY:] if len(diffs) > 1 else []
+            if len(history) < SUE_MIN_HISTORY:
+                continue
+            sigma = float(np.std(history, ddof=1))
+            if not np.isfinite(sigma) or sigma <= 0:
+                continue
+            out[str(entity)] = d_l / sigma
+        if not out:
+            return pd.DataFrame()
+        raw = pd.DataFrame({"sue": pd.Series(out)})
         raw = raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         return raw.apply(rank_score).fillna(0.0)
 
