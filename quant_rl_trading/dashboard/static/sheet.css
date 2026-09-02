@@ -328,3 +328,40 @@ tbody tr:hover td { background: #0c0c0c; }
 .grid-top > div { min-width: 0; }
 @media (max-width: 1100px) { .grid-top { grid-template-columns: minmax(0, 1fr); } }
 .kpi-stop button { white-space: nowrap; padding: 7px 10px; }
+
+/* ---- 2차 조정 (2026-09-02 사용자 검사) ---------------------------------------- */
+/* 1. 데스크톱 밀도 한 단계 더 — 값 17px, 행 3px, 차트 190px. 숫자 자릿수는 안 건드린다. */
+@media (min-width: 769px) {
+  .kpi { padding: 6px 12px 5px; }
+  .kpi-label { font-size: 10px; }
+  .kpi-value { font-size: 17px; margin-top: 2px; }
+  .kpi-note { font-size: 10px; margin-top: 2px; }
+  .kpi-spark { top: 6px; width: 52px; height: 18px; }
+  .kpi-stop button { padding: 5px 9px; font-size: 10px; }
+  .panel { padding-bottom: 5px; margin-top: 0; }
+  .panel h2 { padding: 6px 0 3px; margin-bottom: 2px; font-size: 11px; }
+  table { font-size: 11.5px; }
+  td { padding: 3px 10px 3px 0; }
+  th { padding: 3px 10px 3px 0; font-size: 10px; }
+  .dense td, .dense th { padding: 2px 8px 2px 0; }
+  .dense table { font-size: 11px; }
+  .chart { height: 190px; }
+  .grid-top { column-gap: 32px; }
+  .perf-value { font-size: 16px; }
+  .review-headline { font-size: 12.5px; margin-bottom: 2px; }
+  .panel.review { padding: 6px 0; }
+  details.fold > summary { padding: 6px 0; }
+  .alerts { margin: 2px 0; }
+  .alert.ok { padding: 2px 0; }
+  .grid-half .scroll { max-height: 260px; }
+}
+/* 2. 모바일 상태 문장 — 모드 · 킬스위치 · 신호 셋만. 잘린 채 흐르는 문장이 거슬린다는
+   검사 결과. 순서는 trading.js 가 만드는 그대로(모드 1 · 설명 2 · 엔진 3 · 브로커 4 ·
+   킬스위치 5 · 신호 6)라 자리로 고른다 — 클래스가 전부 dim 이라 다른 길이 없다. */
+@media (max-width: 768px) {
+  header .statusbar { overflow: visible; mask-image: none; flex-wrap: wrap; gap: 0 10px; }
+  header .statusbar .badge:nth-child(2),
+  header .statusbar .badge:nth-child(3),
+  header .statusbar .badge:nth-child(4) { display: none; }
+  header .statusbar .badge:nth-child(5)::before { content: "·"; color: var(--faint); margin-right: 10px; }
+}
