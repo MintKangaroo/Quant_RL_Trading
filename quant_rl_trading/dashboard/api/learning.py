@@ -102,4 +102,4 @@ def research_jobs() -> Any:
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3]
-    return envelope(service.research_jobs(root), as_of=scope().as_of)
+    return envelope(scope(), service.research_jobs(root))

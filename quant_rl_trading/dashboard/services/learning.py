@@ -567,9 +567,14 @@ def curriculum(store: Store, *, as_of: datetime, lookback: int = 90) -> dict[str
 #: 학습 탭의 "지금 돌고 있는 학습" 은 rl_updates(RL) 만 본다. 시행·채점·복구 같은 연구
 #: 스크립트는 창고에 안 적히므로 화면에 없었다 — 사용자 지적. 프로세스와 로그로 보여준다.
 RESEARCH_CMD = re.compile(
-    r"tools/(trial_[a-z_0-9]+|backfill_ic_history|backfill_signals|backfill_finra|measure_[a-z_]+|repair_[a-z_]+|collect_consensus_naver)\.py"
+    r"(?:tools/(trial_[a-z_0-9]+|backfill_[a-z_]+|measure_[a-z_]+|repair_[a-z_]+|collect_consensus_naver|"
+    r"train_[a-z_]+|build_rl_cache|select_checkpoint|evaluate_policy|promotion_gate)\.py"
+    r"|scripts/(chain_[a-z_0-9]+|pilot_[a-z_0-9]+)\.sh)"
 )
-RESEARCH_LOG_PREFIXES = ("trial-", "ic-history-", "repair-", "consensus-", "backfill-", "headroom-")
+RESEARCH_LOG_PREFIXES = (
+    "trial-", "ic-", "repair-", "consensus-", "backfill-", "headroom-",
+    "train-", "chain-", "pilot-", "rl-cache", "select-", "evaluate-", "promotion-",
+)
 RESEARCH_LOG_ROWS = 8
 
 
@@ -582,7 +587,7 @@ def research_jobs(root: Path) -> dict[str, Any]:
     for proc in procs:
         m = RESEARCH_CMD.search(str(proc.get("command", "")))
         if m:
-            running.append({**proc, "script": m.group(1)})
+            running.append({**proc, "script": m.group(1) or m.group(2)})
     logs: list[dict[str, Any]] = []
     log_dir = root / "logs"
     if log_dir.is_dir():
