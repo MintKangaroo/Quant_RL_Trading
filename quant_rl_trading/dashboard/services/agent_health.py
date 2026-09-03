@@ -42,6 +42,7 @@ PLANNED = {
     "event": "달력",
     "risk": "상관·변동성·유동성",
     "volume": "거래량 급증 (chart 에서 분리)",
+    "ranker": "기초 점수 6개의 순위 목적 GBM 결합 (시행 L)",
 }
 
 

@@ -23,6 +23,7 @@ from quant_rl_trading.analysts.event import EventAnalyst
 from quant_rl_trading.analysts.flow_kr import FlowKrAnalyst
 from quant_rl_trading.analysts.flow_us import FlowUsAnalyst
 from quant_rl_trading.analysts.fundamental import FundamentalAnalyst
+from quant_rl_trading.analysts.ranker import RankerAnalyst
 from quant_rl_trading.analysts.regime import RegimeAnalyst
 from quant_rl_trading.analysts.risk import RiskAnalyst
 from quant_rl_trading.analysts.volume import VolumeAnalyst
@@ -62,6 +63,9 @@ SCORERS: dict[Market, dict[str, type[Analyst]]] = {
         "regime": RegimeAnalyst,
         "risk": RiskAnalyst,
         "volume": VolumeAnalyst,
+        # **맨 마지막.** ranker 는 위 Analyst 들이 이 세션에 창고에 남긴 점수를 읽는다
+        # (analysts/ranker.py). 앞에 두면 어제 점수를 읽거나 빈 프레임을 낸다.
+        "ranker": RankerAnalyst,
     },
     Market.US: {
         "chart": ChartAnalyst,
@@ -71,6 +75,7 @@ SCORERS: dict[Market, dict[str, type[Analyst]]] = {
         "regime": RegimeAnalyst,
         "risk": RiskAnalyst,
         "volume": VolumeAnalyst,
+        "ranker": RankerAnalyst,
     },
 }
 

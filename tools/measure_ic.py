@@ -35,7 +35,8 @@ from quant_rl_trading.analysts.chart import ChartAnalyst  # noqa: E402
 from quant_rl_trading.analysts.event import EventAnalyst  # noqa: E402
 from quant_rl_trading.analysts.flow_kr import FlowKrAnalyst  # noqa: E402
 from quant_rl_trading.analysts.flow_us import FlowUsAnalyst  # noqa: E402
-from quant_rl_trading.analysts.fundamental import FundamentalAnalyst  # noqa: E402
+from quant_rl_trading.analysts.fundamental import FundamentalAnalyst
+from quant_rl_trading.analysts.ranker import RankerAnalyst  # noqa: E402
 from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
 from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
 from quant_rl_trading.analysts.volume import VolumeAnalyst  # noqa: E402
@@ -52,6 +53,7 @@ ANALYSTS: dict[str, type[Analyst]] = {
     "flow_kr": FlowKrAnalyst,
     "flow_us": FlowUsAnalyst,
     "fundamental": FundamentalAnalyst,
+    "ranker": RankerAnalyst,
     "regime": RegimeAnalyst,
     "risk": RiskAnalyst,
     "volume": VolumeAnalyst,

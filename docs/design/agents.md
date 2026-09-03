@@ -110,6 +110,23 @@ IC를 따로 측정한다. 미장이 0.03을 못 넘으면 미장에서만 가�
 - ⚠️ 밸류 지표는 절대값이 무의미하다. **섹터 내 백분위**로 변환
 - 💡 추정치 리비전은 가장 강한 팩터 중 하나다. 컨센서스 데이터를 구할 수 있으면 반드시 포함
 
+### Ranker — 기초 점수 6개의 순위 목적 결합 (2026-09-03, 시행 L 채택)
+
+`analysts/ranker.py`. **입력은 `signals` 표뿐이다** — chart·event·flow(시장별)·fundamental·
+regime·risk 가 그 세션에 남긴 점수를 세션 안 순위 정규분위(rank-gauss)로 바꿔 LightGBM
+(잎 7·min_data 2,000·lr 0.03·300라운드, 국장+미장 합쳐 학습)에 넣는다. 타깃도 같은 변환이다.
+그래서 `session/signals.SCORERS` 의 **맨 마지막**에 돈다.
+
+- 왜 이것만 이겼나: 앞선 랭커 셋은 수익률 z 를 MSE 로 맞췄다. 그건 꼬리를 맞추는 목적이고
+  IC 는 순위다. 타깃을 순위로 바꾸자 같은 모델이 국장 ΔIC +0.028(NW t 2.88)·미장 +0.031
+  (t 4.40) — `docs/protocols/rank-objective-ranker-2026-09.md`
+- 모델 산출물은 `data/models/ranker/ranker-vX-YYYYMMDD.{txt,json}` (`tools/train_ranker.py`).
+  사이드카의 `usable_from` 보다 앞선 as_of 에는 **신호를 내지 않는다** — 학습창 안 IC 는 외운 값이다.
+  마지막 모델은 2026-06-30 까지로 굳는다(홀드아웃 봉인). 월말 산출물 열은 워크포워드 IC 측정용이다
+- fundamental 을 **대체**하는 알파다. 규칙으로 빼지 않고 `analyst_weights` 의 한계기여(LOO ΔIC)
+  규칙에 맡긴다 — 겹치는 쪽은 저절로 0 이 된다. risk 는 제약이라 그대로다
+- 통과 전엔 관찰 모드(가중치 0). 관문은 다른 Analyst 와 같다(`tools/measure_ic.py`, IC ≥ 0.03)
+
 ---
 
 ## 3. Analyst — 필터 2명 (점수를 내지 않는다)
