@@ -60,6 +60,8 @@ FEATURES: tuple[str, ...] = SCORE_FEATURES + ("is_us",)
 #: 들어오고, 주말·휴장 뒤에도 "직전 세션" 이 아니라 **as_of 세션** 만 남긴다(아래 필터).
 LOOKBACK_DAYS = 2
 SAME_SESSION_WITHIN = timedelta(hours=20)
+#: 명단은 느리게 바뀐다 — 최근 한 달 안의 최신 행이면 충분하다.
+UNIVERSE_LOOKBACK_DAYS = 40
 
 #: GBM 고정 설정 — 시행 L 사전등록 그대로. 여기서 바꾸면 채택 근거가 사라진다.
 GBM_PARAMS: dict[str, object] = {
@@ -206,6 +208,13 @@ class RankerAnalyst(Analyst):
         if as_of - latest_session.to_pydatetime() >= SAME_SESSION_WITHIN:
             return pd.DataFrame()
         frame = frame[frame["valid_from"] == latest_session]
+        # **매매 가능 종목만.** flow_us 는 명단 밖 2만 종목에도 점수를 내는데, 그 종목들은 다른
+        # 열이 전부 결측(=0)이라 횡단면을 가짜로 넓힌다. 학습 행은 라벨(시세)이 있는 종목뿐이었다.
+        tradable = self.tradable_entities(as_of, lookback=UNIVERSE_LOOKBACK_DAYS)
+        if tradable is not None:
+            frame = frame[frame["entity_id"].astype(str).isin(tradable)]
+            if frame.empty:
+                return pd.DataFrame()
         frame = frame.sort_values("observed_at").groupby(["entity_id", "analyst"], as_index=False).tail(1)
         frame["feature"] = frame["analyst"].map(BASE_ANALYSTS)
         wide = frame.pivot_table(index="entity_id", columns="feature", values="score", aggfunc="last")
