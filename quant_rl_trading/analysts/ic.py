@@ -400,11 +400,14 @@ def rolling_confidence(
     # 같은 문자열이다. 2026-02-20 세션이 신호 단계 0초 → 96초, RSS 1.6GB →
     # 6.2GB 로 튄 자리이며 그 뒤 OOM 으로 죽었다.
     # 남는 **행**은 좁혀도 바뀌지 않는다 (정정본 선택은 프루닝 전에 끝난다).
+    # **시장도 SQL 에서 거른다.** signals 엔 market 컬럼이 없지만 entity_id 접두어로
+    # 걸러진다(reader._scope). None 으로 두면 국장 세션이 미장 12,700종목 × 7종을 같이
+    # 퍼올려 2.5M행이 되고, 2026-09-02·03 미장 daily 가 그 복사본에서 MemoryError 로 죽었다.
     frame = store.get(
         "signals",
         as_of=as_of,
         lookback=int(window * 7 / 5) + 30,
-        market=None,
+        market=market,
         columns=["entity_id", "analyst", "score"],
     )
     if frame.empty:

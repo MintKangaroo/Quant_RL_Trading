@@ -185,6 +185,7 @@ class RankerAnalyst(Analyst):
             SIGNALS,
             as_of=as_of,
             lookback=LOOKBACK_DAYS,
+            market=str(self.market),
             columns=["entity_id", "valid_from", "observed_at", "analyst", "score"],
         )
         if frame.empty:
