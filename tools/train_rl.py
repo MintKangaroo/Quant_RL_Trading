@@ -110,6 +110,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="체크포인트마다 <run>-u<N>.pt 사본을 남긴다 (검증 폴드로 고르기 위해)")
     parser.add_argument("--lr-decay", choices=["none", "cosine"], default="none",
                         help="학습률 감쇠 — 후반 KL 상한 조기종료(2회차 66%%)를 줄인다")
+    parser.add_argument("--reward-baseline", choices=["benchmark", "candidates"], default="benchmark",
+                        help="보상 기준선 — candidates = 후보 균등가중 초과(4회차, drl-round4-2026-09.md)")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--no-store", action="store_true", help="창고에 안 적는다")
     parser.add_argument(
@@ -157,8 +159,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
         cash_action=args.cash_action,
         warm_start=args.warm_start,
+        reward_baseline=args.reward_baseline,
     )
-    env_overrides = {"cash_action": args.cash_action, "warm_start": args.warm_start}
+    env_overrides = {
+        "cash_action": args.cash_action, "warm_start": args.warm_start,
+        "reward_baseline": args.reward_baseline,
+    }
     env = VecLatticeEnv(
         store=store,
         train_start=date.fromisoformat(args.train_start),

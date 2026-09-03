@@ -369,8 +369,13 @@ def save(
     results: dict[str, dict[str, ic.ICResult]],
     points: list[datetime],
     market: Market,
+    run_tag: str = "",
 ) -> int:
     """시점마다 한 번의 append. run_id 는 (시장, 시점) 으로 정해진다.
+
+    ``run_tag`` 는 **뒤늦게 생긴 Analyst 를 같은 시점에 덧붙일 때** 쓴다(2026-09-03, ranker).
+    시점 run id 가 이미 적재돼 있으면 건너뛰는 규칙 때문에, 태그 없이는 새 Analyst 의 행이
+    영영 안 들어간다. 조회는 entity_id 별 최신 행을 고르므로 다른 run id 라도 같이 읽힌다.
 
     ``valid_from`` 과 ``observed_at`` 을 **둘 다 cutoff** 로 찍는다. 이 측정은
     그 시점에 만들어졌고(observed_at) 그 시점부터 유효하다(valid_from) —
@@ -385,7 +390,7 @@ def save(
         ]
         if not rows:
             continue
-        run_id = f"ic-{market}-{key}"
+        run_id = f"ic-{market}-{key}" + (f"-{run_tag}" if run_tag else "")
         if store.ingest_run_recorded("analyst_weights", run_id):
             print(f"  {run_id}: 이미 적재됨 — 건너뛴다", flush=True)
             continue
@@ -428,6 +433,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--work", type=Path, required=True, help="중간 산출물 디렉터리")
     parser.add_argument("--limit", type=int, help="앞에서부터 이만큼 시점만 (예행용)")
     parser.add_argument("--save", action="store_true", help="analyst_weights 에 적재")
+    parser.add_argument("--run-tag", default="", help="run id 꼬리표 — 뒤늦게 생긴 Analyst 를 기존 시점에 덧붙일 때")
     args = parser.parse_args(argv)
 
     load_env()
@@ -475,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.save:
         print("\n=== 적재 ===", flush=True)
-        total = save(store, results=results, points=points, market=market)
+        total = save(store, results=results, points=points, market=market, run_tag=args.run_tag)
         print(f"analyst_weights 적재 합계: {total}행")
     else:
         # 창고는 append-only 다. 잘못 넣으면 되돌릴 수 없으므로, 적재하기 전에

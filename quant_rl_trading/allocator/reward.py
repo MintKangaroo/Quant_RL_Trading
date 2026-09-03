@@ -44,6 +44,13 @@ if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 
+#: 보상의 기준선. ``benchmark`` = 지수 초과(§2 원문), ``candidates`` = 그날 후보 균등가중
+#: 초과(§8 의 선택 항) — 4회차 사전등록 `docs/protocols/drl-round4-2026-09.md`.
+BASELINE_BENCHMARK = "benchmark"
+BASELINE_CANDIDATES = "candidates"
+BASELINES = frozenset({BASELINE_BENCHMARK, BASELINE_CANDIDATES})
+
+
 @dataclass(frozen=True)
 class RewardParams:
     """`config.reward` 한 벌. 계단의 경계와 높이, 그리고 종료 벌점."""
@@ -172,8 +179,13 @@ class RewardEngine:
     갈라진다.
     """
 
-    def __init__(self, *, params: RewardParams, base: float = nav.BASE_INDEX) -> None:
+    def __init__(
+        self, *, params: RewardParams, base: float = nav.BASE_INDEX, baseline: str = BASELINE_BENCHMARK
+    ) -> None:
+        if baseline not in BASELINES:
+            raise ValueError(f"reward baseline 은 {sorted(BASELINES)} 중 하나다: {baseline!r}")
         self.params = params
+        self.baseline = baseline
         self.drawdown = DrawdownTracker(base=base)
 
     def step(
@@ -211,7 +223,14 @@ class RewardEngine:
         else:
             selection, exposure = excess, 0.0
         penalty = penalty_weight(depth, params=params) * delta
-        reward = excess - penalty - cost
+        # 4회차(2026-09-03): 기준선을 **후보 균등가중**으로 둘 수 있다. 판정 지표(균등가중 대비
+        # 우위)와 학습 보상이 같은 것을 재게 하기 위해서다 — 랭커가 순위 타깃으로 이긴 것과 같은
+        # 이유(목적함수 = 판정 지표). 노출 항은 어차피 cash_action=fixed 에서 정책의 것이 아니다.
+        # 후보 수익을 못 재는 스텝(첫날 등)은 벤치마크 기준으로 물러선다 — 0 으로 두면 그 날만
+        # "아무 일도 없었다" 가 되어 낙폭 벌점·비용만 남는다.
+        core = selection if (self.baseline == BASELINE_CANDIDATES and candidate_mean_return is not None
+                             and invested_share is not None) else excess
+        reward = core - penalty - cost
 
         terminated = depth >= params.drawdown_hard
         if terminated:

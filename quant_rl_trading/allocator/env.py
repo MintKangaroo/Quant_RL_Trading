@@ -181,6 +181,9 @@ class EnvParams:
     #: 에피소드를 현금이 아니라 **첫날 후보 균등가중으로 채운 장부**에서 시작한다.
     #: 현금에서 출발하면 짧은 평가 창에서 "얼마나 빨리 들어가나" 가 성적을 지배한다.
     warm_start: bool = False
+    #: 보상 기준선(`reward.BASELINES`). 체크포인트의 env_overrides 로 따라다닌다 — 평가가
+    #: 학습과 다른 보상으로 "우위" 를 재면 그 숫자는 아무것도 아니다.
+    reward_baseline: str = "benchmark"
 
     @classmethod
     def from_store(
@@ -492,7 +495,7 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             # 입금은 첫날 한 번. 이후 입출금이 없으므로 TWR 의 inflow 는 0 이고
             # 낙폭은 입금으로 지워지지 않는다 (accounting.md §6).
             book=Book(cash={KRW: self.params.initial_capital, USD: 0.0}),
-            engine=RewardEngine(params=self.params.reward),
+            engine=RewardEngine(params=self.params.reward, baseline=self.params.reward_baseline),
             analysts=self._analyst_slots(),
             nav=self.params.initial_capital,
         )

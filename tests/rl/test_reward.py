@@ -282,3 +282,22 @@ def test_선택점수는_노출_결정에_무감각하다() -> None:
         )
         scores.append(out.selection_return / invested)  # 단위 노출당 선택 점수
     assert abs(scores[0] - scores[1]) < 1e-12
+
+
+def test_candidates_baseline_rewards_selection_only() -> None:
+    """4회차 — 기준선이 후보 균등가중이면 보상 = 선택 항 − 벌점 − 비용. 후보 수익이 없으면 벤치마크로."""
+    from quant_rl_trading.allocator.reward import BASELINE_CANDIDATES, RewardEngine, RewardParams
+
+    params = RewardParams(
+        drawdown_free=0.12, drawdown_warn=0.22, drawdown_hard=0.30,
+        w_free=0.0, w_mid=1.5, w_hot=8.0, terminal_penalty=-10.0, normalize_returns="none",
+    )
+    engine = RewardEngine(params=params, baseline=BASELINE_CANDIDATES)
+    out = engine.step(portfolio_return=0.010, benchmark_return=0.002, cost=0.001,
+                      candidate_mean_return=0.006, invested_share=0.9)
+    assert out.selection_return == pytest.approx(0.010 - 0.9 * 0.006)
+    assert out.reward == pytest.approx(out.selection_return - 0.001)
+    fallback = engine.step(portfolio_return=0.010, benchmark_return=0.002, cost=0.0)
+    assert fallback.reward == pytest.approx(0.010 - 0.002)
+    with pytest.raises(ValueError):
+        RewardEngine(params=params, baseline="index")
