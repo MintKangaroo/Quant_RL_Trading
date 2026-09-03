@@ -97,6 +97,7 @@ def test_scores_only_the_as_of_session(store: Store) -> None:
     assert all(s.analyst == "ranker" and s.analyst_version == VERSION for s in signals)
     scores = pd.Series({s.entity_id: s.score for s in signals})
     assert scores.abs().max() <= 1.0 and scores.std() > 0.1
+    assert all(e.key != "is_us" for s in signals for e in s.evidence)
     assert analyst.run(datetime(2026, 6, 1, 7, tzinfo=UTC)) == []   # 학습창 안은 안 낸다
 
 

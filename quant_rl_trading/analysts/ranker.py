@@ -211,6 +211,10 @@ class RankerAnalyst(Analyst):
         wide["is_us"] = 1.0 if self.market == Market.US else 0.0
         return wide.loc[:, list(FEATURES)].astype(float)
 
+    def evidence_for(self, features: pd.DataFrame, entity_id: str):  # type: ignore[override]
+        # `is_us` 는 시장 표시지 근거가 아니다 — 화면에 "is_us 1.0" 이 뜨면 아무것도 말해주지 않는다.
+        return super().evidence_for(features.loc[:, list(SCORE_FEATURES)], entity_id)
+
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
         """모델 예측 → 횡단면 순위 z. 예측값의 절대 크기는 다른 Analyst 와 단위가 다르다."""
         if self._model is None or features.empty:
