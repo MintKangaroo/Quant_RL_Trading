@@ -14,7 +14,9 @@ LOG="logs/shadow-$(date +%Y%m).log"
 RC=0
 {
     echo "=== $(date '+%F %T') market=${MARKET} ==="
-    ulimit -v 8388608
+    # 가상 주소공간 16GB. 8GB 는 2026-09-02·03 미장 daily 를 죽였다 — RSS 는 2.2GB 였는데
+    # 스레드 아레나·duckdb·OpenMP 가 가상 공간을 먼저 채운다. 실메모리는 memory-guard 가 본다.
+    ulimit -v 16777216
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/run_session.py --market "${MARKET}" --capital "${CAPITAL}"
     RC=$?

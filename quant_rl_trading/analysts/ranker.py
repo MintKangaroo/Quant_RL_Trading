@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -59,6 +59,7 @@ FEATURES: tuple[str, ...] = SCORE_FEATURES + ("is_us",)
 #: 오늘 세션의 신호만 본다. 달력일 1 이면 valid_from 하한이 어제 자정이라 오늘 세션 하나가
 #: 들어오고, 주말·휴장 뒤에도 "직전 세션" 이 아니라 **as_of 세션** 만 남긴다(아래 필터).
 LOOKBACK_DAYS = 2
+SAME_SESSION_WITHIN = timedelta(hours=20)
 
 #: GBM 고정 설정 — 시행 L 사전등록 그대로. 여기서 바꾸면 채택 근거가 사라진다.
 GBM_PARAMS: dict[str, object] = {
@@ -198,8 +199,11 @@ class RankerAnalyst(Analyst):
         if frame.empty:
             return pd.DataFrame()
         # **as_of 세션 하나만.** 어제 점수로 오늘을 매기면 하루 늦은 신호에 오늘 날짜가 붙는다.
+        # 날짜 비교가 아니라 **시각 차** 로 본다 — as_of 가 UTC(미장 20:20Z)이고 valid_from 이
+        # KST(익일 05:20)면 같은 순간인데 달력 날짜가 다르다. 게이트가 valid_from ≤ as_of 를
+        # 보장하므로 "20시간 안" 이면 이 세션이고, 어제 세션(≥24시간 전)은 걸러진다.
         latest_session = frame["valid_from"].max()
-        if latest_session.date() != as_of.date():
+        if as_of - latest_session.to_pydatetime() >= SAME_SESSION_WITHIN:
             return pd.DataFrame()
         frame = frame[frame["valid_from"] == latest_session]
         frame = frame.sort_values("observed_at").groupby(["entity_id", "analyst"], as_index=False).tail(1)

@@ -99,6 +99,10 @@ def test_scores_only_the_as_of_session(store: Store) -> None:
     assert scores.abs().max() <= 1.0 and scores.std() > 0.1
     assert all(e.key != "is_us" for s in signals for e in s.evidence)
     assert analyst.run(datetime(2026, 6, 1, 7, tzinfo=UTC)) == []   # 학습창 안은 안 낸다
+    # 같은 순간을 다른 시간대로 불러도 "오늘 세션" 이다 (미장 as_of 는 UTC, 창고는 KST 로 돌려준다)
+    from zoneinfo import ZoneInfo
+    same = yesterday.astimezone(ZoneInfo("Asia/Seoul"))
+    assert len(analyst.run(same)) == 40
 
 
 def test_ranker_runs_last_in_both_markets() -> None:
