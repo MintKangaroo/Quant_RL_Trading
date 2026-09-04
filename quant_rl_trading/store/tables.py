@@ -372,6 +372,22 @@ _SPECS: dict[str, TableSpec] = {
             "fundamentals 가 460만 행(2.2GB)이 되어 Analyst 가 OOM 으로 죽었다."
         ),
     ),
+    "float_ratio": TableSpec(
+        name="float_ratio",
+        columns={
+            "market": pa.string(),
+            "shares_outstanding": pa.float64(),   # 발행주식수
+            "float_ratio": pa.float64(),          # 유동주식비율 (0~1)
+        },
+        # 참조 속성 — 유동주식비율은 준정적이고 예측 정보가 아니다. 대용지수의 −12%p/년 오차가
+        # **유동주식 가중**(KOSPI200 은 free-float 가중, 우리는 전액시총)이었다(2026-09-04,
+        # benchmark-aligned-construction-2b). 소스 = 네이버 종목분석(WiseReport) 기업개요.
+        # 매주 한 번 받는다. 바뀌면 새 행, 옛 행은 그대로(append-only).
+        reference_data=True,
+        natural_key=("entity_id", "valid_from", "source"),
+        observation_lag_days=3,
+        doc="유동주식비율 참조 관측. 시총가중 대용지수·시총가중 구성 변형이 free-float 조정에 쓴다.",
+    ),
     "sectors": TableSpec(
         name="sectors",
         columns={
