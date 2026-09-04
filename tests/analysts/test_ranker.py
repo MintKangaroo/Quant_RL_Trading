@@ -142,3 +142,17 @@ def test_smoothing_blends_with_previous_session_score(store: Store) -> None:
     third = {s.entity_id: s.score for s in analyst.run(day3)}
     pulled_up = sum(1 for e in raw if third[e] > raw[e] + 1e-6)
     assert pulled_up >= 35                          # 직전 세션 0.9 쪽으로 끌려간다
+
+
+def test_us_reads_market_specific_smoothing(store: Store) -> None:
+    """시행 R 기각 — 미장은 `ranker.smoothing_span_us`(0) 를 읽고, 국장은 공통값(5)."""
+    store.seed_config_defaults()
+    from quant_rl_trading.selector.candidates import market_config
+
+    as_of = datetime(2026, 8, 4, tzinfo=UTC)
+    assert int(market_config(store, "ranker.smoothing_span", as_of=as_of, market="US")) == 0
+    assert int(market_config(store, "ranker.smoothing_span", as_of=as_of, market="KR")) == 5
+    assert int(market_config(store, "selector.exit_rank", as_of=as_of, market="US")) == 48
+    assert int(market_config(store, "selector.exit_rank", as_of=as_of, market="KR")) == 72
+    us = RankerAnalyst(store, ReplayClock(as_of), market=Market.US, models_root=store.root)
+    assert us._smoothing_span(as_of) == 0

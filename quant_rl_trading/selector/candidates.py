@@ -29,7 +29,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import pandas as pd
 
@@ -37,6 +37,7 @@ from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
+from quant_rl_trading.store.errors import ConfigNotFound
 
 VERDICTS = "verdicts"
 SECTORS = "sectors"
@@ -75,14 +76,29 @@ class SelectionParams:
     exit_rank: int = 0
 
     @classmethod
-    def from_store(cls, store: Store, *, as_of: datetime) -> SelectionParams:
+    def from_store(cls, store: Store, *, as_of: datetime, market: str | None = None) -> SelectionParams:
         return cls(
             n_candidates=int(store.config("selector.n_candidates", as_of=as_of)),
             corr_threshold=float(store.config("selector.corr_threshold", as_of=as_of)),
             corr_penalty=float(store.config("selector.corr_penalty", as_of=as_of)),
             sector_cap=float(store.config("selector.sector_cap", as_of=as_of)),
-            exit_rank=int(store.config("selector.exit_rank", as_of=as_of)),
+            exit_rank=int(market_config(store, "selector.exit_rank", as_of=as_of, market=market)),
         )
+
+
+def market_config(store: Store, name: str, *, as_of: datetime, market: str | None) -> Any:
+    """시장별 값이 있으면 그것(`name_us`), 없으면 공통값.
+
+    시행 N(국장, 채택)과 R(미장, 기각)이 갈렸다(2026-09-04). 같은 키를 두 시장이 읽으면 한쪽 판정이
+    다른 쪽에 강제된다. 시장별 키는 **접미사**로 둔다 — 없으면 공통값으로 물러서므로 새 시장을 붙일 때
+    키를 전부 복제할 필요가 없다.
+    """
+    if market:
+        try:
+            return store.config(f"{name}_{str(market).lower()}", as_of=as_of)
+        except ConfigNotFound:
+            pass
+    return store.config(name, as_of=as_of)
 
 
 @dataclass

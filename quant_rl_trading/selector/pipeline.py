@@ -70,7 +70,7 @@ def run(
     안 걸렸지" 를 아무도 묻지 않게 된다.
     """
     trace = SelectionTrace()
-    params = SelectionParams.from_store(store, as_of=as_of)
+    params = SelectionParams.from_store(store, as_of=as_of, market=market)
     filter_params = filters_module.FilterParams.from_store(
         store, as_of=as_of, market=market
     )

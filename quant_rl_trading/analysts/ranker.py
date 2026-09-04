@@ -262,7 +262,10 @@ class RankerAnalyst(Analyst):
         """`ranker.smoothing_span`. 키가 아직 안 심긴 창고(새 키는 seed 가 소급 없이 넣는다)는 0 = 끔 —
         그리고 **크게 적는다.** 조용히 다른 규칙으로 돌면 백테스트와 라이브가 갈린다."""
         try:
-            return int(self.store.config("ranker.smoothing_span", as_of=as_of))
+            # 시장별 키(`ranker.smoothing_span_us`)가 있으면 우선 — 시행 R(미장) 기각으로 미장은 0.
+            from quant_rl_trading.selector.candidates import market_config
+
+            return int(market_config(self.store, "ranker.smoothing_span", as_of=as_of, market=str(self.market)))
         except ConfigNotFound:
             logger.warning("ranker.smoothing_span 이 창고 config 에 없다 — 평활 없이 돈다 (seed_config_defaults 필요)")
             return 0

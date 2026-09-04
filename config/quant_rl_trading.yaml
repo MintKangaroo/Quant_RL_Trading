@@ -204,6 +204,7 @@ selector:
   # 완충 구간 (selector.md §5). 보유 종목은 순위가 이 안이면 후보에 남긴다.
   # 진입은 n_candidates(24). 2026-08-27 사전등록 시행: 회전 5.6→1.3회/년.
   exit_rank: 72                # 시행 N (2026-09-04): 24→48 은 ranker 의 일별 순위 요동을 못 잡았다(연회전 64~88). 3N=72
+  exit_rank_us: 48             # 시행 R (2026-09-04, 미장) 기각 — 미장은 옛 값. 시장별 키는 접미사(selector/candidates.market_config)
   population: 64
   generations: 40
   # 적합도 페널티 둘. **기준은 연율화 샤프 1.0**(진짜로 좋은 전략)이다 —
@@ -275,6 +276,7 @@ ranker:
   # 시행 N (2026-09-04, selection-smoothing-2026-09.md): 자기 직전 세션 점수(창고 signals)와의 지수평활.
   # 0 이면 끈다. 5 = 최근 5세션 가중. 회전 88→32 로 줄여 비용 후 수익 −20.5%→−0.3%(안 본 구간).
   smoothing_span: 5
+  smoothing_span_us: 0         # 시행 R 기각 — 미장 평활 없음(회전은 줄지만 비용 전 수익이 +32%→+5% 로 꺾였다)
 
 allocator:
   action_reflection_floor: 0.30   # 미만이면 경고 — RL이 아니라 룰 시스템이다
