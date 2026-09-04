@@ -612,6 +612,7 @@ async function renderAccount(tradingBody) {
   };
   const ledgerNav = k.live_nav ?? k.nav;
   const ledgerEquity = k.live_equity ?? k.equity;
+  const ledgerBy0 = new Map((d.positions || []).map((p) => [p.entity_id, p]));
   // 장부 평가손익도 계좌와 **같은 정의**(현재가 − 평균 매입가)로 센다. positions.pnl 은
   // 전일 종가 대비 당일 손익이라 다른 숫자다 — 그걸 나란히 두면 차이가 가짜로 커진다.
   const ledgerUnreal = (d.positions || []).reduce(
@@ -619,11 +620,23 @@ async function renderAccount(tradingBody) {
   const settled = a.net_asset != null && a.equity != null ? a.net_asset - a.equity : null;
   const perf = d.performance || {};
   const ledgerRealized = perf.realized_pnl ?? 0;
+  // **증권사 평가금액은 "지금 팔면 받을 돈"이다** — t0424 는 종목마다 매도 수수료·거래세(≈0.215%)를 미리 뺀다.
+  // 우리 장부는 시장가치 그대로라, 같은 종가에서도 평가금액이 0.2% 벌어져 보인다(9/4 폰 실측 −378,965).
+  // 보유 종목별 계좌가/장부가 비율의 중앙값으로 그 차감률을 추정해 계좌 값을 시장가치로 되돌린 뒤 비교한다.
+  const ratios = (a.holdings || []).map((h) => {
+    const p = ledgerBy0.get(h.entity_id);
+    return p && p.price && h.quantity ? (h.value / h.quantity) / (p.live_price ?? p.price) : null;
+  }).filter((r) => r != null && r > 0.9 && r < 1.1).sort((x, y) => x - y);
+  const haircut = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
+  const grossUp = (v) => (v == null ? null : v / haircut);
+  const acctEquityGross = grossUp(a.equity);
+  const acctNavGross = a.net_asset == null || a.equity == null ? null : a.net_asset - a.equity + acctEquityGross;
+  const acctUnrealGross = a.unrealized == null || a.equity == null ? null : a.unrealized + (acctEquityGross - a.equity);
   const rows = [
-    ["총자산", a.net_asset, ledgerNav, true],
+    ["총자산", acctNavGross, ledgerNav, true],
     ["현금(정산 후)", settled, k.cash_krw, true],
-    ["주식 평가금액", a.equity, ledgerEquity, true],
-    ["평가손익", a.unrealized, ledgerUnreal, true],
+    ["주식 평가금액", acctEquityGross, ledgerEquity, true],
+    ["평가손익", acctUnrealGross, ledgerUnreal, true],
     // 당일 실현손익은 차이를 경고로 안 칠한다 — 계좌 쪽엔 장부 밖 청산(선행 잔고)이 들어간다.
     ["당일 실현손익", a.realized_today, ledgerRealized, false],
   ];
@@ -635,6 +648,9 @@ async function renderAccount(tradingBody) {
     html += `<tr><td style="white-space:nowrap">${label}</td>
       <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(acct) : ""}">${label.includes("손익") ? sgn(acct) : won(acct)}</td>
       <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(ledger) : ""}">${label.includes("손익") ? sgn(ledger) : won(ledger)}</td>${cell}</tr>`;
+  }
+  if (haircut < 0.999) {
+    html += `<tr><td colspan="4" style="${muted};font-size:11px">증권사 평가금액은 매도비용 차감 기준(추정 ${((1 - haircut) * 100).toFixed(3)}%) — 위 표는 시장가치로 되돌려 비교한 값</td></tr>`;
   }
   const cntOk = a.positions === k.positions;
   html += `<tr><td>보유 종목 수</td><td class="r">${a.positions ?? "—"}</td><td class="r">${k.positions ?? "—"}</td>
