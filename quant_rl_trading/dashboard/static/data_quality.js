@@ -73,8 +73,10 @@ async function renderUniverse() {
       { type: "value", scale: true, ...AXIS },
     ],
     series: [
+      // 종목 수는 손익이 아니라 **계열**이다 — 글자색(흰색)으로 그리면 검은 바탕에서 축·격자와 구분이
+      // 안 되고 강조선처럼 읽힌다(9/2 시트 재설계 뒤 남은 흰 계열). 범주 팔레트 1번.
       { name: "상장", type: "line", showSymbol: false, data: data.points.map((p) => p.listed),
-        lineStyle: { width: 1.4, color: COLOR.text } },
+        lineStyle: { width: 1.4, color: COLOR.series[0] } },
       { name: "상폐 누적", type: "line", yAxisIndex: 1, showSymbol: false,
         data: data.points.map((p) => p.delisted_cumulative),
         lineStyle: { width: 1.4, color: COLOR.warn, type: "dashed" } },
