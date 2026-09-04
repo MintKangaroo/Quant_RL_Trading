@@ -11,11 +11,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
@@ -119,8 +120,12 @@ def run(
     as_of: datetime,
     market: str,
     session_id: str,
+    day: date | None = None,
 ) -> ExecutionDay:
-    """직전 세션의 주문을 오늘 봉에 맞춰 체결시키고 ``trades`` 에 적는다."""
+    """직전 세션의 주문을 오늘 봉에 맞춰 체결시키고 ``trades`` 에 적는다.
+
+    ``day`` 는 오늘 봉의 날짜(세션 날짜). 미장은 as_of 의 KST 날짜와 다르다 — market.states 참고.
+    """
     result = ExecutionDay(session_id=session_id)
     orders = pending(store, as_of=as_of, session_id=session_id)
     if orders.empty:
@@ -129,11 +134,13 @@ def run(
     requests = _aggregate(orders)
     entities = sorted({order.entity_id for order, _ in requests})
     states = market_module.states(
-        store, as_of=as_of, entities=entities, market=market
+        store, as_of=as_of, entities=entities, market=market, session_day=day
     )
-    params = FillParams.from_store(store, as_of=as_of)
-    rates = Rates.from_store(store, as_of=as_of)
     currency = currency_of(market)
+    # 최소주문금액은 원화 설정이다 — 달러 주문은 그 시각 환율로 나눠 비교한다 (replay/fills.FillParams).
+    fx = ledger_module.fx_rate(store, as_of=as_of) if currency == USD else 1.0
+    params = FillParams.from_store(store, as_of=as_of, fx_rate=fx)
+    rates = Rates.from_store(store, as_of=as_of)
 
     fills: list[Fill] = []
     rows: list[dict[str, object]] = []

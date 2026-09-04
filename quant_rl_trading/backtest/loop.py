@@ -284,7 +284,7 @@ def run(
         executed = execution_module.ExecutionDay(session_id=previous_session or "")
         if previous_session:
             executed = execution_module.run(
-                store, clock, as_of=as_of, market=market, session_id=previous_session
+                store, clock, as_of=as_of, market=market, session_id=previous_session, day=day,
             )
             if day not in warmup_set:
                 traded_value += executed.traded_value
