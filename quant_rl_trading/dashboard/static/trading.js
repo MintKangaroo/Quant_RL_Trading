@@ -670,9 +670,14 @@ async function renderAccount(tradingBody) {
   panel.style.display = "";
 }
 
+/** 화폐 단위. 미장 탭은 달러 슬리브라 "$" — 서버가 `currency: "USD"` 로 내려보내는 값과 같은 규칙. */
+function unit() {
+  return (params().get("market") || "KR") === "US" ? "$" : "원";
+}
+
 function wonSigned(v) {
   if (v === null || v === undefined) return "—";
-  return (v > 0 ? "+" : "") + num(Math.round(v)) + "원";
+  return (v > 0 ? "+" : "") + num(Math.round(v)) + unit();
 }
 
 /** 성과 한 칸. `tone` 이 빈 문자열이면 색을 안 칠한다 —
@@ -761,7 +766,7 @@ function renderPerformance(body) {
   const buyAmt = groups.filter((g) => g.side === "buy").reduce((s, g) => s + g.amount, 0);
   const sellAmt = groups.filter((g) => g.side === "sell").reduce((s, g) => s + g.amount, 0);
   const won = (v) => num(Math.round(v));
-  const line = `오늘 체결 ${p.fill_count}건 — 매수 ${p.buy_count}건 ${won(buyAmt)}원 · 매도 ${p.sell_count}건 ${won(sellAmt)}원`
+  const line = `오늘 체결 ${p.fill_count}건 — 매수 ${p.buy_count}건 ${won(buyAmt)}${unit()} · 매도 ${p.sell_count}건 ${won(sellAmt)}${unit()}`
     + (p.fills_omitted ? ` (큰 것부터 ${p.fills.length}건만, 외 ${p.fills_omitted}건 생략)` : "");
   fills.innerHTML = `<details class="fold"><summary>${line} · 종목별 ${groups.length}줄 보기</summary>
     <table class="ledger">${head}${rows}</table></details>`;
@@ -792,7 +797,7 @@ function renderEquity(body) {
       const i = items[0].dataIndex;
       const prev = i > 0 ? nav[i - 1] : null;
       const d = prev != null && nav[i] != null ? nav[i] - prev : null;
-      return `${e.sessions[i]}<br>총자산 <b>${num(Math.round(nav[i]))}원</b>`
+      return `${e.sessions[i]}<br>총자산 <b>${num(Math.round(nav[i]))}${unit()}</b>`
         + (d != null ? `<br>전일 대비 ${d >= 0 ? "+" : ""}${num(Math.round(d))}원` : "")
         + (bench[i] != null ? `<br>벤치마크 ${num(Math.round(bench[i]))}원` : "");
     } },

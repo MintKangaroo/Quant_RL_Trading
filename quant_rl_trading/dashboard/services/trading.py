@@ -123,6 +123,87 @@ def build_context(
     )
 
 
+# -- 미장 슬리브 -------------------------------------------------------------------
+
+
+def _us_sleeve(store: Store, context: Context, *, lookback: int) -> dict[str, Any] | None:
+    """미장 탭의 숫자는 **달러 슬리브**다 — 장부 전체(원화 NAV)가 아니다.
+
+    shadow 장부 하나에 국장 원화와 미장 달러가 같이 살아서, 미장 탭이 장부 전체 NAV 를
+    보여주면 8/25 의 계단(국장 초기자본)과 9/2 의 계단(달러 입금)이 미장 성과처럼 읽힌다
+    (사용자 지적 2026-09-04). 회계 스냅샷의 `equity_us`·`cash_usd` 와 nav_daily 의 같은
+    열로 슬리브 NAV(USD)를 접는다. 원금은 `capital_flows` 의 USD 합. 지수·낙폭은 슬리브
+    첫 스냅샷 = 100. **회계를 다시 하는 것이 아니다** — 회계가 남긴 두 열을 더할 뿐이다.
+    """
+    frame = store.get(NAV_DAILY, as_of=context.as_of, entity=ledger_module.ACCOUNT, lookback=lookback)
+    if frame.empty or "equity_us" not in frame.columns:
+        return None
+    ordered = frame.sort_values(["valid_from", "observed_at"]).copy()
+    ordered["nav_usd"] = ordered["equity_us"].astype(float) + ordered["cash_usd"].astype(float)
+    ordered = ordered[ordered["nav_usd"] > 0]
+    if ordered.empty:
+        return None
+    flows = store.get("capital_flows", as_of=context.as_of, entity=ledger_module.ACCOUNT, lookback=lookback * 3)
+    principal = float(flows.loc[flows["currency"].astype(str) == "USD", "amount"].astype(float).sum()) if not flows.empty else 0.0
+    valuation = context.snapshot.valuation
+    nav_now = float(valuation.equity_us + valuation.cash_usd)
+    navs = ordered["nav_usd"].astype(float).to_list()
+    sessions = [pd.Timestamp(v).date().isoformat() for v in ordered["valid_from"]]
+    last_session = ordered["valid_from"].iloc[-1]
+    previous_nav = navs[-1] if pd.Timestamp(last_session) < pd.Timestamp(context.as_of) else (navs[-2] if len(navs) > 1 else None)
+    base = navs[0]
+    index = [100.0 * v / base for v in navs]
+    peak = pd.Series(navs).cummax()
+    drawdown = [float(v / p - 1.0) for v, p in zip(navs, peak)]
+    peak_now = max(max(navs), nav_now)
+    return {
+        "currency": "USD",
+        "nav": nav_now,
+        "previous_nav": previous_nav,
+        "nav_change": None if previous_nav is None else nav_now - previous_nav,
+        "daily_return": None if not previous_nav else nav_now / previous_nav - 1.0,
+        "principal": principal,
+        "total_pnl": nav_now - principal if principal > 0 else None,
+        "cumulative_return": nav_now / principal - 1.0 if principal > 0 else None,
+        "index_value": 100.0 * nav_now / base,
+        "drawdown": nav_now / peak_now - 1.0,
+        "mdd": min(drawdown + [nav_now / peak_now - 1.0]),
+        "equity": float(valuation.equity_us),
+        "cash": float(valuation.cash_usd),
+        "curve": {"sessions": sessions, "nav": navs, "index": index, "drawdown": drawdown,
+                  "benchmark": [None] * len(navs), "benchmark_drawdown": [None] * len(navs),
+                  "benchmark_note": "달러 슬리브 — 벤치마크 지수 미배선", "benchmark_label": {"label": "—"}},
+    }
+
+
+def _apply_us_sleeve(view: dict[str, Any], sleeve: dict[str, Any]) -> None:
+    """kpis·equity·performance 를 슬리브 숫자로 덮는다. 종목·주문 패널은 이미 시장별이다."""
+    k = view.get("kpis") or {}
+    k.update({
+        "currency": "USD", "nav": sleeve["nav"], "nav_after_tax": None, "principal": sleeve["principal"] or None,
+        "today_pnl": sleeve["nav_change"], "total_pnl": sleeve["total_pnl"], "mdd": sleeve["mdd"],
+        "equity": sleeve["equity"], "cash_krw": 0.0, "cash_usd": sleeve["cash"], "equity_kr": 0.0,
+        "daily_return": sleeve["daily_return"], "cumulative_return": sleeve["cumulative_return"],
+        "index_value": sleeve["index_value"], "drawdown": sleeve["drawdown"],
+        "exposure": sleeve["equity"] / sleeve["nav"] if sleeve["nav"] > 0 else None,
+        # 장중 달러 시세는 아직 안 붙였다 — 없는 값을 0 으로 보이지 않게 비운다.
+        "live_nav": None, "live_change": None, "live_today_pnl": None, "live_drawdown": None, "live_mdd": None,
+        "live_equity": None, "live_covered": 0,
+    })
+    view["kpis"] = k
+    view["equity"] = sleeve["curve"]
+    p = view.get("performance")
+    if p:
+        p.update({
+            "currency": "USD", "nav": sleeve["nav"], "previous_nav": sleeve["previous_nav"],
+            "nav_change": sleeve["nav_change"], "pnl": sleeve["nav_change"], "inflow": 0.0,
+            "daily_return": sleeve["daily_return"], "cumulative_return": sleeve["cumulative_return"],
+            "index_value": sleeve["index_value"], "drawdown": sleeve["drawdown"],
+            "principal": sleeve["principal"], "total_pnl": sleeve["total_pnl"],
+            "mode_note": f"{p.get('mode_note') or ''} · 달러 슬리브(USD)",
+        })
+
+
 # -- KPI -----------------------------------------------------------------------
 
 
@@ -1342,7 +1423,7 @@ def payload(
         }
     kpi = kpis(store, context)
     risk_state = risk(store, context)
-    return {
+    view = {
         "market": market,
         "system": system(store, context),
         "kpis": kpi,
@@ -1365,3 +1446,8 @@ def payload(
             store, as_of=context.as_of, snapshot=context.snapshot, fill_limit=None
         ).as_dict(),
     }
+    if str(market).upper() == "US":
+        sleeve = _us_sleeve(store, context, lookback=lookback)
+        if sleeve is not None:
+            _apply_us_sleeve(view, sleeve)
+    return view
