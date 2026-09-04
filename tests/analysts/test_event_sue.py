@@ -37,7 +37,7 @@ def test_서프라이즈가_클수록_점수가_높고_10K_는_무시한다(stor
     rows.append(_row("US:FLAT", "2025Q4", datetime(2025, 12, 28, tzinfo=UTC), 9_999, rtype="edgar_10k"))
     store.append("fundamentals", rows, ingest_run_id="sue-test", source="edgar")
     analyst = EventAnalyst(store, ReplayClock(datetime(2026, 3, 1, tzinfo=UTC)), market=Market.US)
-    f = analyst.features(datetime(2026, 3, 1, tzinfo=UTC))
+    f = analyst._sue_features(datetime(2026, 3, 1, tzinfo=UTC))  # 기각된 경로 — 계산만 남았다
     assert list(f.columns) == ["sue"]
     assert f.loc["US:UP", "sue"] > f.loc["US:FLAT", "sue"]
 
@@ -47,4 +47,14 @@ def test_발표가_120일_넘게_지나면_결측이다(store) -> None:
     store.append("fundamentals", rows, ingest_run_id="sue-old", source="edgar")
     late = datetime(2026, 6, 30, tzinfo=UTC)   # 2025Q4 말(12-28) 에서 184일
     analyst = EventAnalyst(store, ReplayClock(late), market=Market.US)
-    assert analyst.features(late).empty
+    assert analyst._sue_features(late).empty
+
+
+def test_us_features_do_not_route_to_sue(store) -> None:
+    """시행 J 기각 뒤 미장 features() 는 SUE 단독 경로를 타지 않는다 (2026-09-04)."""
+    from quant_rl_trading.analysts import event as event_module
+
+    assert event_module.US_SUE_ENABLED is False
+    analyst = EventAnalyst(store, ReplayClock(datetime(2026, 3, 1, tzinfo=UTC)), market=Market.US)
+    f = analyst.features(datetime(2026, 3, 1, tzinfo=UTC))
+    assert list(f.columns) != ["sue"]

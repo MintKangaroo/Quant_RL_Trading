@@ -102,6 +102,9 @@ FILING_SIGNS = {
 #: 종목 상태이고, 이벤트가 없던 시절의 대타였다.
 #:
 #: 부호는 값에 이미 들어가 있다(``FILING_SIGNS``). 여기서는 전부 양수다.
+#: 시행 J 의 미장 SUE 경로. 기각됐으므로 False — 켜는 것은 새 등록의 몫이다.
+US_SUE_ENABLED = False
+
 WEIGHTS = {
     "sue": 1.00,           # 미장 전용 — 실적 서프라이즈(시행 J). 국장 피처엔 이 열이 없다
     "buyback": 0.20,       # 자사주 취득
@@ -149,12 +152,15 @@ def _same_quarter_prior_year(label: str) -> str:
 
 class EventAnalyst(Analyst):
     name = "event"
-    version = "event-v0.2.0"
+    version = "event-v0.2.1"
 
     def features(self, as_of: datetime) -> pd.DataFrame:
-        # 미장은 DART 공시도 상장 경과일 창도 없다 — 실적 서프라이즈 하나로 잰다
-        # (docs/protocols/new-sources-2026-09.md 시행 J). 국장 경로와 섞지 않는다.
-        if str(self.market) == "US":
+        # **미장 SUE 는 꺼져 있다 (2026-09-04).** 시행 J(new-sources-2026-09.md)는 기각됐는데 이 분기가
+        # 남아 미장 event 가 SUE 하나로만 돌았고, 그 사이 미장 event IC 가 +0.037(v0.1, 공시 경로) →
+        # +0.015 로 떨어졌다. 더 나쁜 것은 ranker 가 event 점수를 입력으로 배웠는데(공시 경로 이력)
+        # 실전 입력이 다른 것으로 바뀐 것이다. 등록 규칙대로 "기각이면 코드에 넣지 않는다" —
+        # 계산 함수(`_sue_features`)는 기록으로 남기되 켜지 않는다.
+        if str(self.market) == "US" and US_SUE_ENABLED:
             return self._sue_features(as_of)
         # **시장은 SQL 에서 거른다.** 예전에는 전부 퍼온 뒤 pandas 로 걸렀는데,
         # 미장이 창고에 들어온 순간 그것만으로 죽었다 — 실측 2026-08-18~20 에
