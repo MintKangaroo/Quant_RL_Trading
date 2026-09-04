@@ -147,10 +147,16 @@ def _us_sleeve(store: Store, context: Context, *, lookback: int) -> dict[str, An
     principal = float(flows.loc[flows["currency"].astype(str) == "USD", "amount"].astype(float).sum()) if not flows.empty else 0.0
     valuation = context.snapshot.valuation
     nav_now = float(valuation.equity_us + valuation.cash_usd)
-    navs = ordered["nav_usd"].astype(float).to_list()
-    sessions = [pd.Timestamp(v).date().isoformat() for v in ordered["valid_from"]]
-    last_session = ordered["valid_from"].iloc[-1]
-    previous_nav = navs[-1] if pd.Timestamp(last_session) < pd.Timestamp(context.as_of) else (navs[-2] if len(navs) > 1 else None)
+    # 날짜마다 마지막 스냅샷 하나 — 같은 날 05:20(미장 마감)·16:00(국장 마감) 둘이 있으면 뒤 것.
+    ordered["day"] = pd.to_datetime(ordered["valid_from"]).dt.date
+    daily = ordered.groupby("day", sort=True).tail(1)
+    navs = daily["nav_usd"].astype(float).to_list()
+    sessions = [d.isoformat() for d in daily["day"]]
+    # "어제" 는 **직전 날짜**의 값이다. 같은 날 앞 스냅샷과 비교하면 오늘 체결이 이미 들어간 값끼리
+    # 비교돼 오늘 수익금이 0 으로 보인다(9/4 폰 실측: 370,697 → 370,697).
+    today = pd.Timestamp(context.as_of).date()
+    earlier = [v for d, v in zip(daily["day"], navs) if d < today]
+    previous_nav = earlier[-1] if earlier else None
     base = navs[0]
     index = [100.0 * v / base for v in navs]
     peak = pd.Series(navs).cummax()
@@ -168,6 +174,8 @@ def _us_sleeve(store: Store, context: Context, *, lookback: int) -> dict[str, An
         "index_value": 100.0 * nav_now / base,
         "drawdown": nav_now / peak_now - 1.0,
         "mdd": min(drawdown + [nav_now / peak_now - 1.0]),
+        "win_rate": (lambda r: float((r > 0).mean()) if len(r) else None)(
+            pd.Series(navs).pct_change().dropna().loc[lambda x: x != 0.0]),
         "equity": float(valuation.equity_us),
         "cash": float(valuation.cash_usd),
         "curve": {"sessions": sessions, "nav": navs, "index": index, "drawdown": drawdown,
@@ -182,11 +190,14 @@ def _apply_us_sleeve(view: dict[str, Any], sleeve: dict[str, Any]) -> None:
     k.update({
         "currency": "USD", "nav": sleeve["nav"], "nav_after_tax": None, "principal": sleeve["principal"] or None,
         "today_pnl": sleeve["nav_change"], "total_pnl": sleeve["total_pnl"], "mdd": sleeve["mdd"],
+        "win_rate": sleeve["win_rate"],
         "equity": sleeve["equity"], "cash_krw": 0.0, "cash_usd": sleeve["cash"], "equity_kr": 0.0,
         "daily_return": sleeve["daily_return"], "cumulative_return": sleeve["cumulative_return"],
         "index_value": sleeve["index_value"], "drawdown": sleeve["drawdown"],
         "exposure": sleeve["equity"] / sleeve["nav"] if sleeve["nav"] > 0 else None,
-        # 장중 달러 시세는 아직 안 붙였다 — 없는 값을 0 으로 보이지 않게 비운다.
+        # 장중 달러 시세는 아직 안 붙였다 — 없는 값을 0 으로 보이지 않게 비운다. `live_is_close` 도
+        # 비운다: 화면은 그것이 true 면 live_nav(없음)를 총자산으로 써서 0 이 된다(9/4 폰 실측).
+        "live_is_close": None, "live_session_open": None,
         "live_nav": None, "live_change": None, "live_today_pnl": None, "live_drawdown": None, "live_mdd": None,
         "live_equity": None, "live_covered": 0,
     })
@@ -974,7 +985,9 @@ def _index_daily_returns(
     return out
 
 
-def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+def returns_calendar(
+    store: Store, *, as_of: datetime, lookback: int, market: str = "KR"
+) -> dict[str, Any]:
     """일별 수익률. 화면이 달력으로 깐다.
 
     ``Context`` 가 아니라 ``as_of`` 만 받는다. 달력은 ``nav_daily`` 하나로
@@ -992,14 +1005,46 @@ def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     if frame.empty:
         return {"days": [], "months": [], "indices": {}}
     ordered = frame.sort_values(["valid_from", "observed_at"])
-    days = [
-        {
-            "session": pd.Timestamp(row["valid_from"]).date().isoformat(),
-            "return": float(row["twr_return"]),
-            "nav": float(row["nav"]),
-        }
-        for row in ordered.to_dict(orient="records")
-    ]
+    if str(market).upper() == "US":
+        # **달러 슬리브** — 장부 전체 TWR 이 아니라 equity_us+cash_usd 의 일간 변화. 달러 입출금이 있는
+        # 날은 (NAV_t − 입금) / NAV_{t−1} 로 입금을 뺀다 — 안 빼면 9/2 입금일이 +∞% 가 된다.
+        flows = store.get("capital_flows", as_of=as_of, entity=ledger_module.ACCOUNT, lookback=lookback * 3)
+        usd_flow: dict[str, float] = {}
+        if not flows.empty:
+            usd = flows[flows["currency"].astype(str) == "USD"]
+            for row in usd.to_dict(orient="records"):
+                key = pd.Timestamp(row["valid_from"]).date().isoformat()
+                usd_flow[key] = usd_flow.get(key, 0.0) + float(row["amount"])
+        days = []
+        previous: float | None = None
+        for row in ordered.to_dict(orient="records"):
+            nav_usd = float(row["equity_us"]) + float(row["cash_usd"])
+            session = pd.Timestamp(row["valid_from"]).date().isoformat()
+            if previous is None or previous <= 0:
+                ret = 0.0
+            else:
+                ret = (nav_usd - usd_flow.get(session, 0.0)) / previous - 1.0
+            if nav_usd > 0:
+                days.append({"session": session, "return": ret, "nav": nav_usd})
+                previous = nav_usd
+        # 같은 세션의 스냅샷이 둘(05:20·16:00)이면 마지막 것만 — 앞 것은 국장 마감 전 중간값이다.
+        collapsed: dict[str, dict[str, Any]] = {}
+        for day in days:
+            if day["session"] in collapsed:
+                collapsed[day["session"]]["return"] = (1.0 + collapsed[day["session"]]["return"]) * (1.0 + day["return"]) - 1.0
+                collapsed[day["session"]]["nav"] = day["nav"]
+            else:
+                collapsed[day["session"]] = dict(day)
+        days = list(collapsed.values())
+    else:
+        days = [
+            {
+                "session": pd.Timestamp(row["valid_from"]).date().isoformat(),
+                "return": float(row["twr_return"]),
+                "nav": float(row["nav"]),
+            }
+            for row in ordered.to_dict(orient="records")
+        ]
     # 월별 누적은 일별 수익률의 곱이다. 합이 아니다 — 합으로 재면 변동이 큰
     # 달에서 실제와 벌어진다.
     months: dict[str, float] = {}
@@ -1015,13 +1060,15 @@ def returns_calendar(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     }
 
 
-def calendar_payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+def calendar_payload(
+    store: Store, *, as_of: datetime, lookback: int, market: str = "KR"
+) -> dict[str, Any]:
     """별도 창의 캘린더가 쓰는 전부. ``nav_daily`` 만 읽는다.
 
     ``최고/최악의 날`` 을 여기서 고르는 이유는, 화면이 고르면 표시된 달만
     보고 고르게 되기 때문이다. 창 전체에서 골라야 "이 창의 최악" 이 된다.
     """
-    calendar = returns_calendar(store, as_of=as_of, lookback=lookback)
+    calendar = returns_calendar(store, as_of=as_of, lookback=lookback, market=market)
     days = calendar["days"]
     if not days:
         return {
@@ -1434,7 +1481,7 @@ def payload(
         "decision": decision(store, context, entity_id=entity_id),
         "orders": orders(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
-        "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback),
+        "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback, market=market),
         # 성과 넷(매매내역·수익률·총수익률·자산증감)은 **회계가 접어 준다.**
         # 메일도 같은 함수를 읽는다 — 화면과 메일이 다른 숫자를 말하면 어느
         # 쪽이 맞는지 판정할 방법이 없다 (accounting.md §8).

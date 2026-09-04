@@ -195,7 +195,7 @@ function renderKpis(body) {
 
   const cards = [
     kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn, closed), false,
-        { unit: "KRW", spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
+        { unit: unitCode(), spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
     // 2열(폰)에서 짝이 맞게 순서를 둔다(사용자 요청 2026-09-02): 총자산|익스포저,
     // 오늘 수익금|오늘 수익률, 총 수익금|총 수익률, 승률|MDD, 반영률|AI, 거부|정지.
     kpi("익스포저", pct(k.exposure),
@@ -204,12 +204,12 @@ function renderKpis(body) {
           : `현금 ${num(Math.round(k.cash_krw))}`),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
     kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
-        { unit: "KRW", tone: tone(todayPnl) }),
+        { unit: unitCode(), tone: tone(todayPnl) }),
     kpi("오늘 수익률", pct(todayReturn), todayFoot, false, { tone: tone(todayReturn) }),
     kpi("총 수익금", signed(totalPnl),
         `원금 ${k.principal ? num(Math.round(k.principal)) : "—"} 대비 · ${useLive ? (liveOn ? "장중 참고" : closeBadge) : closeBadge}`
         + (simpleReturn === null ? "" : ` · ${pct(simpleReturn)}`), false,
-        { unit: "KRW", tone: tone(totalPnl) }),
+        { unit: unitCode(), tone: tone(totalPnl) }),
     // **총 수익률도 총 수익금과 같은 시각이어야 한다.** 종가 TWR 만 두면 옆 칸의
     // 총 수익금(장중)은 음수인데 여기는 양수가 되어 둘이 다른 날을 가리킨다
     // (2026-09-02 폰 실측: -3,835,028 옆에 +1.12%). 장중엔 어제 종가 TWR 에 오늘
@@ -674,6 +674,9 @@ async function renderAccount(tradingBody) {
 function unit() {
   return (params().get("market") || "KR") === "US" ? "$" : "원";
 }
+function unitCode() {
+  return (params().get("market") || "KR") === "US" ? "USD" : "KRW";
+}
 
 function wonSigned(v) {
   if (v === null || v === undefined) return "—";
@@ -1064,9 +1067,9 @@ function renderPositionsPie(body) {
   const nav = k.nav;
   // 보고 있는 시장의 현금만 — 미장 보기에 원화 현금이 서면 "미장 현금 6.9억" 이 된다.
   const market = params().get("market") || "KR";
-  const cashValue = market === "US"
-    ? (k.cash_usd || 0) * (k.fx_rate || 0)
-    : (k.cash_krw || 0);
+  // 보유 value 는 종목 통화(미장은 달러)라 현금도 같은 통화로 — 환산하면 현금만 원화가 되어
+  // 파이가 현금 덩어리로 보인다(9/4 폰 실측: 달러 현금 × 환율 대 달러 보유).
+  const cashValue = market === "US" ? (k.cash_usd || 0) : (k.cash_krw || 0);
   const sorted = [...rows].sort((a, b) => (b.value || 0) - (a.value || 0));
   const top = sorted.slice(0, POSITIONS_PIE_TOP_N);
   const rest = sorted.slice(POSITIONS_PIE_TOP_N);

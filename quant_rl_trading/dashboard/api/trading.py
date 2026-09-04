@@ -73,7 +73,10 @@ def calendar() -> Any:
     current = scope()
     return envelope(
         current,
-        service.calendar_payload(store(), as_of=current.as_of, lookback=current.lookback),
+        service.calendar_payload(
+            store(), as_of=current.as_of, lookback=current.lookback,
+            market=(request.args.get("market") or "KR").upper(),
+        ),
     )
 
 
