@@ -104,4 +104,5 @@ Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 | `docs/design/self-improvement.md` | 자기개선 루프 — 홀드아웃 금고, 사전등록, 시행 예산, DSR |
 | `docs/design/ls-api.md` | LS API 제약 확인 목록 |
 | `docs/milestones.md` | M1~M5, 완료 기준, 중단 기준 |
+| `docs/rl-postmortem.md` | RL 시도 전부 — 판마다 한 일·실패 이유·배운 것, 종합 결론 |
 | `START-HERE.md` | 전체 실행 순서, 부트스트랩 프롬프트 |
