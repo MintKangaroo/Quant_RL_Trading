@@ -27,6 +27,7 @@ D1~D7 이 가른 원인은 표본도 정보도 아니고 **목적함수**였다 
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -37,6 +38,9 @@ from scipy.stats import norm
 
 from quant_rl_trading.analysts.base import Analyst, rank_score
 from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.store.errors import ConfigNotFound
+
+logger = logging.getLogger(__name__)
 
 SIGNALS = "signals"
 VERSION = "ranker-v0.1.0"
@@ -62,6 +66,8 @@ LOOKBACK_DAYS = 2
 SAME_SESSION_WITHIN = timedelta(hours=20)
 #: 명단은 느리게 바뀐다 — 최근 한 달 안의 최신 행이면 충분하다.
 UNIVERSE_LOOKBACK_DAYS = 40
+#: 직전 세션 자기 점수를 찾는 창 — 연휴를 넘겨도 직전 세션 하나는 들어온다.
+PREVIOUS_LOOKBACK_DAYS = 12
 
 #: GBM 고정 설정 — 시행 L 사전등록 그대로. 여기서 바꾸면 채택 근거가 사라진다.
 GBM_PARAMS: dict[str, object] = {
@@ -164,6 +170,7 @@ class RankerAnalyst(Analyst):
         # 없으므로 기본 창고 쪽으로 물러선다 — 같은 모델로 과거를 돌려야 같은 코드다.
         self.models_root = models_root
         self._model: RankerModel | None = None
+        self._as_of: datetime | None = None
 
     def _resolve_model(self, as_of: datetime) -> RankerModel | None:
         roots = [self.models_root] if self.models_root is not None else [Path(self.store.root)]
@@ -182,6 +189,7 @@ class RankerAnalyst(Analyst):
     def features(self, as_of: datetime) -> pd.DataFrame:
         """오늘 세션의 기초 Analyst 점수 → rank-gauss 피처. 모델이 없으면 빈 프레임."""
         self._model = self._resolve_model(as_of)
+        self._as_of = as_of
         if self._model is None:
             return pd.DataFrame()
         frame = self.store.get(
@@ -230,11 +238,50 @@ class RankerAnalyst(Analyst):
         return super().evidence_for(features.loc[:, list(SCORE_FEATURES)], entity_id)
 
     def raw_score(self, features: pd.DataFrame) -> pd.Series:
-        """모델 예측 → 횡단면 순위 z. 예측값의 절대 크기는 다른 Analyst 와 단위가 다르다."""
+        """모델 예측 → 횡단면 순위 z 를 **직전 세션 자기 점수와 지수평활**한다 (시행 N).
+
+        GBM 예측은 세션마다 순위가 크게 흔들려 상위 24 의 1/4 이 매일 바뀌었다(연회전 64~88, 비용이
+        알파의 5/6). `ranker.smoothing_span`(기본 5) 으로 z_t = α·raw_t + (1−α)·z_{t−1}, α = 2/(span+1).
+        z_{t−1} 은 창고 `signals` 에 남은 **자기 직전 세션 점수**를 tanh 역변환한 것 — 백테스트와 라이브가
+        같은 경로다(불변식 5). 직전 점수가 없는 종목(신규·결측)은 raw 그대로.
+        """
         if self._model is None or features.empty:
             return pd.Series(0.0, index=features.index)
-        predicted = pd.Series(self._model.predict(features), index=features.index)
-        return rank_score(predicted)
+        raw = rank_score(pd.Series(self._model.predict(features), index=features.index))
+        span = self._smoothing_span(self._as_of) if self._as_of else 0
+        if span <= 1:
+            return raw
+        previous = self._previous_z(self._as_of)
+        if previous.empty:
+            return raw
+        alpha = 2.0 / (span + 1.0)
+        prev = previous.reindex(raw.index)
+        return raw.where(prev.isna(), alpha * raw + (1.0 - alpha) * prev)
+
+    def _smoothing_span(self, as_of: datetime) -> int:
+        """`ranker.smoothing_span`. 키가 아직 안 심긴 창고(새 키는 seed 가 소급 없이 넣는다)는 0 = 끔 —
+        그리고 **크게 적는다.** 조용히 다른 규칙으로 돌면 백테스트와 라이브가 갈린다."""
+        try:
+            return int(self.store.config("ranker.smoothing_span", as_of=as_of))
+        except ConfigNotFound:
+            logger.warning("ranker.smoothing_span 이 창고 config 에 없다 — 평활 없이 돈다 (seed_config_defaults 필요)")
+            return 0
+
+    def _previous_z(self, as_of: datetime) -> pd.Series:
+        """직전 세션의 자기 점수(z 공간). 오늘 세션 것은 뺀다 — 정정본 재실행이 자기를 다시 섞지 않게."""
+        frame = self.store.get(
+            SIGNALS, as_of=as_of, lookback=PREVIOUS_LOOKBACK_DAYS, market=str(self.market),
+            columns=["entity_id", "valid_from", "observed_at", "analyst", "score"],
+        )
+        if frame.empty:
+            return pd.Series(dtype=float)
+        frame = frame[(frame["analyst"].astype(str) == self.name) & (frame["valid_from"] < as_of - SAME_SESSION_WITHIN)]
+        if frame.empty:
+            return pd.Series(dtype=float)
+        latest = frame["valid_from"].max()
+        frame = frame[frame["valid_from"] == latest].sort_values("observed_at").groupby("entity_id").tail(1)
+        score = frame.set_index("entity_id")["score"].astype(float).clip(-0.999999, 0.999999)
+        return 2.0 * np.arctanh(score)
 
 
 __all__ = [

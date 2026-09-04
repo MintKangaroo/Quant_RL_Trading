@@ -115,3 +115,30 @@ def test_ranker_runs_last_in_both_markets() -> None:
 def test_score_features_match_registered_inputs() -> None:
     assert set(ranker_module.BASE_ANALYSTS.values()) == set(ranker_module.SCORE_FEATURES)
     assert "volume" not in ranker_module.BASE_ANALYSTS
+
+
+def test_smoothing_blends_with_previous_session_score(store: Store) -> None:
+    """시행 N — 직전 세션 자기 점수와 EMA(span 5). 직전 점수가 없으면 raw 그대로."""
+    store.seed_config_defaults()
+    assert int(store.config("ranker.smoothing_span", as_of=datetime(2026, 8, 4, tzinfo=UTC))) == 5
+    _write_model(store.root, through="2026-06-30", usable="2026-07-01")
+    day1 = datetime(2026, 8, 3, 7, tzinfo=UTC)
+    _seed_signals(store, as_of=day1)
+    analyst = RankerAnalyst(store, ReplayClock(day1), market=Market.KR, models_root=store.root)
+    first = analyst.run(day1)                       # 직전 점수 없음 → raw
+    assert len(first) == 40
+    store.append("signals", [s.row(observed_at=day1, source="test") for s in first], ingest_run_id="test-ranker-day1")
+    day2 = day1 + timedelta(days=1)
+    _seed_signals(store, as_of=day2)                # 같은 기초 점수 → raw 도 같다
+    second = analyst.run(day2)
+    raw = {s.entity_id: s.score for s in first}
+    blended = {s.entity_id: s.score for s in second}
+    # 같은 raw 를 같은 이전값과 섞으면 값이 같다(불변); 다른 이전값이면 그쪽으로 끌린다.
+    assert all(abs(blended[e] - raw[e]) < 1e-9 for e in raw)
+    rows = [{**s.row(observed_at=day2, source="test"), "score": 0.9} for s in second]
+    store.append("signals", rows, ingest_run_id="test-ranker-day2-high")
+    day3 = day2 + timedelta(days=1)
+    _seed_signals(store, as_of=day3)
+    third = {s.entity_id: s.score for s in analyst.run(day3)}
+    pulled_up = sum(1 for e in raw if third[e] > raw[e] + 1e-6)
+    assert pulled_up >= 35                          # 직전 세션 0.9 쪽으로 끌려간다
