@@ -153,7 +153,15 @@ def main(argv: list[str] | None = None) -> int:
     pending = pending_from_orders(store, as_of=now, market=args.market, session_id=session_id)
     print(f"{args.market} 세션 {session_id} · 창고 {store.root} · sent {len(pending)}건")
     if not pending:
-        print("대사할 주문이 없다.")
+        # TWAP 전환(2026-09-02) 뒤로는 조각 배포·재호가가 장중에 체결·포기를 다 확정하므로 15:45 에
+        # `sent` 가 남지 않는 것이 정상이다. 그 세션의 주문이 창고에 있으면 "이미 끝났다"(0), 주문
+        # 자체가 없으면 "세션이 안 돌았다"(2) — 둘을 같은 rc 로 내보내면 크론이 매일 경보를 낸다.
+        frame = store.get("orders", as_of=now, lookback=7, market=args.market)
+        n = int((frame["session_id"] == session_id).sum()) if not frame.empty else 0
+        if n:
+            print(f"대사할 주문이 없다 — 세션 주문 {n}건은 장중에 이미 종결됐다(TWAP·재호가).")
+            return 0
+        print("대사할 주문이 없다 — 이 세션의 주문이 창고에 없다.")
         return 2
 
     profile = resolve_profile(store, market=args.market, as_of=now)
