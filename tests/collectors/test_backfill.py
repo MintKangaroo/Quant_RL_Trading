@@ -350,3 +350,37 @@ def test_prices_carry_no_adjusted_factor(store, tmp_path) -> None:
     assert frame["adj_factor"].isna().all()
     samsung = frame[frame["entity_id"] == "KR:005930"].iloc[0]
     assert samsung["close"] == 70500.0
+
+
+def test_전부_스텁인_날은_적재도_run_id_기록도_안_한다(store, tmp_path) -> None:
+    """2026-09-01: 개장 전 스텁(OHLC·거래량 0)이 봉으로 들어가 run id 가 기록되고 재시도가 막혔다."""
+
+    @dataclass
+    class StubSource(FakeSource):
+        def ohlcv_on(self, day: date) -> list[dict[str, Any]]:
+            return [
+                {**dict(item), "open": 0, "high": 0, "low": 0, "volume": 0}
+                for item in BARS[day]
+            ]
+
+    backfiller = make_backfiller(store, tmp_path, source=StubSource())
+    result = backfiller.run_session(D1)
+    assert result.error and "스텁" in result.error
+    assert result.prices == 0
+    assert not store.ingest_run_recorded(PRICES, session_run_id(PRICES, Market.KR, D1))
+    # 다음 실행은 건너뛰지 않고 다시 시도한다
+    assert not backfiller._recorded(D1)
+
+
+def test_스텁_봉만_골라_버린다(store, tmp_path) -> None:
+    @dataclass
+    class HalfStub(FakeSource):
+        def ohlcv_on(self, day: date) -> list[dict[str, Any]]:
+            bars = [dict(item) for item in BARS[day]]
+            bars[0].update({"open": 0, "high": 0, "low": 0, "volume": 0})
+            return bars
+
+    backfiller = make_backfiller(store, tmp_path, source=HalfStub())
+    result = backfiller.run_session(D1)
+    assert result.error is None
+    assert result.prices == len([b for b in BARS[D1] if backfiller._keep(b["code"])]) - 1
