@@ -175,7 +175,7 @@ def _us_sleeve(store: Store, context: Context, *, lookback: int) -> dict[str, An
         "drawdown": nav_now / peak_now - 1.0,
         "mdd": min(drawdown + [nav_now / peak_now - 1.0]),
         "win_rate": (lambda r: float((r > 0).mean()) if len(r) else None)(
-            pd.Series(navs).pct_change().dropna().loc[lambda x: x != 0.0]),
+            pd.Series(navs).pct_change().dropna().loc[lambda x: x != 0.0]),  # invariant-allow: price-adjust — 슬리브 NAV 시계열, 주가 아님
         "equity": float(valuation.equity_us),
         "cash": float(valuation.cash_usd),
         "curve": {"sessions": sessions, "nav": navs, "index": index, "drawdown": drawdown,
