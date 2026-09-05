@@ -130,12 +130,12 @@ def breadth(store: Store) -> str:
             irk = float(exk.mean() / exk.std() * np.sqrt(ANN)) if exk.std() > 0 else float("nan")
             effn = float(fr["eff_n"].mean()); cells[(n, cap)] = dict(ir=ir, effn=effn, net=float(net.mean() * ANN))
             lines.append(f"| {n} | {cap:.2%} | {fr['invested'].mean():.0%} | {effn:.1f} | {fr['turn'].mean() * ANN:.1f} | {fr['gross'].mean() * ANN:+.1%} | {net.mean() * ANN:+.1%} | {ir:+.2f} | {irk:+.2f} | {mdd:.1%} | {hold:.1f} | {ir / np.sqrt(effn) if effn > 0 else float('nan'):+.3f} |")
-    base = cells[(24, 0.0625)]
+    base = cells.get((24, 0.0625)) or cells[min(cells)]
     lines.append("")
     lines.append("### 진단 — 리밸런싱 주기(1단계가 바꾼 가정): 같은 경로, 5세션마다 재선정")
     lines.append("")
     lines.append("| N | 상한 | 주기 | 유효종목 | 연회전 | 비용전 연수익 | 비용후 연수익 | IR(명단) | IR(K200) | MDD | 평균 보유일 |"); lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
-    for n, cap in ((24, 0.0625), (50, 0.04), (80, 0.025)):
+    for n, cap in [(n_, GRID_CAP[-1]) for n_ in GRID_N]:
         for cadence in (1, 5):
             fr, hold = path(panel, idx, n, cap, cadence=cadence)
             net = fr["net"]; ex = net - fr["bench"]; nav = (1 + net).cumprod(); mdd = float((nav / nav.cummax() - 1).min())
