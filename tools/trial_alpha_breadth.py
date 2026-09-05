@@ -148,11 +148,72 @@ def breadth(store: Store) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- 2b. 미장 폭 격자
+
+US_COST = 0.0030
+
+
+def breadth_us(store: Store) -> str:
+    """미장 — 시행 R 과 같은 경로(세션 키 = 신호 관측 KST 날짜, 진입 지연 1일, 편도 0.30%, 위험 하한 config)에 N 격자."""
+    start, end = date(2025, 9, 1), date(2026, 6, 23)
+    rk_all = scores_of(store, "ranker", [start, end], "US"); sessions = [d for d in rk_all.index if start <= d <= end]
+    ranker = rk_all.reindex(sessions); risk = scores_of(store, "risk", [start, end], "US").reindex(sessions)
+    trad = tradable_of(store, sessions, "US"); wide = prices_of(store, sessions, "US")
+    ret = (wide.shift(-1) / wide - 1.0); ret = ret.where(ret.abs() <= 0.5)
+    spx = index_of(store, sessions, "US", "US:IDX:SP500"); spx_ret = (spx.shift(-1) / spx - 1.0)
+    floor = float(store.config("selector.risk_floor_percentile", as_of=datetime.combine(end, time(23), tzinfo=UTC)))
+    judge = [d for d in sessions if d >= date(2026, 1, 19)]
+    smooth = ranker.ewm(span=5).mean()
+    lines = ["## 2b. 미장 폭(N) 격자 — 시행 R 경로(EMA5·완충 3N·동일가중·편도 0.30%), 판정 " + f"{len(judge)}세션 ({judge[0]}~{judge[-1]})", "",
+             "| N | 주기 | 유효종목 | 연회전 | 비용전 연수익 | 비용후 연수익 | IR(명단) | IR(SP500) | MDD | 평균 보유일 |", "|---|---|---|---|---|---|---|---|---|---|"]
+    for n in GRID_N:
+        for cadence in (1, 5):
+            held: list[str] = []; prev = None; rows = []; hold_days: dict[str, int] = {}; completed: list[int] = []
+            for k, day in enumerate(sessions):
+                if day not in ret.index:
+                    continue
+                f = smooth.loc[day].dropna(); f = f[f.index.isin(trad.get(day, set()))]
+                r = risk.loc[day].reindex(f.index) if day in risk.index else pd.Series(dtype=float)
+                if not r.dropna().empty:
+                    f = f[r >= r.quantile(floor)]
+                if f.empty:
+                    continue
+                order = f.sort_values(ascending=False).index
+                if k % cadence == 0 or not held:
+                    held = pick_mult(held, order, n, 3)
+                else:
+                    held = [e for e in held if e in f.index] or pick_mult([], order, n, 3)
+                for e in list(hold_days):
+                    if e not in held:
+                        completed.append(hold_days.pop(e))
+                for e in held:
+                    hold_days[e] = hold_days.get(e, 0) + 1
+                w = pd.Series(1.0 / len(held), index=held); dr = ret.loc[day].reindex(w.index).fillna(0.0)
+                t = float(w.subtract(prev, fill_value=0.0).abs().sum()) if prev is not None else 1.0
+                bench = float(ret.loc[day].reindex(list(trad.get(day, set()))).dropna().mean()) if trad.get(day) else 0.0
+                if day in judge:
+                    rows.append({"gross": float((w * dr).sum()), "net": float((w * dr).sum()) - US_COST * t, "bench": bench, "turn": t,
+                                 "eff_n": 1.0 / float((w * w).sum()), "spx": float(spx_ret.get(day, 0.0) or 0.0)})
+                drift = w * (1 + dr); prev = drift / drift.sum() if drift.sum() > 0 else w
+            completed += list(hold_days.values())
+            fr = pd.DataFrame(rows); net = fr["net"]; ex = net - fr["bench"]; exs = net - fr["spx"]
+            nav = (1 + net).cumprod(); mdd = float((nav / nav.cummax() - 1).min())
+            ir = float(ex.mean() / ex.std() * np.sqrt(ANN)) if ex.std() > 0 else float("nan")
+            irs = float(exs.mean() / exs.std() * np.sqrt(ANN)) if exs.std() > 0 else float("nan")
+            lines.append(f"| {n} | {'매일' if cadence == 1 else '5세션'} | {fr['eff_n'].mean():.1f} | {fr['turn'].mean() * ANN:.1f} | {fr['gross'].mean() * ANN:+.1%} | {net.mean() * ANN:+.1%} | {ir:+.2f} | {irs:+.2f} | {mdd:.1%} | {np.mean(completed):.1f} |")
+    return "\n".join(lines)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("step", choices=["decay", "breadth"]); parser.add_argument("--root", default="data")
+    parser.add_argument("step", choices=["decay", "breadth", "breadth-us"]); parser.add_argument("--root", default="data")
+    parser.add_argument("--ns", type=int, nargs="*", help="N 격자 덮어쓰기 (예: --ns 120 200 400)")
     args = parser.parse_args(argv); store = Store(root=Path(args.root))
-    print(decay(store) if args.step == "decay" else breadth(store), flush=True)
+    if args.ns:
+        global GRID_N, GRID_CAP
+        GRID_N = tuple(args.ns); GRID_CAP = (0.0625,)
+    out = {"decay": decay, "breadth": breadth, "breadth-us": breadth_us}[args.step](store)
+    print(out, flush=True)
     return 0
 
 
