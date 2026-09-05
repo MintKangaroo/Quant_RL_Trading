@@ -372,6 +372,21 @@ _SPECS: dict[str, TableSpec] = {
             "fundamentals 가 460만 행(2.2GB)이 되어 Analyst 가 OOM 으로 죽었다."
         ),
     ),
+    "names_ko": TableSpec(
+        name="names_ko",
+        columns={
+            "market": pa.string(),
+            "name_ko": pa.string(),     # 한국어 회사명 (네이버 증권 해외주식)
+            "name_en": pa.string(),
+            "exchange": pa.string(),    # NASDAQ · NYSE · AMEX
+        },
+        # 참조 속성 — 이름은 예측 정보가 아니다. 미장 탭이 티커 옆에 한국어 회사명을 보여주기 위한 것
+        # (사용자 요청 2026-09-05). 주 1회 갱신, 바뀌면 새 행.
+        reference_data=True,
+        natural_key=("entity_id", "valid_from", "source"),
+        observation_lag_days=3,
+        doc="미장 종목 한국어 명칭 참조 관측. 화면 표시 전용 — Analyst 는 읽지 않는다.",
+    ),
     "float_ratio": TableSpec(
         name="float_ratio",
         columns={

@@ -18,6 +18,9 @@ if TYPE_CHECKING:  # pragma: no cover - 타입 전용
     from quant_rl_trading.store import Store
 
 UNIVERSE = "universe"
+NAMES_KO = "names_ko"
+#: 이름은 주 1회 갱신 — 1년 안의 최신 행이면 충분하다.
+NAMES_KO_LOOKBACK_DAYS = 400
 
 #: 이름은 자주 안 바뀌지만 명단 갱신이 며칠 걸러 돌 수 있다. 창이 하루면
 #: 갱신이 안 돈 날 이름이 통째로 사라진다.
@@ -39,8 +42,19 @@ def of(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
     if frame.empty:
         return {}
     latest = frame.sort_values(["valid_from", "observed_at"]).groupby("entity_id").tail(1)
-    return {
+    out = {
         str(row["entity_id"]): str(row["name"])
         for row in latest.to_dict(orient="records")
         if row.get("name")
     }
+    # **미장은 한국어 이름을 덮는다** (`names_ko`, 네이버 증권 — 사용자 요청 2026-09-05). 참조 표라 as_of 가
+    # 첫 관측(2026-09-05) 앞이면 영문 그대로다. 없는 종목도 영문 그대로 — 빈칸으로 두지 않는다.
+    us = [e for e in entities if str(e).startswith("US:")]
+    if us:
+        ko = store.get(NAMES_KO, as_of=as_of, entity=us, lookback=NAMES_KO_LOOKBACK_DAYS, columns=["name_ko", "valid_from", "observed_at"])
+        if not ko.empty:
+            latest_ko = ko.sort_values(["valid_from", "observed_at"]).groupby("entity_id").tail(1)
+            for row in latest_ko.to_dict(orient="records"):
+                if row.get("name_ko"):
+                    out[str(row["entity_id"])] = str(row["name_ko"])
+    return out
