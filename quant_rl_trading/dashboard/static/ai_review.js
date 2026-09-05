@@ -84,7 +84,7 @@ async function renderKpis() {
   ].join("");
 
   document.getElementById("air-cost-badge").innerHTML =
-    `💳 이 창 누적 <b>${usd(d.llm_cost_usd)}</b> (${num(d.llm_usage_calls)}건)`;
+    `이 창 누적 <b>${usd(d.llm_cost_usd)}</b> (${num(d.llm_usage_calls)}건)`;
 
   // 예산은 **달** 단위, 이 화면의 창(lookback)은 아니다 — 창이 이달 전체를
   // 못 덮으면 이달 누적이 실제보다 적게 나온다(services/ai_review.py
@@ -93,8 +93,8 @@ async function renderKpis() {
   // 보인다 — 지출은 손익이 아니다 (dashboard.md §10).
   const budgetOver = d.llm_month_covered && d.llm_month_to_date_usd > d.llm_budget_usd;
   document.getElementById("air-budget-badge").innerHTML = d.llm_month_covered
-    ? `📅 이달 <b${budgetOver ? ' class="warn"' : ""}>${usd(d.llm_month_to_date_usd)}</b> / ${usd(d.llm_budget_usd)} 예산`
-    : `📅 이달 누적 — 이 창이 이달 전체를 안 덮어 미확인 (예산 ${usd(d.llm_budget_usd)} · llm.monthly_budget_usd)`;
+    ? `이달 <b${budgetOver ? ' class="warn"' : ""}>${usd(d.llm_month_to_date_usd)}</b> / ${usd(d.llm_budget_usd)} 예산`
+    : `이달 누적 — 이 창이 이달 전체를 안 덮어 미확인 (예산 ${usd(d.llm_budget_usd)} · llm.monthly_budget_usd)`;
 
   renderMarketsTable(d.markets);
 

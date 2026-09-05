@@ -28,6 +28,11 @@ from quant_rl_trading.store import Store
 DOCUMENTS = "documents"
 MACRO_RELEASES = "macro_releases"
 
+#: 이 화면이 문서 표에서 실제로 쓰는 컬럼. ``source``·``ingest_run_id``·
+#: ``raw_path``·``row_hash`` 는 화면에 안 나가는데 3만 행어치 문자열이다.
+#: headlines.py 와 목록을 맞춰 둔다 — 다르면 같은 표를 두 번 읽게 된다.
+DOCUMENT_COLUMNS = ["doc_id", "doc_type", "title", "filer", "url", "observed_at"]
+
 #: 일정을 찾을 때 되돌아볼 날수. 발표 일정은 몇 주 전에 공표되므로 뉴스보다
 #: 넉넉히 열어야 다음 달 일정이 잡힌다.
 SCHEDULE_LOOKBACK_DAYS = 60
@@ -59,7 +64,7 @@ def latest_news(
     같은 제목이 세 번 뜨면 읽는 사람이 셋을 다른 사건으로 읽으므로 ``doc_id``
     로 접는다 — 대신 어느 종목들에 걸렸는지는 남긴다.
     """
-    frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback)
+    frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback, columns=DOCUMENT_COLUMNS)
     if frame.empty:
         return []
 

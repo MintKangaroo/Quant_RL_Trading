@@ -73,14 +73,14 @@ def desk(store):  # type: ignore[no-untyped-def]
 
     store.append(
         "analyst_weights",
-        [_row("risk", YESTERDAY, market="KR", ic=0.077, weight=1.0)],
+        [_row("fundamental", YESTERDAY, market="KR", ic=0.077, weight=1.0)],
         ingest_run_id="weights",
     )
     store.append(
         "signals",
         [
             _row(
-                entity, NOW, analyst="risk", analyst_version="risk-v0.1.0",
+                entity, NOW, analyst="fundamental", analyst_version="fundamental-v0.1.0",
                 score=score, confidence=1.0, horizon_days=5, features_hash="x",
                 evidence_json="[]", latency_ms=1.0,
             )
@@ -225,7 +225,7 @@ def test_rl_이_아닌_것을_rl_처럼_그리지_않는다(client) -> None:
     assert decision["rl_active"] is False
     assert "M4" in decision["engine_note"]
     assert decision["entity_id"] == ENTITY  # 합성 점수 최상위
-    assert [item["analyst"] for item in decision["contributions"]] == ["risk"]
+    assert [item["analyst"] for item in decision["contributions"]] == ["fundamental"]
     # 목표와 실현이 벌어진 사실이 화면까지 온다 (불변식 7).
     assert decision["target_weight"] == pytest.approx(0.15)
     assert decision["realized_weight"] == pytest.approx(0.0102)
@@ -311,5 +311,87 @@ def test_되감은_채로는_킬스위치를_못_건다(client) -> None:
 def test_모드가_창고에서_유도된다(client) -> None:
     """shadow 창고를 실전으로 착각하는 것이 가장 비싼 오해다."""
     system = client.get("/api/trading").get_json()["data"]["system"]
-    assert system["mode"] in {"LIVE", "SHADOW", "BACKTEST"}
+    assert system["mode"] in {"LIVE", "SHADOW", "BACKTEST", "PAPER"}
     assert system["store_root"]
+
+
+def test_장이_닫혀_있으면_실시간_값이_종가라고_말한다(client) -> None:
+    """**마감 후의 마지막 체결가는 참고값이 아니라 오늘 종가다.**
+
+    일봉 수집이 장 끝난 뒤에 돌기 때문에, 그 사이 창고 기준 `nav`·`today_pnl`
+    은 아직 어제를 가리킨다. 화면이 그 구간에서 실시간 값을 버리면 "오늘
+    수익률 0.00%" 가 되는데, 안 움직인 것이 아니라 아직 모르는 것이다
+    (2026-08-19 실측 -1.13%).
+
+    시각 판단을 화면이 하면 장 마감 시각이 두 곳에 생기므로 서버가 말한다.
+    """
+    kpis = client.get("/api/trading").get_json()["data"]["kpis"]
+
+    assert "live_is_close" in kpis
+    # 이 픽스처의 NOW 는 정규장 밖이다 — 실시간 값이 있으면 그것이 종가다.
+    if kpis["live_session_open"] is False and kpis["live_nav"] is not None:
+        assert kpis["live_is_close"] is True
+    else:
+        assert kpis["live_is_close"] is False
+
+
+# -- 성과 넷 --------------------------------------------------------------------
+
+
+@pytest.fixture
+def priced(desk):  # type: ignore[no-untyped-def]
+    """어제 회계 스냅샷 한 행. 없으면 "비교할 어제" 자체가 없어 증감이 안 잰다."""
+    desk.append(
+        "nav_daily",
+        [
+            _row(
+                "FUND", YESTERDAY, nav=100_000_000.0, inflow=100_000_000.0,
+                twr_return=0.0, index_value=100.0, drawdown=0.0,
+                cash_krw=100_000_000.0, cash_usd=0.0, equity_kr=0.0, equity_us=0.0,
+                accrued_dividend=0.0, payable=0.0, fx_rate=1_350.0,
+                tax_provision=0.0, nav_after_tax=100_000_000.0,
+                benchmark_index=None, benchmark_note=None,
+            )
+        ],
+        ingest_run_id="nav",
+    )
+    return desk
+
+
+@pytest.fixture
+def desk_client(priced):  # type: ignore[no-untyped-def]
+    return create_app(store=priced, clock=ReplayClock(NOW)).test_client()
+
+
+def test_성과는_회계가_접어_준다(desk_client) -> None:
+    """화면이 자기 NAV·수익률을 접지 않는다. 메일도 같은 함수를 읽는다."""
+    payload = desk_client.get("/api/trading").get_json()["data"]
+    perf = payload["performance"]
+    assert perf["nav"] == payload["kpis"]["nav"]
+    assert perf["daily_return"] == payload["kpis"]["daily_return"]
+    assert perf["cumulative_return"] == payload["kpis"]["cumulative_return"]
+    assert perf["mode"] == payload["system"]["mode"]
+
+
+def test_자산_증감_옆에_입출금이_실린다(desk_client) -> None:
+    """증감과 수익률은 다른 사실이다. 입출금을 안 실으면 둘이 서로를
+    거짓말쟁이로 만든다 (accounting.md §6)."""
+    perf = desk_client.get("/api/trading").get_json()["data"]["performance"]
+    assert "nav_change" in perf and "inflow" in perf and "pnl" in perf
+    # 손익 = 증감 − 입출금. 화면이 이 뺄셈을 다시 하지 않게 서버가 낸다.
+    assert perf["pnl"] == pytest.approx(perf["nav_change"] - perf["inflow"])
+
+
+def test_원금은_통화를_환산해_더한다(desk_client) -> None:
+    """달러 입금을 1원으로 세면 총 수익금이 조용히 부푼다."""
+    perf = desk_client.get("/api/trading").get_json()["data"]["performance"]
+    assert perf["principal"] == pytest.approx(100_000_000.0)
+
+
+def test_체결_건수는_목록_길이가_아니다(desk_client) -> None:
+    perf = desk_client.get("/api/trading").get_json()["data"]["performance"]
+    assert perf["fill_count"] == perf["buy_count"] + perf["sell_count"]
+    assert perf["buy_count"] == 1 and perf["sell_count"] == 0
+    # 매수뿐이면 실현손익은 0 이 아니라 null 이다 — 0 은 "본전" 으로 읽힌다.
+    assert perf["realized_pnl"] is None
+

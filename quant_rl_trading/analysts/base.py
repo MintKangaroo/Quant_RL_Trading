@@ -189,6 +189,11 @@ class Analyst(ABC):
             as_of=as_of,
             lookback=lookback,
             columns=list(self.price_columns),
+            # **피처는 보정가로 만든다.** 액면분할·무상증자·감자가 보정되지
+            # 않으면 모멘텀이 그 배율을 수익률로 읽고, 창이 250일이면 사건
+            # 하나가 그 뒤 250세션을 오염시킨다
+            # (collectors/corporate_actions.py).
+            adjusted=True,
             # 시장을 SQL 에서 거른다. pandas 로 거르면 미장 행을 통째로 퍼온
             # 뒤 버리게 되고, 창고에 두 시장이 같이 사는 순간 국장 질의가
             # 그것만으로 죽는다.
@@ -215,6 +220,12 @@ class Analyst(ABC):
             as_of=as_of,
             lookback=lookback,
             columns=["is_listed", "is_tradable"],
+            # **시장을 SQL 에서 거른다** — ``price_panel`` 과 같은 이유다.
+            # 여기는 결과가 집합이라 미장이 섞여도 눈에 안 띄었다(국장 종목만
+            # 필터에 걸리므로 답은 맞는다). 그래서 창고가 커지는 동안 조용히
+            # 있다가 메모리로 터졌다 — 실측 lookback=1150 에서 656만행 중
+            # 67%가 안 쓸 미장이었고, `fundamental` 이 거기서 죽었다.
+            market=str(self.market),
         )
         if universe.empty:
             return None

@@ -22,6 +22,7 @@ from flask import Blueprint
 
 from quant_rl_trading.dashboard.api.common import envelope, scope, store
 from quant_rl_trading.dashboard.services import data_quality
+from quant_rl_trading.dashboard.services import freshness as freshness_service
 from quant_rl_trading.dashboard.services import system as service
 
 bp = Blueprint("system", __name__, url_prefix="/api/system")
@@ -29,6 +30,13 @@ bp = Blueprint("system", __name__, url_prefix="/api/system")
 
 def _system_thresholds(as_of: datetime) -> dict[str, Any]:
     return store().config("system", as_of=as_of)  # type: ignore[no-any-return]
+
+
+@bp.get("/freshness")
+def freshness() -> Any:
+    """데이터 기준일 — 기대 세션 대 창고 최신 세션. 모든 탭 머리의 띠가 이걸 읽는다."""
+    current = scope()
+    return envelope(current, freshness_service.summary(store(), as_of=current.as_of))
 
 
 @bp.get("/summary")

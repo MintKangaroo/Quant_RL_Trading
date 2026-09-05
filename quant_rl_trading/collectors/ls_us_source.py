@@ -55,7 +55,7 @@ from quant_rl_trading.collectors.ls_client import (
     LSClient,
     LSCredentials,
 )
-from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.collectors.publication import NotYetPublished, ObservedAtPolicy
 from quant_rl_trading.replay.clock import Clock
 
@@ -75,6 +75,34 @@ EXCHANGES = (NASDAQ, NYSE)
 
 #: g3204 한 번에 받을 수 있는 최대 행수. 넘겨도 잘려서 온다.
 MAX_ROWS_PER_CALL = 500
+
+#: 미장 지수 **대용 ETF** — 티커 → 거래소 코드. 실측으로 확정한 값이다
+#: (2026-08-19: SPY/DIA 는 81, QQQ/SOXX 는 82 에서만 행이 온다).
+#:
+#: ## 왜 지수가 아니라 ETF 인가
+#:
+#: LS 해외에는 지수가 없다. SPX·VIX 로 물으면 오류가 아니라 **빈 응답**이
+#: 온다. 지수는 FRED 가 주는데 FRED 는 하루 늦다 — 실측 2026-08-19 08:55 KST
+#: (뉴욕 마감 4시간 뒤) 에 SP500·NASDAQ·SOX·VIX 가 아직 08-17 에 멈춰 있었고,
+#: 같은 시각 LS 는 08-18 을 줬다. 아침 브리핑이 늘 하루 낡던 이유가 이것이다.
+#:
+#: ## 그래서 **지수 자리에 넣지 않는다**
+#:
+#: 이 명단은 ``indices`` 가 아니라 ``prices`` 로 간다. ETF 는 지수가 아니다 —
+#: 분배락에 가격이 떨어지고, 운용보수를 떼며(SPY 연 0.0945%), 시장가격이 NAV
+#: 와 벌어진다. SPY 종가 767 은 S&P 500 의 7,745 가 아니다. 대용치에 원본의
+#: 이름을 달아 주는 것이 이 저장소가 금지하는 바꿔치기다
+#: (``config/quant_rl_trading.yaml`` benchmark 절).
+#:
+#: 거래소를 여기 적어 두는 이유: 모르면 나스닥으로 치고 0행이면 뉴욕으로 다시
+#: 친다 — 네 종목이라 시간은 안 아깝지만, **0행이 "그 날 데이터가 없다" 와
+#: 같은 모양**이라 거래소를 틀린 채 조용히 빈 수집이 될 수 있다.
+INDEX_PROXY_ETFS: dict[str, str] = {
+    "SPY": NYSE,
+    "QQQ": NASDAQ,
+    "DIA": NYSE,
+    "SOXX": NASDAQ,
+}
 
 #: 미장 환경변수 접두사. 국장(``LS_``)과 **다른 appkey** 를 쓴다.
 US_ENV_PREFIX = "LS_US_"
@@ -175,6 +203,34 @@ class LsUsSource:
             cursor = next_cursor
 
         return [collected[day] for day in sorted(collected)]
+
+    def recent_bars(
+        self, symbol: str, *, exchange: str, start: date, end: date
+    ) -> list[dict[str, Any]]:
+        """최근 구간 일봉. **``daily_bars`` 와 달리 한 번만 부른다.**
+
+        구간이 500행(``MAX_ROWS_PER_CALL``) 안에 드는 것이 전제다. 증분 창은
+        길어야 몇 주라 항상 든다.
+
+        페이징을 없앤 것이 이 메서드의 존재 이유다. ``daily_bars`` 는 받은 것
+        중 가장 오래된 날이 ``start`` 보다 뒤면 ``edate`` 를 밀어 한 번 더
+        묻는데, 짧은 창에서는 그 두 번째 호출이 **주말·휴장 구간을 묻는 빈
+        호출**로 끝난다. 종목당 1호출이 2호출이 되고, 6,648종목이면 111분이
+        222분이 된다.
+
+        실측 2026-08-18: 2026-08-10~08-18 요청 → 7행, 1호출.
+        """
+        payload = self._chart_call(
+            symbol, exchange=exchange, start=start, end=end, cts_date="", cts_info=""
+        )
+        rows = payload.get(f"{TR_CHART}OutBlock1") or []
+        kept: dict[date, dict[str, Any]] = {}
+        for row in rows:
+            day = _session(row.get("date"))
+            # 구간 밖의 행이 섞여 오면 버린다. 이 호출이 책임지는 범위만 쓴다.
+            if day is not None and start <= day <= end:
+                kept[day] = row
+        return [kept[day] for day in sorted(kept)]
 
     def master(self, symbol: str, *, exchange: str) -> dict[str, Any]:
         """종목 단건 정보. 심볼이 살아 있는지 확인하는 용도로도 쓴다.
@@ -459,4 +515,297 @@ class UsPriceBackfiller:
         self, symbols: list[str], *, start: date, end: date
     ) -> Iterator[UsPriceResult]:
         for batch, group in self.pending(symbols):
+            yield self.run_batch(batch, group, start=start, end=end)
+
+
+# -----------------------------------------------------------------------------
+# 일일 증분
+# -----------------------------------------------------------------------------
+#
+# 위의 ``UsPriceBackfiller`` 는 5년을 채우는 물건이다. 종목당 4~8호출이고
+# 6,648종목이면 반나절이 든다 — **하루 한 번 도는 크론에 넣을 수 없다.** 그래서
+# 미장 일봉은 사람이 백필을 돌릴 때만 들어왔고, 그 사이 창고는 며칠씩 밀렸다
+# (2026-08-18 실측: 국장 08-14, 미장 08-12 — 3세션 결손).
+#
+# ## 다중조회 TR 을 찾아봤고, 없었다 — 실측 2026-08-18
+#
+# 국장에는 ``t8407``(복수종목 현재가)이 있어 한 콜에 여러 종목이 온다. 미장에
+# 대응물이 있는지 ``/overseas-stock`` 의 TR 을 실제로 쳐 봤다:
+#
+#     g3104  현재가        1종목  (keysymbol 단건)
+#     g3106  현재가+호가   1종목
+#     g3102  시간대별체결  1종목
+#     g3202  N틱봉         1종목  ← 분봉이 아니다 (아래 정정)
+#     g3203  N분봉         1종목
+#     g3190  ─            InBlock 조합 5가지 전부 ``00009 해당 자료가 없습니다``
+#     g3204  일봉          1종목
+#
+# **미장은 전부 종목 단건이다.** 짐작이 아니라 호출해서 확인했다 (이 저장소는
+# ``t8410`` 을 잘못된 경로로 불러 "TR 이 없다" 는 결론에 도달한 적이 있다).
+#
+# ## 정정 2026-08-18 — ``g3202`` 는 분봉이 아니었다
+#
+# 위 표가 ``g3202`` 를 N분봉으로 적어 뒀는데 **틀렸다.** 개발자포털 카탈로그의
+# ``trName`` 으로 확인했다:
+#
+#     g3202  "차트NTICK 조회"   ← N**틱**
+#     g3203  "차트NMIN 조회"    ← N**분**
+#
+# 실호출로도 갈렸다 — ``g3203`` 에 ``ncnt=10`` 을 주면 ``loctime`` 이 실제로
+# 10분 간격으로 온다(01:10:00 → 01:20:00 → …). AAPL 로 ncnt 1/5/15/60/240
+# 전부 응답을 받았다.
+#
+# 틀린 주석이 더 위험한 이유가 있다. 없는 TR 을 부르면 에러가 나서 바로
+# 알지만, **있는데 뜻이 다른 TR** 은 200 을 주고 봉을 준다 — 틱을 분봉으로
+# 알고 창고에 넣으면 아무도 모른다.
+#
+# ## ``loctime`` 은 KST 가 아니다
+#
+# 거래소 현지시간이다. 같은 응답의 ``timediff`` 로 환산한다 —
+# 거래소 UTC오프셋 = 9 + timediff. 실측: UTC 07:24 에 loctime="031900",
+# timediff=-13 → 오프셋 -4(EDT) → UTC 07:19, 실제와 맞았다.
+#
+# **오프셋을 박아 두지 마라.** 미국은 서머타임이 있어서 1년에 두 번, 특정
+# 날짜에만 한 시간씩 틀어진다 — 그런 결함은 몇 달 뒤에 발견되고 그때는 이미
+# 데이터가 오염돼 있다.
+#
+# ## 그래서 무엇이 달라지는가 — 호출 수를 줄이는 게 아니라 **구간**을 줄인다
+#
+# 종목당 1호출은 못 피한다. 대신 **받는 구간**을 5년에서 최근 며칠로 줄이면
+# ``daily_bars`` 의 페이징(edate 를 뒤로 미는 반복)이 통째로 사라진다. 실측:
+# 최근 10일 구간이면 응답 7행 · **1호출**이다. 1.05초 간격에서 종목당 1.00초,
+# 6,648종목에 약 111분 — 야간 크론이 감당할 수 있는 값이다.
+#
+# ## 왜 세션 × 배치로 기록하는가
+#
+# 백필은 배치 하나를 통째로 하나의 ``ingest_run_id`` 로 건다. 증분에 그 방식을
+# 쓰면 **창이 움직이므로 매일 같은 세션을 다시 쓴다** — 3일 창이면 세션마다
+# 행이 3벌 쌓인다. 반대로 세션만으로 걸면(국장 방식) 배치 하나가 실패했을 때
+# 그 세션이 "적재됨" 으로 남아 나머지 배치가 영영 못 들어온다.
+#
+# 그래서 **(세션, 배치)** 로 건다. 겹치는 창을 매일 돌려도 이미 받은 칸은
+# 매니페스트가 건너뛰고 — 호출 전에 판정하므로 API 도 안 친다 — 빠진 칸만
+# 다시 받는다.
+#
+# ## 부분 수집은 이름을 달리 쓴다
+#
+# ``scope`` 가 그 표지다. 상위 N종목만 받거나 몇 종목만 시험 적재할 때 전체
+# 실행과 같은 run_id 를 쓰면, 그 칸이 "적재됨" 으로 잠겨 **나머지 종목이 영영
+# 안 들어온다.** 이 저장소에서 제일 비싸게 배운 실패 모양이다. 부분 실행은
+# ``inc-prices-US-2026-08-17-top500-b000`` 처럼 별도 이름을 쓰고, 나중에 전체
+# 실행이 같은 세션을 다시 채운다 — 겹치는 행은 읽기 경로가 자연키로 하나만
+# 고르므로(reader 의 revision·observed_at 선택) 결과가 흔들리지 않는다.
+
+#: 증분 배치 크기. 백필(900)보다 크게 잡는다 — 증분은 배치당 행이 세션 수
+#: 만큼(3~5행)뿐이라 메모리가 문제되지 않고, 배치 수가 곧 파티션당 파일 수라
+#: 작을수록 좋다 (``us_run_id`` 주석의 247만 파일 사고 참조).
+INCREMENTAL_BATCH_SIZE = 1700
+
+
+def incremental_run_id(market: Market, day: date, batch: int, *, scope: str = "") -> str:
+    """(세션, 배치) 하나당 하나. ``scope`` 는 부분 수집의 표지다."""
+    tag = f"-{scope}" if scope else ""
+    return f"inc-{PRICES}-{market}-{day.isoformat()}{tag}-b{batch:03d}"
+
+
+@dataclass(frozen=True)
+class UsIncrementalResult:
+    batch: int
+    symbols: int
+    rows: int
+    #: 이번에 실제로 적재한 세션.
+    sessions: tuple[date, ...] = ()
+    #: 이미 매니페스트에 있어 호출조차 안 한 세션.
+    already: tuple[date, ...] = ()
+    #: 아직 공표 전이라 뺀 세션 수. **실패가 아니다** — 내일 실행이 받는다.
+    deferred_sessions: int = 0
+    #: LS 가 봉을 주지 않은 심볼. 상장폐지·거래정지가 대부분이라 실패가 아니다.
+    missing: tuple[str, ...] = ()
+    #: 실제로 나간 API 호출 수. 예상 소요를 재는 유일한 근거다.
+    calls: int = 0
+
+    @property
+    def skipped(self) -> bool:
+        return self.calls == 0
+
+    @property
+    def unit(self) -> str:
+        return f"b{self.batch:03d}"
+
+
+@dataclass
+class UsIncrementalCollector:
+    """최근 며칠치 미장 일봉만 받아 채운다. 크론이 부르는 경로다."""
+
+    store: Any
+    source: LsUsSource
+    clock: Clock
+    archive: Any
+    policy: ObservedAtPolicy
+    market: Market = Market.US
+    exchanges: dict[str, str] = field(default_factory=dict)
+    batch_size: int = INCREMENTAL_BATCH_SIZE
+    #: 부분 수집 표지. 빈 문자열이면 전체 수집이다.
+    scope: str = ""
+    on_symbol: Any = None
+
+    def batches(self, symbols: list[str]) -> list[tuple[int, list[str]]]:
+        """(배치 번호, 종목들). 번호가 run_id 에 박히므로 **명단 순서에 고정**된다.
+
+        호출부가 항상 같은 규칙으로 정렬해 넘겨야 어제의 배치 000 과 오늘의
+        배치 000 이 같은 종목 묶음이다. 다르면 재개가 성립하지 않는다.
+        """
+        return [
+            (index, symbols[offset : offset + self.batch_size])
+            for index, offset in enumerate(range(0, len(symbols), self.batch_size))
+        ]
+
+    def published(self, day: date) -> bool:
+        """그 세션을 지금 저장해도 되는가. 정책이 유일한 판정자다."""
+        try:
+            self.policy.for_session(day)
+        except NotYetPublished:
+            return False
+        except Exception:
+            # 거래일이 아닌 날. 달력이 진실이고 응답이 아니다.
+            return False
+        return True
+
+    def pending_sessions(self, batch: int, sessions: list[date]) -> list[date]:
+        """이 배치에서 아직 안 받은 세션. **호출 전에** 판정한다.
+
+        여기서 걸러야 API 를 안 친다. 받아 놓고 버리면 111분이 매일 그대로
+        든다 — 증분의 의미가 없어진다.
+        """
+        return [
+            day
+            for day in sessions
+            if not self.store.ingest_run_recorded(
+                PRICES, incremental_run_id(self.market, day, batch, scope=self.scope)
+            )
+        ]
+
+    def _fetch(
+        self, symbol: str, *, start: date, end: date
+    ) -> tuple[str, list[dict[str, Any]], int]:
+        """(거래소, 봉, 실제 호출 수). 거래소를 모르면 **차트로** 알아낸다.
+
+        ``resolve_exchange`` 는 종목마스터(g3101)를 최대 2번 불러 거래소를
+        확정하고, 그 뒤에 차트를 또 부른다 — 종목당 최대 3호출이다. 6,647
+        종목이면 그 차이가 111분과 250분이다.
+
+        여기서는 마스터를 부르지 않고 **차트를 바로 친다.** 거래소가 틀리면
+        LS 는 오류가 아니라 **0행**을 준다(실측 2026-08-18: AAPL/exchcd=81 →
+        0행, /82 → 5행; JPM 은 그 반대). 그러니 0행이면 다른 거래소로 한 번
+        더 치면 된다 — 맞으면 1호출, 틀리면 2호출이고, 맞힌 값은 호출부가
+        캐시에 남겨 다음날부터 항상 1호출이다.
+
+        나스닥을 먼저 본다. 종목 수가 더 많아 평균 호출이 준다.
+        """
+        known = self.exchanges.get(symbol)
+        order = [known, *(code for code in EXCHANGES if code != known)] if known else list(
+            EXCHANGES
+        )
+
+        calls = 0
+        for exchange in order:
+            bars = self.source.recent_bars(
+                symbol, exchange=exchange, start=start, end=end
+            )
+            calls += 1
+            if bars:
+                return exchange, bars, calls
+        # 전부 0행이면 상장폐지·거래정지·LS 미취급이다. 사실이지 실패가 아니다.
+        return order[0], [], calls
+
+    def run_batch(
+        self, batch: int, symbols: list[str], *, start: date, end: date
+    ) -> UsIncrementalResult:
+        # **아직 공표 안 된 세션은 후보에서 뺀다.** 넣어 두면 그 세션이
+        # 영원히 "안 받은 칸" 으로 남아, 같은 날 두 번째 실행이 6,647종목을
+        # 통째로 다시 부른다 — 받아 봐야 ``normalize_bars`` 가 전부 버린다.
+        sessions = [
+            day for day in trading_days(self.market, start, end) if self.published(day)
+        ]
+        wanted = set(self.pending_sessions(batch, sessions))
+        already = tuple(day for day in sessions if day not in wanted)
+        if not wanted:
+            return UsIncrementalResult(batch, len(symbols), 0, already=already)
+
+        by_session: dict[date, list[dict[str, Any]]] = {}
+        payloads: dict[str, Any] = {}
+        missing: list[str] = []
+        deferred_total = 0
+        calls = 0
+
+        for symbol in symbols:
+            try:
+                exchange, bars, spent = self._fetch(symbol, start=start, end=end)
+            except CollectorError as error:
+                # 한 종목 실패로 배치를 통째로 버리지 않는다. 그 세션은
+                # 매니페스트에 남지 않으니 내일 실행이 다시 받는다.
+                missing.append(f"{symbol}({error})")
+                continue
+            calls += spent
+
+            if not bars:
+                missing.append(symbol)
+                continue
+            self.exchanges[symbol] = exchange
+
+            payloads[symbol] = bars
+            rows, deferred = normalize_bars(
+                bars, symbol=symbol, market=self.market, observed_at_for=self.policy
+            )
+            deferred_total += len(deferred)
+            for row in rows:
+                day = row["valid_from"].date()
+                if day in wanted:
+                    by_session.setdefault(day, []).append(row)
+            if self.on_symbol is not None:
+                self.on_symbol(symbol, len(rows))
+
+        if not by_session:
+            # **빈 것을 완료로 기록하지 않는다.** 기록하면 나중에 데이터가
+            # 생겨도 영영 건너뛴다.
+            return UsIncrementalResult(
+                batch,
+                len(symbols),
+                0,
+                already=already,
+                deferred_sessions=deferred_total,
+                missing=tuple(missing),
+                calls=calls,
+            )
+
+        self.archive.save(
+            self.source.name,
+            payloads,
+            observed_at=self.clock.now(),
+            ingest_run_id=incremental_run_id(self.market, end, batch, scope=self.scope),
+            label=f"{SOURCE}-inc-b{batch:03d}",
+        )
+
+        written = 0
+        stored: list[date] = []
+        for day in sorted(by_session):
+            run_id = incremental_run_id(self.market, day, batch, scope=self.scope)
+            written += self.store.append(PRICES, by_session[day], ingest_run_id=run_id)
+            stored.append(day)
+
+        return UsIncrementalResult(
+            batch,
+            len(symbols),
+            written,
+            sessions=tuple(stored),
+            already=already,
+            deferred_sessions=deferred_total,
+            missing=tuple(missing),
+            calls=calls,
+        )
+
+    def run(
+        self, symbols: list[str], *, start: date, end: date
+    ) -> Iterator[UsIncrementalResult]:
+        for batch, group in self.batches(symbols):
             yield self.run_batch(batch, group, start=start, end=end)

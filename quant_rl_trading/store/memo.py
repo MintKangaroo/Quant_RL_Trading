@@ -33,6 +33,10 @@ import pandas as pd
 
 from quant_rl_trading.store import Store
 
+# 이름을 직접 가져온다. 패키지 이름공간의 ``config`` 는 모듈이 아니라 같은
+# 이름의 편의 함수라(store/__init__ 끝), ``import ... as`` 로는 그쪽이 잡힌다.
+from quant_rl_trading.store.config import CONFIG_TABLE, resolve
+
 
 def _key(
     table: str,
@@ -61,6 +65,9 @@ class MemoStore:
     def __init__(self, inner: Store) -> None:
         self._inner = inner
         self._frames: dict[tuple[Any, ...], pd.DataFrame] = {}
+        #: 설정 캐시. 프레임과 따로 두는 이유는 ``invalidate(table)`` 이
+        #: 프레임만 버리기 때문이다 — 설정은 그 경로로 안 바뀐다.
+        self._config: dict[tuple[str, datetime], Any] = {}
         self.hits = 0
         self.misses = 0
 
@@ -96,9 +103,26 @@ class MemoStore:
         return cached.copy()
 
     def config(self, name: str, *, as_of: datetime) -> Any:
-        # 설정은 작고 자주 읽힌다. 캐시하지 않는다 — 이득이 없고, 세션 중간에
-        # 설정이 바뀌는 경우를 굳이 막을 이유도 없다.
-        return self._inner.config(name, as_of=as_of)
+        """임계치. **캐시한다** — 같은 as_of 면 같은 값이다.
+
+        전에는 "설정은 작고 자주 읽히니 이득이 없다" 고 적혀 있었다. 실측이
+        그 가정을 뒤집었다(2026-08-18): 대시보드 ``/api/trading`` 한 번이
+        **config 를 30회 읽고 0.41초**를 쓴다. 응답 2.4초의 17% 다. 값이 작은
+        것과 조회가 싼 것은 다르다 — 창고는 파티션 파일을 훑는다.
+
+        캐시 수명은 이 객체와 같다. 세션·요청 경계에서 버려지므로 "세션 중간에
+        설정이 바뀌는 경우" 는 애초에 as_of 가 고정된 한 세션 안의 이야기이고,
+        그 안에서 값이 달라지면 그게 오히려 재현 불가능이다.
+        """
+        key = (name, as_of)
+        if key in self._config:
+            return self._config[key]
+        # **``self.get``** 을 쓴다. ``self._inner.config`` 로 넘기면 그 안의
+        # 표 조회가 이 캐시를 못 타고, 이름마다 config 표를 새로 읽는다 —
+        # 요청 하나가 여섯 이름을 읽으면 조회도 여섯 번이었다(실측 0.54초).
+        value = resolve(self.get(CONFIG_TABLE, as_of=as_of), name, as_of)
+        self._config[key] = value
+        return value
 
     # -- 적재 -----------------------------------------------------------------
 

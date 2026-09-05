@@ -27,6 +27,7 @@ from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest import execution as execution_module
 from quant_rl_trading.backtest import stats as stats_module
+from quant_rl_trading.broker import Broker
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.collectors.publication import publication_policy
 from quant_rl_trading.executor import orders as orders_module
@@ -67,6 +68,10 @@ class DayResult:
     filled: int
     traded_value: float
     blocked_by: str
+    #: 알파 Analyst 가 0종이라 선정이 못 돈 사유. 빈 문자열이면 정상이다.
+    #: `blocked_by`(안전장치가 일했다)와 구분해서 들고 있어야 실행기가 둘을
+    #: 다른 종료코드로 내보낼 수 있다.
+    fault: str
     notes: tuple[str, ...]
     #: 성적 집계에서 빠지는 날. 신호 이력을 쌓기 위해 돌린 구간이다.
     warmup: bool = False
@@ -106,7 +111,9 @@ class BacktestResult:
         )
 
 
-def snapshot_moment(store: Store, day: date, *, as_of: datetime) -> datetime:
+def snapshot_moment(
+    store: Store, day: date, *, as_of: datetime, market: Market = Market.KR
+) -> datetime:
     """그날 세션의 기준 시각. **신호 공표 시각과 스냅샷 시각 중 늦은 쪽이다.**
 
     회계 스냅샷은 15:40 이다(accounting.md §2). 그런데 Analyst 신호는 종가
@@ -122,6 +129,17 @@ def snapshot_moment(store: Store, day: date, *, as_of: datetime) -> datetime:
     ``as_of`` 는 설정을 읽기 위한 시점이다 — 임계치도 이중시간이라 그날 유효한
     값을 봐야 한다.
     """
+    # **미장 세션의 시각은 미장 종가 공표 시각이다.** 국장 기준(16:00 KST)을 그대로
+    # 쓰면 그 시각은 ET 03:00 — 그날 미장이 열리기도 전이라 세션이 그날 종가·신호를
+    # 못 보고 전날 것으로 결정하며, 다음 날 체결 단계도 그날 봉을 못 찾아 체결 0 이
+    # 된다(2026-09-02 실측: 미장 shadow 가 16:00 KST 로 찍혀 체결 0). 미장은 회계
+    # 스냅샷(15:40 KST)과 무관하게 ET 16:00 + 공표 지연으로 잡는다 — 한국 시간으로
+    # 다음 날 새벽이라 국장 스냅샷과 valid_from 이 겹치지 않는다.
+    if market is not Market.KR:
+        policy = publication_policy(store, market, clock=ReplayClock(as_of))
+        settled = replace(policy, clock=ReplayClock(as_of + timedelta(days=3)))
+        return settled.for_session(day)
+
     try:
         raw = str(store.config("accounting.snapshot_time", as_of=as_of))
         moment = time.fromisoformat(raw)
@@ -195,8 +213,17 @@ def run(
     warmup_days: int = 0,
     produce_signals: bool = True,
     on_day: DayCallback | None = None,
+    broker: Broker | None = None,
 ) -> BacktestResult:
     """구간 백테스트.
+
+    ``broker`` 를 안 주면 **주문이 나가지 않는다**(``PaperBroker``). 백테스트와
+    shadow 는 언제나 그 상태이고, 실전 세션만 ``tools/run_session.py`` 가
+    ``broker.factory.build_broker`` 로 만들어 넘긴다. 이 루프에 실전 분기는
+    없다 — 갈리는 것은 주입된 브로커뿐이다(불변식 5).
+
+    ⚠️ **구간을 여러 날로 잡고 브로커를 주면 과거 날짜의 주문이 실제로
+    나간다.** 실전 호출부는 반드시 하루만 돌린다(``run_session.py``).
 
     ``capital`` 이 0 보다 크면 첫 거래일 **전날**에 입금 한 행을 넣는다. 이미
     자본이 들어와 있는 창고(이어 돌리기)에서는 0 으로 두면 된다.
@@ -231,9 +258,11 @@ def run(
     # 어긴다. 첫 거래일의 기본 스냅샷 시각을 탐침으로 쓴다 — 설정은 이중시간이라
     # 그날 유효한 값이 나온다.
     probe = datetime.combine(sessions[0], DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL)
-    first = snapshot_moment(store, sessions[0], as_of=probe)
+    first = snapshot_moment(store, sessions[0], as_of=probe, market=market_enum)
     if capital > 0:
-        opening = snapshot_moment(store, sessions[0], as_of=first) - timedelta(days=1)
+        opening = snapshot_moment(
+            store, sessions[0], as_of=first, market=market_enum
+        ) - timedelta(days=1)
         seed_capital(store, ReplayClock(opening), amount=capital, as_of=opening)
 
     warmup_set = set(warmup)
@@ -246,7 +275,7 @@ def run(
     previous_session: str | None = None
 
     for day in sessions:
-        as_of = snapshot_moment(store, day, as_of=first)
+        as_of = snapshot_moment(store, day, as_of=first, market=market_enum)
         clock = ReplayClock(as_of)
         elapsed: dict[str, float] = {}
         mark = perf_counter()
@@ -255,7 +284,7 @@ def run(
         executed = execution_module.ExecutionDay(session_id=previous_session or "")
         if previous_session:
             executed = execution_module.run(
-                store, clock, as_of=as_of, market=market, session_id=previous_session
+                store, clock, as_of=as_of, market=market, session_id=previous_session, day=day,
             )
             if day not in warmup_set:
                 traded_value += executed.traded_value
@@ -292,10 +321,18 @@ def run(
         mark = perf_counter()
 
         # 4. 결정 — 주문을 만들고 기록한다. 보내지는 않는다.
+        #
+        # **이 시장의 보유만 넘긴다.** 장부 하나에 국장·미장이 함께 들어 있을 때
+        # (shadow 가 두 시장을 같은 창고에 쌓는다) 전체를 넘기면 미장 세션이
+        # 국장 보유를 "팔 대상" 으로 잡고, realized_weights 가 KR: 종목을
+        # market='US' 로 찍으려다 스키마 가드에 걸린다 (2026-09-01 미장 shadow
+        # 첫 실행에서 실제로 그랬다). 시장이 다른 포지션은 그 시장의 세션이
+        # 관리한다 — 여기서 손대면 두 세션이 같은 포지션을 서로 판다.
+        prefix = f"{market}:"
         holdings = {
             entity: int(position.quantity)
             for entity, position in book.positions.items()
-            if position.quantity > 0
+            if position.quantity > 0 and str(entity).startswith(prefix)
         }
         session = daily_module.run(
             store,
@@ -305,6 +342,15 @@ def run(
             holdings=holdings,
             board=board,
             wall_clock=clock,
+            # **워밍업 날에는 브로커를 주지 않는다.** 워밍업은 과거 재생이다 —
+            # 신호 이력을 쌓고 어제 주문을 오늘 체결시키려고 다시 굴리는 것이라,
+            # 그날의 주문은 이미 지나간 결정이다. 그것을 실제로 내보내면 어제
+            # 가격으로 오늘 주문을 내는 것이 된다.
+            #
+            # ``run_session.py`` 가 체결 단계를 돌리려고 항상 전날을 워밍업으로
+            # 같이 굴리기 때문에(그렇게 안 하면 D+1 체결이 아예 안 돈다), 이
+            # 한 줄이 없으면 실전 세션마다 전날 주문이 한 벌씩 더 나간다.
+            broker=None if day in warmup_set else broker,
         )
         elapsed["결정"] = perf_counter() - mark
         # 최대 RSS(MB). **메모리는 조용히 는다** — 2026-08-14 실행이 5.3GB 에서
@@ -331,6 +377,7 @@ def run(
             traded_value=executed.traded_value,
             elapsed=elapsed,
             blocked_by=session.blocked_by,
+            fault=session.fault,
             notes=tuple(notes),
             warmup=day in warmup_set,
         )

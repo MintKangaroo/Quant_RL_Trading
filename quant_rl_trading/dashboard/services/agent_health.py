@@ -32,15 +32,17 @@ VERDICTS = "verdicts"
 #: 아직 구현되지 않았거나 데이터가 없어 관찰 모드인 Analyst.
 #: 명단에서 빼지 않는다 — 빠지면 "왜 없지" 를 아무도 묻지 않게 된다.
 PLANNED = {
-    "chart": "가격·거래량",
+    "chart": "가격 추세",
     "flow_kr": "투자자별 수급 (LS t1717)",
-    "flow_us": "미장 수급 — 데이터 없음",
+    "flow_us": "미장 수급 — FINRA 일별 공매도 거래량 (short_flow)",
     "fundamental": "DART 재무",
     "news": "공시·뉴스 필터 (Verdict)",
     "sns": "펌핑 탐지 (Verdict)",
     "regime": "지수·변동성",
     "event": "달력",
     "risk": "상관·변동성·유동성",
+    "volume": "거래량 급증 (chart 에서 분리)",
+    "ranker": "기초 점수 6개의 순위 목적 GBM 결합 (시행 L)",
 }
 
 
@@ -57,7 +59,7 @@ def latest_weights(store: Store, *, as_of: datetime, lookback: int) -> pd.DataFr
 
 
 def roster(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
-    """Analyst 9명 전원의 상태. 측정 안 된 것도 명단에 남긴다."""
+    """Analyst 전원의 상태. 측정 안 된 것도 명단에 남긴다."""
     measured = latest_weights(store, as_of=as_of, lookback=lookback)
     by_name: dict[str, dict[str, Any]] = {}
     if not measured.empty:
@@ -132,15 +134,25 @@ def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any
     return {"series": series, "points": len(frame)}
 
 
+#: 신호 현황 창(거래일 아닌 달력일). 90일 창은 통계가 아니라 부하였다.
+SIGNAL_ACTIVITY_DAYS = 14
+
+
 def signal_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     """Signal 기록 현황. '점수를 내고 있는가' 를 본다.
 
     가중치 0(관찰 모드)이어도 **Signal 은 계속 기록돼야 한다.** 기록이 멈추면
     나중에 그 Analyst 를 켤 근거를 만들 수 없다.
     """
-    frame = store.get(SIGNALS, as_of=as_of, lookback=lookback)
+    # 현황은 최근 2주면 답한다 — 90일 전 컬럼(evidence_json 등)을 3백만 행 읽던 것이
+    # Agent Health 탭 6초의 정체였다(2026-08-30). 창과 컬럼을 좁힌다.
+    window = min(int(lookback), SIGNAL_ACTIVITY_DAYS)
+    frame = store.get(
+        SIGNALS, as_of=as_of, lookback=window,
+        columns=["entity_id", "valid_from", "analyst", "analyst_version", "latency_ms", "confidence"],
+    )
     if frame.empty:
-        return {"analysts": [], "total": 0}
+        return {"analysts": [], "total": 0, "window_days": window}
 
     rows: list[dict[str, Any]] = []
     for (name, version), group in frame.groupby(["analyst", "analyst_version"]):
@@ -158,7 +170,7 @@ def signal_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str
                 "mean_confidence": float(group["confidence"].astype(float).mean()),
             }
         )
-    return {"analysts": sorted(rows, key=lambda item: str(item["analyst"])), "total": len(frame)}
+    return {"analysts": sorted(rows, key=lambda item: str(item["analyst"])), "total": len(frame), "window_days": window}
 
 
 def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:

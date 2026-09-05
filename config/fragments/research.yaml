@@ -1,0 +1,7 @@
+# 자기개선 안전장치 조각 (self-improvement.md §1) — 본 yaml 과 같은 값.
+# 조각으로 심는 이유: 전체 파일 시딩은 에포크 시점 비교라 이미 심긴
+# 정정본 4종을 "바뀌었다" 로 오탐한다 (seed_config_defaults 의 거짓 경고).
+research:
+  trial_budget_quarter: 200
+  holdout:
+    start: "2026-07-01"

@@ -242,6 +242,16 @@ class SecBulkFacts:
                 raise SecBulkUnavailable(f"{self.path} 를 열 수 없다: {error}") from error
         return self._zip
 
+    def facts_for_tags(self, cik: int, chain: Sequence[tuple[str, str]]) -> dict[str, Any] | None:
+        """CIK 하나에서 임의의 태그 사슬만 잘라 읽는다 (재무 백필용). 없으면 None."""
+        try:
+            blob = self._archive().read(f"CIK{cik:010d}.json")
+        except KeyError:
+            return None
+        except (zipfile.BadZipFile, OSError):
+            return None
+        return extract_tags(blob, chain)
+
     def facts_for(self, cik: int) -> dict[str, Any] | None:
         """CIK 하나의 companyfacts — **필요한 태그만** 파싱한 것.
 
@@ -276,6 +286,27 @@ class SecBulkFacts:
 
 
 _DECODER = json.JSONDecoder()
+
+
+def extract_tags(blob: bytes, chain: Sequence[tuple[str, str]]) -> dict[str, Any]:
+    """``_extract_tags`` 의 일반형 — 재무 백필(tools/backfill_fundamentals_us.py)이 손익·재무상태
+    태그를 같은 방식으로 잘라 읽는다. zip 을 여는 곳은 여전히 이 모듈뿐이다."""
+    text = blob.decode("utf-8", errors="replace")
+    facts: dict[str, dict[str, Any]] = {}
+    for taxonomy, tag in chain:
+        key = f'"{tag}":'
+        start = text.find(key)
+        if start < 0:
+            continue
+        brace = start + len(key)
+        if brace >= len(text) or text[brace] != "{":
+            continue
+        try:
+            value, _ = _DECODER.raw_decode(text, brace)
+        except ValueError:
+            continue
+        facts.setdefault(taxonomy, {})[tag] = value
+    return {"facts": facts}
 
 
 def _extract_tags(blob: bytes) -> dict[str, Any] | None:

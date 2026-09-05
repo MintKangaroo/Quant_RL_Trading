@@ -3,92 +3,21 @@
  * (지수 대비 · Positions 파이) 이다.
  */
 
-/* -- 캘린더 옆 지수 대비 --------------------------------------------------- */
+:root {
+  /* 캔들 위 MA20 선 색. app.css 의 :root 에는 없는 색이다 — 있는 토큰
+     (up/down/warn/muted) 을 재사용하면 MA5·MA60 과 헷갈린다. trading.js 가
+     token("--chart-ma20") 로 읽어 캔들 차트에 쓴다. */
+  --chart-ma20: #3e7bfa;
 
-/* 달력이 패널 폭의 일부만 쓴다(cal-month 는 flex 1 1 260px). 그 오른쪽
-   공백을 지수 대비 패널이 가져간다. 폭이 좁아지면 세로로 쌓는다 — 나란히
-   욱여넣으면 달력 칸이 다시 찌그러진다. */
-.cal-compare {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  /* Underwater 차트의 배경 밴드(자유·페널티·급증)와 캔들 확대축소 손잡이의
+     채움색. app.css 가 상태 배지에 쓰는 것과 같은 color-mix 패턴이다 — JS
+     안에 rgba(...) 리터럴을 두면 :root 토큰을 바꿔도 여기만 안 따라온다.
+     trading.js 가 token() 으로 읽어 echarts 에 문자열 그대로 넘긴다. */
+  --band-free: color-mix(in srgb, var(--ok) 7%, transparent); /* 자유=양호 — 손익색 아님 */
+  --band-warn: color-mix(in srgb, var(--warn) 10%, transparent);
+  --band-hard: color-mix(in srgb, var(--bad) 13%, transparent);
+  --chart-ma20-fill: color-mix(in srgb, var(--chart-ma20) 12%, transparent);
 }
-
-.cal-compare > .cal { flex: 1 1 280px; }
-
-.bench-compare {
-  flex: 1 1 320px;
-  min-width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.bench-row {
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px 10px;
-}
-
-.bench-row .head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.bench-row .label { color: var(--muted); font-size: 12px; }
-
-.bench-row .num {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 13px;
-}
-
-.bench-row .num.up { color: var(--up); }
-.bench-row .num.down { color: var(--down); }
-
-/* 없는 지수는 칸을 지우지 않고 자리를 지킨다 — 넷 중 하나만 있다는 사실이
-   화면에서 사라지면 안 된다(다른 셋은 창고에 없다). */
-.bench-row.unavailable {
-  color: var(--dim);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-}
-
-.bench-row.unavailable .label { color: var(--dim); }
-
-/* 누적 초과수익 곡선. **일별 막대가 아니다** — 저베타 전략에서 하루하루의
-   승패는 잡음이고, 막대는 상승장에서 빨강만 줄줄이 뜬다(그게 정상 동작인데
-   화면은 매일 졌다고 말한다). 색은 **마지막 값 하나**로만 정한다. */
-.bench-curve {
-  display: block;
-  width: 100%;
-  height: 34px;
-  margin-top: 6px;
-  overflow: visible;
-}
-
-.bench-curve polyline { stroke-width: 1.6px; }
-.bench-curve.up polyline { stroke: var(--up); }
-.bench-curve.down polyline { stroke: var(--down); }
-.bench-curve.flat polyline { stroke: var(--muted); }
-
-/* 0선 — 이게 없으면 곡선 모양만으로 "앞섰나 뒤졌나" 를 못 읽는다. */
-.bench-curve .zero {
-  stroke: var(--border);
-  stroke-width: 1px;
-  stroke-dasharray: 3 3;
-  vector-effect: non-scaling-stroke;
-}
-
-/* 양쪽이 다 관측되지 않은 날. 지우면 "그날도 잰 값" 처럼 보인다. */
-.bench-curve .gap { fill: var(--warn); }
-
-.bench-gap-note { margin: 4px 0 0; line-height: 1.45; }
 
 .positions-body > #positions { flex: 1 1 60%; min-width: 0; }
 
@@ -102,3 +31,100 @@
   .positions-body { flex-direction: column; }
   .positions-pie { width: 100%; }
 }
+
+/* -- 모바일 (≤768px) -------------------------------------------------------- */
+
+/* app.css 의 640px 규칙에 **더한다** — 지우거나 뒤집지 않는다. 여기 있는
+   것은 이 탭에만 있는 패널(Positions 파이 · 캘린더)의 크기와 배치뿐이다.
+   데스크톱 규칙은 그대로 둔다. */
+@media (max-width: 768px) {
+  /* Positions 파이는 이미 1400px 에서 세로로 내려와 있다. 폭이 손바닥만
+     해지면 260px 높이가 화면의 반을 먹으므로 더 줄인다 — 지우지는 않는다. */
+  .positions-pie { height: 180px; min-width: 0; }
+}
+
+/* -- ORDERS: 좁은 화면 ------------------------------------------------------ */
+
+/* 시각의 인라인 사본(종목 칸 아래 줄). 데스크톱은 시각이 자기 열에 있으므로
+   숨긴다 — watchlist 의 .pnl-inline 과 같은 두-벌 관용구다. */
+.time-inline { display: none; }
+
+@media (max-width: 768px) {
+  /* 시각 열이 접히면 첫 번째 **보이는** 열은 종목이지만, app.css 의 고정
+     규칙은 :first-child(= display:none 된 시각 td)를 잡아 아무것도 안
+     붙는다. 이 표만 두 번째 자식(종목)으로 고정 앵커를 옮긴다 — 옆으로
+     밀어도 어느 종목 행인지가 남는 것이 sticky 의 존재 이유다. */
+  #orders td:first-child, #orders th:first-child { position: static; }
+  #orders td:nth-child(2), #orders th:nth-child(2) {
+    position: sticky;
+    left: 0;
+    background: var(--panel);
+    z-index: 1;
+  }
+  #orders thead th:nth-child(2) { z-index: 2; }
+
+  .time-inline {
+    display: block;
+    color: var(--dim);
+    font-size: 10px;
+    line-height: 1.25;
+    white-space: nowrap;
+  }
+}
+
+/* -- WATCHLIST: 좁은 화면 -------------------------------------------------- */
+
+/* 데스크톱에서는 PnL 이 자기 열에 있고, 포지션 칸의 인라인 사본은 숨는다.
+   두 벌을 그리는 이유는 **한 벌을 옮기면 표가 흔들리기** 때문이다 — 열을
+   지웠다 살렸다 하면 나머지 열 폭이 매번 다시 계산된다. */
+.pnl-inline { display: none; }
+
+@media (max-width: 768px) {
+  /* 6열은 390px 에 안 들어간다. PnL 열을 접고 그 값을 포지션 칸 아래로
+     내린다 — 실측 2026-08-19(아이폰): `-6,81` 처럼 잘려 보였다.
+     포지션이 FLAT 인 행은 어차피 PnL 이 없어 영향이 없다. */
+  #watchlist th.c-pnl, #watchlist td.c-pnl,
+  #watchlist col.c-pnl { display: none; }
+  #watchlist .pnl-inline { display: block; }
+
+  #watchlist table { table-layout: fixed; width: 100%; }
+  /* **폭을 준다.** fixed 만 켜고 폭을 안 주면 열이 균등 분배되어 종목명 칸이
+     좁아지고 이름이 옆 칸 숫자와 겹친다 — 그게 실제로 났다. */
+  #watchlist col.c-name { width: 34%; }
+  #watchlist col.c-price { width: 20%; }
+  #watchlist col.c-chg { width: 20%; }
+  #watchlist col.c-sig { width: 13%; }
+  #watchlist col.c-pos { width: 13%; }
+
+  /* 숫자만 안 접는다. 종목명까지 nowrap 을 걸면 칸을 넘어 흘러나온다. */
+  #watchlist td.mono, #watchlist td.r { white-space: nowrap; }
+  #watchlist .name, #watchlist .code {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 포지션 칸 아래 PnL 은 작게. 여기가 넘치면 다시 겹친다. */
+  #watchlist .pnl-inline { font-size: 10px; line-height: 1.25; white-space: nowrap; }
+  #watchlist .sig { padding: 1px 4px; font-size: 10px; }
+}
+
+/* -- 오늘의 성과 ------------------------------------------------------------
+   KPI 스트립과 같은 그리드지만 **패널 안**이라 테두리를 따로 두지 않는다.
+   여섯 칸이 한 줄에 서야 "자산 증감" 과 "당일 수익률" 이 나란히 읽힌다 —
+   둘이 다른 줄로 갈리면 입금일에 왜 증감만 큰지가 안 보인다. */
+.perf-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.perf-cell { padding: 2px 0; }
+.perf-label {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.perf-value { font-size: 19px; line-height: 1.15; margin-top: 3px; }
+/* 방향이 없는 값에는 클래스가 안 붙는다 — 색을 칠하지 않는 것이 규칙이다. */
+.perf-value.up { color: var(--up); }
+.perf-value.down { color: var(--down); }
+.perf-note { color: var(--dim); font-size: 10.5px; margin-top: 1px; }

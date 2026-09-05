@@ -61,14 +61,29 @@ def evaluate_blocks(
     if settled.empty:
         return _empty(pending=len(blocked))
 
-    prices = read_prices(store, as_of=as_of, lookback=lookback)
+    # 구간 수익률을 낸다 — **보정가여야 한다.** 판정 구간에 분할이 끼면 그
+    # 종목의 성적이 배율만큼 찍히고, Analyst 가 하지 않은 실수로 점수를 잃는다.
+    # 컬럼을 좁힌다. 이 함수가 쓰는 것은 종가 하나인데, 안 좁히면 source ·
+    # ingest_run_id · row_hash 같은 문자열까지 55만 행어치 퍼온다
+    # (실측 1.35s → 0.58s). 대시보드 네 곳이 이 함수를 부른다.
+    prices = read_prices(
+        store, as_of=as_of, lookback=lookback, columns=["close"], adjusted=True
+    )
     if prices.empty:
         return _empty(pending=len(blocked))
+
+    # 같은 구간이 여러 번 나온다 — 하루치 판정은 보통 같은 시각에 걸리고 같은
+    # 만료를 갖는다. ``_returns_between`` 은 55만 행을 통째로 마스킹·groupby
+    # 하므로 구간마다 한 번만 낸다 (실측 100건 → 서로 다른 구간 몇 개).
+    windows: dict[tuple[Any, Any], pd.Series] = {}
 
     records: list[dict[str, Any]] = []
     for row in settled.to_dict(orient="records"):
         start, end = row["valid_from"], row["expires_at"]
-        returns = _returns_between(prices, start, end)
+        span = (start, end)
+        if span not in windows:
+            windows[span] = _returns_between(prices, start, end)
+        returns = windows[span]
         if returns.empty:
             continue
         entity = str(row["entity_id"])

@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, request
+from flask import Blueprint, current_app, request
 from werkzeug.exceptions import BadRequest
 
-from quant_rl_trading.dashboard.api.common import clock, envelope, scope, store
+from quant_rl_trading.dashboard.api.common import shadow_store, clock, envelope, scope, store
+from quant_rl_trading.dashboard.services import account as account_service
 from quant_rl_trading.dashboard.services import trading as service
 from quant_rl_trading.executor import guards
 
@@ -26,6 +27,8 @@ MARKETS = ("KR", "US")
 
 def _market() -> str:
     value = (request.args.get("market") or "KR").upper()
+    if value == "ALL":
+        return value
     if value not in MARKETS:
         raise BadRequest(f"market 은 {MARKETS} 중 하나여야 한다: {value!r}")
     return value
@@ -34,6 +37,15 @@ def _market() -> str:
 @bp.get("")
 def overview() -> Any:
     current = scope()
+    if _market() == "ALL":
+        # 종합 — 국장 모의계좌 장부 + 미장 shadow 슬리브. ledger 파라미터와 무관하게 둘 다 연다.
+        return envelope(
+            current,
+            service.combined_payload(
+                store(), shadow_store() or store(), clock(), as_of=current.as_of, lookback=current.lookback,
+                live_quotes=current_app.config.get("QUANT_RL_LIVE_QUOTES"),
+            ),
+        )
     return envelope(
         current,
         service.payload(
@@ -43,7 +55,21 @@ def overview() -> Any:
             market=_market(),
             lookback=current.lookback,
             entity_id=request.args.get("entity") or None,
+            live_quotes=current_app.config.get("QUANT_RL_LIVE_QUOTES"),
         ),
+    )
+
+
+@bp.get("/review")
+def review() -> Any:
+    """Claude 일일 리뷰 헤드라인 (M5). 없으면 ``review: null`` — 지어내지 않는다."""
+    from quant_rl_trading.auditor.daily_review import latest_review
+
+    current = scope()
+    market = request.args.get("market", "KR")
+    return envelope(
+        current,
+        {"review": latest_review(store(), as_of=current.as_of, market=market, lookback=current.lookback)},
     )
 
 
@@ -58,7 +84,31 @@ def calendar() -> Any:
     current = scope()
     return envelope(
         current,
-        service.calendar_payload(store(), as_of=current.as_of, lookback=current.lookback),
+        service.calendar_payload(
+            store(), as_of=current.as_of, lookback=current.lookback,
+            market=(request.args.get("market") or "KR").upper(),
+        ),
+    )
+
+
+@bp.get("/account")
+def broker_account() -> Any:
+    """증권사 계좌를 **실제로 조회한다** (t0424). 장부가 아니다.
+
+    KPI 는 장부에서 온다 — 백테스트와 라이브가 같은 숫자를 봐야 하고(불변식 5)
+    수익률은 입금을 걸러낸 TWR 이라 잔고에서 바로 안 나온다. **그렇다고 계좌를
+    안 보면 장부가 틀려도 모른다** — 2026-08-23 에 shadow 장부가 아직 안 들어온
+    입금 4.9억을 세어 총 수익률이 4900% 로 찍혔는데 대조할 것이 없었다.
+
+    **조회 전용이다.** 이 경로가 부르는 TR 은 t0424 하나뿐이라 주문이 나갈 길이
+    없다. 느리므로(외부 호출) 화면이 KPI 와 따로 늦게 불러 그린다.
+    """
+    current = scope()
+    return envelope(
+        current,
+        account_service.broker_account(
+            store(), as_of=current.as_of, market=_market()
+        ),
     )
 
 
@@ -106,20 +156,51 @@ def killswitch() -> Any:
     )
 
 
+#: 화면 세그먼트 버튼과 같은 값. "1D" 는 지금까지의 유일한 값이었다 —
+#: 기존 호출부(쿼리에 interval 을 안 주는 호출)가 그대로 일봉을 받도록
+#: 기본값으로 둔다(하위호환).
+DAILY_INTERVAL = "1D"
+
+
 @bp.get("/chart")
 def chart() -> Any:
-    """한 종목의 봉과 우리 체결 흔적."""
+    """한 종목의 봉과 우리 체결 흔적.
+
+    ``interval`` 을 안 주거나 ``1D`` 면 지금까지의 일봉 응답 그대로다.
+    분봉 다섯 개(1m/5m/15m/1H/4H) 는 창고에 ``prices_intraday`` 가 있을
+    때만 뜻이 있다 — 그래서 응답에 ``available_intervals`` 를 **항상**
+    같이 실어서, 화면이 별도 호출 없이 그 값으로 버튼을 켜고 끈다
+    (``templates/trading.html`` 의 disabled 버튼들, "없는 봉을 그리지
+    마라" 원칙의 반대쪽).
+    """
     current = scope()
     entity = request.args.get("entity")
     if not entity:
         raise BadRequest("entity 가 필요하다")
-    return envelope(
-        current,
-        service.candles(
+    market = _market()
+    interval = request.args.get("interval") or DAILY_INTERVAL
+
+    available = service.available_intraday_intervals(
+        store(), as_of=current.as_of, entity_id=entity, market=market
+    )
+
+    if interval == DAILY_INTERVAL:
+        data = service.candles(
             store(),
             as_of=current.as_of,
             entity_id=entity,
-            market=_market(),
+            market=market,
             lookback=current.lookback,
-        ),
-    )
+        )
+    elif interval in service.INTRADAY_INTERVALS:
+        data = service.intraday_candles(
+            store(), as_of=current.as_of, entity_id=entity, market=market, interval=interval
+        )
+    else:
+        raise BadRequest(
+            f"interval 은 {DAILY_INTERVAL!r} 또는 {service.INTRADAY_INTERVALS} 중 하나여야 한다: "
+            f"{interval!r}"
+        )
+
+    data["available_intervals"] = available
+    return envelope(current, data)

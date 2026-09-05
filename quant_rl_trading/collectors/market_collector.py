@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from quant_rl_trading.collectors.errors import CollectorError
 from quant_rl_trading.collectors.latency import LatencyRecorder
-from quant_rl_trading.collectors.ls_client import PATH_MARKET, LSClient
+from quant_rl_trading.collectors.ls_client import PATH_CHART, PATH_MARKET, LSClient
 from quant_rl_trading.collectors.market_hours import (
     Market,
     is_trading_day,
@@ -171,8 +172,32 @@ class MarketCollector:
         *,
         ingest_run_id: str,
         count: int = 100,
+        allow_duplicate_source: bool = False,
     ) -> int:
-        """일봉 수집 → 원본 보존 → 정규화 → 적재. 단계마다 지연을 잰다."""
+        """일봉 수집 → 원본 보존 → 정규화 → 적재. 단계마다 지연을 잰다.
+
+        **운영에서 부르면 안 된다. 그래서 막아 뒀다.**
+
+        경로 버그는 고쳤다 — ``PATH_MARKET``(``/stock/market-data``) 로 t8410 을
+        부르면 HTTP 500 ``IGW00215`` 라 이 메서드는 **한 번도 성공한 적이
+        없다**(실측 2026-08-15). 이제 ``PATH_CHART`` 로 부른다.
+
+        고친 뒤에도 막아 두는 이유는 따로다. **국장 일봉의 정본은 KRX Open
+        API** 이고(``krx_openapi``·``backfill``), LS 가 같은 ``prices`` 표에
+        다른 ``source`` 로 쓰기 시작하면 한 세션에 두 소스가 경쟁한다. 자연키가
+        ``(entity_id, valid_from)`` 이라 나중에 들어온 쪽이 이기고, 어느 값이
+        창고에 남는지가 **수집 순서에 달리게 된다.**
+
+        쓰려면 그 결정을 먼저 해라 — 국장 일봉의 정본을 무엇으로 할지. 정하기
+        전까지 이 메서드는 테스트에서만 산다.
+        """
+        if not allow_duplicate_source:
+            raise CollectorError(
+                "collect_ohlcv 는 막혀 있다. 국장 일봉의 정본은 KRX Open API 이고 "
+                "LS 를 같이 쓰면 prices 에 소스가 둘이 된다 — 어느 값이 남는지가 "
+                "수집 순서에 달리게 된다. 정본을 먼저 정하고 "
+                "allow_duplicate_source=True 로 명시해서 불러라"
+            )
         entity_id = f"{self.market}:{symbol}"
         latency = LatencyRecorder(
             store=self.store, clock=self.clock, source=SOURCE, ingest_run_id=ingest_run_id
@@ -180,7 +205,8 @@ class MarketCollector:
 
         with latency.stage("fetch", entity_id):
             payload = self.client.request_tr(
-                PATH_MARKET,
+                # **``PATH_MARKET`` 이 아니다.** 차트 TR 은 경로가 따로다.
+                PATH_CHART,
                 "t8410",
                 {
                     "t8410InBlock": {

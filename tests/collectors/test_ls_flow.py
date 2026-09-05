@@ -58,6 +58,7 @@ def normalized(policy):  # type: ignore[no-untyped-def]
     return normalize_flow_rows(
         SAMPLE, entity_id="KR:005930", market="KR",
         observed_at_for=policy.for_session,
+        collected_at=NOW,
     )
 
 
@@ -127,8 +128,62 @@ def test_unpublished_sessions_are_dropped() -> None:
     )
 
     assert normalize_flow_rows(
-        SAMPLE, entity_id="KR:005930", market="KR", observed_at_for=early.for_session
+        SAMPLE, entity_id="KR:005930", market="KR",
+        observed_at_for=early.for_session, collected_at=NOW,
     ) == []
+
+
+def test_observed_at_is_not_earlier_than_collection() -> None:
+    """**그날 것을 그날 받으면 받은 시각이 하한이다.**
+
+    t1717 이 하루 중 언제 값을 내는지 우리는 모른다. 봉의 공표 일정
+    (마감+30분 = 16:00 KST)을 그대로 물려 쓰면, 22:40 에 받은 수급이
+    "16:00 에 알 수 있었다" 로 적힌다. Analyst 의 세션 as_of 가 정확히
+    16:00 이라 그 6시간 40분이 경계에서 그대로 읽힌다.
+    """
+    session = date(2024, 6, 24)
+    collected = datetime(2024, 6, 24, 13, 40, tzinfo=UTC)  # 22:40 KST
+    policy = PublicationPolicy(
+        market=Market.KR, lag_seconds=1800.0, clock=ReplayClock(collected)
+    )
+
+    rows = normalize_flow_rows(
+        SAMPLE, entity_id="KR:005930", market="KR",
+        observed_at_for=policy.for_session, collected_at=collected,
+    )
+
+    assert rows, "행이 나와야 한다"
+    assert all(row["observed_at"] == collected for row in rows)
+    assert rows[0]["valid_from"] == datetime(session.year, session.month, session.day, tzinfo=UTC)
+
+
+def test_old_sessions_keep_the_publication_estimate() -> None:
+    """**5년치를 오늘 받았다고 5년치를 오늘 알았다고 적지 않는다.**
+
+    하한을 무조건 걸면 과거 백필이 통째로 "오늘 관측" 이 되고, 게이트가
+    정직하게 동작해서 리플레이가 빈 시장 위에서 돈다.
+    """
+    rows = normalize_flow_rows(
+        SAMPLE, entity_id="KR:005930", market="KR",
+        observed_at_for=PublicationPolicy(
+            market=Market.KR, lag_seconds=1800.0, clock=ReplayClock(NOW)
+        ).for_session,
+        collected_at=NOW,  # 2026-08-11 — 세션은 2024-06-24
+    )
+
+    assert rows[0]["observed_at"] == datetime(2024, 6, 24, 7, 0, tzinfo=UTC)
+
+
+def test_is_final_is_unknown_not_true() -> None:
+    """**모르는 것을 True 로 적지 않는다.** t1717 응답에 잠정/확정 구분이 없다.
+
+    예전에는 여기서 True 를 박았고, 그 결과 창고의 flows 는 한 행도 빠짐없이
+    "확정치" 가 됐다. flow_kr 은 그 칸으로 확정치를 우선하려 했는데 정렬 키가
+    상수라 한 번도 발화하지 않았다.
+    """
+    assert all(row["is_final"] is None for row in normalized(
+        PublicationPolicy(market=Market.KR, lag_seconds=1800.0, clock=ReplayClock(NOW))
+    ))
 
 
 # -- 창 분할 / 재개 ------------------------------------------------------------

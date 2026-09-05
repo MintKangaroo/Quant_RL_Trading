@@ -52,6 +52,18 @@ DOCUMENT_ROWS = 30
 VERDICT_ROWS = 40
 EVENT_ROWS = 30
 
+#: 이 화면이 문서 표에서 실제로 쓰는 컬럼. ``source``·``ingest_run_id``·
+#: ``raw_path``·``row_hash`` 는 화면에 안 나가는데 3만 행어치 문자열이다
+#: (실측 0.79s → 0.44s). briefing.py 와 같은 목록으로 둔다.
+DOCUMENT_COLUMNS = ["doc_id", "doc_type", "title", "filer", "url"]
+
+#: 이벤트 ``payload`` 한 건의 상한(문자). 실측으로 한 건이 평균 24KB 라
+#: 30건이면 응답이 731KB 가 되는데, **화면은 이 필드를 그리지 않는다**
+#: (static/headlines.js 에 ``payload`` 가 없다). 그렇다고 통째로 빼면 API 를
+#: 직접 보는 사람이 필드가 사라진 것을 고장으로 읽는다. 그래서 자르되
+#: **잘렸다는 사실을 보이게** 남기고, 원래 길이는 ``payload_bytes`` 로 준다.
+EVENT_PAYLOAD_CHARS = 2_000
+
 
 def _names(store: Store, *, as_of: datetime, entities: list[str]) -> dict[str, str]:
     if not entities:
@@ -119,7 +131,7 @@ def important_documents(store: Store, *, as_of: datetime, lookback: int) -> list
     같은 문서가 여러 종목에 걸리면(검색어가 달라도 같은 doc_id) 한 줄로 접고
     걸린 종목을 함께 남긴다 — briefing.latest_news 와 같은 규칙이다.
     """
-    frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback)
+    frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback, columns=DOCUMENT_COLUMNS)
     if frame.empty:
         return []
     frame = frame[frame["doc_type"].isin(IMPORTANT_DOC_TYPES)]
@@ -181,10 +193,22 @@ def system_events(store: Store, *, as_of: datetime, lookback: int) -> list[dict[
             "actor": str(row["actor"]),
             "ts_sim": pd.Timestamp(row["valid_from"]).isoformat(),
             "ts_wall": pd.Timestamp(row["observed_at"]).isoformat(),
-            "payload": str(row["payload"]),
+            **_payload(row["payload"]),
         }
         for row in ordered.head(EVENT_ROWS).to_dict(orient="records")
     ]
+
+
+def _payload(raw: Any) -> dict[str, Any]:
+    """이벤트 payload — 자르되 잘렸다는 것을 숨기지 않는다 (EVENT_PAYLOAD_CHARS)."""
+    text = str(raw)
+    if len(text) <= EVENT_PAYLOAD_CHARS:
+        return {"payload": text, "payload_chars": len(text), "payload_truncated": False}
+    return {
+        "payload": text[:EVENT_PAYLOAD_CHARS] + " …(잘림)",
+        "payload_chars": len(text),
+        "payload_truncated": True,
+    }
 
 
 # -- 한 판 ---------------------------------------------------------------------

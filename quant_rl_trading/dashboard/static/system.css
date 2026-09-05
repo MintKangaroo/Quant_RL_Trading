@@ -5,14 +5,14 @@
  * 다시 칠해도 다른 탭에는 새지 않는다.
  *
  * 색 대응(LS_KR → 우리):
- *   --fg-mute/--fg-sub → --muted    --ok → --up(#22c55e, 초록)
- *   --crit             → --down(#ef4444, 빨강)   --peach/--yellow → --warn
+ *   --fg-mute/--fg-sub → --muted    --ok → --up(초록)
+ *   --crit             → --down(빨강)   --peach/--yellow → --warn
  *   --bg-2 → --panel2   --blue → --accent
  * "상승=초록" 규칙은 이 화면엔 손익 방향이 없어 직접 걸리지 않지만, 상태
  * 배색(정상=초록/위험=빨강)을 그 규칙과 같은 방향으로 맞춰 뒤집지 않았다.
  */
 
-.sys-wrap { max-width: 1100px; margin: 0 auto; }
+.sys-wrap { max-width: none; margin: 0; }
 
 .sys-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .sys-bar h2 { font-size: 18px; margin: 0; }
@@ -32,12 +32,14 @@
 .sys-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  /* app.css .panel(트레이딩 탭 포함 전 탭)과 같은 반경 — 이 탭만 카드 모서리가
+     둥글면 다른 탭에서 넘어온 눈에 "여기만 다른 화면" 으로 읽힌다. */
+  border-radius: 5px;
   padding: 16px;
 }
 .sys-wrap .panel { padding: 0 0 8px; }
 .sys-wrap .panel h2 {
-  border-radius: 12px 12px 0 0;
+  border-radius: 4px 4px 0 0;
   background: var(--head);
 }
 .sys-card h3 {
@@ -66,8 +68,6 @@
 }
 .sys-bar-track > div { height: 100%; border-radius: 6px; background: var(--accent); }
 
-.sys-tscroll { overflow-x: auto; max-width: 100%; }
-
 /* 프로세스 표 열 폭 — 명령 열은 넓게, 숫자 3열은 좁게 고정해 좁은 화면에서도
  * 안 삐져나간다. */
 #proc-tbl col.c-cmd { width: 46%; }
@@ -75,9 +75,13 @@
 
 /* 홈서버 사이징 가이드 — 실측 리소스에서 계산한 권장치일 뿐 판정이 아니다. */
 .sys-rec {
-  background: linear-gradient(135deg, rgba(56, 189, 248, .08), rgba(56, 189, 248, .03));
+  /* rgba 리터럴 대신 color-mix — --accent 가 바뀌어도 이 그라디언트가 따로
+     놀지 않는다. */
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent) 8%, transparent),
+    color-mix(in srgb, var(--accent) 3%, transparent));
   border: 1px solid var(--accent);
-  border-radius: 12px;
+  border-radius: 5px;
   padding: 16px 18px;
   margin-top: 4px;
 }
@@ -94,7 +98,65 @@
 .sys-rec .row b { font-family: "IBM Plex Mono", monospace; }
 .sys-rec .row .note { text-align: right; }
 
-@media (max-width: 760px) {
+/* .sys-grid 는 자체 미디어쿼리가 없다 — auto-fit(minmax(230px,1fr))이 이미
+   768px 아래에서 스스로 1~2열로 접힌다(app.css 의 .kpis 와 같은 이유로,
+   여기서 그 규약을 다시 선언할 필요가 없다). */
+/* **프로세스 명령줄이 화면을 밀어냈다.**
+ *
+ * `.venv/bin/python -m flask --app quant_rl_trading.dashboard.app:create_app
+ * run --host 0.0.0.0 --port 5059` 같은 문자열이 줄바꿈 없이 들어가면 표가
+ * 화면보다 넓어지고, **그 위의 그리드까지 같이 늘어난다** — `.sys-grid` 가
+ * `auto-fit(minmax(230px,1fr))` 이라 컨테이너가 넓어진 만큼 열을 더 만든다.
+ * 실측 2026-08-19(아이폰): 1열이어야 할 카드가 2열이 되고 오른쪽이 잘렸으며
+ * 헤더까지 밀렸다.
+ *
+ * 전체 문자열은 `title` 로 남긴다 — 잘라 보여주되 사라지지는 않는다. */
+#proc-tbl .cmd {
+  max-width: 0;            /* table-layout 이 폭을 계산하지 않게 한다 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#proc-tbl { width: 100%; table-layout: fixed; }
+
+@media (max-width: 768px) {
   .sys-rec .row { flex-direction: column; gap: 2px; }
   .sys-rec .row .note { text-align: left; }
+
+  /* 카드가 두 열로 벌어지면 좁은 화면에서 숫자가 잘린다. 한 열로 고정한다 —
+     auto-fit 은 컨테이너가 잘못 넓어졌을 때 그 실수를 그대로 따라간다. */
+  .sys-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* **그리드·플렉스 자식은 기본 `min-width: auto` 라 내용보다 안 줄어든다.**
+ * 그래서 긴 명령줄이나 큰 숫자 하나가 칸을 밀고, 그 칸이 그리드를 밀고,
+ * 그리드가 페이지를 민다 — 화면 전체가 오른쪽으로 밀린 것이 그 결과다
+ * (실측 2026-08-19 아이폰: 헤더까지 잘렸다).
+ *
+ * `min-width: 0` 은 "필요하면 줄어들어도 된다" 는 선언이고, 이 한 줄이
+ * 넘침의 대부분을 막는다. `body { overflow-x: hidden }` 은 **증상만** 가린다 —
+ * 잘린 채로 보이지 스크롤도 안 되므로 오히려 읽을 수 없게 된다. */
+.sys-grid > *,
+.sys-wrap .panel > * {
+  min-width: 0;
+}
+
+
+/* ---- 시트 문법 (sheet.css 와 짝, 2026-09-02) — 카드를 걷고 괘선으로. ------ */
+.sys-bar h2 { font-size: 13px; font-weight: 600; }
+.sys-wrap .panel, .sys-card {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 10px 0 12px;
+}
+.sys-grid { gap: 0 28px; }
+.sys-card h3 { font-size: 10.5px; font-weight: 500; margin-bottom: 8px; }
+.big { font-size: 24px; font-weight: 500; }
+.sys-bar-track { height: 4px; border-radius: 0; background: #151515; border: 0; margin-top: 8px; }
+.sys-bar-track > div { border-radius: 0; background: var(--muted); }
+.sys-rec { background: transparent; border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; }
+.sys-rec h3 { color: var(--text); font-size: 12px; }
+.sys-rec .row { border-bottom: 1px solid var(--border); font-size: 12px; }

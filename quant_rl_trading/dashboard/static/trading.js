@@ -81,6 +81,62 @@ function bindEmergencyStop() {
 
 const tone = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "up" : "down");
 
+
+/* "오늘 수익금" 카드의 아랫줄.
+ *
+ * **큰 숫자는 종가 기준으로 둔다.** 그것이 회계가 확정한 값이고 벤치마크·
+ * MDD·TWR 이 전부 같은 시각으로 서 있다. 장중 값으로 덮으면 기준 시각이
+ * 어긋나 그 차이가 통째로 가짜 손익이 된다(accounting.md §2 — 스냅샷은
+ * 15:40 하루 한 번).
+ *
+ * 그래서 장중 손익은 **아랫줄에 참고로** 붙인다. 장이 열려 있고 값이
+ * 있을 때만 — 장외에는 마지막 체결가가 곧 종가라 0 이 찍히는데, 그 0 은
+ * "오늘 안 움직였다" 가 아니라 "아직 안 열렸다" 다.
+ */
+function todayPnlNote(k, signed, liveOn) {
+  // **`signed` 를 인자로 받는다.** 그 포매터는 renderKpis 안의 지역 상수라
+  // 최상위 함수에서는 안 보인다 — 그냥 부르면 런타임에 ReferenceError 로
+  // 죽고, 그러면 이 아래 KPI 가 통째로 안 그려진다(실제로 그랬다).
+  // 여기서 부호 규칙을 다시 만들지 않는 이유는 그것이 두 곳에 생기면
+  // 언젠가 한쪽만 고쳐지기 때문이다.
+  const base = `지수 ${dec(k.index_value, 2)}`;
+  // **장 마감 후에는 회계 확정값을 덧붙이지 않는다.** 그 값(`today_pnl`)은
+  // 아직 어제 종가끼리의 차이라 0 이고, 큰 숫자 옆에 "종가 0" 이 붙으면
+  // 사람은 큰 숫자를 의심한다 — 사용자가 본 화면이 정확히 그랬다.
+  if (k.live_is_close === true) return base;
+  // 장중이면 종가 확정값을 참고로 남긴다. 둘 다 볼 수 있어야 어제와 오늘이
+  // 갈린다.
+  if (liveOn) return `${base} · 종가 ${signed(k.today_pnl)}`;
+  return base;
+}
+
+/** 총자산 카드의 아랫줄. **장중 값이 있으면 그것이 몇 종목을 덮는지 적는다.**
+ *
+ * 절반만 실시간인 수치를 "지금 총자산" 이라고 말하면 안 된다 — 장외거나
+ * 일부 종목만 응답이 오는 경우가 실제로 있고, 그때 숫자는 종가와 장중이
+ * 섞인 값이다. 덮은 종목 수를 같이 보여주면 그 사실이 화면에 남는다. */
+function navFoot(k, liveOn, closed) {
+  const base = `원금 ${num(Math.round(k.principal || 0))}`;
+  if (k.live_nav === null || k.live_nav === undefined) return base;
+  // 마감 후에는 그 값이 **오늘 종가**다. "장외 — 마지막 체결가" 는 값의
+  // 출처는 맞게 말하지만 그것이 종가라는 사실을 숨겨서, 읽는 사람이 어제
+  // 종가와 헷갈린다.
+  if (closed) return `${base} · ${k.live_covered}종목 · 오늘 종가`;
+  if (!liveOn) return `${base} · 장외 — 마지막 체결가`;
+  // **마지막으로 읽어 온 시각을 적는다.** 안 적으면 값이 안 바뀌었을 때
+  // "갱신이 멈췄다" 와 "시세가 안 움직였다" 를 구분할 수 없다 — 사람은
+  // 앞쪽으로 읽고 고장이라고 판단한다(2026-08-19 실제로 그랬다).
+  //
+  // 덮은 종목 수도 같이 적는다. 절반만 실시간인 수치를 "지금 총자산" 이라고
+  // 말하면 안 된다 — 일부 종목만 응답이 오는 경우가 실제로 있다.
+  return `${base} · ${k.live_covered}종목 · ${stampNow()} 기준`;
+}
+
+/** 지금 시각 hh:mm:ss. 갱신이 도는지를 사람이 눈으로 확인하는 유일한 수단이다. */
+function stampNow() {
+  return new Date().toLocaleTimeString("ko-KR", { hour12: false });
+}
+
 function renderKpis(body) {
   const k = body.data.kpis;
   const risk = body.data.risk;
@@ -93,23 +149,90 @@ function renderKpis(body) {
   const ddLine = e && e.drawdown.length > 1 ? e.drawdown : null;
 
   const signed = (v) => (v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
+  // **장중이면 큰 숫자를 장중 값으로 보여준다** (사용자 결정 2026-08-19).
+  //
+  // 예전에는 종가 카드와 장중 카드를 나란히 뒀는데, 화면에 같은 것이 두 개
+  // 있으면 어느 쪽을 봐야 하는지가 매번 질문이 된다. 화면은 **지금**을 보는
+  // 곳이니 지금 값을 크게 둔다.
+  //
+  // **회계 지표는 여전히 종가다** — 아래 MDD·총수익률·승률. 장중 값을 섞으면
+  // 하루 안의 출렁임이 낙폭으로 잡혀 킬스위치(30%)가 오발동하고, 벤치마크와
+  // 기준 시각이 어긋나 그 차이가 통째로 가짜 초과수익이 된다. 그래서 그
+  // 카드들에는 **[종가] 배지**를 붙여 어느 시각 기준인지 화면이 말한다.
+  const liveOn = k.live_session_open !== false
+    && k.live_nav !== null && k.live_nav !== undefined;
+  // **장이 끝나면 마지막 체결가가 오늘 종가다.** 그런데 일봉 수집은 장이
+  // 끝난 뒤에 도니까, 그 사이 창고 기준 값(`nav`·`today_pnl`)은 아직 어제를
+  // 가리킨다. 그때 실시간 값을 버리면 화면이 "오늘 수익률 0.00%" 를 보여준다
+  // — 안 움직인 것이 아니라 아직 모르는 것인데(2026-08-19 실측 -1.13%).
+  //
+  // 그래서 장중이든 마감 후든 실시간 값이 있으면 쓴다. 다른 것은 **이름**
+  // 뿐이다: 장중은 참고값, 마감 후는 종가.
+  const closed = k.live_is_close === true;
+  const useLive = liveOn || closed;
+  const navValue = useLive ? k.live_nav : k.nav;
+  const todayPnl = useLive && k.live_today_pnl !== null && k.live_today_pnl !== undefined
+    ? k.live_today_pnl : k.today_pnl;
+  const todayReturn = useLive && k.live_change !== null && k.live_change !== undefined
+    ? k.live_change : k.daily_return;
+  const closeBadge = "종가 기준";
+  // **총 수익금은 총자산과 같은 NAV 로 센다.** 서버의 total_pnl 은 창고의
+  // 마지막 종가 NAV(어제) 기준이라, 총자산이 오늘 실시간이면 두 카드가 서로
+  // 다른 날을 가리킨다(2026-08-27 실측: 총자산 506.8M · 총 수익금 +9.9M 은
+  // 어제 510.2M 기준). 원금이 있으면 화면의 NAV 로 다시 센다.
+  const totalPnl = useLive && k.principal ? navValue - k.principal : k.total_pnl;
+  // 원금 대비 단순 수익률. TWR 과 **다른 숫자가 맞다** — 입금 뒤의 수익은
+  // 큰 돈에, 입금 전의 손실은 작은 돈에 붙어서 금액은 +, TWR 은 − 일 수 있다.
+  const simpleReturn = k.principal && totalPnl !== null && totalPnl !== undefined
+    ? totalPnl / k.principal : null;
+  // 오늘 수익 두 칸의 부제. 셋을 구분한다 — 장중 / 마감(종가) / 장 열기 전.
+  const cumReturnNow = useLive && k.cumulative_return !== null && k.cumulative_return !== undefined
+    && todayReturn !== null && todayReturn !== undefined
+    ? (1 + k.cumulative_return) * (1 + todayReturn) - 1
+    : k.cumulative_return;
+  const todayFoot = liveOn ? `${stampNow()} 기준`
+    : closed ? "종가 기준 · 일봉 수집 전" : "TWR 기준";
+
   const cards = [
-    kpi("총자산", num(Math.round(k.nav)), `원금 ${num(Math.round(k.principal || 0))}`, false,
-        { unit: "KRW", spark: navLine }),
+    kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn, closed), false,
+        { unit: unitCode(), spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
+    // 2열(폰)에서 짝이 맞게 순서를 둔다(사용자 요청 2026-09-02): 총자산|익스포저,
+    // 오늘 수익금|오늘 수익률, 총 수익금|총 수익률, 승률|MDD, 반영률|AI, 거부|정지.
+    kpi("익스포저", pct(k.exposure),
+        (params().get("market") || "KR") === "US"
+          ? `현금 $${num(Math.round(k.cash_usd || 0))}`
+          : `현금 ${num(Math.round(k.cash_krw))}`),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
-    kpi("오늘 수익금", signed(k.today_pnl), `지수 ${dec(k.index_value, 2)}`, false,
-        { unit: "KRW", tone: tone(k.today_pnl) }),
-    kpi("오늘 수익률", pct(k.daily_return), "TWR 기준", false, { tone: tone(k.daily_return) }),
-    kpi("총 수익금", signed(k.total_pnl), "원금 대비", false,
-        { unit: "KRW", tone: tone(k.total_pnl) }),
-    kpi("총 수익률", pct(k.cumulative_return), "TWR 누적", false,
-        { tone: tone(k.cumulative_return), spark: indexLine }),
+    kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
+        { unit: unitCode(), tone: tone(todayPnl) }),
+    kpi("오늘 수익률", pct(todayReturn), todayFoot, false, { tone: tone(todayReturn) }),
+    kpi("총 수익금", signed(totalPnl),
+        `원금 ${k.principal ? num(Math.round(k.principal)) : "—"} 대비 · ${useLive ? (liveOn ? "장중 참고" : closeBadge) : closeBadge}`
+        + (simpleReturn === null ? "" : ` · ${pct(simpleReturn)}`), false,
+        { unit: unitCode(), tone: tone(totalPnl) }),
+    // **총 수익률도 총 수익금과 같은 시각이어야 한다.** 종가 TWR 만 두면 옆 칸의
+    // 총 수익금(장중)은 음수인데 여기는 양수가 되어 둘이 다른 날을 가리킨다
+    // (2026-09-02 폰 실측: -3,835,028 옆에 +1.12%). 장중엔 어제 종가 TWR 에 오늘
+    // 수익률을 이어 붙인다 — 장중 입출금은 없으므로 TWR 연결로 정확하다.
+    kpi("총 수익률", pct(cumReturnNow),
+        useLive && cumReturnNow !== k.cumulative_return
+          ? `TWR 누적 · ${liveOn ? "장중 참고" : closeBadge} (어제 종가 ${pct(k.cumulative_return)}) · 입금 시점 영향 없음`
+          : `TWR 누적 · ${closeBadge} · 입금 시점 영향 없음 — 원금 대비 %와 다른 것이 맞다`, false,
+        { tone: tone(cumReturnNow), spark: indexLine }),
     kpi("승률", k.win_rate === null ? "—" : pct(k.win_rate, 0),
         // 무엇을 세는지 적는다. 매도 기준 승률과 다른 숫자다.
-        k.win_rate === null ? "표본 없음" : `일간 ${k.win_samples}일 중`),
-    kpi("MDD", pct(k.mdd), `현재 ${pct(k.drawdown)} · ${risk.band_message}`,
+        k.win_rate === null ? "표본 없음" : `일간 ${k.win_samples}일 중 · ${closeBadge}`),
+    // MDD 는 **장중을 포함해 보여주되**(사용자 결정 2026-08-19), 킬스위치는
+    // 여전히 종가로 판정한다. 그 사실을 부제가 말한다 — 안 적으면 화면의
+    // 빨간 숫자를 보고 "왜 킬스위치가 안 걸렸지" 를 묻게 된다.
+    // 총자산·수익과 같은 규칙: 실시간 값이 있으면 장중이든 마감 직후든 쓴다. 장중에만
+    // 쓰면 15:30 마감 직후 일봉 수집 전까지 MDD 만 어제 종가(0.00%)로 되돌아가
+    // 옆의 -1.85% 와 다른 날을 가리켰다(2026-09-02 폰 실측).
+    kpi("MDD", pct(useLive && k.live_mdd !== null && k.live_mdd !== undefined ? k.live_mdd : k.mdd),
+        useLive && k.live_drawdown !== null && k.live_drawdown !== undefined
+          ? `현재 ${pct(k.live_drawdown)} · ${risk.band_message} · 킬스위치는 ${closeBadge}`
+          : `현재 ${pct(k.drawdown)} · ${risk.band_message} · ${closeBadge}`,
         risk.band !== "free", { spark: ddLine, tone: "down" }),
-    kpi("익스포저", pct(k.exposure), `현금 ${num(Math.round(k.cash_krw))}`),
     kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
         k.action_reflection < k.action_reflection_floor),
     kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",
@@ -129,7 +252,6 @@ function emergencyStopCard(engaged) {
     <button type="button" id="emergency-stop" data-engaged="${engaged}"
             title="신규매수 차단 — 매도는 막지 않는다">
       ${engaged ? "킬스위치 해제" : "EMERGENCY STOP"}
-      <span class="glyph">${engaged ? "⏻" : "✋"}</span>
     </button>
   </div>`;
 }
@@ -151,9 +273,17 @@ function renderWatchlist(body) {
       `<p class="empty">오늘 기록된 신호가 없다. 0 으로 채우지 않는다.</p>`;
     return;
   }
-  const head = `<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
+  // **열마다 class 를 단다.** 좁은 화면에서 PnL 열을 접고 그 값을 포지션 칸
+  // 아래로 내리는데(trading.css), 그러려면 어느 열인지 CSS 가 알아야 한다.
+  // 6열은 390px 화면에 안 들어간다 — 넣으면 오른쪽이 잘려 `-6,81` 처럼 보인다.
+  // **열 폭을 colgroup 으로 준다.** `table-layout: fixed` 만 켜고 폭을 안 주면
+  // 열이 균등 분배되어 종목명 칸이 좁아지고, 그 안의 이름이 옆 칸 숫자와
+  // 겹친다(2026-08-19 아이폰 실측).
+  const cols = `<colgroup><col class="c-name"><col class="c-price"><col class="c-chg">
+                <col class="c-sig"><col class="c-pos"><col class="c-pnl"></colgroup>`;
+  const head = `${cols}<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
                 <th class="mid">AI 시그널</th><th class="mid">포지션</th>
-                <th class="r">PnL</th></tr></thead>`;
+                <th class="r c-pnl">PnL</th></tr></thead>`;
   const cells = rows
     .map(
       (row) => `<tr class="click${row.entity_id === selected ? " on" : ""}" data-entity="${row.entity_id}">
@@ -163,8 +293,12 @@ function renderWatchlist(body) {
         <td class="r mono ${signClass(row.change)}">${arrow(row.change)}${pct(row.change)}</td>
         <td class="mid"><span class="sig ${row.signal.toLowerCase()}">${row.signal}</span></td>
         <td class="mid mono ${row.position ? "up" : ""}">${row.position ? "LONG" : "FLAT"}
-            <span class="code">${row.position ? num(row.position) : ""}</span></td>
-        <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}
+            <span class="code">${row.position ? num(row.position) : ""}</span>
+            <span class="code pnl-inline ${signClass(row.pnl)}">${
+              row.pnl === null ? "" :
+                `${num(Math.round(row.pnl))}${row.pnl_pct === null ? "" : " " + pct(row.pnl_pct)}`
+            }</span></td>
+        <td class="r mono c-pnl ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}
             <span class="code">${row.pnl_pct === null ? "" : pct(row.pnl_pct)}</span></td>
       </tr>`
     )
@@ -341,6 +475,21 @@ function renderRisk(body) {
 
 /* -- 포지션·주문 ---------------------------------------------------------- */
 
+/** 장중 현재가 한 칸. **참고 값이다 — 평가금액·손익은 종가로 계산된다.**
+ *
+ * 회계는 한국시간 15:40 하루 한 번으로 못 박혀 있고(accounting.md §2), 거기에
+ * 장중 값을 섞으면 벤치마크와 기준 시각이 어긋나 그 차이가 통째로 가짜
+ * 초과수익이 된다. 그래서 이 칸은 옆 칸들과 **다른 시각의 숫자**이고, 장외면
+ * 종가로 때우지 않고 "—" 로 비운다. */
+function liveCell(row) {
+  if (row.live_price === null || row.live_price === undefined) {
+    return `<td class="r mono soft">—</td>`;
+  }
+  const cls = signClass(row.live_change);
+  return `<td class="r mono ${cls}">${num(Math.round(row.live_price))}` +
+    `<span class="hint">${pct(row.live_change)}</span></td>`;
+}
+
 function renderPositions(body) {
   const rows = body.data.positions;
   document.getElementById("positions-count").textContent = `${rows.length}종목`;
@@ -348,26 +497,56 @@ function renderPositions(body) {
     document.getElementById("positions").innerHTML = `<p class="empty">보유 종목이 없다.</p>`;
     return;
   }
-  const head = `<thead><tr><th>종목</th><th class="r">수량</th><th class="r">평균단가</th>
-    <th class="r">현재가</th><th class="r">평가금액</th><th class="r">평가손익</th>
-    <th class="r">수익률</th><th class="r">비중</th><th class="r">점수</th></tr></thead>`;
+  const head = `<thead><tr><th>종목</th><th class="r">수량</th><th class="r mobile-hide">평균단가</th>
+    <th class="r">종가</th><th class="r mobile-hide">장중<span class="hint">참고</span></th>
+    <th class="r mobile-hide">평가금액</th><th class="r">평가손익</th>
+    <th class="r">수익률</th><th class="r mobile-hide">비중</th><th class="r mobile-hide">점수</th></tr></thead>`;
   document.getElementById("positions").innerHTML =
     `<table>${head}${rows
       .map(
         (row) => `<tr class="click" data-entity="${row.entity_id}">
       <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
       <td class="r mono">${num(row.quantity)}</td>
-      <td class="r mono">${num(Math.round(row.avg_price))}</td>
+      <td class="r mono mobile-hide">${num(Math.round(row.avg_price))}</td>
       <td class="r mono">${row.price ? num(Math.round(row.price)) : "—"}</td>
-      <td class="r mono">${row.value ? num(Math.round(row.value)) : "—"}</td>
+      ${liveCell(row).replace("<td ", '<td data-mobile="hide" ').replace('class="', 'class="mobile-hide ')}
+      <td class="r mono mobile-hide">${row.value ? num(Math.round(row.value)) : "—"}</td>
       <td class="r mono ${signClass(row.pnl)}">${row.pnl === null ? "—" : num(Math.round(row.pnl))}</td>
       <td class="r mono ${signClass(row.pnl_pct)}">${pct(row.pnl_pct)}</td>
-      <td class="r mono">${pct(row.weight)}</td>
-      <td class="r mono">${dec(row.score, 3)}</td>
+      <td class="r mono mobile-hide">${pct(row.weight)}</td>
+      <td class="r mono mobile-hide">${dec(row.score, 3)}</td>
     </tr>`
       )
       .join("")}</table>`;
   bindRows("positions");
+}
+
+/** 실현손익 두 칸. **매도에만 값이 있다** — 매수에 0 을 넣으면 "본전" 으로
+ * 읽힌다. 통화가 시장마다 다르므로(원·달러) 기호를 값에 붙여 보여준다. */
+function pnlCells(row) {
+  if (row.realized_pnl === null || row.realized_pnl === undefined) {
+    // **왜 비었는지를 말한다.** 빈칸 하나로 세 가지가 같아 보인다:
+    //   매수라 손익이 없다 · 매도인데 아직 체결이 안 됐다 · 계산이 실패했다
+    // 가운데가 특히 헷갈린다 — shadow 는 D+1 체결이라 오늘 낸 매도가 내일
+    // 세션에서 채워진다. 실측 2026-08-19: 매도 주문 14건에 매도 체결 0건이라
+    // 화면이 통째로 빈칸이었고, "매도했는데 왜 수익률이 없냐" 는 물음이 나왔다.
+    if (String(row.side).toLowerCase() === "sell") {
+      const why = row.fill_quantity ? "손익 계산 불가" : "체결 대기";
+      return `<td class="r sub" colspan="2" title="shadow 는 D+1 체결이다 — 다음 세션에서 채워진다">${why}</td>`;
+    }
+    return `<td class="r mono">—</td><td class="r mono">—</td>`;
+  }
+  const won = row.currency !== "USD";
+  const amount = won
+    ? `${num(Math.round(row.realized_pnl))}원`
+    : `$${row.realized_pnl.toFixed(2)}`;
+  const sign = row.realized_pnl >= 0 ? "up" : "down";
+  const rate =
+    row.realized_rate === null || row.realized_rate === undefined
+      ? "—"
+      : pct(row.realized_rate);
+  return `<td class="r mono ${sign}">${row.realized_pnl >= 0 ? "+" : ""}${amount}</td>
+      <td class="r mono ${sign}">${rate}</td>`;
 }
 
 function renderOrders(body) {
@@ -377,24 +556,31 @@ function renderOrders(body) {
       `<p class="empty">기록된 주문이 없다. Session 이 돌면 여기 쌓인다.</p>`;
     return;
   }
-  const head = `<thead><tr><th>시각</th><th>종목</th><th class="mid">방향</th>
-    <th class="r">지정가</th><th class="r">체결가</th><th class="r">수량</th>
-    <th class="r">체결수량</th><th class="r">비용</th><th class="r">목표비중</th>
-    <th class="r">지연</th><th class="mid">상태</th></tr></thead>`;
+  /* 시각 열은 모바일에서 접고 종목 칸 아래 줄로 내린다(watchlist 의 pnl-inline
+     과 같은 관용구). 두 가지가 같이 풀린다: ① 스크롤 고정 첫 열이 시각이라
+     옆으로 밀면 종목명이 사라져 어느 행인지 몰랐다 — 행의 정체성은 종목이다.
+     ② 16자 시각이 폭을 먹어 실현손익이 화면 밖으로 잘렸다(실측 2026-08-31
+     아이폰). 시점은 지운 게 아니라 자리만 옮겼다(data-must-be-dated). */
+  const head = `<thead><tr><th class="mobile-hide">시각</th><th>종목</th><th class="mid">방향</th>
+    <th class="r mobile-hide">지정가</th><th class="r">체결가</th><th class="r">수량</th>
+    <th class="r mobile-hide">체결수량</th><th class="r mobile-hide">비용</th><th class="r">실현손익</th>
+    <th class="r">수익률</th><th class="r mobile-hide">목표비중</th>
+    <th class="r mobile-hide">지연</th><th class="mid">상태</th></tr></thead>`;
   document.getElementById("orders").innerHTML =
     `<table class="ledger">${head}${rows
       .map(
         (row) => `<tr class="click" data-entity="${row.entity_id}">
-      <td class="mono">${row.time.slice(0, 16).replace("T", " ")}</td>
-      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span></td>
+      <td class="mono mobile-hide">${row.time.slice(0, 16).replace("T", " ")}</td>
+      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span><span class="time-inline mono">${row.time.slice(5, 16).replace("T", " ")}</span></td>
       <td class="mid side ${row.side}">${row.side.toUpperCase()}</td>
-      <td class="r mono">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
+      <td class="r mono mobile-hide">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
       <td class="r mono">${row.fill_price ? num(Math.round(row.fill_price)) : "—"}</td>
       <td class="r mono">${num(row.quantity)}</td>
-      <td class="r mono">${row.fill_quantity ? num(row.fill_quantity) : "—"}</td>
-      <td class="r mono">${row.cost === null ? "—" : num(Math.round(row.cost))}</td>
-      <td class="r mono">${pct(row.target_weight)}</td>
-      <td class="r mono">${row.latency_ms === null ? "—" : ms(row.latency_ms)}</td>
+      <td class="r mono mobile-hide">${row.fill_quantity ? num(row.fill_quantity) : "—"}</td>
+      <td class="r mono mobile-hide">${row.cost === null ? "—" : num(Math.round(row.cost))}</td>
+      ${pnlCells(row)}
+      <td class="r mono mobile-hide">${pct(row.target_weight)}</td>
+      <td class="r mono mobile-hide">${row.latency_ms === null ? "—" : ms(row.latency_ms)}</td>
       <td class="mid"><span class="status ${row.status}">${row.status.toUpperCase()}</span></td>
     </tr>`
       )
@@ -402,29 +588,252 @@ function renderOrders(body) {
   bindRows("orders");
 }
 
+/* -- 오늘의 성과 --------------------------------------------------------- */
+
+/** 부호를 붙인 원화. 값이 없으면 "—" 다 — 0 으로 채우면 "본전" 으로 읽힌다. */
+/** 증권사 계좌(t0424) 대 우리 장부 — **나란히 놓고 차이를 보인다.** 조회가 안 되면
+ *  패널을 숨긴다(0 을 지어내지 않는다). 합계 다섯 줄 + 종목별 수량 대조. */
+async function renderAccount(tradingBody) {
+  const panel = document.getElementById("account-panel");
+  const target = document.getElementById("account-kpis");
+  if (!panel || !target) return;
+  const body = await fetchJson("trading/account");
+  const a = (body && body.data) || {};
+  if (!a.available) { panel.style.display = "none"; return; }
+  const d = tradingBody.data || {};
+  const k = d.kpis || {};
+  const muted = "color:var(--muted)";
+  const won = (v) => (v == null ? "—" : num(Math.round(v)));
+  const sgn = (v) => (v == null ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
+  const diffCell = (v, base) => {
+    if (v == null) return "<td class=\"r\">—</td>";
+    const big = Math.abs(v) > 0.005 * Math.max(1, Math.abs(base || 1));
+    return `<td class="r ${big ? "down" : ""}" style="${big ? "" : muted}">${sgn(v)}</td>`;
+  };
+  const ledgerNav = k.live_nav ?? k.nav;
+  const ledgerEquity = k.live_equity ?? k.equity;
+  const ledgerBy0 = new Map((d.positions || []).map((p) => [p.entity_id, p]));
+  // 장부 평가손익도 계좌와 **같은 정의**(현재가 − 평균 매입가)로 센다. positions.pnl 은
+  // 전일 종가 대비 당일 손익이라 다른 숫자다 — 그걸 나란히 두면 차이가 가짜로 커진다.
+  const ledgerUnreal = (d.positions || []).reduce(
+    (s, p) => s + ((p.live_price ?? p.price) - (p.avg_price || 0)) * (p.quantity || 0), 0);
+  const settled = a.net_asset != null && a.equity != null ? a.net_asset - a.equity : null;
+  const perf = d.performance || {};
+  const ledgerRealized = perf.realized_pnl ?? 0;
+  // **증권사 평가금액은 "지금 팔면 받을 돈"이다** — t0424 는 종목마다 매도 수수료·거래세(≈0.215%)를 미리 뺀다.
+  // 우리 장부는 시장가치 그대로라, 같은 종가에서도 평가금액이 0.2% 벌어져 보인다(9/4 폰 실측 −378,965).
+  // 보유 종목별 계좌가/장부가 비율의 중앙값으로 그 차감률을 추정해 계좌 값을 시장가치로 되돌린 뒤 비교한다.
+  const ratios = (a.holdings || []).map((h) => {
+    const p = ledgerBy0.get(h.entity_id);
+    return p && p.price && h.quantity ? (h.value / h.quantity) / (p.live_price ?? p.price) : null;
+  }).filter((r) => r != null && r > 0.9 && r < 1.1).sort((x, y) => x - y);
+  const haircut = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
+  const grossUp = (v) => (v == null ? null : v / haircut);
+  const acctEquityGross = grossUp(a.equity);
+  const acctNavGross = a.net_asset == null || a.equity == null ? null : a.net_asset - a.equity + acctEquityGross;
+  const acctUnrealGross = a.unrealized == null || a.equity == null ? null : a.unrealized + (acctEquityGross - a.equity);
+  const rows = [
+    ["총자산", acctNavGross, ledgerNav, true],
+    ["현금(정산 후)", settled, k.cash_krw, true],
+    ["주식 평가금액", acctEquityGross, ledgerEquity, true],
+    ["평가손익", acctUnrealGross, ledgerUnreal, true],
+    // 당일 실현손익은 차이를 경고로 안 칠한다 — 계좌 쪽엔 장부 밖 청산(선행 잔고)이 들어간다.
+    ["당일 실현손익", a.realized_today, ledgerRealized, false],
+  ];
+  let html = `<table><thead><tr><th>항목</th><th class="r">증권사 계좌</th><th class="r">우리 장부</th><th class="r">차이</th></tr></thead><tbody>`;
+  for (const [label, acct, ledger, judge] of rows) {
+    const delta = acct == null || ledger == null ? null : acct - ledger;
+    const cell = judge ? diffCell(delta, a.net_asset)
+      : `<td class="r mono" style="${muted}">${delta == null ? "—" : sgn(delta)}</td>`;
+    html += `<tr><td style="white-space:nowrap">${label}</td>
+      <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(acct) : ""}">${label.includes("손익") ? sgn(acct) : won(acct)}</td>
+      <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(ledger) : ""}">${label.includes("손익") ? sgn(ledger) : won(ledger)}</td>${cell}</tr>`;
+  }
+  if (haircut < 0.999) {
+    html += `<tr><td colspan="4" style="${muted};font-size:11px">증권사 평가금액은 매도비용 차감 기준(추정 ${((1 - haircut) * 100).toFixed(3)}%) — 위 표는 시장가치로 되돌려 비교한 값</td></tr>`;
+  }
+  const cntOk = a.positions === k.positions;
+  html += `<tr><td>보유 종목 수</td><td class="r">${a.positions ?? "—"}</td><td class="r">${k.positions ?? "—"}</td>
+    <td class="r ${cntOk ? "" : "down"}" style="${cntOk ? muted : ""}">${a.positions == null || k.positions == null ? "—" : a.positions - k.positions}</td></tr></tbody></table>`;
+
+  // 종목별 수량 대조 — 합집합. 한쪽에만 있으면 그게 곧 어긋난 곳이다.
+  const acctBy = new Map((a.holdings || []).map((h) => [h.entity_id, h]));
+  const ledgerBy = new Map((d.positions || []).map((p) => [p.entity_id, p]));
+  const keys = [...new Set([...acctBy.keys(), ...ledgerBy.keys()])].sort();
+  let mismatch = 0;
+  let tbl = `<table style="margin-top:10px"><thead><tr><th>종목</th><th class="r">계좌 수량</th><th class="r">장부 수량</th><th class="r mobile-hide">계좌 평가손익</th><th></th></tr></thead><tbody>`;
+  for (const key of keys) {
+    const h = acctBy.get(key); const p = ledgerBy.get(key);
+    const qa = h ? h.quantity : null; const ql = p ? p.quantity : null;
+    const ok = qa != null && ql != null && Math.round(qa) === Math.round(ql);
+    if (!ok) mismatch += 1;
+    tbl += `<tr><td>${(h && h.name) || (p && p.name) || key} <span style="font-size:11px;${muted}">${key}</span></td>
+      <td class="r">${qa == null ? "—" : num(qa)}</td><td class="r">${ql == null ? "—" : num(ql)}</td>
+      <td class="r mobile-hide ${h ? tone(h.unrealized) : ""}">${h ? sgn(h.unrealized) : "—"}</td>
+      <td class="${ok ? "up" : "down"}">${ok ? "✓" : "✗ 불일치"}</td></tr>`;
+  }
+  tbl += "</tbody></table>";
+  const verdict = mismatch === 0
+    ? `<p class="up" style="margin:10px 0 4px;font-weight:600">종목·수량 ${keys.length}건 전부 일치 ✓</p>`
+    : `<p class="down" style="margin:10px 0 4px;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것</p>`;
+  const legend = `<p class="note" style="margin-top:6px">
+    총자산 = 계좌 추정순자산 vs 장부 NAV · 현금(정산 후) = 계좌 순자산 − 평가금액 (당일 예수금 ${won(a.cash)}, 차이는 미결제 매도대금) ·
+    평가손익 = 현재가 − 평균 매입가 · 당일 실현손익의 계좌 쪽엔 장부 밖 청산(선행 잔고 6종목, 8/28)이 들어 있어 차이를 경고로 치지 않는다 ·
+    계좌 값은 t0424(정규장 종가 기준)라 LS 앱의 시간외 현재가 기준 숫자와 조금 다르다 · 차이가 0.5% 를 넘으면 빨갛게 표시.</p>`;
+  target.innerHTML = html + legend + verdict + tbl;
+  const sub = document.getElementById("account-sub");
+  if (sub) sub.textContent = `t0424 조회 · 모드 ${a.mode} · ${stampNow()} 기준`;
+  panel.style.display = "";
+}
+
+/** 화폐 단위. 미장 탭은 달러 슬리브라 "$" — 서버가 `currency: "USD"` 로 내려보내는 값과 같은 규칙. */
+function unit() {
+  return (params().get("market") || "KR") === "US" ? "$" : "원";
+}
+function unitCode() {
+  return (params().get("market") || "KR") === "US" ? "USD" : "KRW";
+}
+
+function wonSigned(v) {
+  if (v === null || v === undefined) return "—";
+  return (v > 0 ? "+" : "") + num(Math.round(v)) + unit();
+}
+
+/** 성과 한 칸. `tone` 이 빈 문자열이면 색을 안 칠한다 —
+ *  **방향이 없는 값에 색을 칠하면 있는 것처럼 보인다.** */
+function perfCell(label, value, note, toneClass) {
+  return `<div class="perf-cell">
+    <div class="perf-label">${label}</div>
+    <div class="perf-value ${toneClass || ""}">${value}</div>
+    <div class="perf-note">${note || ""}</div>
+  </div>`;
+}
+
+function renderPerformance(body) {
+  const p = body.data.performance;
+  const summary = document.getElementById("perf-summary");
+  const fills = document.getElementById("perf-fills");
+  const stamp = document.getElementById("perf-stamp");
+  if (!summary) return;
+
+  // 회계 스냅샷이 없으면 **숫자를 지어내지 않는다.** 0 으로 채운 표는
+  // "손실 0" 으로 읽힌다.
+  if (!p || !p.session) {
+    stamp.textContent = "";
+    summary.innerHTML = "";
+    fills.innerHTML = `<p class="empty">${(p && p.note) || "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다."}</p>`;
+    return;
+  }
+
+  // 어느 창고의 숫자인지 항상 적는다. 모의 운용 성과를 실전으로 읽는 것이
+  // 이 패널에서 가능한 가장 비싼 오해다.
+  // **"종가" 라고 안 적는다.** 화면은 요청 시각에 장부를 다시 접으므로,
+  // 06:00 에 열면 이 값은 오늘 종가가 아니라 지금까지 알 수 있는 전부다.
+  // 메일 쪽은 창고의 확정 스냅샷만 읽으므로 거기서만 "종가" 라고 적는다.
+  stamp.textContent = `${p.session} 기준 · ${p.mode}`;
+
+  const flowNote = p.inflow
+    ? `그중 입출금 ${wonSigned(p.inflow)}`
+    : "입출금 없음";
+  const changeNote = p.previous_nav === null
+    ? p.note || "비교할 어제가 없다"
+    : `${num(Math.round(p.previous_nav))} → ${num(Math.round(p.nav))} · ${flowNote}`;
+
+  summary.innerHTML = [
+    perfCell("자산 증감", wonSigned(p.nav_change), changeNote, tone(p.nav_change)),
+    perfCell("당일 실현손익", wonSigned(p.realized_pnl ?? 0), `매도 ${p.sell_count ?? 0}건의 (매도가 − 평균매입가)`, tone(p.realized_pnl)),
+  ].join("");
+
+  if (!p.fill_count) {
+    // **"매매 0건" 이 아니라 "매매가 없었다" 다.** 앞은 수치이고 뒤는 사실이다.
+    fills.innerHTML = `<p class="empty">${p.session} 에 체결된 매매가 없다.</p>`;
+    return;
+  }
+
+  // **체결 조각은 안 보인다** (사용자 요청 2026-08-28 — 종목당 슬라이스 4개가 줄줄이
+  // 나와 읽을 수 없었다). 종목별로 접어 한 줄씩, 방향·수량·평균가·금액만 적는다.
+  // 조각 단위가 필요하면 아래 "주문" 표가 그 자리다.
+  const byStock = new Map();
+  for (const f of p.fills) {
+    const key = `${f.entity_id}|${f.side}`;
+    const cur = byStock.get(key) || { name: f.name, entity_id: f.entity_id, side: f.side,
+      currency: f.currency, quantity: 0, amount: 0, realized: 0, hasRealized: false };
+    cur.quantity += f.quantity; cur.amount += f.amount;
+    if (f.realized_pnl !== null && f.realized_pnl !== undefined) { cur.realized += f.realized_pnl; cur.hasRealized = true; }
+    byStock.set(key, cur);
+  }
+  const groups = [...byStock.values()].sort((a, b) => b.amount - a.amount);
+  const head = `<thead><tr><th>종목</th><th class="mid">방향</th>
+    <th class="r">수량</th><th class="r mobile-hide">평균가</th><th class="r">금액</th><th class="r">실현손익</th></tr></thead>`;
+  const rows = groups.map((g) => {
+    const won = g.currency !== "USD";
+    const money = (v) => (won ? num(Math.round(v)) : "$" + Number(v).toFixed(2));
+    const realized = g.hasRealized
+      ? `<td class="r mono ${g.realized >= 0 ? "up" : "down"}">${g.realized >= 0 ? "+" : ""}${money(g.realized)}</td>`
+      : `<td class="r sub">매수 — 아직 실현 없음</td>`;
+    return `<tr class="click" data-entity="${g.entity_id}">
+      <td><span class="name">${g.name}</span><span class="code">${g.entity_id}</span></td>
+      <td class="mid side ${g.side}">${g.side.toUpperCase()}</td>
+      <td class="r mono">${num(g.quantity)}</td>
+      <td class="r mono mobile-hide">${money(g.quantity ? g.amount / g.quantity : 0)}</td>
+      <td class="r mono">${money(g.amount)}</td>
+      ${realized}
+    </tr>`;
+  }).join("");
+  // 보유 표(POSITIONS)와 같은 종목이 그대로 겹친다(첫날엔 완전히 같다) — 요약 한 줄만
+  // 펼쳐 두고 종목별 체결은 접는다 (사용자 요청 2026-08-28).
+  const buyAmt = groups.filter((g) => g.side === "buy").reduce((s, g) => s + g.amount, 0);
+  const sellAmt = groups.filter((g) => g.side === "sell").reduce((s, g) => s + g.amount, 0);
+  const won = (v) => num(Math.round(v));
+  const line = `오늘 체결 ${p.fill_count}건 — 매수 ${p.buy_count}건 ${won(buyAmt)}${unit()} · 매도 ${p.sell_count}건 ${won(sellAmt)}${unit()}`
+    + (p.fills_omitted ? ` (큰 것부터 ${p.fills.length}건만, 외 ${p.fills_omitted}건 생략)` : "");
+  fills.innerHTML = `<details class="fold"><summary>${line} · 종목별 ${groups.length}줄 보기</summary>
+    <table class="ledger">${head}${rows}</table></details>`;
+  bindRows("perf-fills");
+}
+
 /* -- 차트 ----------------------------------------------------------------- */
 
 function renderEquity(body) {
   const e = body.data.equity;
+  const target = document.getElementById("chart-equity");
+  if (!target) return;
   if (!e.sessions.length) {
-    document.getElementById("chart-equity").innerHTML =
-      `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
+    target.innerHTML = `<p class="empty">nav_daily 가 비어 있다. 회계 스냅샷이 아직 없다.</p>`;
     return;
   }
+  // **총자산(원) 하나만, 한 축으로.** 누적지수+낙폭 두 축은 읽기 어렵다는 지적(2026-08-28).
+  // 낙폭은 아래 언더워터 차트가 따로 그린다. 날짜는 M/D, 점을 찍어 하루가 보이게.
+  const nav = e.nav || [];
+  const days = e.sessions.map((s) => `${Number(String(s).slice(5, 7))}/${Number(String(s).slice(8, 10))}`);
+  // 축 단위 — 원화는 억·만, 달러는 K·M. 달러에 "37만" 을 붙이면 원으로 읽힌다(9/5 폰 실측).
+  const usd = unitCode() === "USD";
+  const eok = (v) => (v == null ? "—"
+    : usd ? (Math.abs(v) >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "M" : "$" + num(Math.round(v / 1e3)) + "K")
+    : v >= 1e8 ? (v / 1e8).toFixed(2) + "억" : num(Math.round(v / 1e4)) + "만");
+  const first = nav.find((v) => v != null);
+  const bench = (e.benchmark || []).map((b) => (b == null || first == null ? null : first * b / (e.benchmark.find((x) => x != null) || 1)));
   chart("chart-equity").setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: ["누적지수", "낙폭"] },
-    xAxis: { type: "category", data: e.sessions, ...AXIS },
-    yAxis: [
-      { type: "value", scale: true, ...AXIS },
-      { type: "value", max: 0, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(0) + "%" },
-        splitLine: { show: false }, axisLine: AXIS.axisLine },
-    ],
+    legend: { ...BASE.legend, data: ["총자산", "벤치마크(같은 출발점)"] },
+    tooltip: { trigger: "axis", formatter: (items) => {
+      const i = items[0].dataIndex;
+      const prev = i > 0 ? nav[i - 1] : null;
+      const d = prev != null && nav[i] != null ? nav[i] - prev : null;
+      return `${e.sessions[i]}<br>총자산 <b>${num(Math.round(nav[i]))}${unit()}</b>`
+        + (d != null ? `<br>전일 대비 ${d >= 0 ? "+" : ""}${num(Math.round(d))}${unit()}` : "")
+        + (bench[i] != null ? `<br>벤치마크 ${num(Math.round(bench[i]))}원` : "");
+    } },
+    grid: { left: 56, right: 14, top: 28, bottom: 28 },
+    xAxis: { type: "category", data: days, ...AXIS },
+    yAxis: { type: "value", scale: true, ...AXIS,
+      axisLabel: { ...AXIS.axisLabel, formatter: (v) => eok(v) } },
     series: [
-      { name: "누적지수", type: "line", data: e.index, showSymbol: false,
-        lineStyle: { color: COLOR.text, width: 1.6 } },
-      { name: "낙폭", type: "line", yAxisIndex: 1, data: e.drawdown, showSymbol: false,
-        lineStyle: { color: COLOR.warn, width: 1 }, areaStyle: { color: COLOR.warn, opacity: 0.12 } },
+      { name: "총자산", type: "line", data: nav, showSymbol: true, symbolSize: 6, smooth: false,
+        lineStyle: { color: COLOR.up, width: 2.2 }, itemStyle: { color: COLOR.up },
+        areaStyle: { color: COLOR.up, opacity: 0.08 } },
+      { name: "벤치마크(같은 출발점)", type: "line", data: bench, showSymbol: false,
+        lineStyle: { color: COLOR.muted, width: 1.2, type: "dashed" }, connectNulls: false },
     ],
   });
 }
@@ -500,9 +909,9 @@ function renderUnderwater(body) {
         markArea: {
           silent: true,
           data: [
-            band(0, bands.free, "rgba(34,197,94,0.07)", `자유 ${(bands.free * 100).toFixed(0)}%`),
-            band(bands.free, bands.warn, "rgba(245,165,36,0.10)", `페널티 ${(bands.warn * 100).toFixed(0)}%`),
-            band(bands.warn, bands.hard, "rgba(239,68,68,0.13)", `급증 ${(bands.hard * 100).toFixed(0)}%`),
+            band(0, bands.free, token("--band-free"), `자유 ${(bands.free * 100).toFixed(0)}%`),
+            band(bands.free, bands.warn, token("--band-warn"), `페널티 ${(bands.warn * 100).toFixed(0)}%`),
+            band(bands.warn, bands.hard, token("--band-hard"), `급증 ${(bands.hard * 100).toFixed(0)}%`),
           ],
         },
       },
@@ -516,12 +925,76 @@ function renderUnderwater(body) {
   });
 }
 
+/* -- 시간대 세그먼트 (1m/5m/15m/1H/4H/1D) ------------------------------------
+ *
+ * 창고에 그 구간이 있는 종목만 버튼이 켜진다. 종목마다 다르다 — 분봉 수집이
+ * 보유·워치리스트만 받으므로(intraday_collector.py), A 종목엔 5분봉이 있어도
+ * B 종목엔 없을 수 있다. 그래서 "한 번 켜면 계속 켜짐" 이 아니라, 매 응답의
+ * available_intervals 로 **매번 다시** 켜고 끈다.
+ */
+let chartInterval = "1D";
+let chartEntityId = null;
+let chartPositions = [];
+
+/* 이름·버튼 상태·봉 그리기는 **candles.js** 가 한다 — 마켓 탭 패널과 같은
+ * 코드다. 여기서 두 번째 벌을 두면 한쪽만 고쳐진 채로 남는다.
+ *
+ * 일봉은 창고에 항상 있으므로 available 에 없어도 켜 둔다. 서버는
+ * 분봉 목록만 실어 보낸다(``/api/trading/chart`` 의 available_intervals). */
+function applyAvailableIntervals(available) {
+  syncTimeframeSeg(
+    document.getElementById("chart-timeframe"),
+    [...(available || []), "1D"],
+    chartInterval
+  );
+}
+
+function bindChartTimeframe() {
+  const seg = document.getElementById("chart-timeframe");
+  // 한 번만 매단다 — 매 renderCandles 호출마다 다시 매달면 클릭 하나에
+  // 리스너가 여러 개 붙어 fetch 가 중복으로 나간다.
+  if (!seg || seg.dataset.bound) return;
+  seg.dataset.bound = "1";
+  seg.querySelectorAll("button[data-interval]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.disabled) return; // 꺼진 버튼은 창고에 그 구간이 없다는 뜻.
+      chartInterval = button.dataset.interval;
+      seg.querySelectorAll("button[data-interval]").forEach((b) =>
+        b.classList.toggle("on", b === button)
+      );
+      renderCandles(chartEntityId, chartPositions);
+    });
+  });
+}
+
 async function renderCandles(entityId, positions) {
   if (!entityId) return;
-  const body = await fetchJson(`trading/chart?entity=${encodeURIComponent(entityId)}`);
+  chartEntityId = entityId;
+  chartPositions = positions;
+  bindChartTimeframe();
+
+  const body = await fetchJson(
+    `trading/chart?entity=${encodeURIComponent(entityId)}&interval=${encodeURIComponent(chartInterval)}`
+  );
   const c = body.data;
+  applyAvailableIntervals(c.available_intervals);
+
+  const label = timeframeLabel(chartInterval);
+  const intraday = chartInterval !== "1D";
   document.getElementById("chart-title").textContent = c.entity_id;
-  document.getElementById("chart-sub").textContent = `${c.sessions.length}세션 · 일봉`;
+  document.getElementById("chart-sub").textContent = `${c.sessions.length}봉 · ${label}`;
+
+  const note = document.getElementById("chart-note");
+  if (note) {
+    // 분봉은 수집 범위가 좁다(보유·워치리스트의 최근 며칠) — 그 사실을
+    // 캡션에서도 말해야 "왜 이렇게 짧지" 가 고장으로 안 읽힌다.
+    note.innerHTML = intraday
+      ? `<strong>${label}이다.</strong> 보유·워치리스트 종목의 최근 며칠만
+         받는다 — 전 종목·전 구간이 아니다. ▲▼ 체결 흔적은 일봉에서만 그린다.`
+      : `<strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
+         화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.`;
+  }
+
   if (!c.sessions.length) {
     document.getElementById("chart-candle").innerHTML =
       `<p class="empty">이 종목의 시세가 창 안에 없다.</p>`;
@@ -544,77 +1017,11 @@ async function renderCandles(entityId, positions) {
          label: { color: COLOR.warn, formatter: "평균단가", position: "insideEndTop" } }]
     : [];
 
-  // 처음에는 최근 120세션만 보여준다. 5년을 한 화면에 밀어 넣으면 봉이
-  // 선이 되어 아무것도 안 보인다. 나머지는 스크롤로 간다.
-  const span = c.sessions.length;
-  const startPct = span > 120 ? Math.max(0, (1 - 120 / span) * 100) : 0;
-
-  chart("chart-candle").setOption({
-    ...BASE,
-    legend: { ...BASE.legend, data: ["봉", "MA5", "MA20", "MA60"] },
-    // 높이를 비율로 주면 봉 영역이 패널 높이에 따라 접힌다 — 실제로 봉이
-    // 세로로 눌려 보였다. 거래량(56px)과 손잡이(24px)는 고정 크기이므로
-    // 픽셀로 잡고, 남는 세로는 전부 봉이 가져간다.
-    grid: [
-      { left: 56, right: 62, top: 26, bottom: 108 },
-      { left: 56, right: 62, height: 56, bottom: 46 },
-    ],
-    // 좌우 스크롤·확대축소. 두 grid 를 함께 움직여야 봉과 거래량이 어긋나지
-    // 않는다. inside 는 휠·드래그, slider 는 아래 손잡이다.
-    dataZoom: [
-      {
-        type: "inside", xAxisIndex: [0, 1], start: startPct, end: 100,
-        zoomOnMouseWheel: true, moveOnMouseMove: true,
-        // filterMode "filter" 라야 보이는 구간만 남아 Y축이 그 구간으로
-        // 다시 잡힌다. "none" 이면 5년 최고가에 눌려 최근 봉이 납작해진다.
-        filterMode: "filter",
-      },
-      {
-        type: "slider", xAxisIndex: [0, 1], start: startPct, end: 100,
-        filterMode: "filter",
-        bottom: 6, height: 18,
-        backgroundColor: "transparent",
-        borderColor: COLOR.border,
-        fillerColor: "rgba(62,123,250,0.12)",
-        handleStyle: { color: COLOR.muted, borderColor: COLOR.border },
-        moveHandleStyle: { color: COLOR.border },
-        textStyle: { color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono" },
-        dataBackground: {
-          lineStyle: { color: COLOR.dim, opacity: 0.5 },
-          areaStyle: { color: COLOR.dim, opacity: 0.15 },
-        },
-      },
-    ],
-    xAxis: [
-      { type: "category", data: c.sessions, ...AXIS, gridIndex: 0 },
-      { type: "category", data: c.sessions, gridIndex: 1, axisLabel: { show: false },
-        axisLine: AXIS.axisLine, splitLine: { show: false } },
-    ],
-    yAxis: [
-      // scale + 확대 구간 기준 재계산. 없으면 5년 최고가에 눌려 최근 봉이
-      // 납작해진다.
-      { type: "value", scale: true, ...AXIS, gridIndex: 0 },
-      { type: "value", gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false },
-        axisLine: AXIS.axisLine },
-    ],
-    series: [
-      {
-        name: "봉", type: "candlestick", data: c.ohlc,
-        itemStyle: { color: COLOR.up, color0: COLOR.down,
-                     borderColor: COLOR.up, borderColor0: COLOR.down },
-        markPoint: { data: marks },
-        markLine: { symbol: "none", data: guides, silent: true },
-      },
-      { name: "MA5", type: "line", data: c.ma.ma5, showSymbol: false,
-        lineStyle: { width: 1, color: "#f5a524" } },
-      { name: "MA20", type: "line", data: c.ma.ma20, showSymbol: false,
-        lineStyle: { width: 1, color: "#3e7bfa" } },
-      { name: "MA60", type: "line", data: c.ma.ma60, showSymbol: false,
-        lineStyle: { width: 1, color: "#8a93a0" } },
-      { name: "거래량", type: "bar", data: c.volume, xAxisIndex: 1, yAxisIndex: 1,
-        itemStyle: { color: COLOR.border } },
-    ],
-  });
+  // 그리는 일은 **candles.js** 가 한다 — 마켓 탭 패널과 같은 함수다.
+  // 여기 남는 것은 이 화면에만 있는 것들뿐이다: 체결 흔적과 평균단가 선.
+  chart("chart-candle").setOption(
+    candleOption(c, { interval: chartInterval, marks, guides })
+  );
 }
 
 /* -- 수익률 캘린더 --------------------------------------------------------- */
@@ -622,137 +1029,23 @@ async function renderCandles(entityId, positions) {
 /* 그리는 일은 calendar.js 가 한다 — 별도 창(/calendar)과 **같은 렌더러**다.
  * 두 벌로 만들면 한쪽만 고쳐진 채로 남고, 두 화면이 같은 수익률을 다르게 그린다.
  *
- * 탭에서는 최근 달만, 숫자 없이 색으로만 보여준다. 패널 하나에 여러 달을
- * 숫자까지 넣으면 칸이 읽을 수 없게 작아진다. 전체는 새 창에서 본다.
+ * 예전에는 여기서 최근 한 달만 숫자 없이 색으로 보여주고, [표시하기] 버튼이
+ * 새 창을 띄웠다. **버튼을 눌러서 보던 화면이 원래 보고 싶던 화면이었으므로**
+ * 한 번 더 누르게 하지 않고 여기서 바로 그린다 — ‹ › 로 달을 옮기고 아래
+ * 월별 표에서 [보기] 로 건너뛴다.
  */
 function renderCalendarPanel(body) {
   const cal = body.data.calendar || { days: [], months: [] };
-  const months = calendarMonths(cal);
-  renderCalendar(document.getElementById("calendar"), cal, {
-    months: months.slice(-1),
-    compact: true,
+  mountCalendarBrowser(cal, {
+    label: document.getElementById("cal-label"),
+    grid: document.getElementById("calendar"),
+    months: document.getElementById("cal-months"),
+    prev: document.getElementById("cal-prev"),
+    next: document.getElementById("cal-next"),
   });
-}
-
-/* 새 창은 지금 보고 있는 as_of·창을 그대로 물려받는다. 안 넘기면 달력만
- * 조용히 지금을 보게 되고, 두 화면이 다른 시점을 말한다. */
-function bindCalendarPopout() {
-  const button = document.getElementById("calendar-popout");
-  // 지금은 loadTrading 이 한 번만 돌지만, 나중에 자동 갱신이 붙으면 누를 때마다
-  // 창이 여러 개 뜬다. 한 번만 매다는 비용이 그 고장을 찾는 비용보다 싸다.
-  if (!button || button.dataset.bound) return;
-  button.dataset.bound = "1";
-  button.addEventListener("click", () => {
-    const query = params().toString();
-    window.open(`/calendar${query ? "?" + query : ""}`, "quant-rl-calendar",
-                "width=980,height=860,scrollbars=yes");
-  });
-}
-
-/* -- 지수 대비 -------------------------------------------------------------- */
-
-/* 캘린더 오른쪽 공백에 앉는다. **여기서 대용치를 쓰지 않는다** — 코스피가
- * 창고에 없으면 "없다" 고 말한다. KRX 300 을 대신 보여주고 이름만 코스피라고
- * 붙이면 그게 더 큰 거짓말이다 (regime Analyst 는 이유가 있어 대용치를
- * 쓰지만 이 화면은 그 이유를 공유하지 않는다).
- */
-/* 그 달의 **누적 초과수익 곡선**. 일별 막대가 아니다.
- *
- * 이 전략은 저베타라(실측 베타 0.131 · 상승일 포착률 14%) 상승장에서 일별
- * 초과가 음수인 날이 줄줄이 나오는 것이 **설계대로 굴러가는 모습**이다.
- * 막대로 그리면 화면이 매일 "졌다" 고 스무 번 외친다 — 2026-07 실측으로
- * 일별 부호가 22일 중 9~13번 뒤집혔다. 그리고 그 빨강은 손실이 아닌데
- * 같은 패널의 캘린더 빨강은 **진짜 손실**이라, 한 패널에서 같은 색이 두
- * 가지를 뜻하게 된다.
- *
- * 누적은 그 달의 결론이고, 곡선이면 **언제부터 벌어졌나**도 보인다.
- *
- * ECharts 를 안 쓰는 이유는 밀도다 — 이 패널은 달력 오른쪽의 좁은 칸이고
- * 네 지수가 세로로 쌓인다. 축과 눈금이 들어갈 자리가 없고, 정확한 값은
- * 오른쪽 숫자와 호버가 든다. */
-const BENCH_CURVE_H = 34;
-
-function benchCurve(row) {
-  const days = row.daily || [];
-  const values = days.map((d) => d.cumulative_excess);
-  if (values.length < 2) {
-    return `<p class="sub tiny">곡선을 그리려면 이틀은 있어야 한다 (지금 ${num(values.length)}일).</p>`;
-  }
-  // 0 을 반드시 범위에 넣는다 — 0선이 화면 밖으로 나가면 "앞섰나 뒤졌나" 를
-  // 곡선 모양만으로는 못 읽는다.
-  const lo = Math.min(0, ...values);
-  const hi = Math.max(0, ...values);
-  const span = hi - lo || 1e-9;
-  const px = (i) => (i / (values.length - 1)) * 100;
-  const py = (v) => BENCH_CURVE_H - 2 - ((v - lo) / span) * (BENCH_CURVE_H - 4);
-
-  const last = values[values.length - 1];
-  // **색은 마지막 값 하나로만.** 구간마다 바꾸면 막대와 같은 문제가 돌아온다.
-  const tone = last > 0 ? "up" : last < 0 ? "down" : "flat";
-  const line = values.map((v, i) => `${px(i)},${py(v)}`).join(" ");
-  const zero = py(0);
-
-  // 양쪽이 다 관측되지 않은 날. 그날은 한쪽 누적이 안 움직였다 — 즉 "그날
-  // 그쪽 수익률이 0" 이라고 가정한 셈이라, 지우지 않고 점으로 드러낸다.
-  const gaps = days
-    .map((d, i) => (d.paired ? "" : `<circle cx="${px(i)}" cy="${py(values[i])}" r="1.6" class="gap"/>`))
-    .join("");
-
-  // 호버 자리. polyline 에는 점마다 title 을 못 달아서 투명한 칸을 겹친다.
-  const width = 100 / values.length;
-  const hits = days
-    .map(
-      (d, i) => `<rect x="${Math.max(0, px(i) - width / 2)}" y="0" width="${width}" height="${BENCH_CURVE_H}"
-        fill="transparent"><title>${d.session}
-우리 ${d.ours === null || d.ours === undefined ? "—" : pct(d.ours)}
-지수 ${d.index === null || d.index === undefined ? "—" : pct(d.index)}
-누적 초과 ${pct(d.cumulative_excess)}${d.paired ? "" : "\n(한쪽 데이터 없음)"}</title></rect>`
-    )
-    .join("");
-
-  return `<svg class="bench-curve ${tone}" viewBox="0 0 100 ${BENCH_CURVE_H}" preserveAspectRatio="none">
-    <line class="zero" x1="0" y1="${zero}" x2="100" y2="${zero}"/>
-    <polyline points="${line}" fill="none" vector-effect="non-scaling-stroke"/>
-    ${gaps}${hits}
-  </svg>`;
-}
-
-function renderBenchmarkCompare(body) {
-  const target = document.getElementById("bench-compare");
-  if (!target) return;
-  const bc = body.data.benchmark_compare;
-  if (!bc || !bc.benchmarks || !bc.benchmarks.length) {
-    target.innerHTML = `<p class="empty">비교할 지수가 없다.</p>`;
-    return;
-  }
-
-  const rows = bc.benchmarks
-    .map((b) => {
-      if (!b.available) {
-        return `<div class="bench-row unavailable">
-          <span class="label">${b.label}</span>
-          <span>없음 — ${b.reason}</span>
-        </div>`;
-      }
-      const excess = b.cumulative_excess;
-      const missing = (b.daily || []).filter((d) => !d.paired).length;
-      return `<div class="bench-row">
-        <div class="head">
-          <span class="label">${b.label} <span class="sub">${bc.month}</span></span>
-          <span class="num ${signClass(excess)}">${arrow(excess)}${pct(excess)}</span>
-        </div>
-        <div class="head">
-          <span class="label">우리 ${pct(b.cumulative_ours)} · 지수 ${pct(b.cumulative_index)}</span>
-        </div>
-        ${benchCurve(b)}
-        ${missing
-          ? `<p class="sub tiny bench-gap-note">양쪽이 다 관측된 날이 아닌 ${num(missing)}일이 있다 —
-             그날은 한쪽이 안 움직인 것으로 잰다(점으로 표시).</p>`
-          : ""}
-      </div>`;
-    })
-    .join("");
-  target.innerHTML = rows;
+  bindDayDetail(
+    document.getElementById("calendar"), cal, document.getElementById("day-detail")
+  );
 }
 
 /* -- Positions 파이 --------------------------------------------------------- */
@@ -762,6 +1055,24 @@ function renderBenchmarkCompare(body) {
  * 종목이 많으면 상위 N + 기타로 접되, 접었다는 사실 자체를 라벨에 남긴다.
  */
 const POSITIONS_PIE_TOP_N = 6;
+
+/* 일별 수익률 막대 — 최근 20세션 TWR. 초록/빨강은 손익 규약. */
+function renderDailyReturns(body) {
+  const target = document.getElementById("chart-daily-returns");
+  if (!target) return;
+  const days = ((body.data.calendar || {}).days || []).slice(-20);
+  if (!days.length) { target.innerHTML = `<p class="empty">일별 수익률이 아직 없다.</p>`; return; }
+  chart("chart-daily-returns").setOption({
+    backgroundColor: "transparent", animation: false,
+    title: { text: "일별 수익률 · 최근 20세션", left: 0, top: 0, textStyle: { color: COLOR.muted, fontSize: 11, fontWeight: 500 } },
+    grid: { left: 44, right: 8, top: 28, bottom: 22 },
+    tooltip: { trigger: "axis", backgroundColor: COLOR.panel2, borderColor: COLOR.border, textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
+      formatter: (ps) => `${ps[0].axisValue}<br>${pct(ps[0].value)}` },
+    xAxis: { type: "category", data: days.map((d) => d.session.slice(5)), ...AXIS, axisLabel: { ...AXIS.axisLabel, interval: 4 } },
+    yAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v * 100).toFixed(2) + "%" } },
+    series: [{ type: "bar", data: days.map((d) => ({ value: d.return, itemStyle: { color: d.return >= 0 ? COLOR.up : COLOR.down } })), barMaxWidth: 12 }],
+  });
+}
 
 function renderPositionsPie(body) {
   const target = document.getElementById("chart-positions-pie");
@@ -774,29 +1085,26 @@ function renderPositionsPie(body) {
   }
 
   const nav = k.nav;
-  const cashValue = (k.cash_krw || 0) + (k.cash_usd || 0) * (k.fx_rate || 0);
+  // 보고 있는 시장의 현금만 — 미장 보기에 원화 현금이 서면 "미장 현금 6.9억" 이 된다.
+  const market = params().get("market") || "KR";
+  // 보유 value 는 종목 통화(미장은 달러)라 현금도 같은 통화로 — 환산하면 현금만 원화가 되어
+  // 파이가 현금 덩어리로 보인다(9/4 폰 실측: 달러 현금 × 환율 대 달러 보유).
+  const cashValue = market === "US" ? (k.cash_usd || 0) : (k.cash_krw || 0);
   const sorted = [...rows].sort((a, b) => (b.value || 0) - (a.value || 0));
   const top = sorted.slice(0, POSITIONS_PIE_TOP_N);
   const rest = sorted.slice(POSITIONS_PIE_TOP_N);
   const restValue = rest.reduce((sum, row) => sum + (row.value || 0), 0);
 
-  // 색은 이 화면의 규칙을 그대로 쓴다 — 손익 부호(초록↑·빨강↓). 파이는
-  // 구성이 아니라 "그 조각이 지금 벌고 있나" 를 같이 말한다. 현금은
-  // 손익이 없으니 중립색이다.
-  const sliceColor = (row) =>
-    row.pnl_pct === null || row.pnl_pct === undefined
-      ? COLOR.muted
-      : row.pnl_pct > 0
-      ? COLOR.up
-      : row.pnl_pct < 0
-      ? COLOR.down
-      : COLOR.muted;
-
+  // 색은 **종목 구분**이다 (COLOR.series). 처음엔 손익 부호(초록↑·빨강↓)로
+  // 칠했는데, 다 오르는 날엔 조각 전부가 초록이라 어느 조각이 어느 종목인지
+  // 구분되지 않았다 (2026-08-31 아이폰 실측). 손익은 툴팁·보유 표가 이미
+  // 말하므로 파이는 구성 하나만 말한다. 현금·기타는 팔레트 밖 중립색 —
+  // 종목처럼 보이면 안 된다.
   const data = [
-    ...top.map((row) => ({
+    ...top.map((row, i) => ({
       name: `${row.name} (${row.entity_id})`,
       value: row.value || 0,
-      itemStyle: { color: sliceColor(row) },
+      itemStyle: { color: COLOR.series[i % COLOR.series.length] },
     })),
     ...(rest.length
       ? [
@@ -819,7 +1127,7 @@ function renderPositionsPie(body) {
       backgroundColor: COLOR.panel,
       borderColor: COLOR.border,
       textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
-      formatter: (p) => `${p.name}<br/>${num(Math.round(p.value))} KRW · ${p.percent.toFixed(1)}%`,
+      formatter: (p) => `${p.name}<br/>${num(Math.round(p.value))} ${unitCode()} · ${p.percent.toFixed(1)}%`,
     },
     legend: {
       type: "scroll",
@@ -848,6 +1156,25 @@ function renderPositionsPie(body) {
 
 /* -- 진입 ----------------------------------------------------------------- */
 
+async function loadReview() {
+  const panel = document.getElementById("panel-review");
+  if (!panel) return;
+  const body = await fetchJson("trading/review");
+  const review = body.data && body.data.review;
+  if (!review || !review.headline) {
+    panel.hidden = true;
+    return;
+  }
+  const tone = { good: "up", bad: "down", mixed: "", quiet: "dim" }[review.tone] || "";
+  document.getElementById("review-stamp").textContent =
+    `${new Date(review.session_at).toLocaleDateString("ko-KR")} 장 · ${review.model} · ${review.status === "cached" ? "캐시" : review.status}`;
+  const headline = document.getElementById("review-headline");
+  headline.textContent = review.headline;
+  headline.className = `review-headline ${tone}`;
+  document.getElementById("review-body").textContent = review.body || "";
+  panel.hidden = false;
+}
+
 async function loadTrading() {
   const entity = currentEntity();
   const body = await fetchJson(`trading${entity ? "?entity=" + encodeURIComponent(entity) : ""}`);
@@ -860,7 +1187,7 @@ async function loadTrading() {
     renderAlerts(body);
     document.getElementById("kpis").innerHTML =
       kpi("평가 불가", "—", body.data.unavailable, true);
-    ["watchlist", "decision", "risk", "positions", "orders", "bench-compare"].forEach((id) => {
+    ["watchlist", "decision", "risk", "positions", "orders", "perf-fills"].forEach((id) => {
       document.getElementById(id).innerHTML =
         `<p class="empty">회계가 평가를 거부했다. 위 사유를 먼저 해결한다.</p>`;
     });
@@ -878,21 +1205,121 @@ async function loadTrading() {
   if (equitySub) equitySub.textContent = `${body.data.equity.sessions.length}세션`;
 
   renderKpis(body);
+  // **종합 탭**(?market=ALL)은 합산 숫자와 곡선만이다 — 종목·주문·계좌 패널은 시장 탭에서 본다
+  // (사용자 요청 2026-09-05). 숨기는 것은 섹션 단위다: 빈 표를 그리면 "0종목" 이 사실처럼 읽힌다.
+  const combined = (params().get("market") || "KR").toUpperCase() === "ALL";
+  // 렌더 테스트의 DOM 스텁엔 closest 가 없다 — 있을 때만 올라간다.
+  const up = (el, sel) => (el && typeof el.closest === "function" ? el.closest(sel) : null);
+  const hide = (el) => { if (el) el.hidden = combined; };
+  hide(document.getElementById("account-panel"));
+  hide(document.getElementById("panel-review"));
+  hide(document.getElementById("positions"));                       // 표만 — 같은 패널의 일별 수익률 차트는 남긴다
+  hide(document.getElementById("chart-positions-pie"));
+  hide(up(document.getElementById("orders"), ".panel"));
+  for (const id of ["watchlist", "chart-candle", "risk"]) hide(up(document.getElementById(id), "details"));
+  const posHead = up(document.getElementById("positions"), ".panel");
+  const posH2 = posHead && posHead.querySelector ? posHead.querySelector("h2") : null;
+  if (posH2 && combined) posH2.textContent = "일별 수익률 · 종합";
+  if (!combined) renderAccount(body).catch(() => {});  // 외부 조회 — 느리고 실패할 수 있다, KPI 를 막지 않는다
   renderAlerts(body);
-  renderWatchlist(body);
-  renderDecision(body);
-  renderRisk(body);
-  renderPositions(body);
-  renderPositionsPie(body);
-  renderOrders(body);
+  if (!combined) {
+    renderWatchlist(body);
+    renderDecision(body);
+    renderRisk(body);
+    renderPositions(body);
+    renderPositionsPie(body);
+    renderOrders(body);
+  }
+  renderDailyReturns(body);
+  renderPerformance(body);
   renderEquity(body);
-  renderUnderwater(body);
+  // renderUnderwater 는 뺐다 (사용자 요청 2026-08-31 — 낙폭이 0 이라 안 보였다).
+  // 함수는 /calendar 재사용 위해 남겨 둔다.
   renderCalendarPanel(body);
-  renderBenchmarkCompare(body);
-  bindCalendarPopout();
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
-  await renderCandles(body.data.decision.entity_id, body.data.positions);
+  if (!combined) await renderCandles(body.data.decision.entity_id, body.data.positions);
+
+  // 장중이면 다음 갱신을 예약한다. **그리기가 끝난 뒤**여야 한다 — 앞에 두면
+  // 느린 세션에서 갱신이 겹쳐 쌓인다.
+  scheduleLiveRefresh(body);
 }
 
-runAll([loadTrading]);
+/* -- 장중 자동 갱신 ---------------------------------------------------------- */
+
+/* **장이 열려 있을 때만** 주기적으로 다시 읽는다.
+ *
+ * 안 하면 실시간 시세를 붙여 놓고도 화면이 처음 연 순간에 얼어붙는다 —
+ * 값은 맞는데 안 움직이니 고장으로 읽힌다(2026-08-19 09:09 실측).
+ *
+ * 세 가지를 지킨다:
+ *   - **타임머신을 켰으면 갱신하지 않는다.** 되감은 화면이 조용히 흘러가면
+ *     사람이 보고 있는 시점이 바뀌어 버린다 (dashboard.md §8-2)
+ *   - **장외에는 돌지 않는다.** 마지막 체결가는 안 변하는데 매번 창고를 연다
+ *   - **탭이 숨겨져 있으면 쉰다.** 배경 탭 수십 개가 30초마다 깨우면
+ *     이 기계에서 그 비용이 실제로 아프다
+ */
+const LIVE_REFRESH_MS = 30000;
+let liveTimer = null;
+//: 마지막으로 실제로 읽어 온 시각. 화면이 돌아왔을 때 "얼마나 굶었나" 를
+//: 재는 데 쓴다. 타이머만 믿으면 안 되는 이유는 아래에 있다.
+let lastLoadedAt = 0;
+let visibilityBound = false;
+
+function liveEnabled(body) {
+  if (!body || !body.live) return false;           // 타임머신은 흐르지 않는다
+  const k = (body.data && body.data.kpis) || {};
+  return k.live_session_open !== false;            // 장외에는 안 돈다
+}
+
+function scheduleLiveRefresh(body) {
+  lastLoadedAt = Date.now();
+  if (liveTimer) {
+    clearTimeout(liveTimer);
+    liveTimer = null;
+  }
+  bindVisibilityRefresh(body);
+  if (!liveEnabled(body)) return;
+
+  liveTimer = setTimeout(async () => {
+    if (document.hidden) return;   // 숨은 동안은 쉰다. 복귀는 아래가 맡는다
+    try {
+      await loadTrading();
+    } catch (error) {
+      // 한 번 실패했다고 갱신을 멈추지 않는다 — 다음 주기에 다시 해 본다.
+      console.warn("자동 갱신 실패:", error);
+      scheduleLiveRefresh(body);
+    }
+  }, LIVE_REFRESH_MS);
+}
+
+/* **화면이 돌아오면 즉시 다시 읽는다.**
+ *
+ * iOS Safari 는 화면이 꺼지거나 다른 앱으로 가면 백그라운드 타이머를 죽이고,
+ * 돌아와도 **자동으로 재개하지 않는다.** setTimeout 하나만 믿으면 그 순간부터
+ * 화면이 영영 얼어붙는다 — 실측 2026-08-19: 아이폰에서 11:24 값이 12:08 까지
+ * 43분간 그대로였다(서버는 멀쩡히 새 값을 주고 있었다).
+ *
+ * 그래서 `visibilitychange` 로 복귀를 잡는다. 한 번만 매단다 — loadTrading 이
+ * 돌 때마다 매달면 핸들러가 쌓여서 복귀 한 번에 여러 번 읽는다.
+ */
+function bindVisibilityRefresh(body) {
+  if (visibilityBound) return;
+  visibilityBound = true;
+  document.addEventListener("visibilitychange", async () => {
+    if (document.hidden) return;
+    if (!liveEnabled(body)) return;
+    // 방금 읽었으면 다시 읽지 않는다 — 탭을 빠르게 오갈 때 매번 창고를 연다.
+    if (Date.now() - lastLoadedAt < LIVE_REFRESH_MS) {
+      scheduleLiveRefresh(body);   // 예약만 되살린다
+      return;
+    }
+    try {
+      await loadTrading();
+    } catch (error) {
+      console.warn("복귀 갱신 실패:", error);
+    }
+  });
+}
+
+runAll([loadTrading, loadReview]);

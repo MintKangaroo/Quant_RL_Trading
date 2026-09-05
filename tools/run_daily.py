@@ -96,8 +96,8 @@ def last_published(store: Store, market: Market, now: datetime) -> datetime | No
 
 def run_scorers(
     store: Store, *, market: Market, as_of: datetime, dry_run: bool, revision: int = 0
-) -> tuple[int, list[str]]:
-    """Analyst 점수 → signals. (적재 행수, 경고)
+) -> tuple[int, list[str], list[str]]:
+    """Analyst 점수 → signals. (적재 행수, 경고, **실패**)
 
     계산은 ``session.signals`` 가 한다. 여기는 화면에 찍는 일만 한다 —
     백테스트 루프도 같은 함수를 부르므로, 로직이 이 파일에 남으면 백테스트는
@@ -108,7 +108,7 @@ def run_scorers(
     )
     for name, count in result.counts.items():
         print(f"    {name:12s} {count:>5}건  confidence {result.confidence[name]:.4f}")
-    return result.written, result.warnings
+    return result.written, result.warnings, result.failures
 
 
 def run_filters(
@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{market} as_of={as_of.isoformat()}{' (dry-run)' if args.dry_run else ''}")
 
     print("  [1/2] Analyst 점수 → signals")
-    signals_written, signal_warnings = run_scorers(
+    signals_written, signal_warnings, signal_failures = run_scorers(
         store, market=market, as_of=as_of, dry_run=args.dry_run, revision=args.revision
     )
     print("  [2/2] News · SNS 판정 → verdicts")
@@ -200,6 +200,20 @@ def main(argv: list[str] | None = None) -> int:
     print(f"\nsignals {signals_written}행 · verdicts {verdicts_written}행")
     for message in signal_warnings + filter_warnings:
         print(f"  ⚠️  {message}")
+
+    # **Analyst 가 죽으면 0 으로 끝내지 않는다.**
+    #
+    # 예전에는 무조건 0 이었다. 그래서 2026-08-18~20 세 세션 동안 6종 중
+    # 3종이 MemoryError 로 죽는 내내 크론은 성공으로 봤고, 아무 데도 안
+    # 나타났다. 사람이 로그를 열어 봐야만 알 수 있는 고장은 **없는 고장과
+    # 같다.**
+    #
+    # "신호 0건"(``warnings``)은 여기서 안 센다. 그건 데이터가 아직 없는
+    # 정상 상태일 수 있고, 그것까지 실패로 치면 경보가 매일 울려서 아무도
+    # 안 보게 된다.
+    if signal_failures:
+        print(f"\nAnalyst {len(signal_failures)}종이 죽었다 — 남은 신호로 후보를 골랐다.")
+        return 3
     return 0
 
 

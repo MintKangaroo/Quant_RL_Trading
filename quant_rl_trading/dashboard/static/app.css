@@ -1,25 +1,91 @@
 /* 색·타이포는 docs/design/dashboard.md §10 토큰 그대로.
-   여백보다 정보. 한 화면에서 판단이 끝나야 한다. */
+   여백보다 정보. 한 화면에서 판단이 끝나야 한다.
+
+   모바일 기준선은 이 파일 전체에서 `@media (max-width: 768px)` 하나로
+   통일한다. 탭별 CSS(static/<탭>.css)도 이 값을 그대로 써야 화면 폭
+   767px 에서 어떤 탭은 모바일 배치고 어떤 탭은 아닌, 경계가 갈라지는
+   사고를 막는다. 재사용할 공통 클래스는 `.kpis`(카드 그리드),
+   `.scroll`(표의 안전한 가로 스크롤), `.grid2`(좌우 패널)이고 이 셋은
+   768px 아래에서 이미 이 파일이 처리하므로 탭별 CSS 는 다시 정의할
+   필요 없다. */
+
+/* 서체 — **자체 호스팅**한다. 바깥 CDN 은 폰이 Tailscale 로 붙는 경로에서
+   안 뚫려 화면이 통째로 검게 남은 이력이 있어(2026-08-24) 금지이고, 그렇다고
+   시스템 글꼴로 떨어뜨리면 숫자 화면이 아마추어처럼 보인다. 파일은
+   static/fonts 에 있고 `font-display: swap` 이라 늦게 와도 화면을 막지 않는다.
+   본문·라벨은 Pretendard(가변, 한글 UI 표준), 숫자는 IBM Plex Mono. */
+@font-face {
+  font-family: "Pretendard";
+  src: url("fonts/PretendardVariable.woff2") format("woff2-variations"),
+       url("fonts/PretendardVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/IBMPlexMono-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/IBMPlexMono-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "IBM Plex Mono"; src: url("fonts/IBMPlexMono-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
 
 :root {
-  --bg: #070a0f;
-  --panel: #0d1219;
-  --panel2: #141b24;
-  --border: #1e2733;
-  /* 패널 머리글 줄. 본문보다 한 단계 밝아야 카드의 경계가 읽힌다. */
-  --head: #111823;
-  --text: #e6e9ee;
-  --muted: #8a93a0;
-  --dim: #5a626d;
+  /* 바탕은 **블랙** (사용자 결정 2026-09-02 — "애매한 네이비" 였던 슬레이트를
+     걷어냈다). 파랑 기운이 없는 무채색 계단이다: 바탕 → 패널 → 패널2 → 괘선.
+     화면 문법은 카드가 아니라 **괘선으로 나눈 시트**(프라임브로커 리스크
+     리포트)라 패널은 바탕과 거의 같고, 경계는 1px 괘선이 말한다 (sheet.css). */
+  --bg: #050505;
+  --panel: #080808;
+  --panel2: #111111;
+  --border: #1f1f1f;
+  /* 패널 머리글 줄 — 시트 문법에서는 머리글에 바탕을 깔지 않는다. 남겨 두는
+     이유는 탭 전용 CSS 가 아직 참조하기 때문이고, 값은 바탕과 같다. */
+  --head: #080808;
+  /* 괘선 두 단계: --border 는 행·칸 사이, --rule 은 절(section) 사이. */
+  --rule: #2a2a2a;
+  --text: #e8e8e8;
+  --muted: #8f8f8f;
+  --dim: #5f5f5f;
   --warn: #f5a524;
-  /* 상승 = 초록으로 통일. 국장·미장을 같이 하므로 화면마다 다르면 사고가
-     난다 (dashboard.md §10). */
+  /* 손익 — 상승 초록 · 하락 빨강. 국장·미장 모두 이 규약 하나로 통일한다 —
+     화면마다 다르면 사고가 난다 (dashboard.md §10).
+     이력: 2026-08-31 에 한국식(빨강↑)으로 갔다가 **같은 날 사용자 판단으로
+     되돌렸다** — 화면 전체가 붉어져 경고·손실과 상승이 한 색으로 읽혔다.
+     상태(ok/bad)와는 별개 축이다: 아래 --ok/--bad 주석 참고. */
   --up: #22c55e;
   --down: #ef4444;
   --bench: #6b7280;
+  /* 상태색 — 손익과 별개의 축. ok 는 "정상 가동·통과"(참조물의 초록 점),
+     bad 는 "실패·위험". 손익이 빨강↑/파랑↓ 가 된 순간(2026-08-31) 상태까지
+     --up/--down 을 빌려 쓰면 "통과가 빨갛게" 되는 의미 붕괴가 난다. */
+  --ok: #3fb950;
+  --bad: #e5484d;
   /* 강조. 손익이 아닌 것 — 선택·초점·구조선 — 에만 쓴다. 손익 색과 겹치면
      "이 파랑이 손실인가 선택인가" 를 매번 생각하게 된다. */
-  --accent: #38bdf8;
+  --accent: #4c6ef5;
+  /* --dim 보다 한 단계 더 죽인 글자. 꺼진 버튼·못 잰 이유처럼 "있지만
+     지금은 상관없다" 는 뜻일 때만 쓴다 — --dim 과 같은 자리에 섞으면
+     의미가 없는데 안 보이는 것과 지금 안 쓰는 것이 구분 안 된다. */
+  --faint: #3a3a3a;
+  /* 범주 팔레트 — 종목·시리즈 **구분**용 (손익 의미 없음). learning IC 차트와
+     포지션 도넛이 같은 순서로 쓴다 — 한 파일이 하드코딩하면 색이 화면마다 갈린다.
+     **의미를 이미 가진 색은 뺀다**: 초록(--up)·빨강(--down)은 손익, 인디고
+     (--accent)는 선택·초점, 밝은 앰버(--warn)는 경고다. 데이터가 크롬 색을 입으면
+     제일 큰 조각이 "선택된 것"처럼 읽힌다 (2026-08-31: --s1 이 --accent 와 같은
+     값이었다). 그래서 틸·보라·분홍·하늘·오커·회청 여섯이다. */
+  --s1: #2aa198;  /* 틸 (참조물 '미장') */
+  --s2: #9b7bf7;  /* 보라 */
+  --s3: #e06c9f;  /* 분홍 */
+  --s4: #62b0db;  /* 하늘 */
+  --s5: #c99a4e;  /* 오커 — 경고색(--warn)보다 어둡고 탁하게 */
+  --s6: #9a9a9a;  /* 회색 */
+  /* 헤더 그림자·정지 버튼 아래 등 어두운 바탕 위에 깊이를 주는 자리.
+     하드코딩된 rgba(0,0,0,…) 이 여기저기 흩어져 있던 것을 모았다. */
+  --shadow: rgba(0, 0, 0, 0.35);
+  /* 더보기 시트 뒤 배경을 죽히는 값. --shadow(그림자, 옅다)와는 용도가
+     달라 섞지 않는다 — 이건 그 아래 화면 전체를 눌러 시트가 위라는 걸
+     말해야 하므로 훨씬 짙다. */
+  --scrim: rgba(0, 0, 0, 0.55);
+  /* 하단 탭 바 높이. main 의 아래 여백과 짝이어야 한다 — 짝이 안 맞으면
+     마지막 패널이 탭 바 밑에 가려 안 보인다. 숫자를 두 군데 따로 적으면
+     하나만 고쳐질 때가 온다. */
+  --bottom-bar-h: 56px;
 }
 
 * { box-sizing: border-box; }
@@ -28,9 +94,13 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+  font-family: "Pretendard", "IBM Plex Sans KR", system-ui, -apple-system, sans-serif;
   font-size: 13px;
   line-height: 1.45;
+  /* 표의 가로 스크롤은 .scroll 컨테이너 안에서만 일어나야 한다. 어딘가
+     칸 하나가 폭을 못 지키면 body 가 대신 밀리는데, 그러면 페이지 전체가
+     옆으로 흐르고 원인 칸을 찾기 전까지는 고칠 수도 없다 — 마지막 방어선. */
+  overflow-x: hidden;
 }
 
 /* 모든 숫자는 등폭. 자릿수가 흔들리면 표를 못 읽는다. */
@@ -40,15 +110,23 @@ body {
 }
 
 /* 상단 바 — 브랜드 · 탭 · 상태 · 타임머신. 한 줄에 다 들어간다.
-   화면의 가장 위는 "지금 무엇을 보고 있나" 를 말하는 자리다. */
+   화면의 가장 위는 "지금 무엇을 보고 있나" 를 말하는 자리다.
+   position: sticky 로 고정한다 — 탭이 스크롤 밖으로 나가면 다른 화면으로
+   건너갈 때마다 맨 위로 돌아가야 하고, 모바일에서는 그 왕복이 더 아프다.
+   safe-area 위쪽 여백은 아이폰 노치가 상태표시줄과 겹쳐 브랜드 글자를
+   가리는 것을 막는다. */
 header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
-  padding: 8px 16px;
-  background: linear-gradient(180deg, #0e151e 0%, var(--panel) 100%);
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  background: linear-gradient(180deg, #12161c 0%, var(--panel) 100%);
   border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 4px 10px var(--shadow);
 }
 
 header h1 {
@@ -122,7 +200,7 @@ header .sub { color: var(--muted); font-size: 12px; }
   font-size: 11px;
   border: 1px solid var(--border);
 }
-.tag.pass { color: var(--up); border-color: var(--up); }
+.tag.pass { color: var(--ok); border-color: var(--ok); }
 .tag.observe { color: var(--warn); border-color: var(--warn); }
 .tag.dim { color: var(--dim); }
 
@@ -132,7 +210,7 @@ a { color: var(--text); text-decoration: none; }
 a:hover { text-decoration: underline; }
 a:focus-visible { outline: 1px solid var(--warn); outline-offset: 2px; }
 
-.good { color: var(--up); }
+.good { color: var(--ok); }
 .weak { color: var(--muted); }
 
 .note {
@@ -231,7 +309,7 @@ main { padding: 10px 12px 24px; display: grid; gap: 10px; }
   letter-spacing: 0.1em;
   line-height: 1.3;
 }
-.kpi-stop button:hover { background: rgba(239, 68, 68, 0.12); }
+.kpi-stop button:hover { background: color-mix(in srgb, var(--down) 12%, transparent); }
 .kpi-stop button .glyph { display: block; font-size: 17px; margin-top: 2px; }
 .kpi-stop.engaged { border-color: var(--warn); }
 .kpi-stop.engaged button { color: var(--warn); }
@@ -369,14 +447,16 @@ table.news { table-layout: fixed; }
 table.news th:first-child, table.news td:first-child { width: 172px; }
 
 .alerts { display: grid; gap: 6px; }
+/* 경고 줄 — 가는 전체 테두리. 왼쪽 굵은 띠(side-tab)는 흔한 생성형 UI 관용구라
+   피한다. 경고의 지위는 색(경고색 글자·테두리)이 이미 말한다. */
 .alert {
   background: var(--panel2);
-  border-left: 3px solid var(--warn);
+  border: 1px solid var(--warn);
   padding: 6px 10px;
   color: var(--warn);
   border-radius: 2px;
 }
-.alert.ok { border-left-color: var(--dim); color: var(--muted); }
+.alert.ok { border-color: var(--border); color: var(--muted); }
 
 .empty { color: var(--dim); padding: 12px 0; }
 .error { color: var(--warn); }
@@ -385,12 +465,6 @@ table.news th:first-child, table.news td:first-child { width: 172px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
-
-@media (max-width: 640px) {
-  .controls { margin-left: 0; width: 100%; }
-  .chart { height: 200px; }
-}
-
 
 /* 트레이딩 탭 — 12컬럼 그리드 (dashboard.md §4). 큰 그림 2 + 게이지 1. */
 .grid-trading {
@@ -500,10 +574,10 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
   border-radius: 2px;
   color: var(--muted);
 }
-.status.filled { color: var(--up); border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.1); }
-.status.partial { color: var(--warn); border-color: rgba(245, 165, 36, 0.5); background: rgba(245, 165, 36, 0.1); }
-.status.planned, .status.requested { color: var(--accent); border-color: rgba(56, 189, 248, 0.45); }
-.status.rejected { color: var(--down); border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.1); }
+.status.filled { color: var(--up); border-color: color-mix(in srgb, var(--up) 50%, transparent); background: color-mix(in srgb, var(--up) 10%, transparent); }
+.status.partial { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.status.planned, .status.requested { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.status.rejected { color: var(--down); border-color: color-mix(in srgb, var(--down) 50%, transparent); background: color-mix(in srgb, var(--down) 10%, transparent); }
 .status.cancelled { color: var(--dim); }
 
 /* 결정 패널 — Analyst 기여도 막대. Q값이 아니다(M4 전). */
@@ -532,9 +606,9 @@ tr.click.on { background: var(--panel2); box-shadow: inset 2px 0 0 var(--warn); 
 .gauge { margin-bottom: 12px; }
 .gauge-track { display: flex; height: 16px; border-radius: 3px; overflow: hidden; position: relative; }
 .gauge-band { display: block; height: 100%; }
-.gauge-band.free { background: rgba(34, 197, 94, 0.32); }
-.gauge-band.warn { background: rgba(245, 165, 36, 0.35); }
-.gauge-band.hard { background: rgba(239, 68, 68, 0.35); }
+.gauge-band.free { background: color-mix(in srgb, var(--up) 32%, transparent); }
+.gauge-band.warn { background: color-mix(in srgb, var(--warn) 35%, transparent); }
+.gauge-band.hard { background: color-mix(in srgb, var(--down) 35%, transparent); }
 .gauge-needle { position: absolute; top: -3px; width: 2px; height: 22px; background: var(--text); }
 .gauge-legend { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
 .gauge-legend .free { color: var(--up); }
@@ -602,8 +676,8 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
   color: var(--muted);
 }
 /* 배지는 칠한다. 표 안에서 테두리만 있는 배지는 옆 칸의 숫자에 묻힌다. */
-.sig.buy { color: var(--up); border-color: rgba(34, 197, 94, 0.5); background: rgba(34, 197, 94, 0.12); }
-.sig.sell { color: var(--down); border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.12); }
+.sig.buy { color: var(--up); border-color: color-mix(in srgb, var(--up) 50%, transparent); background: color-mix(in srgb, var(--up) 12%, transparent); }
+.sig.sell { color: var(--down); border-color: color-mix(in srgb, var(--down) 50%, transparent); background: color-mix(in srgb, var(--down) 12%, transparent); }
 .sig.hold { color: var(--muted); background: var(--panel2); }
 
 /* ---------------------------------------------------------------------------
@@ -624,11 +698,11 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 }
 .seg button:hover:not(:disabled) { background: var(--panel2); color: var(--text); }
 .seg button.on {
-  background: rgba(56, 189, 248, 0.14);
-  border-color: rgba(56, 189, 248, 0.5);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   color: var(--accent);
 }
-.seg button:disabled { color: #39414d; cursor: not-allowed; }
+.seg button:disabled { color: var(--faint); cursor: not-allowed; }
 
 /* 갱신 중임을 말하는 점. 깜빡이지 않는다 — 움직이는 대시보드는 아마추어처럼
    보인다 (dashboard.md §8). */
@@ -638,7 +712,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--up);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--up) 80%, transparent);
 }
 .live-dot.paused::before { background: var(--dim); box-shadow: none; }
 
@@ -661,7 +735,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .donut { position: relative; width: 62px; height: 62px; flex: none; }
 .donut svg { transform: rotate(-90deg); display: block; }
 .donut .ring-bg { stroke: var(--panel2); }
-.donut .ring { stroke: var(--up); stroke-linecap: round; }
+.donut .ring { stroke: var(--accent); stroke-linecap: round; }
 .donut .mid {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -672,7 +746,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 /* 못 잰 값. 자리를 비우지 않고 왜 비었는지를 적는다 — 빈칸은 0 으로
    읽히고, 0 은 "쟀는데 낮다" 는 뜻이 된다. */
 .pending { color: var(--dim); font-size: 11px; }
-.pending .why { color: #39414d; }
+.pending .why { color: var(--faint); }
 
 /* 리스크 모니터 — 한 줄에 [이름][값][막대][판정]. 판정 배지가 오른쪽 끝에
    세로로 줄지어야 훑어보는 눈이 한 열만 본다. */
@@ -701,9 +775,9 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
   border-radius: 3px;
   color: var(--muted);
 }
-.verdict.info { color: var(--up); border-color: rgba(34, 197, 94, 0.45); background: rgba(34, 197, 94, 0.1); }
-.verdict.warning { color: var(--warn); border-color: rgba(245, 165, 36, 0.45); background: rgba(245, 165, 36, 0.1); }
-.verdict.critical { color: var(--down); border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.1); }
+.verdict.info { color: var(--up); border-color: color-mix(in srgb, var(--up) 45%, transparent); background: color-mix(in srgb, var(--up) 10%, transparent); }
+.verdict.warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.verdict.critical { color: var(--down); border-color: color-mix(in srgb, var(--down) 45%, transparent); background: color-mix(in srgb, var(--down) 10%, transparent); }
 
 /* 시스템 한 줄 요약. 리스크 패널의 마지막 줄이다. */
 .sys-line {
@@ -776,23 +850,96 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 
 
 /* ===========================================================================
-   모바일 — 아이폰 13 Pro 가 CSS 폭 390px 이다.
+   모바일 — 기준선은 768px 하나다 (파일 맨 위 :root 주석 참고).
+   아이폰 SE 가 375px, 13/14/15 계열 390px, 15/16 Pro Max 가 430px 이다 —
+   이 구간을 모두 이 블록 하나로 커버한다.
    ---------------------------------------------------------------------------
    **추가이지 교체가 아니다.** 데스크톱 배치는 그대로 두고 좁을 때만 얹는다.
-   미디어쿼리 밖에 있는 것은 위의 `.grid2` min() 과 `.scroll` overflow-x 둘
-   뿐인데, 그 둘은 넓은 화면에서 값이 바뀌지 않아 데스크톱에 영향이 없다.
+   미디어쿼리 밖에 있는 것은 위의 `.grid2` min() 과 `.scroll` overflow-x,
+   `body` 의 overflow-x: hidden, header 의 sticky 뿐인데, 넓은 화면에서
+   값이 바뀌지 않거나(전자 둘) 데스크톱에도 이롭거나(후자 둘)라서
+   미디어쿼리 밖에 둬도 데스크톱 배치를 건드리지 않는다.
    =========================================================================== */
-@media (max-width: 640px) {
+/* 되감은 상태 표지. 평소(라이브)에는 scope.js 가 통째로 숨긴다 — 여기 색을
+   주는 이유는 **보일 때는 반드시 눈에 띄어야** 하기 때문이다. 과거를 보고
+   있다는 사실이 회색 잔글씨로 있으면 못 읽고 지나간다. */
+#as-of-label.rewound {
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+@media (max-width: 768px) {
+  /* 헤더가 뷰포트의 절반을 먹고 있었다(실측 393×852 에서 약 400px). 배지가
+     네 줄로 접히고 그 아래 시점 줄이 또 두 줄이었다. 배지는 "지금 어떤 모드인가"
+     를 말하는 보조 정보지 매일 읽는 숫자가 아니다 — 한 줄로 눕히고 넘치면
+     옆으로 흘린다. 지우지는 않는다: DEMO 인지 실계좌인지를 못 보면 가짜 숫자를
+     진짜로 읽는다. */
+  /* 스파크라인이 값 위에 겹쳤다. 데스크톱 카드는 넓어서 `right: 8px` 에
+     띄워도 남는데, 모바일 2열에서는 카드가 좁아 93,438,059 같은 긴 숫자가
+     그 밑으로 들어간다. 숫자를 못 읽으면 카드가 하는 일이 없다.
+     그래서 **라벨 줄 옆으로 올린다** — 라벨은 짧아서 자리가 남고, 여기서
+     읽는 것은 값이 아니라 모양이라 작아져도 뜻이 안 상한다. */
+  .kpi-spark {
+    top: 6px;
+    transform: none;
+    width: 54px;
+    height: 18px;
+    opacity: 0.7;
+  }
+
+  header .statusbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: 100%;
+  }
+  header .statusbar::-webkit-scrollbar { display: none; }
+  /* 10px 로 줄였다가 가독성 바닥선(10.5px) 에 걸렸다. 배지를 더 줄이는 대신
+     좌우 여백을 깎는다 — 글씨를 못 읽으면 배지가 있을 이유가 없다. */
+  header .badge, header .statusbar .badge { font-size: 10.5px; padding: 1px 4px; }
+  header h1 { font-size: 15px; }
+  #as-of-label { font-size: 11px; }
+
   /* 글씨 바닥. 데스크톱에서 10px 로 잡은 라벨이 손에서는 안 읽힌다.
      **숫자는 줄이지 않는다** — 자릿수나 소수점을 자르면 화면이 다른 값을
      말하게 된다. 줄이는 것은 글자가 아니라 줄 수다. */
+  body { font-size: 12.5px; }
   .kpi-label, .kpi-note, .badge, .seg button, .dense .code,
   .verdict, .decision-action .k, .linky, .chip { font-size: 11px; }
   .cal-week, .cal-cell .d, .cal-cell .r { font-size: 10.5px; }
 
-  /* 손가락으로 누르는 것. 26px·20px 짜리는 옆 것을 같이 누른다. */
-  .tabs a { padding: 9px 13px; font-size: 12.5px; }
-  .seg button { padding: 7px 12px; font-size: 11px; }
+  /* 헤더 — 좁아지면 검색·범위 폼이 브랜드/탭 줄을 밀어내려 한다.
+     한 줄을 억지로 지키지 않고 다음 줄로 자연스럽게 내린다. */
+  .controls { margin-left: 0; width: 100%; }
+  .chart { height: 200px; }
+
+  /* 탭이 9개라 390px 폭에는 절대 다 안 들어간다 — 가로 스크롤 탭 대신
+     **하단 탭 바**로 바꿨다(사용자 요청). 가로 스크롤은 지금 탭이 어디
+     있는지 한눈에 안 보이고 엄지가 위까지 닿아야 했다. 상단 탭은
+     bottom-tabs.js(base.html 인라인 스크립트)가 같은 자리에 하단 바를
+     새로 그려주므로 여기서는 감추기만 한다. */
+  header nav.tabs { display: none; }
+
+  /* 손가락으로 누르는 것. 44px 은 iOS HIG 최소 터치 타겟이다 — 그보다
+     작으면 옆 버튼을 같이 누른다. */
+  .seg button { padding: 7px 12px; font-size: 11px; min-height: 44px; }
+  button, .scope-toggle, .linky { min-height: 44px; }
+  /* 링크성 버튼은 줄글 안에 섞여 44px 를 강제하면 줄 높이가 무너진다. */
+  .linky { min-height: 0; padding: 10px 0; }
+  input, select { min-height: 44px; }
+
+  /* KPI 스트립 — 데스크톱은 auto-fit 이라 폭이 좁아지면 카드가 세로로
+     쌓여 한 줄에 하나만 남는다. 모바일에서는 2열을 기본으로 강제해
+     스트립이 세로로 너무 길어지는 것을 막는다. */
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+
+  /* 좌우 분할 패널은 모바일에서 항상 세로 스택. .grid2 는 min(420px,100%)
+     라서 이미 좁은 화면에서 1열이 되지만, 420px 보다 살짝 넓은 폭(태블릿
+     세로 등)에서 2열로 남는 경우를 768px 아래에서는 확실히 끊는다. */
+  .grid2 { grid-template-columns: 1fr; }
 
   /* 표는 **버리지 않는다.** 카드로 흩으면 열끼리 견주는 일을 못 하게 된다.
      대신 자기 컨테이너 안에서 옆으로 밀고, 첫 열(종목명)을 고정해 무엇에
@@ -809,8 +956,276 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
   /* 뉴스 표의 첫 열 172px 은 390px 화면에서 절반을 먹는다. */
   table.news th:first-child, table.news td:first-child { width: 108px; }
 
-  /* 패널 여백을 줄여 숫자 자리를 남긴다. */
-  main { padding: 8px 8px 20px; }
+  /* 패널 여백을 줄여 숫자 자리를 남긴다. 아래 여백은 하단 탭 바
+     높이(--bottom-bar-h) + safe-area 를 더한다 — 안 더하면 마지막
+     패널이 탭 바 밑에 깔려 안 보인다. */
+  main { padding: 8px 8px calc(var(--bottom-bar-h) + env(safe-area-inset-bottom) + 20px); }
   .panel > *:not(h2) { margin-left: 8px; margin-right: 8px; }
   .panel h2 { padding: 6px 8px; }
+}
+
+/* 아이폰 SE·미니 폭(<380px)에서는 2열 KPI 카드도 178px 최소폭에 눌려
+   숫자가 줄바꿈된다 — 이 구간만 1열로 더 접는다. */
+@media (max-width: 380px) {
+  .kpis { grid-template-columns: 1fr; }
+}
+
+/* ===========================================================================
+   하단 탭 바 — 네이티브 앱처럼 화면 아래 고정. 마크업은 base.html 의
+   인라인 스크립트가 상단 nav.tabs(_scope.html) 를 읽어 만든다. 탭 목록을
+   여기 CSS 에 다시 적을 이유는 없다 — 이건 순전히 모양이다.
+   데스크톱(769px 이상)에서는 상단 탭을 그대로 쓰므로 기본은 숨김이고,
+   768px 이하에서만 보인다(위의 header nav.tabs 숨김과 짝).
+   =========================================================================== */
+.bottom-tabs {
+  display: none;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 20;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  min-height: var(--bottom-bar-h);
+  /* 홈바 위로 항목이 눌리면 안 된다. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+@media (max-width: 768px) {
+  .bottom-tabs { display: flex; }
+}
+
+.bottom-tab {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: 6px 2px;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  text-decoration: none;
+  cursor: pointer;
+}
+.bottom-tab svg { width: 20px; height: 20px; flex: none; }
+/* 현재 탭만 강조. 나머지와 같은 색이면 지금 어느 화면인지 다시 글자를
+   읽어야 한다 — 상단 탭의 accent 밑줄과 같은 규칙이다. */
+.bottom-tab.on { color: var(--accent); }
+
+/* ---------------------------------------------------------------------------
+   더보기 시트 — 하단 바 5칸에 다 못 담는 나머지 탭. 리스트면 충분하다,
+   더보기 안의 항목까지 아이콘을 만들 필요는 없다(dashboard.md 취지상
+   여백보다 정보 — 시트는 어차피 세로로 넉넉하다).
+   --------------------------------------------------------------------------- */
+.more-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.more-sheet[hidden] { display: none; }
+
+.more-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+
+.more-sheet-panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  padding: 6px 6px calc(10px + env(safe-area-inset-bottom));
+}
+
+.more-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.more-sheet-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  min-height: 44px;
+  min-width: 44px;
+  cursor: pointer;
+}
+.more-sheet-close:hover { color: var(--text); }
+
+.more-sheet-list { display: flex; flex-direction: column; }
+.more-sheet-list a {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  border-bottom: 1px solid var(--panel2);
+}
+.more-sheet-list a:last-child { border-bottom: none; }
+.more-sheet-list a.on { color: var(--accent); }
+
+/* -- 캘린더: 하루를 누르면 뜨는 줄 ------------------------------------------ */
+
+/* **작게 둔다.** 달력을 읽다가 곁눈으로 보는 값이지 주인공이 아니다.
+   가로로 흐르게 두고 좁으면 줄바꿈한다 — 지수 다섯에 내 것 하나라 모바일
+   한 줄에는 안 들어간다. */
+.day-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 8px 0 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel2);
+  font-size: 11.5px;
+}
+
+.day-idx { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; }
+.day-idx i { color: var(--muted); font-style: normal; }
+.day-idx b { font-family: "IBM Plex Mono", monospace; font-weight: 600; }
+.day-idx b.up { color: var(--up); }
+.day-idx b.down { color: var(--down); }
+/* 내 것은 앞에 서고 살짝 강조한다 — 비교의 기준이기 때문이다. */
+.day-idx.mine i { color: var(--text); }
+.day-idx.none { color: var(--dim); }
+
+/* 고른 날을 표시한다. 안 하면 어느 날 숫자인지 모른다. */
+.cal-cell.pick { cursor: pointer; }
+.cal-cell.on { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
+
+
+/* 계좌 실조회 — 숫자를 빽빽하게 놓는다(dashboard.md 밀도 규칙). */
+.account-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px 14px; }
+.account-grid > div { display: flex; flex-direction: column; }
+.account-grid span { font-size: 11px; opacity: .65; }
+.account-grid strong { font-variant-numeric: tabular-nums; font-size: 15px; }
+
+/* 데이터 기준일 띠 — 모든 탭 머리 */
+.freshness { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; font-size: 11px; }
+.fresh { padding: 2px 8px; border-radius: 10px; border: 1px solid var(--panel2); color: var(--muted); }
+.fresh.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); color: var(--ok); }
+.fresh.stale { border-color: var(--down); color: var(--down); font-weight: 600; }
+
+/* 접힌 부가 패널 (트레이딩 탭) */
+details.fold { margin: 10px 0; border: 1px solid var(--panel2); border-radius: 8px; padding: 0 10px; }
+details.fold > summary { cursor: pointer; padding: 10px 0; color: var(--muted); font-size: 13px; list-style: none; }
+details.fold > summary::before { content: "▸ "; }
+details.fold[open] > summary::before { content: "▾ "; }
+details.fold > summary::-webkit-details-marker { display: none; }
+
+/* ── 모바일 (≤640px): 좌우 스와이프 금지·부차 열 숨김·설명문 숨김 (사용자 요청 2026-08-28) ── */
+@media (max-width: 640px) {
+  html, body { overflow-x: hidden; }
+  header .statusbar { flex-wrap: wrap; overflow-x: visible; }
+  .mobile-hide { display: none !important; }
+  .note, .kpi-note { font-size: 10.5px; }
+  .panel > .note, .panel p.note { display: none; }
+  .scroll { overflow-x: hidden; }
+  table { font-size: 11px; }
+  td, th { padding-left: 2px; padding-right: 4px; }
+  .day-detail { flex-wrap: wrap; }
+}
+
+/* 학습 탭 평가 칸 — 글로 말하는 판정과 그 밑의 촘촘한 표 */
+.plain { margin: 0 0 6px; line-height: 1.5; }
+.plain.ok strong { color: var(--ok); }
+.plain.bad strong { color: var(--bad); }
+/* 학습 탭 쉬운말 요약 — 본문과 구분되는 조용한 카드. 왼쪽 굵은 강조 띠는
+   side-tab 관용구라 쓰지 않는다 (위 .alert 와 같은 이유). */
+.plain.note-accent {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel2);
+  font-size: 13px;
+}
+/* 진행 막대(학습 진도 등). 채움 폭(%)만 데이터라 인라인으로 남는다. */
+.meter { height: 6px; background: var(--border); border-radius: 3px; margin-top: 4px; }
+.meter > i { display: block; height: 6px; background: var(--accent); border-radius: 3px; }
+/* 키-값 표 머리(왼쪽 라벨 열). */
+.kv th { white-space: nowrap; text-align: left; padding-right: 12px; vertical-align: top; }
+/* 차트 아래 한 줄 각주(run id·seed 등). */
+.subnote { font-size: 11px; margin-top: 4px; }
+.muted { color: var(--dim); font-size: 11px; margin: 6px 0 0; line-height: 1.4; }
+td.num.ok { color: var(--ok); }
+td.num.bad { color: var(--bad); }
+
+/* 뉴스·일정 — 월별 일정 달력 */
+.sched-fold { display: none; font-size: 11px; margin-bottom: 6px; }
+@media (max-width: 640px) { .sched-fold { display: inline-block; } }
+.sched-week { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 10.5px; color: var(--dim); margin-bottom: 2px; }
+.sched-week span { text-align: center; }
+.sched-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.sched-cell { background: var(--panel2); border: 1px solid var(--border); border-radius: 4px; min-height: 64px; padding: 3px 4px; font-size: 10.5px; overflow: hidden; }
+.sched-cell.none { background: transparent; border-color: transparent; }
+.sched-cell.wk .d { color: var(--dim); }
+.sched-cell.pick { cursor: pointer; }
+.sched-cell.on { outline: 1px solid var(--accent); }
+.sched-cell .d { display: block; font-size: 11px; margin-bottom: 2px; }
+.sched-cell .d small { color: var(--dim); margin-left: 3px; font-weight: 400; }
+.sched-item { display: flex; gap: 4px; align-items: baseline; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.45; border-left: 2px solid var(--bench); padding-left: 3px; margin: 1px 0; }
+.sched-item i { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.sched-item em { font-style: normal; color: var(--dim); font-size: 9.5px; flex: none; }
+.sched-item span { overflow: hidden; text-overflow: ellipsis; }
+.sched-item.macro { border-left-color: var(--accent); }
+.sched-item.earnings { border-left-color: var(--up); }
+.sched-item.est { border-left-style: dashed; color: var(--muted); }
+.sched-item.hi span { font-weight: 600; }
+.sched-item small { display: block; color: var(--dim); white-space: normal; }
+.sched-more { color: var(--dim); font-size: 10px; }
+.sched-day { margin-top: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+.sched-day .sched-item { white-space: normal; flex-wrap: wrap; margin: 3px 0; }
+.sched-day .sched-item small { flex-basis: 100%; }
+@media (max-width: 640px) {
+  .sched-week { display: none; }
+  .sched-grid { grid-template-columns: 1fr; }
+  .sched-cell.none { display: none; }
+  .sched-cell { min-height: 0; }
+  .sched-cell:not(.pick) { display: none; }
+  .sched:not(.show-past) .sched-cell.past { display: none; }
+  .sched-list .sched-cell { margin-bottom: 4px; }
+  .sched-cell.today { outline: 1px solid var(--accent); }
+  .sched-cell .d { display: inline-block; margin-right: 6px; }
+  .sched-item { white-space: normal; }
+}
+
+/* Claude 일일 리뷰 — 트레이딩 탭 머리 */
+.panel.review { padding: 10px 14px; }
+.review-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.review-headline { font-size: 14px; font-weight: 600; margin: 0 0 4px; line-height: 1.45; }
+.review-headline.up { color: var(--up); }
+.review-headline.down { color: var(--down); }
+.review-headline.dim { color: var(--muted); }
+.review-body { color: var(--muted); font-size: 12.5px; line-height: 1.55; margin: 4px 0 0; white-space: pre-line; }
+
+/* ---------------------------------------------------------------------------
+   움직임 줄이기 (prefers-reduced-motion) — 전정계 민감 사용자 배려.
+   차트는 scope.js BASE 가 animation:false 라 원래 안 움직이고, CSS 쪽 전이
+   하나(더보기 시트)도 여기서 끈다. 기능은 그대로, 이동만 즉시 반영된다.
+   --------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

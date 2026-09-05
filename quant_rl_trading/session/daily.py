@@ -23,18 +23,25 @@ Executor 가 쓰는 자본과 성과에 기록되는 자본이 다른 값이 된
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
+from quant_rl_trading.analysts.regime import RegimeAnalyst
+from quant_rl_trading.broker import Broker
+from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
+from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.replay.events import EventLog, payload_hash
+from quant_rl_trading.selector import exposure
 from quant_rl_trading.selector import pipeline as selector_pipeline
-from quant_rl_trading.store.prices import read_prices
+from quant_rl_trading.store import mode as store_mode
+from quant_rl_trading.store.prices import adjust, read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.replay.clock import Clock
@@ -54,6 +61,14 @@ class DailySession:
     orders: tuple = ()
     notes: list[str] = field(default_factory=list)
     blocked_by: str = ""
+    #: 선정이 시작조차 못 한 사유(`selector.weights` 의 상수). 빈 문자열이면
+    #: 정상이다. **후보 0개와 다른 사건이다** — 후보 0개는 "오늘 살 게 없다"
+    #: 일 수 있지만 이 값이 차 있으면 설비가 고장 나 있다. 세션 실행기가
+    #: 종료코드로 내보낸다(tools/run_session.py).
+    #:
+    #: `blocked_by` 와도 다르다. 그쪽은 안전장치가 **일한** 것이고 이쪽은
+    #: 알파 합성이 **못 돈** 것이다.
+    fault: str = ""
 
     def digest(self) -> str:
         """주문의 지문. **같은 as_of 는 같은 지문이어야 한다.**
@@ -98,12 +113,21 @@ def market_stats(
         entity=entities,
         lookback=STATS_WINDOW * 3,
         market=market,
-        columns=["close", "value"],
+        columns=["close", "value", "adj_factor"],
     )
     if frame.empty:
         return {}, {}, {}
 
     ordered = frame.sort_values("valid_from")
+    # **한 프레임에서 두 값을 뽑는다 — 가격은 원주가, 변동성은 보정가.**
+    #
+    # 가격은 목표비중을 수량으로 바꾸는 데 쓰이므로 실제로 거래되는 값이어야
+    # 한다. 보정가로 주문을 내면 분할 직후 수량이 배율만큼 틀어진다.
+    #
+    # 변동성은 수익률로 재므로 반대다. 분할 하루가 -90% 로 남으면 그 종목의
+    # 변동성이 통째로 부풀고, 역변동성 가중이 그 종목의 비중을 0 에 가깝게
+    # 눌러 버린다 — 실제로는 아무 일도 없었는데.
+    adjusted = adjust(ordered)
     prices: dict[str, float] = {}
     adv: dict[str, float] = {}
     volatility: dict[str, float] = {}
@@ -116,6 +140,11 @@ def market_stats(
         values = group["value"].astype(float).tail(STATS_WINDOW)
         if not values.empty and float(values.mean()) > 0:
             adv[str(entity)] = float(values.mean())
+
+    for entity, group in adjusted.groupby("entity_id"):
+        if str(entity) not in prices:
+            continue
+        closes = group["close"].astype(float).tail(STATS_WINDOW + 1)
         returns = closes.pct_change(fill_method=None).dropna()
         if len(returns) >= 5:
             deviation = float(returns.std())
@@ -135,8 +164,13 @@ def run(
     market_open: datetime | None = None,
     board: str = "KOSPI",
     wall_clock: Clock | None = None,
+    broker: Broker | None = None,
 ) -> DailySession:
-    """하루치 결정. 주문을 만들고 기록한다. **보내지는 않는다.**
+    """하루치 결정. 주문을 만들고 기록한다.
+
+    ``broker`` 를 안 주면 **보내지 않는다**(``PaperBroker``). 실전은 호출자가
+    ``broker.factory.build_broker`` 로 만들어 주입한다 — 이 함수 안에 분기는
+    없고, 갈리는 것은 주입된 브로커뿐이다(불변식 5).
 
     ``wall_clock`` 은 "언제 이 계산을 실제로 돌렸나" 다. 라이브에서는 ``clock``
     과 같고, 리플레이에서는 다르다 — 이벤트의 ``observed_at`` 이 이것이라,
@@ -160,6 +194,22 @@ def run(
     # 시점으로 기록된다.
     snapshot = snapshot_module.take(store, clock, as_of=as_of, book=book)
     equity = snapshot.valuation.nav
+    # **자본은 그 시장의 통화로 넘긴다.** NAV 는 원화인데 미장 사이징이 그 숫자를
+    # 달러로 받으면 목표금액이 환율배(1,377배)로 부풀어 한 종목에 조각당 317,133주
+    # ($1.6M) 를 냈다(2026-09-02 미장 shadow 실측). 주문가능금액도 그 통화의
+    # 현금이다 — 원화 현금으로 미장 주식을 살 수는 없다.
+    currency = KRW
+    fx_rate = 1.0
+    if Market(market) is Market.US:
+        fx_rate = float(snapshot.valuation.fx_rate)
+        if fx_rate <= 0:
+            result = DailySession(as_of=as_of, market=market, equity=0.0)
+            result.notes.append("환율이 없다. 원화 NAV 를 달러 자본으로 바꿀 수 없다")
+            log.record("decide", "session", {"skipped": "no_fx"})
+            log.flush()
+            return result
+        equity = equity / fx_rate
+        currency = USD
     # **자본과 주문가능금액은 다른 숫자다** (accounting.md §1). 자본은 목표
     # 비중을 금액으로 바꾸는 데 쓰고, 살 수 있는 한도는 결제가 끝난 현금이다.
     # 둘을 같다고 보면 미결제 대금까지 쓰게 된다 — 그게 이 백테스트를
@@ -175,9 +225,11 @@ def run(
         book=book,
         settlement_days=settlement_days,
         market=market,
+        currency=currency,
     )
     log.record(
-        "observe", "accounting", {"nav": round(equity, 4), "available_cash": round(cash, 4)}
+        "observe", "accounting",
+        {"nav": round(equity, 4), "available_cash": round(cash, 4), "currency": currency},
     )
 
     result = DailySession(as_of=as_of, market=market, equity=equity)
@@ -188,11 +240,14 @@ def run(
         return result
 
     # 1. 후보 선정
+    # 보유 종목을 넘긴다 — 완충 구간(selector.md §5)은 보유를 알아야 선다.
     selection = selector_pipeline.run(
-        store, as_of=as_of, market=market, equity=equity
+        store, as_of=as_of, market=market, equity=equity,
+        held=[entity for entity, quantity in holdings.items() if quantity > 0],
     )
     result.candidates = tuple(item.entity_id for item in selection.candidates)
     result.notes.extend(selection.trace.notes)
+    result.fault = selection.fault
     log.record(
         "select",
         "selector",
@@ -218,17 +273,136 @@ def run(
         store, as_of=as_of, entities=entities, market=market
     )
     scores = {item.entity_id: item.score for item in selection.candidates}
-    weights = allocate(
-        scores=scores,
-        params=params,
-        volatility=volatility if params.baseline is Baseline.SCORE_INVERSE_VOL else None,
-    )
-    result.weights = weights
+    allocate_driver = str(params.baseline)
+    # **지연 import 다.** allocator.live → env → cache → 이 모듈로 도는 고리가
+    # 있다. risk_parity 와 같은 이유로 함수 안에서 문다.
+    from quant_rl_trading.allocator import live as live_rl
+
+    rl_params = live_rl.LiveParams.from_store(store, as_of=as_of)
+    policy_decision: live_rl.PolicyDecision | None = None
+    if rl_params.active_for(store_mode.of(store.root).code):
+        # **정책이 목표 비중을 낸다** (M4 → 모의계좌). 룰 베이스라인 자리에
+        # 그대로 끼운다 — 사이징·집행·실현 비중 기록은 아래 같은 길이다.
+        # 어느 장부에서 켜는지는 `allocator.rl.modes` 가 정한다: 모의계좌만
+        # 켜고 shadow 는 룰로 두면 둘이 같은 날 같은 후보로 병주한다.
+        policy_decision = live_rl.decide(
+            store,
+            as_of=as_of,
+            market=str(market),
+            book=book,
+            nav=equity,
+            drawdown=snapshot.drawdown,
+            candidates=[(item.entity_id, item.score) for item in selection.candidates],
+            params=rl_params,
+            hyper_as_of=as_of,
+        )
+        weights = dict(policy_decision.weights)
+        allocate_driver = "rl"
+        result.notes.extend(policy_decision.notes)
+    elif params.baseline is Baseline.RISK_PARITY:
+        # **위험 구조로 나눈다** (§3). 창고를 타므로 순수 allocate 가 아니다.
+        # 팩터 모델이 못 서면 스코어 비례로 물러서고, 그 사실을 driver 로 남긴다.
+        #
+        # **지연 import 다.** risk_parity_baseline 은 portfolio→selector→backtest→
+        # 이 모듈로 도는 import 고리에 걸린다. 여기서 늦게 물어 고리를 끊는다 —
+        # AST 로 닫힘을 보는 test_cache_config_scope 는 함수 안 import 도 세므로
+        # 지문 커버는 그대로다.
+        from quant_rl_trading.allocator.risk_parity_baseline import (
+            RiskParityParams,
+            allocate_risk_parity,
+        )
+
+        rp_params = RiskParityParams.from_store(store, as_of=as_of)
+        weights, path = allocate_risk_parity(
+            store,
+            as_of=as_of,
+            market=str(market),
+            scores=scores,
+            entities=entities,
+            params=rp_params,
+            fallback=AllocatorParams(
+                baseline=Baseline.SCORE,
+                max_position_weight=params.max_position_weight,
+                cash_buffer=params.cash_buffer,
+            ),
+            volatility=volatility,
+        )
+        # path 는 이미 자기서술적이다: "risk_parity:crisis" / "risk_parity:fallback".
+        allocate_driver = path
+    else:
+        weights = allocate(
+            scores=scores,
+            params=params,
+            volatility=volatility if params.baseline is Baseline.SCORE_INVERSE_VOL else None,
+        )
+
+    # 2-b. 노출 제어 (③) — **얼마나 살지.** 무엇을 살지는 위에서 끝났다.
+    #
+    # `chart` 가 여기로 온 이유는 `selector/exposure.py` 에 있다: 횡단면 랭크
+    # IC 는 새 상태 피처 여덟도 전부 미달이었지만, **변동성 압축이 이후
+    # 변동성을 맞히는 것은 82만 행에서 단조로 살아남았다**(5분위 0.857→1.179).
+    # 종목을 줄세우는 데는 못 쓰고 얼마나 들지 정하는 데는 쓴다.
+    #
+    # 곱한 뒤 **정규화하지 않는다** — 하면 합이 도로 1 이 되어 줄인 것이
+    # 사라진다. `exposure.apply` 가 그 실수를 막는 자리다.
+    exposure_params = exposure.ExposureParams.from_store(store, as_of=as_of)
+    index_id = str(store.config(f"benchmark.{market.lower()}_index", as_of=as_of))
+    regime = RegimeAnalyst(store, ReplayClock(as_of))
+    # 직전 세션들의 국면 — 국면 배수 확인 기간(exposure.regime_scale). 같은 시각으로
+    # 되감아 재므로 그날 세션이 봤을 값과 같다.
+    recent_states: list[str] = []
+    confirm = int(exposure_params.regime_confirm_sessions)
+    if confirm > 1:
+        previous = trading_days(
+            Market(market), (as_of - timedelta(days=confirm * 4 + 7)).date(), as_of.date()
+        )
+        for day in [d for d in previous if d < as_of.date()][-(confirm - 1):]:
+            earlier = as_of.replace(year=day.year, month=day.month, day=day.day)
+            recent_states.append(regime.state(earlier))
+    if policy_decision is not None and policy_decision.cash_from_policy:
+        # 정책이 현금을 액션으로 배웠다(cash_action=free) — 그 위에 배수를 곱하면
+        # 정책의 현금 결정을 룰이 덮어쓴다(allocator/live.py). 레짐은 기록만 남긴다.
+        # cash_action=fixed 정책(3회차)은 배분만 배웠으므로 아래 룰 노출을 그대로 탄다.
+        decision = exposure.ExposureDecision(
+            scale=1.0,
+            driver="rl:policy_cash",
+            notes=[
+                f"regime={regime.state(as_of)} — "
+                f"정책이 현금 {policy_decision.cash_weight:.1%} 를 직접 정했다"
+            ],
+        )
+    else:
+        decision = exposure.decide(
+            store,
+            as_of=as_of,
+            index_id=index_id,
+            regime_state=regime.state(as_of),
+            params=exposure_params,
+            recent_regime_states=recent_states,
+        )
+    scaled = exposure.apply(weights, decision)
+    result.weights = scaled
+    # **allocate 를 먼저 적고 exposure 를 뒤에 적는다.** 로그는 일어난 순서를
+    # 말해야 하고, 노출 제어는 배분 결과에 **덧씌우는** 단계다. 순서를 뒤집으면
+    # 나중에 흔적을 읽는 사람이 "노출을 정하고 나서 비중을 나눴다" 로 읽는다.
+    #
+    # allocate 에는 **줄이기 전 비중**을 남긴다 — 배분이 무엇을 골랐는지와
+    # 노출이 얼마나 깎았는지가 갈려 있어야 어느 쪽이 문제인지 가른다.
     log.record(
         "allocate",
-        str(params.baseline),
-        {"weights": {name: round(value, 6) for name, value in weights.items()}},
+        allocate_driver,
+        {
+            "weights": {name: round(value, 6) for name, value in weights.items()},
+            **({"policy": policy_decision.as_dict()} if policy_decision is not None else {}),
+        },
     )
+    log.record("exposure", decision.driver, decision.as_dict())
+
+    # **여기서부터는 줄인 비중이다.** 이 한 줄이 없으면 노출 제어가 로그에만
+    # 남고 주문은 원래대로 나간다 — 이 저장소에서 제일 자주 나는 결함이
+    # 정확히 그 모양이다(코드는 있는데 아무도 안 부른다). 실제로 이 자리에서
+    # 한 번 그랬다.
+    weights = scaled
 
     # 3. 집행. 보유 중인데 목표에서 빠진 종목도 넣는다 — 안 넣으면 팔 기회가
     #    영영 오지 않는다.
@@ -252,6 +426,8 @@ def run(
         cash=cash,
         market_open=market_open,
         board=board,
+        broker=broker,
+        fx_rate=fx_rate,
     )
     result.orders = execution.planned
     result.notes.extend(execution.notes)

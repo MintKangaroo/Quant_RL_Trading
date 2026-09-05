@@ -127,7 +127,7 @@ async function loadHeadlines() {
   showAlerts(warnings);
 }
 
-runAll([loadHeadlines]);
+runAll([loadHeadlines, () => loadSchedule(schedMonth)]);
 
 if (isLive()) {
   window.setInterval(() => runAll([loadHeadlines]), REFRESH_MS);

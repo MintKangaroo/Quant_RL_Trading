@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -91,12 +91,57 @@ def last_prices(store: Store, *, as_of: datetime, entities: list[str]) -> dict[s
     `KeyError: 'KR:138930: 가격이 없다'` 로 죽었고, 증상은 "며칠째 안 끝난다"
     였다. 그 두 날은 받아올 시세가 존재하지 않으므로(소스가 지금도 0 을 준다)
     **정정본으로 메울 수도 없다** — 읽는 쪽이 견뎌야 한다.
+
+    ## 창이 두 개인 이유 — 상장폐지된 보유 종목
+
+    보통은 30일 창이면 충분하다. 그런데 **상장폐지·장기 거래정지 종목을 들고
+    있으면 마지막 종가가 그 창보다 오래됐다.** 그러면 여기서 빠지고
+    `nav.value` 가 예외를 던져 스냅샷이 죽는다 — 거래정지를 견디겠다는 위
+    약속이 정작 제일 오래 정지된 종목에서 깨진다.
+
+    실제로 그렇게 죽었다(2026-08-17). `KR:005390` 은 2025-09-29 를 마지막으로
+    시세가 끊겼는데, 백테스트가 그 종목을 들고 있었다. 정확히 30일 뒤인
+    2025-10-30 세션에서 창 밖으로 밀려나며 6시간짜리 워크포워드가 끝났다.
+    **창을 넓히기만 하면 경계가 옮겨갈 뿐**이라, 빠진 종목만 골라 훨씬 긴
+    창으로 한 번 더 묻는다. 흔한 경로는 30일 그대로라 비용이 안 붙는다.
+
+    **팔 수 없는 종목이라 계속 들고 있는 것이 맞다.** 상장폐지 종목은 시장이
+    없어서 매도 주문이 나가지 않는다(후보 밖 보유 매도 경로가 있어도 체결될
+    호가가 없다). 마지막 종가로 평가하는 것은 관례이고, 0 으로 치면 없는
+    낙폭을 만들고 빼 버리면 NAV 가 조용히 준다. **정리매매 대금이 실제로
+    얼마였는지는 별개 문제**이고, 그건 이 함수가 아니라 기업행위 쪽에서
+    풀어야 한다.
     """
     if not entities:
         return {}
     # 거르는 규칙은 ``store/prices.py`` 한 벌뿐이다. 여기에 따로 두면 두 곳이
     # 서로 다르게 자라고, 어느 쪽이 맞는지 아무도 모르게 된다.
-    frame = read_prices(store, as_of=as_of, entity=entities, lookback=30)
+    prices = _latest_close(store, as_of=as_of, entities=entities, lookback=RECENT_LOOKBACK_DAYS)
+
+    stale = [entity for entity in entities if entity not in prices]
+    if stale:
+        prices.update(
+            _latest_close(
+                store, as_of=as_of, entities=stale, lookback=STALE_LOOKBACK_DAYS
+            )
+        )
+    return prices
+
+
+#: 보통 경로의 조회 창(달력일). 거래정지 몇 주까지는 이 안에서 끝난다.
+RECENT_LOOKBACK_DAYS = 30
+
+#: 위 창에서 못 찾은 종목만 다시 묻는 창. 상장폐지 종목을 들고 있는 경우라
+#: 넉넉히 잡는다 — 여기서도 없으면 그건 정말 모르는 것이고, `nav.value` 가
+#: 예외를 던지는 것이 맞다.
+STALE_LOOKBACK_DAYS = 800
+
+
+def _latest_close(
+    store: Store, *, as_of: datetime, entities: list[str], lookback: int
+) -> dict[str, float]:
+    """창 안의 마지막 종가. 0 이하는 ``read_prices`` 가 이미 걷어냈다."""
+    frame = read_prices(store, as_of=as_of, entity=entities, lookback=lookback)
     if frame.empty:
         return {}
     latest = frame.sort_values(["valid_from", "observed_at"]).groupby("entity_id").tail(1)
@@ -140,9 +185,16 @@ def take(
         )
 
     previous_nav = float(previous["nav"])
-    inflow = ledger.daily_inflow(
-        store, as_of=as_of, since=pd.Timestamp(previous["valid_from"]).to_pydatetime()
-    )
+    # **입금은 "직전 스냅샷이 몰랐던 돈" 이다 — 발효 시각 창이 아니라.**
+    # valid_from 창((직전, 이번])으로 세면 **뒤늦게 관측된 입금**이 새어 나간다: 달러
+    # 입금을 05:00 에 발효시켰는데 05:20 스냅샷이 찍힌 뒤에야 관측됐다(2026-09-02
+    # 미장 shadow 실측). 그 행은 05:20 창엔 관측이 안 됐고 16:00 창엔 발효가 밖이라
+    # 어느 창에도 안 들어가, $370k 가 통째로 수익(+97%)이 될 참이었다. 원금을 두
+    # 지식 상태(직전 스냅샷 시점·지금)로 각각 재서 빼면 "새로 알게 된 입금" 이
+    # 정확히 나온다 — store.get(as_of=) 가 observed_at 을 거르기 때문이다.
+    # NAV 도 같은 지식 상태의 장부에서 나오므로 둘이 어긋나지 않는다.
+    previous_as_of = pd.Timestamp(previous["valid_from"]).to_pydatetime()
+    inflow = ledger.principal(store, as_of=as_of) - ledger.principal(store, as_of=previous_as_of)
     daily = twr_return(nav=valuation.nav, previous_nav=previous_nav, inflow=inflow)
     index_value = float(previous["index_value"]) * (1.0 + daily)
 
@@ -251,7 +303,11 @@ def write(
         row["revision"] = int(latest["revision"]) + 1
 
     revision = int(row.get("revision", 0))
-    run_id = f"nav-{snapshot.as_of.date().isoformat()}"
+    # 날짜만 쓰면 국장 스냅샷(16:00 KST = 07:00 UTC)과 미장 스냅샷(16:20 ET = 20:20
+    # UTC)이 같은 UTC 날짜에 떨어져 뒤의 것이 "이미 적재됨" 으로 막힌다. 시각까지
+    # 넣는다. 예전 행의 `nav-YYYY-MM-DD` 는 그대로 두며, 같은 값 재실행은 위의
+    # valid_from 비교가 이미 막는다.
+    run_id = f"nav-{snapshot.as_of.astimezone(UTC):%Y-%m-%dT%H%M}"
     if revision:
         run_id = f"{run_id}-r{revision}"
     if store.ingest_run_recorded(ledger.NAV_DAILY, run_id):

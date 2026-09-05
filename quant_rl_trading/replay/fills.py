@@ -40,12 +40,20 @@ class FillParams:
     min_order_value: float
 
     @classmethod
-    def from_store(cls, store: Store, *, as_of: datetime) -> FillParams:
+    def from_store(cls, store: Store, *, as_of: datetime, fx_rate: float = 1.0) -> FillParams:
+        """``fx_rate`` 는 시장 통화 1단위의 원화 가격 — `executor/sizing.SizingParams` 와 같은 규약.
+
+        `execution.min_order_value` 는 **원화**다. 미장 주문은 달러로 비교하므로 환율로
+        나눠야 한다. 안 나누면 $23,000 주문이 "100,000 미만" 으로 거절된다 — 2026-09-03
+        미장 shadow 첫 주문 64건이 전부 그렇게 빠졌다.
+        """
+        if fx_rate <= 0:
+            raise ValueError(f"환율은 양수여야 한다: {fx_rate!r}")
         return cls(
             impact_k=float(store.config("execution.impact_k", as_of=as_of)),
             max_adv_ratio=float(store.config("execution.max_adv_ratio", as_of=as_of)),
             max_liquidation_days=int(store.config("execution.max_liquidation_days", as_of=as_of)),
-            min_order_value=float(store.config("execution.min_order_value", as_of=as_of)),
+            min_order_value=float(store.config("execution.min_order_value", as_of=as_of)) / fx_rate,
         )
 
 

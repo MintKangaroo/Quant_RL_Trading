@@ -34,6 +34,101 @@ _SPECS: dict[str, TableSpec] = {
         observation_lag_days=3,
         doc="일봉. 원주가 기준.",
     ),
+    "security_ids": TableSpec(
+        name="security_ids",
+        columns={
+            "market": pa.string(),
+            # "CUSIP" 또는 "CINS". 외국 발행사는 CINS(G1151C101)를 쓰고
+            # 13F 는 그것도 cusip 칸에 담아 보낸다 — 물어보는 쪽이 두 종류를
+            # 구분하지 않으면 8.7% 가 "없는 종목" 이 된다
+            # (collectors/security_ids.py 실측 1).
+            "id_type": pa.string(),
+            "id_value": pa.string(),
+            "figi": pa.string(),
+            "composite_figi": pa.string(),
+            # "Common Stock"·"ETP"·"REIT" 등. 13F 에는 ETF 도 섞여 들어오므로
+            # 읽는 쪽이 종목만 고를 수 있어야 한다.
+            "security_type": pa.string(),
+            "name": pa.string(),
+            # **우리가 실제로 물어본 시각.** valid_from·observed_at 은 아래
+            # 이유로 기준시점(2015-01-01)에 박혀 있어서, 이 열이 없으면
+            # "이 매핑은 언제 찍은 스냅샷인가" 를 창고에 물을 수 없다.
+            "mapped_at": pa.timestamp("us", tz="UTC"),
+        },
+        # 한 티커에 여러 식별자가 붙는다(옛 CUSIP·재편 전 CINS). 식별자를
+        # 키에서 빼면 그것들이 서로를 덮어 마지막 하나만 남는다.
+        natural_key=("entity_id", "valid_from", "id_type", "id_value"),
+        # valid_from == observed_at 이라 지연이 0 이지만, **선언 자체를
+        # 빠뜨리면 하한 프루닝이 통째로 꺼진다.** 다른 테이블과 같은 3일.
+        observation_lag_days=3,
+        doc=(
+            "식별자 매핑. entity_id = US:AAPL, id_value = 037833100. "
+            "출처는 OpenFIGI. valid_from·observed_at 이 둘 다 2015-01-01 인 "
+            "것은 실수가 아니다 — 식별자는 그 시점에도 공개된 사실이었고, "
+            "조회한 날로 찍으면 과거 as_of 조회가 이 표를 한 행도 못 본다. "
+            "근거와 남는 위험은 collectors/security_ids.py 모듈 docstring."
+        ),
+    ),
+    "filings_13f": TableSpec(
+        name="filings_13f",
+        columns={
+            "filer_cik": pa.string(),
+            "filer_name": pa.string(),
+            "issuer": pa.string(),
+            "cusip": pa.string(),
+            "value_usd": pa.float64(),
+            "shares": pa.float64(),
+            # 그 기관 포트폴리오 안에서의 비중. 수집기가 한 번만 계산한다 —
+            # 화면에서 다시 나누면 분모를 무엇으로 잡았는지가 갈린다.
+            "weight": pa.float64(),
+            # 같은 CUSIP 이 몇 줄로 쪼개져 있었나. 13F 는 자회사 운용역별로
+            # 줄을 나눠서 내므로(버크셔 2026Q2: 89줄 → 실제 29종목),
+            # **합산했다는 사실 자체가 검증거리**라 남긴다.
+            "folded_rows": pa.float64(),
+            # 분기말 → 공개까지 걸린 날. 최대 45일이다. 이 값을 화면이
+            # 안 보여주면 낡은 보유를 지금 보유로 읽는다.
+            "lag_days": pa.float64(),
+        },
+        # 한 분기·한 기관·한 종목이 한 행이다. 기관이 빠지면 여러 기관이
+        # 같은 종목을 들 때 서로를 덮는다.
+        natural_key=("entity_id", "valid_from", "filer_cik"),
+        # valid_from(분기말)과 observed_at(접수일)이 최대 45일 벌어진다 —
+        # 이 표의 성격 자체가 그 간격이라 좁게 잡으면 정상 데이터가 막힌다.
+        observation_lag_days=60,
+    ),
+    "prices_intraday": TableSpec(
+        name="prices_intraday",
+        columns={
+            "market": pa.string(),
+            # "1m"·"5m"·"15m"·"1H"·"4H" — LS ncnt(분)를 화면 버튼 이름으로
+            # 옮긴 값. collectors/intraday_collector.py 참고.
+            "interval": pa.string(),
+            "open": pa.float64(),
+            "high": pa.float64(),
+            "low": pa.float64(),
+            "close": pa.float64(),
+            "volume": pa.float64(),
+            "value": pa.float64(),
+        },
+        # 같은 종목·같은 시각에 여러 해상도(1m/5m/...)가 공존한다 — 마감
+        # 시각이 정각에 겹치는 두 봉(예: 09:05 의 1분봉과 09:00~09:05 5분봉을
+        # 마감시각으로 찍으면 둘 다 valid_from=09:05)은 interval 없이는
+        # 같은 자연키로 충돌해 한쪽이 정정본으로 밀려난다.
+        natural_key=("entity_id", "valid_from", "interval"),
+        # 이 표는 "보유·워치리스트 종목의 최근 며칠" 만 하루 한 번 받는다
+        # (수집 범위를 좁힌 이유는 intraday_collector.py 모듈독스트링 참고).
+        # 그 말은 valid_from(며칠 전 봉)과 observed_at(오늘 수집 시각) 사이
+        # 간격이 며칠까지 벌어질 수 있다는 뜻이다 — prices 의 3일보다 넉넉히
+        # 잡는다. 이 값보다 좁히면 대시보드가 lookback 을 줘도 하한 프루닝이
+        # 방금 수집한 옛 봉이 든 파티션을 조용히 건너뛴다.
+        observation_lag_days=20,
+        doc=(
+            "분봉. prices(일봉)와 절대 섞지 않는다 — prices 를 읽는 코드 "
+            "전부(회계·백테스트·store/prices.py 의 0-세션 제거)가 '하루에 "
+            "한 행'을 전제로 짜여 있다. 대시보드의 분봉 캔들 전용 입력이고, "
+            "전 종목·전 구간을 받지 않는다."
+        ),
+    ),
     "flows": TableSpec(
         name="flows",
         columns={
@@ -41,7 +136,10 @@ _SPECS: dict[str, TableSpec] = {
             "investor": pa.string(),
             "net_value": pa.float64(),
             "net_volume": pa.float64(),
-            # 장중 잠정치와 마감 후 확정치는 별도 행으로 들어온다.
+            # 잠정치/확정치 구분. **우리 소스는 이것을 주지 않는다** —
+            # KRX 투자자별 순매수 응답에도 LS t1717 응답에도 없다. 수집기는
+            # null 을 쓴다(모르는 것을 True 로 적어 두었던 것을 2026-08-22 에
+            # 걷어냈다). 확정치 대체는 이 칸이 아니라 revision 으로 성립한다.
             "is_final": pa.bool_(),
         },
         natural_key=("entity_id", "valid_from", "investor"),
@@ -71,7 +169,15 @@ _SPECS: dict[str, TableSpec] = {
         doc=(
             "공매도. **T+1~2 에 공표된다** — observed_at 이 세션 당일이면 "
             "flow_kr 이 통째로 미래를 본다. backfill.shorting_lag_days 로 "
-            "거래일 단위로 늦춰 찍는다."
+            "거래일 단위로 늦춰 찍는다.\n\n"
+            "**⚠️ 이 표는 비어 있고, 그것이 맞다 (2026-09-01 확인).** 유일한 구현인 "
+            "`krx_source.shorting_on` 은 pykrx 를 쓰는데 pykrx 는 약관상 자동화 "
+            "수집이 금지돼 있다(collectors/panels.py OPENAPI_PANELS 주석). 정식 "
+            "KRX Open API 에는 공매도 엔드포인트가 없다 — 시세(/sto/*)와 "
+            "지수(/idx/*) 뿐이다. 그래서 수집 일정에 안 걸려 있는 것이 의도이고, "
+            "**빈 표를 보고 '수집기가 고장났다' 로 읽지 마라.** 국장 공매도를 쓰려면 "
+            "약관을 지키는 새 경로(정식 API 확장·유료 벤더)를 먼저 구해야 한다. "
+            "미장 공매도는 별개다 — `short_flow` 가 FINRA 에서 받아 채운다."
         ),
     ),
     "indices": TableSpec(
@@ -94,6 +200,31 @@ _SPECS: dict[str, TableSpec] = {
             "지수가 종목 유니버스에 끼면 커버리지 통계와 횡단면 z 가 오염된다."
         ),
     ),
+    "consensus": TableSpec(
+        name="consensus",
+        columns={
+            "market": pa.string(),
+            # 네이버 금융 종목 페이지의 컨센서스 요약. **미래를 담은 유일한 변수**다 —
+            # 우리 재무 피처는 전부 과거(ROE·마진·성장)인데 추정 EPS 는 애널리스트의
+            # 앞을 보는 수치이고, 그 **수정(revision)** 이 세계에서 두 번째로 견고한
+            # 팩터다(방향 ③, 2026-09-02). 이력이 없어 매일 쌓아야 IC 를 잰다(≥200일).
+            "rating": pa.float64(),        # 투자의견 점수 (1~5, 5 = 강력매수)
+            "target_price": pa.float64(),  # 목표주가 (원)
+            "eps_ttm": pa.float64(),       # 최근 4분기 EPS
+            "per_ttm": pa.float64(),
+            "eps_fwd": pa.float64(),       # 추정 EPS (컨센서스)
+            "per_fwd": pa.float64(),
+            "pbr": pa.float64(),
+            "dividend_yield": pa.float64(),  # %
+        },
+        natural_key=("entity_id", "valid_from"),
+        # 그날 장 마감 뒤 긁는다. 정정본은 하한 위.
+        observation_lag_days=3,
+        doc=(
+            "애널리스트 컨센서스 요약(네이버 금융 종목 페이지). 페이지는 '지금' 값만 보여주므로 "
+            "valid_from = 긁은 날의 세션, observed_at = 긁은 시각. 이력은 여기서만 생긴다."
+        ),
+    ),
     "fundamentals": TableSpec(
         name="fundamentals",
         columns={
@@ -104,6 +235,10 @@ _SPECS: dict[str, TableSpec] = {
             "report_type": pa.string(),
         },
         natural_key=("entity_id", "valid_from", "metric"),
+        # 회계기간 말(valid_from)과 공시(observed_at) 사이가 DART·EDGAR 모두 최대 3개월 안팎이라
+        # 180일 하한이면 안 잘린다. 선언이 없으면 파티션 1,364개를 창과 무관하게 전부 연다 —
+        # 2026-08-29 검증 쿼리 OOM, IC 측정 OOM 이력의 뿌리.
+        observation_lag_days=180,
         doc="재무. 회계기간 종료일이 아니라 공시일 기준.",
     ),
     "fx": TableSpec(
@@ -177,6 +312,22 @@ _SPECS: dict[str, TableSpec] = {
             "observed_at = ts_wall. 같은 뜻의 필드를 두 벌 들지 않는다."
         ),
     ),
+    "macro_consensus": TableSpec(
+        name="macro_consensus",
+        columns={
+            "market": pa.string(),
+            "title": pa.string(),      # 피드 원제 (예: "Unemployment Claims")
+            "forecast": pa.string(),   # 피드 표기 그대로 ("203K", "0.2%") — 단위가 우리 표와 달라 숫자로 안 접는다
+            "previous": pa.string(),
+            "actual": pa.string(),
+            "impact": pa.string(),
+        },
+        # entity_id 는 우리 macro_releases 의 지표 id(US:JOBLESS_CLAIMS …)로 맞춘다 — 그래야 발표
+        # 행 옆에 예측치가 붙는다. 매핑이 없는 이벤트는 US:FF:<slug>. valid_from = 발표 예정 시각.
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=1,
+        doc="시장 예측치(컨센서스) — ForexFactory 주간 캘린더. 브리핑 거시지표의 '예측' 열. 보상·선정에 안 들어간다.",
+    ),
     "macro_releases": TableSpec(
         name="macro_releases",
         columns={
@@ -221,12 +372,47 @@ _SPECS: dict[str, TableSpec] = {
             "fundamentals 가 460만 행(2.2GB)이 되어 Analyst 가 OOM 으로 죽었다."
         ),
     ),
+    "names_ko": TableSpec(
+        name="names_ko",
+        columns={
+            "market": pa.string(),
+            "name_ko": pa.string(),     # 한국어 회사명 (네이버 증권 해외주식)
+            "name_en": pa.string(),
+            "exchange": pa.string(),    # NASDAQ · NYSE · AMEX
+        },
+        # 참조 속성 — 이름은 예측 정보가 아니다. 미장 탭이 티커 옆에 한국어 회사명을 보여주기 위한 것
+        # (사용자 요청 2026-09-05). 주 1회 갱신, 바뀌면 새 행.
+        reference_data=True,
+        natural_key=("entity_id", "valid_from", "source"),
+        observation_lag_days=3,
+        doc="미장 종목 한국어 명칭 참조 관측. 화면 표시 전용 — Analyst 는 읽지 않는다.",
+    ),
+    "float_ratio": TableSpec(
+        name="float_ratio",
+        columns={
+            "market": pa.string(),
+            "shares_outstanding": pa.float64(),   # 발행주식수
+            "float_ratio": pa.float64(),          # 유동주식비율 (0~1)
+        },
+        # 참조 속성 — 유동주식비율은 준정적이고 예측 정보가 아니다. 대용지수의 −12%p/년 오차가
+        # **유동주식 가중**(KOSPI200 은 free-float 가중, 우리는 전액시총)이었다(2026-09-04,
+        # benchmark-aligned-construction-2b). 소스 = 네이버 종목분석(WiseReport) 기업개요.
+        # 매주 한 번 받는다. 바뀌면 새 행, 옛 행은 그대로(append-only).
+        reference_data=True,
+        natural_key=("entity_id", "valid_from", "source"),
+        observation_lag_days=3,
+        doc="유동주식비율 참조 관측. 시총가중 대용지수·시총가중 구성 변형이 free-float 조정에 쓴다.",
+    ),
     "sectors": TableSpec(
         name="sectors",
         columns={
             "market": pa.string(),
             "sector": pa.string(),
         },
+        # 참조 속성 — 게이트가 valid_from 을 본다 (data-contract.md §3). DART 업종을
+        # 2026-08-15 에 처음 받아 그 전 시점 백테스트가 섹터 0개였고, 포트폴리오
+        # 구성 §7 검증이 그 자리에서 막혔다(2026-08-23). 업종은 예측 정보가 아니다.
+        reference_data=True,
         # 일별매매(KRX Open API)에만 있다. LS 유니버스(t8436)에는 섹터가 없다
         # (krx_openapi.TRADE_FIELDS 의 SECT_TP_NM). 종목이 업종을 옮기면 그날
         # 부터 새 관측이 새 행으로 쌓인다 — 옛 행을 고치지 않는다(append-only).
@@ -256,8 +442,11 @@ _SPECS: dict[str, TableSpec] = {
             "``SECT_TP_NM`` 뿐). 대신 DART ``company.json`` 의 ``induty_code``"
             "(표준산업분류)로 받았다 — ``source=dart_company`` 로 KR "
             "2,761/2,874종목(96.1%) 적재 완료 (``collectors/dart_sectors.py``). "
-            "**다만 섹터 상한은 아직 켜지 않았다** — 커버리지를 본 뒤 별도로 "
-            "판단한다(selector.md §5-5, ``selector/pipeline.py`` 의 훅 참고)."
+            "\n\n**2026-08-22 갱신:** 섹터 상한을 켰다. ``selector/pipeline.py`` 가 "
+            "``source=dart_company`` 만 골라 읽고 ``selector/ksic.py`` 로 접는다 — "
+            "KSIC 세세분류 그대로면 2,761종목이 535개 코드로 갈려 상한이 영원히 "
+            "안 걸린다(중분류군으로 접으면 24개, 최대 군집 19%). ``krx_openapi`` "
+            "행은 여전히 상한에 쓰지 않는다."
         ),
     ),
     "signals": TableSpec(
@@ -301,12 +490,315 @@ _SPECS: dict[str, TableSpec] = {
             "없다. 차단된 종목의 이후 수익률로 성적표를 만든다."
         ),
     ),
+    "news_sentiment": TableSpec(
+        name="news_sentiment",
+        columns={
+            "market": pa.string(),
+            "analyst": pa.string(),
+            "analyst_version": pa.string(),
+            "sentiment": pa.float64(),        # −1(악재) ~ +1(호재), 그 세션 헤드라인 평균
+            "confidence": pa.float64(),       # 0 ~ 1
+            "headline_count": pa.int32(),
+            "model": pa.string(),
+            "features_hash": pa.string(),     # 합쳐진 헤드라인 지문들의 해시
+        },
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=3,
+        doc=(
+            "뉴스 감성 점수 — **측정 전용**(사전등록 시행 F, new-sources-2026-09.md). 차단 판정과 "
+            "별개로 Claude 가 같은 헤드라인에서 낸 방향 점수. 보상·가중치에 안 들어간다(불변식 8). "
+            "60세션 쌓인 뒤 IC 를 재서 통과해야 Analyst 피처가 된다."
+        ),
+    ),
+    "short_flow": TableSpec(
+        name="short_flow",
+        columns={
+            "market": pa.string(),
+            # **주기가 다른 두 계열을 자연키로 가른다.**
+            #   volume    매일. FINRA 통합 공매도 거래량(CNMS)
+            #   interest  월 2회. 공매도 잔고
+            # 한 계열로 섞으면 반월 값이 발표 사이 구간에서 매일 반복되는데,
+            # 그게 피처에서는 "변화 없음" 이 아니라 "관측됨" 으로 읽힌다.
+            "kind": pa.string(),
+            # kind = volume
+            "short_volume": pa.float64(),
+            "short_exempt_volume": pa.float64(),
+            "total_volume": pa.float64(),
+            # kind = interest
+            "short_position": pa.float64(),
+            "previous_short_position": pa.float64(),
+            "days_to_cover": pa.float64(),
+            "average_daily_volume": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "kind"),
+        # 그날의 공매도 거래량을 그날보다 먼저 알 수는 없다. 늦게 오는 정정본은
+        # 하한 위라 안 잘린다. 선언이 없으면 프루닝이 통째로 꺼진다(`flows` 와
+        # 같은 사정 — 그때 45일 요청이 1,200개 파티션을 열었다).
+        observation_lag_days=3,
+        doc=(
+            "FINRA 공매도. flow_us Analyst 의 입력. **flows 와 별도 표다** — "
+            "거기에 컬럼을 더하면 union_by_name 이 없는 컬럼을 만들어주지 "
+            "않아 오래된 구간이 죽는다. 비율(short_volume/total_volume)은 "
+            "저장하지 않는다. 분자·분모를 두면 나중에 다르게 물을 수 있다."
+        ),
+    ),
+    # -- RL 학습 (M4) ---------------------------------------------------------
+    "rl_updates": TableSpec(
+        name="rl_updates",
+        columns={
+            "update": pa.int32(),
+            "step": pa.int64(),
+            "seed": pa.int32(),
+            "market": pa.string(),
+            "curriculum": pa.string(),
+            # rl-training.md §10 의 로깅 지표. 이름을 그 표와 맞춘다 —
+            # 화면·문서·창고가 같은 말을 써야 "경고선 위/아래" 를 옮겨
+            # 적는 곳이 생기지 않는다.
+            "explained_variance": pa.float64(),
+            "approx_kl": pa.float64(),
+            "entropy": pa.float64(),
+            "grad_norm": pa.float64(),
+            "action_reflection": pa.float64(),
+            "policy_churn": pa.float64(),
+            "concentration_sum": pa.float64(),
+            "episode_reward": pa.float64(),
+            "cash_weight": pa.float64(),
+            # 재현성 (§11). 이게 없으면 좋은 성적이 나와도 다시 못 만든다.
+            "git_commit": pa.string(),
+            "config_fingerprint": pa.string(),
+        },
+        # 같은 run 의 같은 업데이트는 한 번만. 학습을 이어받아 다시 돌리면
+        # 같은 번호가 또 나오는데, 그때 두 벌이 쌓이면 곡선이 겹쳐 그려진다.
+        natural_key=("entity_id", "update"),
+        # 학습이 업데이트마다 한 행씩 적어 하루 파티션에 파일이 수백 개 쌓인다. 하한을
+        # 선언해야 3일 창이 7일치 파일을 다 열지 않는다(2026-08-28: 3일 읽기 1.6초).
+        observation_lag_days=1,
+        # entity_id 가 종목이 아니라 **run_id** 다. analyst_weights 와 같은
+        # 사정이라 시장 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
+        market_prefixed_entity=False,
+        doc=(
+            "PPO 학습 업데이트 1회 = 1행. entity_id = run_id. "
+            "학습 탭의 explained_variance·학습곡선·approx KL 이 여기서 온다. "
+            "**표가 없어서 화면이 비어 있었다** — 학습 코드가 없어서가 "
+            "아니었다(2026-08-19). 값을 지어내지 않으므로 학습을 안 돌리면 "
+            "0행이고, 0행과 '쟀는데 0' 은 화면에서 다르게 보여야 한다."
+        ),
+    ),
+    "insider_trades": TableSpec(
+        name="insider_trades",
+        columns={
+            "market": pa.string(),
+            "rcept_no": pa.string(),
+            "reporter": pa.string(),
+            "registered_executive": pa.string(),  # 등기임원 | 비등기임원 | -
+            "position": pa.string(),
+            "major_shareholder": pa.string(),      # 주요주주 여부 표기 그대로
+            "shares": pa.float64(),                # 보고 후 보유 특정증권 수
+            "change": pa.float64(),                # 증감 (+취득 / −처분)
+            "rate": pa.float64(),
+            "change_rate": pa.float64(),
+        },
+        # 한 보고서에 보고자가 여럿일 수 있다.
+        natural_key=("entity_id", "valid_from", "rcept_no", "reporter"),
+        observation_lag_days=3,
+        doc=(
+            "DART elestock — 임원ㆍ주요주주 특정증권등 소유상황보고. valid_from = 보고일 18:00 KST"
+            "(공시 시각 미상 → 장 마감 뒤로 보수적). 내부자 순매수 신호(사전등록 시행 D)의 재료."
+        ),
+    ),
+    "earnings_calendar": TableSpec(
+        name="earnings_calendar",
+        columns={
+            "market": pa.string(),
+            "name": pa.string(),
+            # pre | post | unknown | estimate — 장 전/장 후/시각 미정/작년 공시일 기준 추정
+            "timing": pa.string(),
+            "fiscal_quarter": pa.string(),
+            "eps_forecast": pa.string(),   # 피드 표기 그대로 ("$2.83")
+            "market_cap": pa.float64(),
+            "status": pa.string(),         # scheduled | estimated
+        },
+        # valid_from = 발표 예정 시각. **미래 시각이다** — 게이트는 observed_at 이 지키고,
+        # 같은 종목의 같은 예정 시각은 한 번만(날짜가 바뀌면 새 행, 옛 행은 남는다).
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=3,
+        doc=(
+            "실적 발표 일정. 미장은 Nasdaq 캘린더(확정·시각 포함), 국장은 DART 작년 같은 분기 "
+            "잠정실적 공시일을 1년 미룬 **추정**(status=estimated). 뉴스·일정 탭의 월별 달력이 "
+            "읽는다. 추정을 확정처럼 보이게 하지 않는다 — timing 이 말한다."
+        ),
+    ),
+    "reviews": TableSpec(
+        name="reviews",
+        columns={
+            "market": pa.string(),
+            "mode": pa.string(),          # PAPER | SHADOW | LIVE
+            "headline": pa.string(),      # 한 문장, Fund 화면 머리에 뜬다
+            "body": pa.string(),          # 3~5문장 해설
+            "tone": pa.string(),          # good | bad | mixed | quiet
+            "model": pa.string(),
+            "features_hash": pa.string(), # 어떤 사실로 쓴 리뷰인지 — agent_cache 와 같은 해시
+            "status": pa.string(),        # written | cached | skipped_budget | skipped_no_key
+        },
+        # entity_id = "<MODE>:<MARKET>" (예: PAPER:KR). 세션마다 한 편.
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=3,
+        market_prefixed_entity=False,
+        doc=(
+            "Claude 일일 리뷰(M5). **해설자다, 심판이 아니다** — 보상 함수·가중치에 안 들어간다"
+            "(불변식 8). 사실(accounting.performance)은 화면과 같은 함수에서 오고, 같은 사실 "
+            "해시면 agent_cache 가 답해 LLM 을 다시 부르지 않는다."
+        ),
+    ),
+    "rl_evaluations": TableSpec(
+        name="rl_evaluations",
+        columns={
+            "eval_window": pa.string(),   # train | oos  (window 는 SQL 예약어)
+            "arm": pa.string(),           # policy | equal
+            "episode_days": pa.int32(),
+            "envs": pa.int32(),
+            "steps": pa.int32(),
+            "eval_seed": pa.int32(),
+            "train_seed": pa.int32(),
+            "market": pa.string(),
+            "reward_mean": pa.float64(),
+            "reward_sum": pa.float64(),
+            "reward_std": pa.float64(),
+            "cash_weight": pa.float64(),
+            "action_reflection": pa.float64(),
+            "cost": pa.float64(),
+            "turnover": pa.float64(),
+            "drawdown": pa.float64(),
+            "gap_vs_equal": pa.float64(),  # 정책 행에만. 정책 − 균등가중 (같은 창)
+            "verdict": pa.string(),        # 정책 행에만. generalizes | overfit | untrained
+            "checkpoint": pa.string(),
+            "update": pa.int32(),
+        },
+        # 같은 run 을 같은 시각에 같은 자로 두 번 재지 않는다. 자(envs·episode_days)를
+        # 바꿔 다시 재면 valid_from 이 달라 새 행이다 — 그 편차가 "운이었나" 의 재료다.
+        natural_key=("entity_id", "valid_from", "eval_window", "arm"),
+        observation_lag_days=1,
+        market_prefixed_entity=False,
+        doc=(
+            "tools/evaluate_policy.py --save 의 결과. entity_id = run_id. "
+            "학습 구간과 OOS(홀드아웃)를 같은 자(짧은 에피소드)로 재고 균등가중과 견준 값. "
+            "학습 탭 '기본 전략보다 나은가'·'운이었나 실력이었나' 가 여기서 온다. "
+            "학습을 완주해도 이 표가 비어 있으면 평가를 안 돌린 것이지 결과가 없는 것이 아니다."
+        ),
+    ),
+    # -- 자기개선 안전장치 (self-improvement.md §1) ---------------------------
+    "research_trials": TableSpec(
+        name="research_trials",
+        columns={
+            "market": pa.string(),
+            # 가설 계열: ic-analyst / ic-feature / evolution / rl-config /
+            # canary / manual / … 계열별로 나눠 적지만 **카운터는 전부 합친다**
+            # — 실험별로 리셋하지 않는 것이 이 표의 존재 이유다.
+            "family": pa.string(),
+            # 이 행이 대표하는 시행 수. 소급 집계는 계열당 한 행(배치)으로
+            # 적는다 — 낱개 재구성은 불가능하고, 총합만 맞으면 DSR 은 성립한다.
+            "n_trials": pa.int32(),
+            # 사전등록 파일(sha256 16자리). 소급분·미등록 시행은 빈 문자열 —
+            # 그 자체가 "등록 없이 돌았다" 는 기록이다.
+            "protocol_hash": pa.string(),
+            "detail": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from"),
+        # entity_id 가 종목이 아니라 **시행 묶음 이름**이다(rl_updates 와 같은 사정).
+        market_prefixed_entity=False,
+        doc=(
+            "가설 검정 시행 대장. 1행 = 시행 묶음, 누적합 = Deflated Sharpe 의 N. "
+            "같은 5년 데이터에 가설을 몇 번 두드렸는지를 실험 종류와 무관하게 "
+            "하나로 센다 — 시행 예산 없는 자기개선은 자기기만이다"
+            "(self-improvement.md §0). 리셋도 삭제도 없다."
+        ),
+    ),
+    "holdout_access": TableSpec(
+        name="holdout_access",
+        columns={
+            "market": pa.string(),
+            # 왜 열었나: promotion-review(승격 심사) 외의 값은 원칙 위반이다.
+            "reason": pa.string(),
+            # 열람한 구간. 연 뒤에는 그 구간이 탐색 데이터로 강등된다.
+            "window_start": pa.string(),
+            "window_end": pa.string(),
+            "detail": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from"),
+        market_prefixed_entity=False,
+        doc=(
+            "홀드아웃 금고 개봉 이력. 1행 = 개봉 1회. 0행이 정상 상태다. "
+            "금고는 승격 심사 때 딱 한 번 열고, 열면 소진으로 간주한다"
+            "(self-improvement.md §1①). 학습 탭이 이 표를 그대로 보여준다."
+        ),
+    ),
+    "analyst_failures": TableSpec(
+        name="analyst_failures",
+        columns={
+            "market": pa.string(),
+            "stage": pa.string(),
+            "error_type": pa.string(),
+            "detail": pa.string(),
+        },
+        # entity_id 가 종목이 아니라 **Analyst 이름**이다. rl_updates 와 같은
+        # 사정이라 시장 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
+        natural_key=("entity_id", "valid_from", "stage"),
+        market_prefixed_entity=False,
+        doc=(
+            "Analyst 가 그 세션에 예외로 죽었다는 기록. 1행 = 한 Analyst · 한 세션. "
+            "**나중에 창고를 읽어 추론할 수 없어서 만든 표다.** 2026-08-20 에 "
+            "event·fundamental·regime 이 죽었는데, 같은 날 정정본을 넣자 "
+            "signals 는 그날을 6종으로 보여줬다 — 정정본이 사고의 흔적을 지웠다. "
+            "verify_m3 가 그 날을 잡을 방법이 없어 상수에 손으로 적어야 했다. "
+            "**고쳐도 이 행은 지우지 않는다.** 그날 세션이 반쪽 판단으로 돈 것은 "
+            "나중에 고쳐도 달라지지 않는 사실이다."
+        ),
+    ),
+    "ingest_outcomes": TableSpec(
+        name="ingest_outcomes",
+        columns={
+            "market": pa.string(),
+            # 어느 테이블을 채우려던 수집이었나. 데이터셋 이름만으로는
+            # "그래서 무엇이 안 들어왔나" 를 모른다.
+            "table_name": pa.string(),
+            # 셋 중 무엇인가. collectors/outcome.py 의 ``Verdict``.
+            "verdict": pa.string(),
+            "stage": pa.string(),
+            "error_type": pa.string(),
+            "detail": pa.string(),
+        },
+        # entity_id 가 종목이 아니라 **수집 데이터셋 이름**이다
+        # ("krx_openapi:indices"). analyst_failures 와 같은 사정이라 시장
+        # 접두어 규칙이 안 맞는다 — 시장은 별도 컬럼이다.
+        natural_key=("entity_id", "valid_from", "stage"),
+        market_prefixed_entity=False,
+        observation_lag_days=3,
+        doc=(
+            "수집이 0행으로 끝난 사실과 그 판정. 1행 = 한 데이터셋 · 한 세션. "
+            "**0행 셋을 로그로는 가릴 수 없어서 만든 표다** — (가) 원본이 그날 "
+            "값을 안 냄 · (나) 원본은 냈는데 우리가 못 받음 · (다) 받았는데 "
+            "조건에 맞는 행이 없음. 셋이 전부 '0행'·rc=0 으로 끝나서 (나)가 "
+            "며칠씩 조용히 이어졌다(2026-08-19 KRX 지수·시총, 2026-08-22 FRED). "
+            "**행이 들어온 세션은 안 적는다** — 그건 데이터 표 자체가 증거다. "
+            "창고를 읽어 추론할 수 없는 것은 0행 쪽뿐이다."
+        ),
+    ),
     "analyst_weights": TableSpec(
         name="analyst_weights",
         columns={
             "analyst_version": pa.string(),
             "weight": pa.float64(),
             "ic": pa.float64(),
+            # **유의성을 같이 적는다** (2026-08-23). 예전에는 `ic_std` 를
+            # 계산해 로그에 한 줄 찍고 버렸다. 그래서 창고에 쌓인 성적표만
+            # 보면 어느 Analyst 가 유의한지 사후에 확인할 방법이 없었다 —
+            # 실제로 재점검에서 t 를 내려다 저장값이 없어 못 냈다.
+            #
+            # `ic_t` 는 **Newey-West** 다(lag = horizon-1). 타깃이 5일 겹치므로
+            # 단순 t 는 과대평가된다 — regime 에서 -2.46 이 -1.93 으로 바뀐 적이
+            # 있다. 옛 행에는 이 칸이 없어 null 로 읽힌다(그때는 안 쟀다는 뜻).
+            "ic_std": pa.float64(),
+            "ic_t": pa.float64(),
             "ic_threshold": pa.float64(),
             "sample_days": pa.int32(),
             "passed": pa.bool_(),

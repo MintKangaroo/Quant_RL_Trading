@@ -14,8 +14,11 @@ import pytest
 
 from quant_rl_trading.selector import (
     Candidate,
+    ConstraintParams,
     SelectionParams,
     SelectionTrace,
+    alpha_weights,
+    apply_risk_floor,
     combined_scores,
     contributions,
     select,
@@ -149,3 +152,113 @@ def test_상관을_모르는_종목은_감점하지_않는다() -> None:
 
     assert [item.entity_id for item in chosen] == ["KR:A", "KR:NEW"]
     assert not chosen[1].penalized
+
+
+# -- 제약 Analyst (태스크 #32) -------------------------------------------------------
+
+
+def test_risk는_알파_가중치에서_빠진다() -> None:
+    """측정 가중치에 risk 가 1.0 으로 있어도 알파에는 안 들어간다.
+
+    **0 으로 덮는 것과 키를 지우는 것은 다르다.** 0 으로 두면 화면이 그것을
+    관찰 모드("아직 못 미더운 Analyst")로 읽고, 언젠가 누군가 risk 의 IC 를
+    보고 가중치를 돌려준다.
+    """
+    measured = {"fundamental": 1.0, "risk": 1.0, "event": 1.0}
+
+    assert alpha_weights(measured) == {"fundamental": 1.0, "event": 1.0}
+    assert "risk" not in alpha_weights(measured)
+
+
+def test_위험_하한은_꼬리만_자른다() -> None:
+    """하위 백분위만 빠지고 나머지 순서는 그대로다.
+
+    제약이 순위를 건드리면 그건 제약이 아니라 알파다 — 자리를 옮긴 의미가 없다.
+    """
+    frame = signals([
+        (f"KR:{i:03d}", "risk", float(i), 1.0) for i in range(10)
+    ])
+    scores = pd.Series({f"KR:{i:03d}": float(10 - i) for i in range(10)})
+
+    kept = apply_risk_floor(
+        scores, signals=frame, params=ConstraintParams(risk_floor_percentile=0.2)
+    )
+
+    # risk 가 가장 낮은 둘(000·001)이 빠진다. 남은 것의 순서는 안 바뀐다.
+    assert "KR:000" not in kept.index
+    assert "KR:001" not in kept.index
+    assert list(kept.index) == [f"KR:{i:03d}" for i in range(2, 10)]
+
+
+def test_위험_점수가_없으면_자르지_않는다() -> None:
+    """관측 없음은 위험 판단이 아니다.
+
+    risk 는 60세션 이상 가격이 있는 종목에만 의견을 낸다. 관측이 없는 것을
+    "위험하다" 로 읽으면 신규 상장주와 수집 구멍이 같은 처분을 받는다.
+    """
+    frame = signals([
+        ("KR:A", "risk", -1.0, 1.0),
+        ("KR:B", "risk", 1.0, 1.0),
+    ])
+    scores = pd.Series({"KR:A": 1.0, "KR:B": 2.0, "KR:C": 3.0})
+
+    kept = apply_risk_floor(
+        scores, signals=frame, params=ConstraintParams(risk_floor_percentile=0.5)
+    )
+
+    assert "KR:A" not in kept.index      # 관측됐고 하위다 — 잘린다
+    assert "KR:C" in kept.index          # 관측이 없다 — 통과시킨다
+
+
+def test_위험_신호가_통째로_없으면_흔적에_남긴다() -> None:
+    """조용히 통과시키면 "제약이 걸렸다" 와 "걸 게 없었다" 가 같아 보인다."""
+    trace = SelectionTrace()
+    scores = pd.Series({"KR:A": 1.0, "KR:B": 2.0})
+
+    kept = apply_risk_floor(
+        scores,
+        signals=signals([("KR:A", "event", 1.0, 1.0)]),
+        params=ConstraintParams(risk_floor_percentile=0.2),
+        trace=trace,
+    )
+
+    assert list(kept.index) == ["KR:A", "KR:B"]
+    assert any("안전이 확인된 것이 아니다" in note for note in trace.notes)
+
+
+def test_하한_0은_제약을_끈다() -> None:
+    """끈 것과 걸었는데 아무도 안 걸린 것을 구분한다."""
+    trace = SelectionTrace()
+    frame = signals([("KR:A", "risk", -9.0, 1.0), ("KR:B", "risk", 9.0, 1.0)])
+    scores = pd.Series({"KR:A": 1.0, "KR:B": 2.0})
+
+    kept = apply_risk_floor(
+        scores, signals=frame, params=ConstraintParams(risk_floor_percentile=0.0),
+        trace=trace,
+    )
+
+    assert list(kept.index) == ["KR:A", "KR:B"]
+    assert any("적용하지 않았다" in note for note in trace.notes)
+
+
+# -- 완충 구간 (selector.md §5, 2026-08-27) -----------------------------------------
+
+
+def test_보유_종목은_퇴출_순위_안이면_남는다() -> None:
+    """25위↔24위가 하루걸러 자리를 바꾸는 회전을 막는다. 보유 종목이 exit_rank
+    안이면 남고, 밖이면 나간다. 새 후보는 남은 자리만 채운다."""
+    scores = pd.Series({"A": 0.9, "B": 0.8, "C": 0.7, "D": 0.6, "E": 0.5, "F": 0.1})
+    params = SelectionParams(
+        n_candidates=3, corr_threshold=0.7, corr_penalty=0.3, sector_cap=1.0, exit_rank=5
+    )
+    trace = SelectionTrace()
+    # D(4위)·E(5위)는 보유 → 남는다. F(6위)는 보유였지만 exit_rank 밖 → 퇴출.
+    chosen = select(scores=scores, params=params, held=["D", "E", "F"], trace=trace)
+    assert [c.entity_id for c in chosen] == ["D", "E", "A"]
+    assert any("완충: 보유 2종목 유지" in note and "1종목 퇴출" in note for note in trace.notes)
+
+
+def test_완충이_꺼져_있으면_매일_재선정이다() -> None:
+    scores = pd.Series({"A": 0.9, "B": 0.8, "C": 0.7, "D": 0.6})
+    chosen = select(scores=scores, params=PARAMS, held=["D"])
+    assert [c.entity_id for c in chosen] == ["A", "B", "C"]

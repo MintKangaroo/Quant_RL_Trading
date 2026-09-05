@@ -9,15 +9,29 @@
 
   <section class="kpis" id="kpis"></section>
 
-  <!-- dashboard.md §5 1행: explained_variance / 커리큘럼·오라클 카나리.
+  <!-- 0행: 지금 돌고 있는 학습. 창고(rl_updates)의 마지막 기록과 as_of 의
+       거리로 살아 있는지를 판단한다 — 프로세스를 보지 않는다. -->
+  <section class="panel">
+    <h2>지금 돌고 있는 학습 <span class="sub">rl_updates 의 마지막 기록 · 진행률 · 페이스 · 최근 보상 추이</span></h2>
+    <div id="training-live"></div>
+  </section>
+
+  {# 연구 작업 — 시행·채점·복구 스크립트는 rl_updates 에 안 적히므로 프로세스·로그로 본다 (2026-09-03). #}
+  <section class="panel">
+    <h2>연구 작업 <span class="sub">지금 도는 스크립트 · 최근 연구 로그의 마지막 줄</span></h2>
+    <div id="research-jobs"></div>
+  </section>
+
+  <!-- dashboard.md §5 1행. 제목은 쉬운 말을 앞에 두고 원어를 <span class="sub">
+       에 남긴다 — 원어를 지우면 문서·코드·검색과 연결이 끊긴다.
        M4(RL) 는 아직 없다 — 자리는 지키되 값을 지어내지 않는다. -->
   <section class="grid2">
     <div class="panel">
-      <h2>explained_variance <span class="sub">0.1 기준선</span></h2>
+      <h2>예측이 실제를 얼마나 맞히나 <span class="sub">explained_variance · 0.1 넘어야 쓸 만하다</span></h2>
       <div class="empty" id="empty-explained-variance"></div>
     </div>
     <div class="panel">
-      <h2>커리큘럼 C0~C5 · 오라클 카나리</h2>
+      <h2>훈련 단계와 사전 점검 <span class="sub">커리큘럼 C0~C5 · 오라클 카나리</span></h2>
       <div class="empty" id="empty-curriculum"></div>
     </div>
   </section>
@@ -25,11 +39,11 @@
   <!-- 2행: 학습 곡선 / approx KL·entropy·gradient norm -->
   <section class="grid2">
     <div class="panel">
-      <h2>학습 곡선 (에피소드 보상)</h2>
+      <h2>연습할수록 잘하고 있나 <span class="sub">학습 곡선 — 한 판당 받은 점수</span></h2>
       <div class="empty" id="empty-episode-reward"></div>
     </div>
     <div class="panel">
-      <h2>approx KL · entropy · gradient norm</h2>
+      <h2>학습이 안정적인가 <span class="sub">판단이 한 번에 얼마나 바뀌나 · 얼마나 여러 수를 시도하나 · 배우는 힘의 세기</span></h2>
       <div class="empty" id="empty-optimizer-diag"></div>
     </div>
   </section>
@@ -37,12 +51,16 @@
   <!-- 3행: Analyst IC 이력 — 지금 실제로 있는 것. M4 상태 인코더가 조합할
        입력이 바로 이 가중치다. -->
   <section class="panel">
-    <h2>Analyst IC 이력 — 지금 학습(선택)을 대신하는 것 <span class="sub">0.03 기준선</span></h2>
+    <h2>애널리스트 적중도 이력 — 지금은 이것이 학습을 대신한다 <span class="sub">IC · 0.03 이 합격선</span></h2>
     <div class="chart" id="chart-ic"></div>
     <p class="note">
-      RL 이 없어도 <strong>무엇이 가중치를 받고 있는가</strong>는 실측이다.
-      가중치·이력은 Agent Health 화면과 같은 집계를 쓴다 — 같은 사실을
-      두 번 세면 언젠가 두 화면이 어긋난다.
+      <strong>적중도(IC)</strong>는 애널리스트의 점수와 실제 수익이 얼마나
+      같은 방향으로 움직였나를 −1~+1 로 잰 값이다. 0 이면 찍는 것과 다를 바
+      없고, 합격선 0.03 을 못 넘으면 <strong>가중치 0</strong> — 점수는 계속
+      계산하되 매매에는 안 쓴다(관찰 모드).
+      강화학습이 없어도 <strong>무엇이 실제로 쓰이고 있는가</strong>는 실측이다.
+      이 숫자는 Agent Health 화면과 같은 집계를 쓴다 — 같은 사실을 두 번 세면
+      언젠가 두 화면이 어긋난다.
     </p>
   </section>
 
@@ -50,24 +68,25 @@
        같은 Analyst 도 측정 시점이 다르면 IC 가 달라진다는 사실 자체가
        중요하다 — IC 는 한 번 재고 끝내는 값이 아니다. -->
   <section class="panel">
-    <h2>워크포워드 vs 라이브 IC <span class="sub" id="wf-source">-</span></h2>
+    <h2>과거 검증 vs 지금 실측 — 적중도가 유지되나 <span class="sub" id="wf-source">-</span></h2>
     <div id="walk-forward"></div>
     <p class="note">
-      워크포워드는 <code>data/_backtest</code> 샌드박스에서 끝난 과거 측정(고정값)이고,
-      라이브는 실전 창고의 최신 측정이다. 둘이 다르다는 것 자체가 IC 가 감쇠하거나
-      표본에 따라 흔들릴 수 있다는 증거다 — 그래서 위 이력 차트로 계속 재측정을
-      추적한다.
+      <strong>과거 검증</strong>은 <code>data/_backtest</code> 연습장에서 이미 끝난
+      측정이라 값이 고정이고, <strong>지금 실측</strong>은 실전 창고에서 새로 잰
+      값이다. 둘이 다르다는 것 자체가 중요하다 — 적중도는 한 번 재고 끝내는 값이
+      아니라 <strong>시간이 지나면 닳고 표본에 따라 흔들린다</strong>. 그래서 위
+      이력 차트로 계속 다시 잰다.
     </p>
   </section>
 
   <!-- 4행: 베이스라인 대비 IR / 시드 간 분산 -->
   <section class="grid2">
     <div class="panel">
-      <h2>베이스라인 대비 IR</h2>
+      <h2>기본 전략보다 나은가 <span class="sub">IR — 흔들린 만큼 대비 벌었나</span></h2>
       <div class="empty" id="empty-ir-vs-baseline"></div>
     </div>
     <div class="panel">
-      <h2>시드 간 성과 분산 · policy churn</h2>
+      <h2>운이었나 실력이었나 <span class="sub">시작값만 바꿔 여러 번 돌린 결과의 편차 · 판단이 얼마나 자주 뒤집히나</span></h2>
       <div class="empty" id="empty-seed-variance"></div>
     </div>
   </section>
@@ -75,12 +94,28 @@
   <!-- 5행: Optuna trial 표 자리. 지금은 Analyst 게이트 표로 채운다 —
        "지금 실제로 있는 것" 이 이 자리를 대신한다. -->
   <section class="panel">
-    <h2>Analyst 게이트 표 <span class="sub">가중치를 받고 있는 것</span></h2>
+    <h2>지금 실제로 매매에 쓰이는 애널리스트 <span class="sub">합격선을 넘어 가중치를 받는 것</span></h2>
     <div id="gate"></div>
     <p class="note">
-      하이퍼파라미터 시행(Optuna trial) 표는 M4 산출물이라 이 자리에 없다.
-      대신 지금 실제로 있는 것 — IC 합격선을 넘어 가중치를 받는 Analyst
-      게이트를 채운다. 통과 못 한 Analyst 는 가중치 0(관찰 모드)이다.
+      설정값을 이리저리 바꿔 가며 최적을 찾은 기록(Optuna 시행 표)은 강화학습
+      단계(M4)의 산출물이라 아직 없다. 대신 <strong>지금 실제로 있는 것</strong>을
+      채운다 — 합격선을 넘어 매매에 쓰이는 애널리스트다. 못 넘은 쪽은 가중치 0
+      이라 점수는 만들지만 <strong>합성에서 통째로 빠진다</strong>.
+    </p>
+  </section>
+
+  <!-- 6행: 자기개선 시행 대장 (self-improvement.md §7). 자기개선을 켜면
+       누적 시행 횟수가 성과 지표만큼 중요해진다 — 시행 예산 없는 탐색은
+       자기기만이다. -->
+  <section class="panel">
+    <h2>가설을 몇 번이나 두드렸나 <span class="sub">시행 대장 · Deflated Sharpe — 운의 상한을 넘었는가</span></h2>
+    <div id="research-ledger"></div>
+    <p class="note">
+      과거 데이터는 5년뿐이라, 가설을 많이 시도할수록 <strong>신호가 없어도
+      최고 성적은 좋아 보인다</strong>. 그래서 실험 종류와 무관하게 모든 시행을
+      하나의 카운터에 누적하고, 성과의 유의성은 그 횟수로 보정해 읽는다
+      (Deflated Sharpe). 홀드아웃 금고는 승격 심사 때 딱 한 번 열고, 개봉
+      이력이 여기에 남는다 — <strong>0건이 정상 상태다</strong>.
     </p>
   </section>
 </main>

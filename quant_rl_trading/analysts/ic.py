@@ -21,7 +21,7 @@ Analyst 보다 이게 먼저다. 이 단계의 실패 방식은 하나뿐이고 
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from quant_rl_trading.store import Store
-from quant_rl_trading.store.prices import PRICES, drop_dead_sessions
+from quant_rl_trading.store.prices import PRICES, adjust, drop_dead_sessions
 
 #: 타깃 기간. agents.md §10 — 5일로 통일한다.
 HORIZON_DAYS = 5
@@ -48,10 +48,15 @@ class ICResult:
     market: str
     ic: float
     ic_std: float
+    #: 겹치는 타깃을 보정한 t 값(Newey-West, lag = horizon-1). **크기와 함께
+    #: 유의성을 남긴다** — 예전에는 ic_std 를 계산해 로그에 찍고 버렸다.
+    ic_t: float
     sample_days: int
     sample_rows: int
     threshold: float
     min_sample_days: int
+    #: t 하한 (Newey-West). 0 이면 t 게이트를 끈다 — 옛 행 재현용.
+    t_min: float = 0.0
     fold_ics: tuple[float, ...] = ()
 
     @property
@@ -61,7 +66,16 @@ class ICResult:
         표본 200일 미만에서 나온 IC 0.05 는 우연과 구분되지 않는다. 여기서
         관대해지면 검증되지 않은 Analyst 가 실제 자본을 움직이게 된다.
         """
-        return self.ic >= self.threshold and self.sample_days >= self.min_sample_days
+        if not (self.ic >= self.threshold and self.sample_days >= self.min_sample_days):
+            return False
+        if self.t_min <= 0.0:
+            return True
+        # **크기와 유의성을 둘 다 요구한다** (2026-08-25). 크기 게이트만으로는
+        # 변동성이 큰 잡음이 요행으로 넘는다 — chart 급 std(0.13)면 IC 0.03
+        # 이어도 t≈1.8 이라 이 게이트가 정확히 잡는다. 실측 근거: 통과 3종의
+        # t 는 4.5~7.7, 미통과 최고는 2.04 — 현재 판정은 하나도 안 바뀐다.
+        # nan(표본<3)은 유의성을 잴 수 없으므로 통과가 아니다.
+        return bool(np.isfinite(self.ic_t) and self.ic_t >= self.t_min)
 
     @property
     def weight(self) -> float:
@@ -77,6 +91,11 @@ class ICResult:
             "analyst_version": self.analyst_version,
             "weight": self.weight,
             "ic": self.ic,
+            # **유의성을 같이 남긴다.** 크기만 적으면 나중에 성적표를 봐도
+            # 그 IC 가 우연인지 알 수 없다 — 2026-08-23 재점검에서 실제로
+            # t 를 내려다 저장값이 없어 못 냈다.
+            "ic_std": self.ic_std,
+            "ic_t": self.ic_t,
             "ic_threshold": self.threshold,
             "sample_days": self.sample_days,
             "passed": self.passed,
@@ -119,6 +138,34 @@ def forward_returns(
     return frame.dropna(subset=["forward_return"])
 
 
+
+def newey_west_t(series: "pd.Series", *, lag: int) -> float:
+    """겹치는 타깃을 감안한 t 값. ``lag=0`` 이면 보통 t 와 같다.
+
+    **여기가 이 식의 유일한 자리다.** 예전에는 `tools/diagnose_ic.py` 에만
+    있었는데, 합격 판정이 t 를 쓰게 되면서 라이브러리로 올렸다 — 도구와
+    판정이 각자 t 를 계산하면 언젠가 서로 다른 답을 낸다.
+
+    **왜 보정하나.** 5일 앞을 보는 타깃은 연속한 날들이 겹친다. 겹친 표본을
+    독립으로 세면 유효표본이 부풀고 t 가 과대평가된다 — regime 에서 -2.46 이
+    보정 후 -1.93 으로 바뀌어 "유의" 가 "미확인" 이 된 적이 있다.
+    """
+    values = series.dropna().to_numpy(dtype=float)
+    n = values.size
+    if n < 3:
+        return float("nan")
+    mean = float(values.mean())
+    dev = values - mean
+    gamma0 = float((dev * dev).sum() / n)
+    variance = gamma0
+    for k in range(1, min(lag, n - 1) + 1):
+        gamma = float((dev[k:] * dev[:-k]).sum() / n)
+        variance += 2.0 * (1.0 - k / (lag + 1)) * gamma
+    if variance <= 0:
+        return float("nan")
+    return mean / float(np.sqrt(variance / n))
+
+
 def cross_sectional_z(frame: pd.DataFrame, column: str, *, by: str = "session") -> pd.Series:
     """같은 날 종목들 사이의 z-score.
 
@@ -157,7 +204,11 @@ def build_targets(
         as_of=as_of,
         lookback=lookback,
         window=window,
-        columns=["close"],
+        # ``adj_factor`` 를 같이 받는다. **라벨은 보정가로 만들어야 한다** —
+        # 액면분할·무상증자가 보정되지 않으면 그 세션의 forward_return 이
+        # 배율만큼(1/10 분할이면 -90%) 찍히고, 횡단면 z 가 그 종목을 최하위로
+        # 밀어 라벨 자체가 거짓이 된다.
+        columns=["close", "adj_factor"],
         # 라벨도 한 시장 것만 만든다. 다른 시장 종목이 섞이면 횡단면 z 가
         # 두 시장을 한 줄에 세우게 되고, 그건 비교가 아니다.
         market=market,
@@ -169,7 +220,9 @@ def build_targets(
     # ``forward_close=0`` 에서 정확히 ``-1.0`` 을 내고, 그 세션의 횡단면 z 가
     # 통째로 NaN 이 된다 — 실측 4세션 11,491행(라벨의 5.3%)이 조용히 사라졌다.
     frames = [
-        drop_dead_sessions(chunk).loc[:, ["entity_id", "valid_from", "close"]]
+        drop_dead_sessions(chunk).loc[
+            :, ["entity_id", "valid_from", "close", "adj_factor"]
+        ]
         for chunk in windows
         if not chunk.empty
     ]
@@ -180,6 +233,9 @@ def build_targets(
     # 창이 서로 겹치게 잘려 있어서 중복이 생긴다 (_span 이 하루 넉넉히 잡는다).
     frames.clear()
     prices = prices.drop_duplicates(subset=["entity_id", "valid_from"], keep="last")
+    # **접기는 창을 이어 붙인 뒤에 한다.** 조각마다 접으면 누적곱이 조각
+    # 안에서만 돌아, 조각 경계를 넘는 사건이 그 앞 구간에 반영되지 않는다.
+    prices = adjust(prices)
     prices["session"] = prices["valid_from"].dt.date
 
     forward = forward_returns(prices, horizon=horizon)
@@ -255,6 +311,7 @@ def evaluate(
     market: str,
     threshold: float,
     min_sample_days: int,
+    t_min: float = 0.0,
     n_splits: int = 5,
     horizon: int = HORIZON_DAYS,
     embargo: int = EMBARGO_DAYS,
@@ -268,8 +325,9 @@ def evaluate(
     if merged.empty:
         return ICResult(
             analyst=analyst, analyst_version=analyst_version, market=market,
-            ic=float("nan"), ic_std=float("nan"), sample_days=0, sample_rows=0,
-            threshold=threshold, min_sample_days=min_sample_days,
+            ic=float("nan"), ic_std=float("nan"), ic_t=float("nan"),
+            sample_days=0, sample_rows=0,
+            threshold=threshold, min_sample_days=min_sample_days, t_min=t_min,
         )
 
     series = daily_ic(merged)
@@ -289,10 +347,13 @@ def evaluate(
         market=market,
         ic=float(np.mean(fold_ics)) if fold_ics else float(series.mean()),
         ic_std=float(series.std()),
+        # lag = horizon-1. 5일 타깃이면 연속 4일이 겹친다.
+        ic_t=newey_west_t(series, lag=max(horizon - 1, 0)),
         sample_days=int(series.size),
         sample_rows=len(merged),
         threshold=threshold,
         min_sample_days=min_sample_days,
+        t_min=t_min,
         fold_ics=tuple(fold_ics),
     )
 
@@ -339,11 +400,14 @@ def rolling_confidence(
     # 같은 문자열이다. 2026-02-20 세션이 신호 단계 0초 → 96초, RSS 1.6GB →
     # 6.2GB 로 튄 자리이며 그 뒤 OOM 으로 죽었다.
     # 남는 **행**은 좁혀도 바뀌지 않는다 (정정본 선택은 프루닝 전에 끝난다).
+    # **시장도 SQL 에서 거른다.** signals 엔 market 컬럼이 없지만 entity_id 접두어로
+    # 걸러진다(reader._scope). None 으로 두면 국장 세션이 미장 12,700종목 × 7종을 같이
+    # 퍼올려 2.5M행이 되고, 2026-09-02·03 미장 daily 가 그 복사본에서 MemoryError 로 죽었다.
     frame = store.get(
         "signals",
         as_of=as_of,
         lookback=int(window * 7 / 5) + 30,
-        market=None,
+        market=market,
         columns=["entity_id", "analyst", "score"],
     )
     if frame.empty:
@@ -383,11 +447,83 @@ def rolling_confidence(
     return max(0.0, float(daily.mean()))
 
 
-def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int]:
-    """합격선과 표본 하한. 하드코딩 금지 (불변식 10)."""
+
+def marginal_shares(
+    scored: "Mapping[str, pd.DataFrame]",
+    targets: pd.DataFrame,
+    *,
+    horizon: int = HORIZON_DAYS,
+    t_min: float = 2.0,
+) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """통과한 알파 Analyst 들의 **한계기여 기반 가중치** (2026-08-25).
+
+    ## 왜
+
+    동등 가중은 겹치는 신호가 **중복 투표**하게 한다. 실측(signal-combination.md):
+    event 는 단일 IC t 7.66 으로 강하지만 fundamental 위 한계기여가 ~0 이다 —
+    기업행위가 재무와 상관되기 때문이다. 동등 가중이면 event 가 재무의 목소리를
+    한 번 더 내고, 그만큼 다른 정보가 희석된다.
+
+    ## 규칙 (사전 등록)
+
+    각 Analyst 의 한계기여 ΔIC = IC(전체 동등결합) − IC(그것만 뺀 결합) 을
+    일별 차이 시계열로 재고 Newey-West t 를 붙인다.
+
+        share_i = ΔIC_i   (ΔIC_i > 0 이고 t_i ≥ t_min 일 때만; 아니면 0)
+        가중치  = share / max(share)          → (0, 1]
+
+    **전부 0 이면 동등 가중으로 물러선다** — 서로 완전한 쌍둥이 신호들은 LOO 로
+    갈라지지 않는다(하나를 빼도 나머지가 대신한다). 그 경우는 오늘과 같은
+    동등 가중이므로 나빠지지 않고, 물러섰다는 사실은 호출자가 크게 적는다.
+
+    돌려주는 둘째 값은 {analyst: (ΔIC, t)} — 결정 근거를 성적표 옆에 남긴다.
+    """
+    names = sorted(scored)
+    if len(names) <= 1:
+        return {name: 1.0 for name in names}, {name: (float("nan"), float("nan")) for name in names}
+
+    # Analyst 마다 세션별 z — 점수 스케일이 서로 달라 그대로 평균하면 큰 쪽이
+    # 다 먹는다. combine 의 실전 경로와 같은 정신이다.
+    z_frames = []
+    for name in names:
+        frame = scored[name].loc[:, ["entity_id", "session", "score"]].copy()
+        frame["z"] = cross_sectional_z(frame, "score")
+        frame["analyst"] = name
+        z_frames.append(frame.dropna(subset=["z"]))
+    stacked = pd.concat(z_frames, ignore_index=True)
+
+    def ic_of(members: Sequence[str]) -> pd.Series:
+        sub = stacked[stacked["analyst"].isin(members)]
+        combined = (
+            sub.groupby(["entity_id", "session"], as_index=False)["z"].mean()
+            .rename(columns={"z": "score"})
+        )
+        merged = combined.merge(targets, on=["entity_id", "session"], how="inner")
+        return daily_ic(merged)
+
+    full = ic_of(names)
+    details: dict[str, tuple[float, float]] = {}
+    shares: dict[str, float] = {}
+    for name in names:
+        loo = ic_of([other for other in names if other != name])
+        diff = (full - loo).dropna()
+        delta = float(diff.mean()) if not diff.empty else float("nan")
+        t_value = newey_west_t(diff, lag=max(horizon - 1, 0))
+        details[name] = (delta, t_value)
+        shares[name] = delta if (np.isfinite(delta) and delta > 0 and np.isfinite(t_value) and t_value >= t_min) else 0.0
+
+    top = max(shares.values())
+    if top <= 0.0:
+        return {name: 1.0 for name in names}, details
+    return {name: value / top for name, value in shares.items()}, details
+
+
+def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int, float]:
+    """합격선·표본 하한·t 하한. 하드코딩 금지 (불변식 10)."""
     return (
         float(store.config("analyst.ic_threshold", as_of=as_of)),
         int(store.config("analyst.ic_min_samples", as_of=as_of)),
+        float(store.config("analyst.ic_t_min", as_of=as_of)),
     )
 
 

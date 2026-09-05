@@ -39,6 +39,10 @@ class Baseline(StrEnum):
     EQUAL = "equal"
     SCORE = "score"
     SCORE_INVERSE_VOL = "score_inverse_vol"
+    # 리스크 패리티 + 스코어 틸트 (§3). **창고를 타므로 순수 allocate 로는 못
+    # 낸다** — session/daily.py 가 이 값을 보고 allocate_risk_parity 로 간다
+    # (allocator/risk_parity_baseline.py). 나머지 셋과 성격이 다르다.
+    RISK_PARITY = "risk_parity"
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,12 @@ def allocate(
     if not positive:
         return {}
 
+    if params.baseline is Baseline.RISK_PARITY:
+        # **순수 함수로는 못 낸다** — 공분산·섹터·하방 베타가 있어야 한다.
+        # 호출부가 baseline 값을 보고 allocate_risk_parity 로 갔어야 한다.
+        raise ValueError(
+            "risk_parity 는 순수 allocate 로 못 낸다 — allocate_risk_parity 를 써라"
+        )
     if params.baseline is Baseline.EQUAL:
         raw = {entity: 1.0 for entity in positive}
     elif params.baseline is Baseline.SCORE:

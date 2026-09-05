@@ -81,13 +81,23 @@ function marketKpis(body, code) {
   const spec = head || panels.missing.find((row) => row.role === "primary") || {};
   const b = panel.breadth;
   const label = code === "KR" ? "국장" : "미장";
+  // **장중 값이 있으면 그것을 크게 둔다.** 없으면 종가다.
+  //
+  // 실측 2026-08-19 12:31: 화면이 코스피 6,869.83(-1.55%)을 보여주고 있었는데
+  // 그건 **전일 종가**였고 그때 실시간은 6,488.37(-5.55%) 였다. 종가를 오늘
+  // 값처럼 보여주는 것이 이 화면에서 가장 비싼 거짓이다.
+  const liveOn = head && head.live_price !== null && head.live_price !== undefined;
+  const level = liveOn ? head.live_price : (head ? head.close : null);
+  const move = liveOn ? head.live_change : (head ? head.change : null);
   return [
     kpi(
       `${label} 대표 · ${esc(spec.label || "—")}`,
-      head ? dec(head.close, 2) : "—",
-      head ? `${arrow(head.change)}${pct(head.change)}` : "창고에 없다",
+      head ? dec(level, 2) : "—",
+      head
+        ? `${arrow(move)}${pct(move)}${liveOn ? " · 장중" : " · 종가"}`
+        : "창고에 없다",
       false,
-      { tone: head ? signClass(head.change) : "", spark: head ? head.closes : null }
+      { tone: head ? signClass(move) : "", spark: head ? head.closes : null }
     ),
     // 지수 하나로는 "지수는 올랐는데 종목의 70%는 내렸다" 를 볼 수 없다.
     kpi(
@@ -172,56 +182,134 @@ function panelMissingReason(panel, lookback) {
     이 자리가 저절로 찬다. <strong>다른 종목으로 바꿔치기하지 않는다.</strong></p>`;
 }
 
-/* 캔들. **넷이 다 있을 때만 봉이다** — 없는 시가·고가·저가를 종가로 채우면
- * 모든 봉이 십자가가 되는데, 그건 "그날 변동이 없었다" 는 다른 사실이다.
- * 못 그리면 선으로 긋고 화면이 이유를 적는다.
+/* 캔들. **그리는 일은 candles.js 가 한다** — 트레이딩 탭의 큰 차트와 같은
+ * 함수다(``compact`` 만 다르다). 두 벌로 만들면 한쪽만 고쳐진 채로 남는다:
+ * 이 저장소가 수익률 캘린더에서 이미 겪고 calendar.js 로 합친 그 문제다.
  *
- * 상승 초록 · 하락 빨강. ECharts 의 color 가 양봉, color0 이 음봉이다 —
- * 뒤집으면 이 대시보드의 다른 화면과 색이 갈린다(§10). */
+ * 넷이 다 있을 때만 봉이라는 규칙, 색, OHLC 순서, 분봉 x축 라벨 — 전부
+ * 거기 있다. 여기서 정하는 것은 "못 그릴 때 선을 무슨 색으로 긋나"(창 등락의
+ * 부호)와 툴팁에 적을 이름뿐이다. */
 function panelChart(elId, panel) {
   const tone = panel.total === null || panel.total === undefined
     ? COLOR.muted
     : panel.total > 0 ? COLOR.up : panel.total < 0 ? COLOR.down : COLOR.muted;
-  const axis = {
-    xAxis: { type: "category", data: panel.sessions, boundaryGap: panel.has_ohlc, ...AXIS },
-    // scale:true 가 필수다. 0 부터 그리면 봉이 위쪽 몇 %에 눌린다.
-    yAxis: { type: "value", scale: true, ...AXIS },
-    grid: { left: 46, right: 8, top: 8, bottom: 18 },
-  };
-  const series = panel.has_ohlc
-    ? [{
-        type: "candlestick",
-        data: panel.ohlc,
-        itemStyle: {
-          color: COLOR.up, color0: COLOR.down,
-          borderColor: COLOR.up, borderColor0: COLOR.down, borderWidth: 1,
-        },
-      }]
-    : [{
-        type: "line", data: panel.closes, showSymbol: false,
-        lineStyle: { color: tone, width: 1.6 },
-        areaStyle: { color: tone, opacity: 0.08 },
-      }];
+  chart(elId).setOption(
+    candleOption(panel, {
+      compact: true,
+      interval: panel.interval || "1D",
+      tone,
+      label: panel.label,
+    }),
+    // 봉을 갈아 끼울 때 **옛 series 를 남기지 않는다.** 일봉(캔들)에서
+    // 5분봉으로 갔다가 종가만 있는 구간으로 가면 series 종류가 바뀌는데,
+    // 합치기(merge)로 얹으면 옛 캔들이 밑에 그대로 남는다.
+    true
+  );
+}
 
-  chart(elId).setOption({
-    ...BASE, ...axis,
-    legend: { show: false },
-    tooltip: {
-      ...BASE.tooltip,
-      formatter: (rows) => {
-        if (!rows || !rows.length) return "";
-        const row = rows[0];
-        if (!panel.has_ohlc) {
-          return `${esc(row.axisValue)}<br>${esc(panel.label)} <b>${dec(row.value, 2)}</b>`;
-        }
-        // 캔들의 value 는 [index, 시가, 종가, 저가, 고가] 다.
-        const v = row.value;
-        return `${esc(row.axisValue)} <b>${esc(panel.label)}</b><br>`
-          + `시 ${dec(v[1], 2)} · 고 ${dec(v[4], 2)}<br>`
-          + `저 ${dec(v[3], 2)} · 종 ${dec(v[2], 2)}`;
-      },
-    },
-    series,
+/* -- 봉 전환 버튼 -------------------------------------------------------------
+ *
+ * 패널마다 자기 세그먼트를 갖는다. 한 줄에 여섯 패널이 서로 다른 종목이라
+ * 공용 버튼 하나로는 어느 패널을 바꾸는 것인지 말할 수 없다.
+ *
+ * **없는 구간은 끈다.** 지수·ETF 에는 분봉이 한 봉도 없다 — 분봉 수집이
+ * 보유·워치리스트·shadow 보유 종목만 받기 때문이다. 켜 두면 눌렀을 때 빈
+ * 화면이 뜨고, 그게 고장인지 수집 범위 밖인지 사용자가 구분 못 한다.
+ * 꺼진 버튼의 title 이 그 이유를 든다(candles.js 의 timeframeOffReason).
+ */
+
+/* 패널이 지금 무슨 봉을 보고 있나. **entity 로 기억한다** — 60초 폴링이 이
+ * 줄의 HTML 을 통째로 다시 만들기 때문에, 요소에 기억을 두면 새로고침마다
+ * 일봉으로 되돌아간다. */
+const panelInterval = {};
+
+function panelSeg(panel, elId) {
+  const have = new Set(panel.intervals || ["1D"]);
+  const current = panelInterval[panel.entity_id] || "1D";
+  const buttons = CANDLE_TIMEFRAMES.map((interval) => {
+    const on = have.has(interval);
+    const title = on ? `${timeframeLabel(interval)}으로 보기` : timeframeOffReason(interval);
+    return `<button type="button" data-interval="${esc(interval)}"
+      class="${interval === current ? "on" : ""}" ${on ? "" : "disabled"}
+      title="${esc(title)}">${esc(interval)}</button>`;
+  }).join("");
+  return `<div class="seg index-panel-seg" id="${elId}-seg"
+    data-entity="${esc(panel.entity_id)}" data-market="${esc(panel.market)}"
+    data-el="${esc(elId)}">${buttons}</div>`;
+}
+
+/* 패널 아래 한 줄 — 무슨 봉을 몇 개, 언제부터 언제까지 보고 있나.
+ *
+ * **미완성 주를 여기서 말한다.** 오늘이 수요일이면 이번 주 봉은 세션
+ * 세 개짜리고, 그걸 지우면 화면에서 최신이 사라진다. 지우지 않는 대신
+ * 마지막 봉이 아직 진행 중이라는 사실을 적는다 — 안 적으면 "완성된 주봉" 과
+ * 구분이 안 되고, 그 주의 종가가 확정값처럼 읽힌다. */
+function panelFoot(panel) {
+  const interval = panel.interval || "1D";
+  const bars = (panel.sessions || []).length;
+  if (!bars) {
+    return `<span class="warn-text">${esc(panel.reason || "그릴 봉이 없다")}</span>`;
+  }
+  const partial = panel.partial;
+  return `${num(bars)}봉 · ${esc(timeframeLabel(interval))} ·
+    ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
+    창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
+    ${panel.has_ohlc ? "" : ` · <span class="warn-text">종가만 — 봉을 못 그린다</span>`}
+    ${partial
+      ? ` · <span class="warn-text" title="이번 주는 아직 안 끝났다 — 지우지 않고 그대로 그린다">진행 중 · ${num(partial.sessions)}/${num(partial.expected)}세션</span>`
+      : ""}`;
+}
+
+/* 버튼을 눌렀을 때. **일봉은 이미 손에 있어도 다시 받는다** — 그래야 장중에
+ * 들어온 새 봉이 화면에 따라온다. 60초 폴링이 다시 그릴 때도 이 길로 온다. */
+async function loadPanelInterval(entityId, market, elId, interval) {
+  panelInterval[entityId] = interval;
+  const body = await fetchJson(
+    `market/chart?entity=${encodeURIComponent(entityId)}`
+    + `&market=${encodeURIComponent(market)}&interval=${encodeURIComponent(interval)}`
+  );
+  const panel = body.data;
+  // 늦게 온 응답이 그 사이 바뀐 선택을 덮지 않게 한다. 버튼을 빠르게 두 번
+  // 누르면 먼저 보낸 요청이 나중에 도착할 수 있다.
+  if ((panelInterval[entityId] || "1D") !== interval) return;
+
+  const seg = document.getElementById(`${elId}-seg`);
+  syncTimeframeSeg(seg, panel.intervals, interval);
+
+  const foot = document.getElementById(`${elId}-foot`);
+  if (foot) foot.innerHTML = panelFoot(panel);
+  const nums = document.getElementById(`${elId}-nums`);
+  if (nums) nums.innerHTML = panelNums(panel);
+
+  const target = document.getElementById(elId);
+  if (!(panel.sessions || []).length) {
+    // 빈 채로 두고 **이유를 적는다.** 지어내지 않는다.
+    if (target) target.innerHTML = `<p class="empty">${esc(panel.reason || "그릴 봉이 없다")}</p>`;
+    return;
+  }
+  if (target) target.innerHTML = "";
+  panelChart(elId, panel);
+}
+
+function bindIndexStrip() {
+  const strip = document.getElementById("index-strip");
+  // 한 번만 매단다 — 매 렌더마다 다시 매달면 클릭 하나에 요청이 여러 번 나간다.
+  // 위임으로 매다는 이유: 버튼은 폴링 때마다 새로 만들어져 사라진다.
+  if (!strip || !strip.addEventListener || strip.dataset.bound) return;
+  strip.dataset.bound = "1";
+  strip.addEventListener("click", (event) => {
+    const button = event.target && event.target.closest
+      ? event.target.closest("button[data-interval]")
+      : null;
+    if (!button || button.disabled) return;  // 꺼진 버튼 = 창고에 그 봉이 없다
+    const seg = button.closest(".index-panel-seg");
+    if (!seg) return;
+    seg.querySelectorAll("button[data-interval]").forEach((other) =>
+      other.classList.toggle("on", other === button)
+    );
+    loadPanelInterval(
+      seg.dataset.entity, seg.dataset.market, seg.dataset.el, button.dataset.interval
+    );
   });
 }
 
@@ -240,22 +328,33 @@ function marketGroupHead(code, data) {
 /* 패널 카드 하나. ``spec`` 은 값이 있든 없든 오는 명세이고, ``panel`` 은
  * 값이 있을 때만이다 — 없는 것도 자리를 지켜야 "수집이 안 된 것" 과 "애초에
  * 안 그리는 것" 이 화면에서 갈린다. */
+function panelNums(panel) {
+  // **지금 RSI 를 머리에도 적는다.** 차트 안 숫자는 봉을 가릴까 봐 작게
+  // 두었는데, 그러면 "지금 몇인가" 를 보려고 눈을 차트로 옮겨야 한다.
+  // 종가·등락과 같은 줄에 있으면 한 번에 읽힌다.
+  const rsi = panel && Array.isArray(panel.rsi)
+    ? [...panel.rsi].reverse().find((v) => v !== null && v !== undefined)
+    : null;
+  const rsiTag = rsi === null || rsi === undefined
+    ? ""
+    : `<span class="mono sub tiny index-panel-rsi">RSI ${dec(rsi, 1)}</span>`;
+  return `<span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
+    <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
+    ${rsiTag}`;
+}
+
 function panelCard(body, spec, panel, elId, lookback) {
   const head = `<div class="index-panel-head">
     <span class="index-panel-name">${esc(spec.label)}</span>
     ${roleBadge(spec)}${kindBadge(spec)}${prBadge(body, spec)}
-    <span class="index-panel-nums">
-      <span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
-      <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
-    </span>
+    <span class="index-panel-nums" id="${elId}-nums">${panelNums(panel)}</span>
   </div>`;
+  // 봉 전환은 **값이 있는 패널에만** 붙인다. 미수집 패널에 버튼을 달면 무엇을
+  // 눌러도 같은 빈 자리이고, 그때 버튼은 "고칠 수 있는 것" 처럼 보인다.
   const inner = panel
-    ? `<div class="chart mini" id="${elId}"></div>
-       <div class="index-panel-foot sub tiny">
-         ${esc(panel.first_session)} ~ ${esc(panel.session)} ·
-         창 등락 <span class="mono ${signClass(panel.total)}">${signed(panel.total)}</span>
-         ${panel.has_ohlc ? "" : ` · <span class="warn-text">종가만 — 봉을 못 그린다</span>`}
-       </div>`
+    ? `${panelSeg(panel, elId)}
+       <div class="chart mini" id="${elId}"></div>
+       <div class="index-panel-foot sub tiny" id="${elId}-foot">${panelFoot(panel)}</div>`
     : panelMissingReason(spec, lookback);
   return `<div class="index-panel">${head}${inner}</div>`;
 }
@@ -299,6 +398,20 @@ function renderIndexStrip(body) {
   // innerHTML 을 먼저 넣어야 컨테이너가 생긴다 — 순서를 바꾸면 ECharts 가
   // 크기 0 인 요소에 붙어 아무것도 안 그린다.
   for (const [elId, panel] of jobs) panelChart(elId, panel);
+  bindIndexStrip();
+
+  // 일봉이 아닌 봉을 보고 있던 패널은 **다시 받아 온다.**
+  //
+  // 이 줄은 60초마다 통째로 다시 그려진다. 그때 응답에 실려 오는 것은 일봉뿐
+  // 이므로(분봉·주봉은 버튼을 눌러야 여는 문이다) 그대로 두면 보고 있던 5분봉이
+  // 새로고침마다 일봉으로 되돌아간다. 그리고 **캐시로 때우지 않는다** — 장중에
+  // 새 분봉이 들어오는데 화면이 아까 받은 것을 계속 들고 있으면 안 된다.
+  for (const [elId, panel] of jobs) {
+    const chosen = panelInterval[panel.entity_id];
+    if (chosen && chosen !== "1D") {
+      loadPanelInterval(panel.entity_id, panel.market, elId, chosen);
+    }
+  }
 }
 
 /* -- 나머지 지수 목록 --------------------------------------------------------- */
@@ -413,6 +526,82 @@ function floorNote(data) {
   </p>`;
 }
 
+/** 시가총액 순위가 빈 이유. **"없다" 와 "못 만든다" 는 다르다.**
+ *
+ * 시총은 상장주식수 × 종가라, 주식수가 없으면 종목이 통째로 빠진다. 그걸
+ * 그냥 "종목이 없다" 로 적으면 수집이 멈춘 것을 시장이 조용한 것으로 읽게
+ * 된다 — 이 저장소가 반복해서 겪은 결함 계열이다.
+ *
+ * 이 함수가 없어서 마켓 탭이 통째로 안 떴다(2026-08-18, ReferenceError).
+ * 이름이 어긋나 있었다 — 정의는 `noCapReasonText`, 트리맵의 호출은
+ * `noCapReason`. **그 줄에서 죽으면 아래가 통째로 안 돈다**: 국장 트리맵이
+ * 비는 날에 미장 칸 전부(지수 목록·시장폭·순위·트리맵·거시)가 같이 사라졌다.
+ */
+function noCapReasonText(code) {
+  return code === "KR"
+    ? "시가총액을 만들 수 없다 — KRX 상장주식수가 그 세션에 없다."
+    : "시가총액을 만들 수 없다 — SEC 상장주식수가 그 세션에 없다 " +
+      "(ADR·ETF 는 주식수가 없어 원래 빠진다).";
+}
+
+/* 트리맵이 빈 이유. **"창고에 없다" 와 "창 밖이다" 는 다른 사실이다** —
+ * 시총 수집은 시세보다 며칠 밀리므로, 창(CAP_RECENT_DAYS) 안에 한 세션도
+ * 없으면 수집이 멈춘 것이다. 그 창을 화면이 적어야 어디를 파야 할지 안다. */
+function treemapEmptyText(code, t) {
+  const window = t.lookback ? ` 최근 ${num(t.lookback)}일 안에 시총 세션이 하나도 없다 —
+    수집이 멈춘 것인지 먼저 볼 것.` : "";
+  return `${noCapReasonText(code)}${window}`;
+}
+
+/* -- 장중 값 ------------------------------------------------------------------ */
+
+/* 종가 아래에 붙는 참고 한 줄. **종가를 덮지 않는다** — 순위와 시총은 확정된
+ * 종가로 섰으므로 그 숫자가 먼저 보여야 하고, 실시간은 그 옆에 앉는다
+ * (services/market.py `attach_live` 와 같은 규약).
+ *
+ * 값이 없으면 **아무것도 그리지 않는다.** 빈 자리가 "지금은 장외" 를 뜻한다 —
+ * 종가로 때우면 화면이 실시간인 척하게 되고, 그건 조용히 틀리는 거짓이다.
+ */
+function priceCell(row) {
+  // **장중 값이 있으면 그것만 보여준다** (사용자 요청 2026-08-19).
+  //
+  // 종가와 장중을 두 줄로 쌓았더니 칸이 넘쳐 옆 열과 겹쳤다. 그리고 장중에
+  // 보는 화면에서 확정 종가가 위에 크게 있는 것도 이상하다 — 지금 값이
+  // 궁금해서 보는 자리다. 종가는 `title` 로 남긴다(사라지지는 않는다).
+  const live = row.live_price !== null && row.live_price !== undefined;
+  if (!live) {
+    return `${num(row.close)} <span class="sub ${signClass(row.change)}">${signed(row.change)}</span>`;
+  }
+  return `<span class="live-dot" title="장중 체결가 · 종가 ${num(row.close)}"></span>${num(row.live_price)}
+    <span class="sub ${signClass(row.live_change)}">${signed(row.live_change)}</span>`;
+}
+
+/* 그 시장이 장중 값을 몇 개나 받았는지. **0 건과 "안 물어본다" 는 다른
+ * 사실이다** — 미장은 appkey 가 따로고 호가가 응답에 없어 조회 자체가 안
+ * 나간다. 조용히 비면 둘이 같아 보인다.
+ */
+function liveBadge(panel) {
+  const live = panel.live || {};
+  if (!live.supported) {
+    return `<span class="badge dim" title="${esc(live.reason || "")}">실시간 없음</span>`;
+  }
+  if (!live.filled) {
+    return `<span class="badge dim" title="장외이거나 조회가 비었다">장외</span>`;
+  }
+  return `<span class="badge live" title="t8407 장중 체결가 · ${num(live.filled)}종목">
+    <span class="live-dot"></span>실시간 ${num(live.filled)}
+  </span>`;
+}
+
+/* 순위표 열 폭. **colgroup 으로 고정한다** — 안 주면 종목명이 긴 행이 숫자
+ * 칸을 밀어내고, 실시간 줄까지 들어간 가격 칸에서 숫자가 잘린다(아이폰
+ * 실측 2026-08-19: `1,662,00` 처럼 보였다). 좁은 화면에서 시총 열을 접는
+ * 것도 이 class 를 잡고 한다(market.css).
+ */
+function rankCols() {
+  return `<colgroup><col class="name"><col class="metric"><col class="price"><col class="cap"></colgroup>`;
+}
+
 function renderRankings(body, code, suffix) {
   const panel = body.data.markets[code];
   const data = panel.rankings;
@@ -426,7 +615,9 @@ function renderRankings(body, code, suffix) {
       ${esc(data.reason || "하한을 읽을 수 없다")}</p>`;
     return;
   }
-  if (note) note.textContent = `${num(data.eligible)}종목 · 상위 ${num(data.rows)}`;
+  if (note) {
+    note.innerHTML = `${num(data.eligible)}종목 · 상위 ${num(data.rows)} ${liveBadge(panel)}`;
+  }
 
   // 넷을 한 표에 쌓으면 패널 안에서 세로로만 길어져 넷째 표까지 내려가는
   // 사람이 없다. **2×2 로 눕히고 좁으면 한 줄씩 쌓는다**(market.css).
@@ -437,7 +628,7 @@ function renderRankings(body, code, suffix) {
     const head = `<tr class="section"><td colspan="4">${esc(table.label)}
       <span class="sub">${table.session ? esc(table.session) : "세션 없음"}</span></td></tr>
       <tr class="sub-head"><td>종목</td><td class="r">${rankUnit(table)}</td>
-      <td class="r">가격</td><td class="r">시총</td></tr>`;
+      <td class="r">가격</td><td class="r cap">시총</td></tr>`;
     if (!table.rows.length) {
       return `${head}<tr><td colspan="4" class="empty">${
         table.key === "market_cap"
@@ -451,9 +642,8 @@ function renderRankings(body, code, suffix) {
           <td><span class="name trunc" title="${esc(row.name)} (${esc(row.entity_id)})">${esc(row.name)}</span>
               ${codeCell(row.entity_id, row.name)}</td>
           <td class="r mono ${table.key === "gainers" ? signClass(row.change) : ""}">${rankMetric(table, row, panel.currency)}</td>
-          <td class="r mono">${num(row.close)}
-              <span class="sub ${signClass(row.change)}">${signed(row.change)}</span></td>
-          <td class="r mono">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
+          <td class="r mono">${priceCell(row)}</td>
+          <td class="r mono cap">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
         </tr>`
       )
       .join("");
@@ -462,11 +652,20 @@ function renderRankings(body, code, suffix) {
 
   target.innerHTML =
     `<div class="rank-grid">${data.tables
-      .map((table) => `<table class="rank-table"><tbody>${block(table)}</tbody></table>`)
+      .map((table) => `<table class="rank-table">${rankCols()}<tbody>${block(table)}</tbody></table>`)
       .join("")}</div>` + floorNote(data);
 }
 
 /* -- 시가총액 맵 (finviz 식) --------------------------------------------------- */
+
+/* 16진 문자열 → RGB 세 자리. treemap 은 색을 섞어야 해서(옅은 등락일수록
+ * 배경에 가깝게) COLOR 의 hex 를 그대로 못 쓴다 — 숫자 세 개로 풀어야 mix 가
+ * 된다. 리터럴 hex 를 여기 새로 적지 않고 COLOR(scope.js, app.css 와 값이
+ * 같다)에서만 읽는다. */
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 /* 등락률 → 색. **상승 초록 · 하락 빨강** — 이 대시보드의 고정 색 규칙이다
  * (scope.js COLOR.up/down). 한국식(빨강↑)을 쓰면 다른 탭과 색이 갈린다.
@@ -478,9 +677,12 @@ function treemapColor(change) {
   // 종목의 ±30% 한 건이 나머지 전부를 흐리게 만들면 맵을 못 읽는다.
   const cap = 0.05;
   const ratio = Math.min(1, Math.abs(change) / cap);
-  const base = change >= 0 ? [34, 197, 94] : [239, 68, 68]; // COLOR.up / COLOR.down
-  const panel = [20, 27, 36]; // --panel2 근사 — 옅은 등락은 배경에 가깝게
-  const mix = panel.map((c, i) => Math.round(c + (base[i] - c) * (0.2 + ratio * 0.8)));
+  const base = hexToRgb(change >= 0 ? COLOR.up : COLOR.down);
+  // 옅은 등락은 배경에 가깝게 섞여야 "안 읽는다" 가 아니라 "약하다" 로
+  // 보인다. **배경값을 여기 복제하지 않는다** — 숫자로 박아 두면 --panel2 를
+  // 바꿨을 때 트리맵만 옛 배경을 쓰고, 그 어긋남은 눈에 잘 안 띈다.
+  const panel2 = hexToRgb(COLOR.panel2);
+  const mix = panel2.map((c, i) => Math.round(c + (base[i] - c) * (0.2 + ratio * 0.8)));
   return `rgb(${mix.join(",")})`;
 }
 
@@ -492,10 +694,16 @@ function renderTreemap(body, code, suffix) {
   const target = document.getElementById(elId);
   if (!t.rows.length) {
     if (note) note.textContent = "";
-    target.innerHTML = `<p class="empty">${noCapReason(code)}</p>`;
+    target.innerHTML = `<p class="empty">${esc(treemapEmptyText(code, t))}</p>`;
     return;
   }
-  if (note) note.textContent = `상위 ${t.rows.length}종목 (최대 ${t.top_n})`;
+  // **시총 세션은 시세 세션과 다를 수 있다**(수집기가 다르다). 날짜를 안
+  // 적으면 며칠 지난 시총이 오늘 것으로 읽힌다 — 순위표가 표마다 자기
+  // 날짜를 적는 것과 같은 이유다.
+  if (note) {
+    note.textContent = `상위 ${t.rows.length}종목 (최대 ${t.top_n})`
+      + (t.session ? ` · 시총 ${t.session}` : "");
+  }
 
   const data = t.rows.map((row) => ({
     name: row.name,
@@ -526,7 +734,7 @@ function renderTreemap(body, code, suffix) {
         nodeClick: false,
         breadcrumb: { show: false },
         label: {
-          color: "#fff", fontFamily: "IBM Plex Mono", fontSize: 11, overflow: "truncate",
+          color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11, overflow: "truncate",
         },
         itemStyle: { borderColor: COLOR.panel, gapWidth: 1 },
         levels: [
@@ -572,11 +780,37 @@ function renderMacro(body, code, suffix) {
 
 /* -- 한 판 ------------------------------------------------------------------- */
 
+/* 그 칸의 데이터가 **언제 것인가**. 화면에 숫자가 있다는 것과 그 숫자가
+ * 오늘 것이라는 것은 다른 사실인데, 날짜를 안 적으면 둘이 같아 보인다 —
+ * 실측으로 시세 08-14 · 시총 08-11 인 채로 순위표가 멀쩡해 보인 적이 있다.
+ *
+ * 셋을 나눠 적는다. 셋의 출처가 다르기 때문이다:
+ *   시세  일일 수집(collect_daily.sh)이 넣는 종가 세션
+ *   시총  같은 스크립트의 다른 단계 — 자주 어긋난다
+ *   실시간 t8407 장중 체결가. 국장만 있고, 장외에는 아예 없다
+ */
 function renderColumnNote(body, code, suffix) {
-  const b = body.data.markets[code].breadth;
+  const panel = body.data.markets[code];
+  const b = panel.breadth;
+  const cap = (panel.treemap || {}).session;
+  const live = panel.live || {};
   const target = document.getElementById(`col-note-${suffix}`);
   if (!target) return;
-  target.textContent = b.session ? `시세 ${b.session} · ${num(b.traded)}종목` : "시세 없음";
+
+  if (!b.session) {
+    target.textContent = "시세 없음";
+    return;
+  }
+  const parts = [`시세 ${esc(b.session)} · ${num(b.traded)}종목`];
+  // 시총 날짜는 **다를 때만** 적는다. 같으면 같은 날짜를 두 번 읽게 되고,
+  // 그러면 정작 어긋난 날 눈에 안 들어온다.
+  if (cap && cap !== b.session) {
+    parts.push(`<span class="warn">시총 ${esc(cap)}</span>`);
+  }
+  if (live.supported && live.filled) {
+    parts.push(`<span class="live-dot">실시간 ${num(live.filled)}종목</span>`);
+  }
+  target.innerHTML = parts.join(" · ");
 }
 
 async function loadMarket() {
@@ -608,10 +842,16 @@ async function loadMarket() {
     }
     if (!panel.breadth.traded) warnings.push(`${label} 시세가 비어 있다`);
     if (!panel.treemap.rows.length) {
+      warnings.push(`${label} 시가총액이 비어 있다 — 상장주식수 수집을 볼 것`);
+    } else if (
+      // 시총이 시세보다 **늦은** 것은 조용히 넘어가면 안 된다. 화면은 멀쩡해
+      // 보이고 숫자도 있는데, 순위가 며칠 전 시총으로 매겨진다.
+      panel.treemap.session &&
+      panel.breadth.session &&
+      panel.treemap.session < panel.breadth.session
+    ) {
       warnings.push(
-        code === "US"
-          ? "미장 시가총액 미수집 — 상장주식수 소스가 없다"
-          : "국장 시가총액이 비어 있다"
+        `${label} 시총이 시세보다 늦다 — 시세 ${panel.breadth.session} · 시총 ${panel.treemap.session}`
       );
     }
     if (!panel.rankings.floor) {

@@ -59,6 +59,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.executor import guards
 from quant_rl_trading.store import Store
 from quant_rl_trading.store.tables import CONFIG_TABLE, table_names
@@ -77,13 +78,14 @@ KST = ZoneInfo("Asia/Seoul")
 #: 최근 파티션 확인 창(일). 전체 창고 크기가 아니라 "오늘 것이 들어왔나" 가
 #: 목적이라 짧게 잡는다 — flows 처럼 파티션이 109만 개인 테이블도 이 창이면
 #: 최근 며칠치만 연다.
-TABLE_LOOKBACK_DAYS = 10
+TABLE_LOOKBACK_DAYS = 4  # 경고선(table_stale_warn_days 3)+1. 10일 창은 35개 표를 훑는 데 17초였다(2026-08-30)
 
 #: 표에 실을 최근 실행 횟수.
 RUN_HISTORY_LIMIT = 8
 
 RUN_HEADER = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) market=(\S+)", re.M)
 RC_LINE = re.compile(r"\brc=(-?\d+)")
+MONTHLY_LOG = re.compile(r"\d{6}")
 
 
 @dataclass(frozen=True)
@@ -174,7 +176,14 @@ def _log_files(prefix: str) -> list[Path]:
     directory = logs_dir()
     if not directory.is_dir():
         return []
-    return sorted(directory.glob(f"{prefix}-*.log"))
+    # **월별 파일(`collect-202608.log`)만.** `collect-us-prices.log` 같은 단발
+    # 로그가 같은 접두사를 쓰는데, 그것까지 집으면 이름순 마지막 두 파일이
+    # 헤더 없는 파일이 되어 화면이 "완주 여부를 확인할 수 없음" 으로 오판한다
+    # (2026-08-29 실제로 그랬다 — 수집은 멀쩡했다).
+    return sorted(
+        path for path in directory.glob(f"{prefix}-*.log")
+        if MONTHLY_LOG.fullmatch(path.name[len(prefix) + 1 : -4])
+    )
 
 
 def _read_runs(prefix: str) -> list[Run]:
@@ -234,7 +243,39 @@ def job_history(store: Store) -> list[dict[str, Any]]:
 #: 수명이 짧은 이유는 이 값이 "지금 배관이 도는가" 라서다 — 오래 들고 있으면
 #: 크론이 방금 채운 것을 화면이 모른다.
 _FRESHNESS_TTL_SEC = 20.0
-_freshness_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]]]] = {}
+_freshness_cache: dict[tuple[str, int], tuple[float, list[dict[str, Any]], datetime]] = {}
+
+
+#: **신선도 경보를 걸지 않는 테이블.** 여기 있는 것은 매일 생기는 것이 아니라
+#: 사건이 있을 때만 생긴다 — "며칠째 안 들어왔다" 가 고장이 아니라 정상이다.
+#:
+#: `capital_flows` 는 입출금이다. 한 달에 한 번 넣을 수도, 반년을 안 넣을 수도
+#: 있다. 여기에 지연 경보를 걸면 **아무 일도 없었다는 사실이 매일 빨간불**로
+#: 뜨고, 그 빨간불이 일상이 되면 진짜 고장도 같이 안 보이게 된다.
+#:
+#: 표에서 지우는 것이 아니라 **경보만 안 건다** — 마지막이 언제인지는 계속 보여준다.
+NO_STALENESS_ALARM = frozenset({"capital_flows"})
+
+
+def _trading_days_since(latest: datetime, as_of: datetime) -> int:
+    """``latest`` 이후 지난 **거래일** 수. 달력일이 아니다.
+
+    달력일로 세면 연휴마다 전 테이블이 빨간불이 된다 — 2026-08-15(토)·16(일)·
+    17(광복절 대체공휴일)이 붙어 사흘을 쉬었고, 그래서 8/18 아침에 flows·
+    universe·fx 가 "4일 지연" 으로 떴다. 넷 다 마지막 거래일(8/14) 것이
+    정상으로 들어와 있었다.
+
+    **휴장인지 수집 실패인지는 날짜가 아니라 거래일 달력이 가른다.** 같은
+    고침을 브리핑(`benchmark.py`)에서 이미 한 번 했다.
+
+    국장 달력으로 센다. 미장 전용 테이블도 있지만, 이 화면이 답하는 질문은
+    "우리 배관이 오늘 돌았나" 이고 배관은 국장 일정으로 돈다.
+    """
+    if latest >= as_of:
+        return 0
+    days = trading_days(Market.KR, latest.date(), as_of.date())
+    # 양끝을 다 포함하므로 마지막 거래일 자신을 뺀다. 같은 날이면 0 이다.
+    return max(0, len(days) - 1)
 
 
 def table_freshness(
@@ -251,10 +292,15 @@ def table_freshness(
     """
     key = (str(store.root), lookback)
     now = monotonic()
-    if live:
-        hit = _freshness_cache.get(key)
-        if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC:
-            return hit[1]
+    # 되감기(as_of 과거)는 캐시하지 않는다 — 그 답은 as_of 마다 다르다. 지금 시각 조회는
+    # 35개 표를 훑는 데 수 초가 들어(2026-08-30 실측 17초, 부하 중) 60초 동안 재사용한다.
+    hit = _freshness_cache.get(key)
+    if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC * 3 and (
+        live or abs((as_of - hit[2]).total_seconds()) < 120
+    ):
+        # 화면은 요청마다 "지금" 을 as_of 로 보내므로 초 단위로 다르다. 2분 안이면 같은 답이다 —
+        # 되감기(과거 as_of)는 다른 시각이라 캐시를 안 탄다.
+        return hit[1]
 
     out: list[dict[str, Any]] = []
     for name in table_names():
@@ -266,6 +312,16 @@ def table_freshness(
         # 오는 테이블이 있기 때문이다 — 모든 테이블이 valid_from 을 갖는다는
         # 사실(schema.py REQUIRED_COLUMNS)만 믿는다.
         frame = store.get(name, as_of=as_of, lookback=lookback, columns=["valid_from"])
+        # **미래 표지는 최신성 판정에서 뺀다.** `market_stats` 의 미장
+        # 상장주식수는 SEC 공시의 유효일이 앞날로 찍히는 행이 있어(2028-08-01
+        # 실측) 그 행 하나가 표를 영원히 "지연 0" 으로 만든다. 그러면 같은
+        # 표의 국장 시총이 사흘 밀려도 화면은 최신이라고 말한다 — 실제로
+        # 2026-08-18 에 그랬다.
+        #
+        # 지우지는 않는다. 읽는 쪽(us_shares)은 그 행을 정상으로 쓰고 있고,
+        # 여기서 답하려는 질문은 "**오늘 것이 들어왔나**" 뿐이다.
+        if not frame.empty:
+            frame = frame[frame["valid_from"] <= pd.Timestamp(as_of)]
         if frame.empty:
             out.append(
                 {
@@ -273,6 +329,18 @@ def table_freshness(
                     "rows_recent": 0,
                     "latest_valid_from": None,
                     "stale_days": None,
+                    "alarm": name not in NO_STALENESS_ALARM,
+                }
+            )
+            continue
+        if frame.empty:
+            out.append(
+                {
+                    "table": name,
+                    "rows_recent": 0,
+                    "latest_valid_from": None,
+                    "stale_days": None,
+                    "alarm": name not in NO_STALENESS_ALARM,
                 }
             )
             continue
@@ -282,11 +350,14 @@ def table_freshness(
                 "table": name,
                 "rows_recent": len(frame),
                 "latest_valid_from": latest.isoformat(),
-                "stale_days": (as_of - latest.to_pydatetime()).days,
+                # **거래일로 센다.** 달력일로 세면 연휴마다 전부 빨간불이다.
+                "stale_days": _trading_days_since(latest.to_pydatetime(), as_of),
+                # 사건 테이블은 경보 대상이 아니다 — 표에는 남기되 경고는 안 만든다.
+                "alarm": name not in NO_STALENESS_ALARM,
             }
         )
     if live:
-        _freshness_cache[key] = (now, out)
+        _freshness_cache[key] = (now, out, as_of)
     return out
 
 
@@ -603,7 +674,11 @@ def summary(
 
     table_warn_days = int(thresholds["table_stale_warn_days"])
     stale_tables = [
-        t for t in tables if t["stale_days"] is not None and t["stale_days"] > table_warn_days
+        t
+        for t in tables
+        if t.get("alarm", True)
+        and t["stale_days"] is not None
+        and t["stale_days"] > table_warn_days
     ]
     failed_jobs = [j for j in jobs if j["last_run_ok"] is False]
     silent_jobs = [j for j in jobs if j["last_run_ok"] is None]
@@ -627,7 +702,7 @@ def summary(
     for job in stale_success:
         warnings.append(f"{job['label']} 마지막 성공이 {job_stale_hours:.0f}시간을 넘었다")
     for table in stale_tables:
-        warnings.append(f"{table['table']} 최신 데이터가 {table['stale_days']}일 지연")
+        warnings.append(f"{table['table']} 최신 데이터가 {table['stale_days']}거래일 지연")
     # cache_lookback_days(기본 30일)를 "최근 한 달"의 근사로 써서 예산과
     # 비교한다 — as_of 시점의 정확히 달력상 이번 달은 아니라는 점을 문구에
     # 남긴다. 단가 미등록 모델이 섞여 total_cost_usd 가 None 이면 비교 자체가

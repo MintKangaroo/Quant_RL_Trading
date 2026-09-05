@@ -26,10 +26,10 @@ LLM 판정 하나가 펀드를 멈추게 두지 않는다 — **상한을 넘으
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import pandas as pd
 
@@ -37,12 +37,26 @@ from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
+from quant_rl_trading.store.errors import ConfigNotFound
 
 VERDICTS = "verdicts"
 SECTORS = "sectors"
 
-#: 섹터를 읽는 창(거래일). 며칠 안 받아진 날이 있어도 직전 관측을 찾을 만큼.
-SECTOR_LOOKBACK_DAYS = 30
+#: 섹터를 읽는 창. **None = 창을 안 건다** (2026-08-30 수정).
+#:
+#: 30일이었다. `sectors` 는 `reference_data=True` 인 참조 표라 게이트가
+#: ``valid_from`` 으로 걸리는데(store/reader.py), DART 업종은 **2021-08-11 한 날짜로**
+#: 백필돼 있다. 30일 창은 그 행을 통째로 잘라 **섹터 지도를 조용히 비웠다** —
+#: 예외도 경고도 없이 빈 dict 가 돌아왔고, 그 위에서
+#:   · 팩터 공분산(`portfolio/factor_model._build`)이 None → risk_parity 가
+#:     **매일 스코어 비례로 폴백**(2026-08-30 실측: 76/76 세션 `risk_parity:fallback`,
+#:     그래서 §7 비교의 두 팔 NAV 가 소수점까지 같았다)
+#:   · 섹터 하방베타 상한·섹터 집중 제약도 같은 이유로 무력
+#: 이 셋이 전부 "안 걸린 것" 이 아니라 "잴 수 없었던 것" 이다.
+#:
+#: 참조 표에 창을 거는 것 자체가 틀렸다. 업종은 사건이 아니라 속성이라
+#: "최근 30일에 관측된 업종" 이라는 질문이 성립하지 않는다.
+SECTOR_LOOKBACK_DAYS: int | None = None
 
 #: 상관을 재는 창(거래일). selector.md §5-4.
 CORRELATION_WINDOW = 60
@@ -58,15 +72,33 @@ class SelectionParams:
     corr_penalty: float
     sector_cap: float
     rejection_cap: float = DEFAULT_REJECTION_CAP
+    #: 완충 구간 — 보유 종목이 이 순위 안이면 남긴다. 0 이면 완충 없음(매일 재선정).
+    exit_rank: int = 0
 
     @classmethod
-    def from_store(cls, store: Store, *, as_of: datetime) -> SelectionParams:
+    def from_store(cls, store: Store, *, as_of: datetime, market: str | None = None) -> SelectionParams:
         return cls(
             n_candidates=int(store.config("selector.n_candidates", as_of=as_of)),
             corr_threshold=float(store.config("selector.corr_threshold", as_of=as_of)),
             corr_penalty=float(store.config("selector.corr_penalty", as_of=as_of)),
             sector_cap=float(store.config("selector.sector_cap", as_of=as_of)),
+            exit_rank=int(market_config(store, "selector.exit_rank", as_of=as_of, market=market)),
         )
+
+
+def market_config(store: Store, name: str, *, as_of: datetime, market: str | None) -> Any:
+    """시장별 값이 있으면 그것(`name_us`), 없으면 공통값.
+
+    시행 N(국장, 채택)과 R(미장, 기각)이 갈렸다(2026-09-04). 같은 키를 두 시장이 읽으면 한쪽 판정이
+    다른 쪽에 강제된다. 시장별 키는 **접미사**로 둔다 — 없으면 공통값으로 물러서므로 새 시장을 붙일 때
+    키를 전부 복제할 필요가 없다.
+    """
+    if market:
+        try:
+            return store.config(f"{name}_{str(market).lower()}", as_of=as_of)
+        except ConfigNotFound:
+            pass
+    return store.config(name, as_of=as_of)
 
 
 @dataclass
@@ -171,6 +203,10 @@ def correlation_matrix(
         lookback=CORRELATION_WINDOW * 2,
         market=market,
         columns=["close"],
+        # 상관은 수익률로 잰다 — **보정가여야 한다.** 분할 하루가 그 종목에만
+        # -90% 를 찍으면 그 종목은 나머지 전부와 상관이 낮게 나와, 상관 상한을
+        # 무사통과해 후보에 남는다. 종가 0 세션과 방향만 반대인 같은 사고다.
+        adjusted=True,
     )
     if prices.empty:
         return pd.DataFrame()
@@ -192,7 +228,7 @@ def sector_map(
     entities: Sequence[str],
     market: str,
     source: str,
-    lookback: int = SECTOR_LOOKBACK_DAYS,
+    lookback: int | None = SECTOR_LOOKBACK_DAYS,
 ) -> dict[str, str]:
     """{entity_id: 섹터}. 종목마다 **as_of 이전 가장 최근** 관측 하나.
 
@@ -235,6 +271,7 @@ def select(
     correlations: pd.DataFrame | None = None,
     sectors: Mapping[str, str] | None = None,
     trace: SelectionTrace | None = None,
+    held: Iterable[str] | None = None,
 ) -> list[Candidate]:
     """4~6단계. 점수 높은 순으로 훑으며 상관 감점과 섹터 상한을 적용한다.
 
@@ -247,6 +284,29 @@ def select(
     chosen: list[Candidate] = []
     sector_counts: dict[str, int] = {}
     sector_limit = max(1, int(params.n_candidates * params.sector_cap))
+
+    # **완충 구간** (selector.md §5). ``held`` 는 지금 보유 중인 종목이고,
+    # ``params.exit_rank`` 안에 있으면 먼저 후보에 남긴다. 25위↔24위가 하루걸러
+    # 자리를 바꾸는 회전을 막는 자리다 — 상관 감점은 새로 들어오는 종목에만 건다.
+    if held and params.exit_rank > 0:
+        order = sorted(remaining, key=lambda key: remaining[key], reverse=True)
+        rank = {entity: index + 1 for index, entity in enumerate(order)}
+        kept = sorted(
+            (e for e in dict.fromkeys(held) if rank.get(e, 10**9) <= params.exit_rank),
+            key=lambda e: rank[e],
+        )
+        for entity in kept[: params.n_candidates]:
+            score = remaining.pop(entity)
+            sector = sectors.get(entity) if sectors else None
+            chosen.append(Candidate(entity, score=score, raw_score=raw[entity], sector=sector))
+            if sector is not None:
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        dropped = [e for e in dict.fromkeys(held) if e in rank and rank[e] > params.exit_rank]
+        if kept or dropped:
+            trace.note(
+                f"완충: 보유 {len(kept)}종목 유지(순위 ≤ {params.exit_rank}), "
+                f"{len(dropped)}종목 퇴출"
+            )
 
     while remaining and len(chosen) < params.n_candidates:
         entity = max(remaining, key=lambda key: remaining[key])

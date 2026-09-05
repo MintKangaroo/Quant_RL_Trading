@@ -43,6 +43,8 @@ import httpx
 
 from quant_rl_trading.collectors.errors import CollectorError, MissingCredentials
 from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.collectors.outcome import Verdict
+from quant_rl_trading.collectors.outcome import record as record_outcome
 from quant_rl_trading.replay.clock import Clock
 
 MACRO_RELEASES = "macro_releases"
@@ -125,6 +127,29 @@ FRED_INDICES: dict[str, tuple[str, str]] = {
     "VIXCLS": ("US:IDX:VIX", "VIX 변동성"),
     "VXNCLS": ("US:IDX:VXN", "나스닥100 변동성"),
     "RVXCLS": ("US:IDX:RVX", "러셀2000 변동성"),
+    # **정책금리 — 지수가 아니지만 여기로 온다.**
+    #
+    # `macro_releases` 에도 FED_FUNDS 가 있지만 그 표는 "언제 무엇이 발표되나"
+    # 를 담는 **일정 표**다. `valid_from` 이 설계상 "우리가 안 시각"(=수집
+    # 시각)이라, 과거 as_of 로 조회하면 한 행도 안 걸린다 — RL 환경의 금리차
+    # 칸이 200k 스텝 내내 0 이었던 이유가 이것이다(2026-08-19 실측).
+    #
+    # 시계열로 읽어야 하는 값은 `indices` 에 온다. 여기 오는 것은 **지수라서**
+    # 가 아니라 **날짜별 값이라서**다. 벤치마크로 쓰이지 않게 이름을
+    # `IDX` 가 아니라 `RATE` 로 둔다.
+    "DFF": ("US:RATE:FED_FUNDS", "미국 연방기금금리(실효)"),
+    # **국채 금리 — 하루에 값 하나다. 캔들을 그릴 수 없다.**
+    #
+    # FRED 의 H.15 고정만기 수익률(constant maturity)이라 시가·고가·저가가
+    # 없다. 화면은 선으로 그린다 — 없는 OHLC 를 지어내면 그 캔들은 그럴듯한
+    # 거짓말이 된다. 진짜 OHLC 가 필요하면 국채 ETF(SHY·IEF·TLT)를 **옆에**
+    # 세우는 길이 있고, 그건 가격이지 금리가 아니라서 방향이 반대다.
+    #
+    # `RATE` 접두어를 쓰는 이유는 `DFF` 와 같다 — 벤치마크 후보에 섞이면
+    # "금리를 이겼다" 는 말이 안 되는 성적표가 나온다.
+    "DGS2": ("US:RATE:UST2Y", "미국 국채 2년"),
+    "DGS10": ("US:RATE:UST10Y", "미국 국채 10년"),
+    "DGS30": ("US:RATE:UST30Y", "미국 국채 30년"),
 }
 
 
@@ -299,14 +324,22 @@ class EcosSource:
     def usable(self) -> bool:
         return bool(self.api_key)
 
-    def search(self, spec: dict[str, str], *, start: str, end: str) -> list[dict[str, Any]]:
-        """통계 조회. URL 경로에 파라미터를 **순서대로** 붙이는 규격이다."""
+    def search(
+        self, spec: dict[str, str], *, start: str, end: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """통계 조회. URL 경로에 파라미터를 **순서대로** 붙이는 규격이다.
+
+        ``limit`` 은 그 경로의 "끝 행" 이다. 기본 10 은 일일 수집용 — 최근
+        몇 달만 따라잡으면 되기 때문이다. **과거 백필은 넉넉히 줘야 한다**:
+        10 으로 두면 39개월을 물어도 10행만 오고, 그 10행이 조용히 "그게
+        전부" 로 읽힌다(2026-08-19 실측).
+        """
         if not self.usable():
             raise MissingCredentials(f"{ECOS_KEY_ENV} 미설정")
         path = "/".join(
             [
                 f"{ECOS_BASE}/StatisticSearch",
-                self.api_key, "json", "kr", "1", "10",
+                self.api_key, "json", "kr", "1", str(max(1, limit)),
                 spec["stat_code"], spec.get("cycle", "M"), start, end, spec["item_code"],
             ]
         )
@@ -549,7 +582,13 @@ class EcosCollector:
         for indicator, spec in ECOS_STATS.items():
             try:
                 found = self.source.search(
-                    spec, start=start.strftime("%Y%m"), end=end.strftime("%Y%m")
+                    spec,
+                    start=start.strftime("%Y%m"),
+                    end=end.strftime("%Y%m"),
+                    # **필요한 만큼 명시한다.** 기본 10 은 지금 우연히 맞는다
+                    # (전 지표가 월별이고 lookback 이 8개월). 둘 중 하나만
+                    # 바뀌면 조용히 잘리고, 잘린 응답은 "그게 전부" 로 읽힌다.
+                    limit=self.lookback_months + 4,
                 )
             except CollectorError:
                 # 한 지표 실패로 나머지를 버리지 않는다.
@@ -624,6 +663,16 @@ class IndexCollector:
     days: int = 400
 
     def collect(self) -> int:
+        """받은 만큼 적재하고, **못 받은 시리즈가 있으면 던진다.**
+
+        전에는 ``except CollectorError: continue`` 였다. 시리즈 하나가 죽어도
+        나머지가 적재되므로 화면에는 "indices 적재: 140행" 이 찍히고, 죽은
+        시리즈는 어디에도 안 남았다 — 2026-08-22 아침 브리핑이 8/21 지수를
+        못 받고도 성공처럼 보인 자리다.
+
+        적재를 먼저 하고 던진다. 받은 것을 버릴 이유는 없고, **못 받은 것을
+        조용히 넘길 이유도 없다.**
+        """
         observed_at = self.clock.now().astimezone(UTC)
         run_id = f"idx-US-{observed_at:%Y%m%dT%H%M%S}"
         if self.store.ingest_run_recorded("indices", run_id):
@@ -631,21 +680,59 @@ class IndexCollector:
 
         rows: list[dict[str, Any]] = []
         payloads: dict[str, Any] = {}
+        failures: list[str] = []
         for series_id in FRED_INDICES:
             try:
                 observations = self.source.latest_observations(series_id, limit=self.days)
-            except CollectorError:
+            except CollectorError as error:
+                failures.append(f"{series_id}: {error}")
+                self._outcome(series_id, Verdict.FETCH_FAILED, observed_at, error=error)
                 continue
             payloads[series_id] = observations
+            if not observations:
+                # 200 을 받았는데 0건이다. 이 시리즈들은 5년치 과거가 있는
+                # 상설 지수라 "원본이 안 냈다" 로 볼 근거가 없다 — 모르면
+                # (나)다. 죽은 키가 빈 블록을 주는 일이 실제로 있다.
+                failures.append(f"{series_id}: 관측값 0건")
+                self._outcome(series_id, Verdict.EMPTY_UNCONFIRMED, observed_at)
+                continue
             rows.extend(index_rows(series_id, observations, observed_at=observed_at))
 
-        if not rows:
-            return 0
-        self.archive.save(
-            self.source.name, payloads, observed_at=observed_at,
-            ingest_run_id=run_id, label=f"idx-US-{observed_at:%Y%m%d}",
+        written = 0
+        if rows:
+            self.archive.save(
+                self.source.name, payloads, observed_at=observed_at,
+                ingest_run_id=run_id, label=f"idx-US-{observed_at:%Y%m%d}",
+            )
+            written = int(self.store.append("indices", rows, ingest_run_id=run_id))
+        if failures:
+            detail = "; ".join(failures)
+            raise MacroUnavailable(f"FRED 지수 {len(failures)}개를 못 받았다: {detail}")
+        return written
+
+    def _outcome(
+        self,
+        series_id: str,
+        verdict: Verdict,
+        observed_at: datetime,
+        *,
+        error: BaseException | None = None,
+    ) -> None:
+        """못 받았다는 사실을 창고에 남긴다. 로그는 지워지고 창고는 남는다."""
+        record_outcome(
+            self.store,
+            dataset=f"{FRED_SOURCE}:{series_id}",
+            table="indices",
+            market=str(Market.US),
+            # 세션 축이 아니라 **그날 우리가 겪은 일**이다. 날짜로 묶어야
+            # 같은 날의 재시도가 같은 자연키로 접힌다 — 브리핑 앞 재시도가
+            # 다섯 번 돌면 다섯 행이 쌓이는 것을 막는다.
+            day=observed_at.date(),
+            verdict=verdict,
+            stage="fetch",
+            observed_at=observed_at,
+            error=error,
         )
-        return int(self.store.append("indices", rows, ingest_run_id=run_id))
 
 
 # -----------------------------------------------------------------------------

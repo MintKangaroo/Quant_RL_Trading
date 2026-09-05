@@ -11,11 +11,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
@@ -64,7 +65,17 @@ def pending(store: Store, *, as_of: datetime, session_id: str) -> pd.DataFrame:
     frame = store.get(ORDERS, as_of=as_of, lookback=7)
     if frame.empty:
         return frame
-    return frame[frame["session_id"] == session_id]
+    frame = frame[frame["session_id"] == session_id]
+    # **실브로커로 나간 주문은 시뮬레이션하지 않는다** (backtest.md §9).
+    # 그 체결은 계좌가 말해 주고 `reconcile_fills` 가 trades 에 적는다 — 여기서
+    # 봉으로 또 체결시키면 실제 체결 위에 가짜가 한 벌 더 얹힌다. `submitting`
+    # 은 나갔는지 모르는 것이라 지어내지 않고, `rejected` 는 없는 주문이다.
+    return frame[frame["status"].isin(SIMULATED_STATUSES)]
+
+
+#: 봉으로 체결시키는 상태. `paper` 는 PaperBroker 가 받은 것, `planned` 는
+#: 전송 단계 전에 죽어 상태가 안 붙은 것 — 둘 다 밖으로 안 나갔다.
+SIMULATED_STATUSES = frozenset({"planned", "paper"})
 
 
 def _aggregate(orders: pd.DataFrame) -> list[tuple[Order, str]]:
@@ -109,8 +120,12 @@ def run(
     as_of: datetime,
     market: str,
     session_id: str,
+    day: date | None = None,
 ) -> ExecutionDay:
-    """직전 세션의 주문을 오늘 봉에 맞춰 체결시키고 ``trades`` 에 적는다."""
+    """직전 세션의 주문을 오늘 봉에 맞춰 체결시키고 ``trades`` 에 적는다.
+
+    ``day`` 는 오늘 봉의 날짜(세션 날짜). 미장은 as_of 의 KST 날짜와 다르다 — market.states 참고.
+    """
     result = ExecutionDay(session_id=session_id)
     orders = pending(store, as_of=as_of, session_id=session_id)
     if orders.empty:
@@ -119,11 +134,13 @@ def run(
     requests = _aggregate(orders)
     entities = sorted({order.entity_id for order, _ in requests})
     states = market_module.states(
-        store, as_of=as_of, entities=entities, market=market
+        store, as_of=as_of, entities=entities, market=market, session_day=day
     )
-    params = FillParams.from_store(store, as_of=as_of)
-    rates = Rates.from_store(store, as_of=as_of)
     currency = currency_of(market)
+    # 최소주문금액은 원화 설정이다 — 달러 주문은 그 시각 환율로 나눠 비교한다 (replay/fills.FillParams).
+    fx = ledger_module.fx_rate(store, as_of=as_of) if currency == USD else 1.0
+    params = FillParams.from_store(store, as_of=as_of, fx_rate=fx)
+    rates = Rates.from_store(store, as_of=as_of)
 
     fills: list[Fill] = []
     rows: list[dict[str, object]] = []
@@ -167,11 +184,56 @@ def run(
     result.fills = tuple(fills)
     if rows:
         run_id = f"backtest-trades-{session_id}"
-        if not store.ingest_run_recorded(TRADES, run_id):
+        if store.ingest_run_recorded(TRADES, run_id):
+            result.notes.insert(0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows))
+        else:
             try:
                 result.rows_written = int(
                     store.append(TRADES, rows, ingest_run_id=run_id, source=SOURCE)
                 )
             except DuplicateIngestRun:
                 result.rows_written = 0
+                result.notes.insert(
+                    0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows)
+                )
     return result
+
+
+def _stale_note(
+    store: Store, *, as_of: datetime, run_id: str, rows: list[dict]
+) -> str:
+    """이미 적재된 세션을 다시 체결시켰을 때의 경고문.
+
+    ``ingest_run_id`` 가 같은 세션을 두 번 쓰는 것을 막는 것은 옳다 — 체결을
+    두 번 적으면 보유 수량이 두 배가 된다. **말없이 막는 것이 틀렸다.**
+
+    막힌 자리에서 호출부는 방금 계산한 ``filled`` 를 보고하는데 회계는 창고의
+    옛 행에서 장부를 접는다. 둘이 다르면 화면과 장부가 서로 다른 세계를
+    가리키고, 그 상태가 "정상"으로 보인다. 실제로 shadow 2026-08-13 세션이
+    그랬다 — 화면은 1,496주 · 재계산 20여 종목인데 창고에는 실행기를 고치기
+    전에 적힌 ``KR:000890`` 1,004주 한 행뿐이었고, 아무도 그 차이를 몰랐다.
+
+    그래서 **창고의 기존 체결을 읽어 나란히 보여 준다.** 같으면 재실행이
+    무해했다는 뜻이고, 다르면 창고 쪽이 낡았다는 뜻이다 — 어느 쪽인지 사람이
+    판정할 수 있어야 한다. 판정 자체를 여기서 하지는 않는다. 정정 여부는
+    회계(`accounting.snapshot.write`)처럼 값 비교로 결정할 문제이고, 체결은
+    되돌리기가 회계보다 훨씬 위험하다.
+    """
+    fresh_quantity = sum(float(row["quantity"]) for row in rows)
+    stored = store.get(TRADES, as_of=as_of, lookback=10, columns=["quantity", "ingest_run_id"])
+    if not stored.empty:
+        stored = stored[stored["ingest_run_id"] == run_id]
+    stored_rows = len(stored)
+    stored_quantity = float(stored["quantity"].sum()) if stored_rows else 0.0
+
+    verdict = (
+        "같다"
+        if stored_rows == len(rows) and abs(stored_quantity - fresh_quantity) < 1e-6
+        else "**다르다 — 창고 쪽이 낡았다**"
+    )
+    return (
+        f"{run_id} 는 이미 적재돼 있다 — 체결을 다시 쓰지 않았다. "
+        f"창고 {stored_rows}행/{stored_quantity:,.0f}주 · "
+        f"재계산 {len(rows)}행/{fresh_quantity:,.0f}주 → {verdict}. "
+        "회계는 창고 쪽을 쓴다"
+    )

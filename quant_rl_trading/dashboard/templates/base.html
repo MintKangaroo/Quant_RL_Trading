@@ -2,22 +2,178 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover 가 없으면 env(safe-area-inset-*) 가 전부 0 으로
+       계산된다 — 아이폰 노치·홈바 아래로 헤더·본문이 그대로 깔린다. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  {# **임시 진단(2026-08-25).** 폰에서 화면이 검은데 원인을 못 찾고 있다.
+     브라우저 콘솔을 볼 수 없으므로 에러를 서버 접속 로그로 보낸다 — 이미지
+     요청이라 서버 코드가 필요 없고, 404 로 찍히면서 쿼리에 메시지가 남는다.
+     원인을 찾으면 **지운다.** #}
+  <script>
+  (function () {
+    function report(kind, msg, src, line) {
+      try {
+        new Image().src = "/__jserr?k=" + encodeURIComponent(kind)
+          + "&m=" + encodeURIComponent(String(msg).slice(0, 300))
+          + "&s=" + encodeURIComponent(String(src || "").slice(0, 120))
+          + "&l=" + encodeURIComponent(line || "");
+      } catch (e) { /* 진단이 화면을 죽이면 안 된다 */ }
+    }
+    window.addEventListener("error", function (e) {
+      report("error", e.message, e.filename, e.lineno);
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      report("reject", (e.reason && (e.reason.stack || e.reason.message)) || e.reason, "", "");
+    });
+    new Image().src = "/__jserr?k=boot";   // JS 가 아예 도는지부터 본다
+  })();
+  </script>
   <title>{% block title %}Quant_RL_Trading{% endblock %}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+  {# **바깥 인터넷에 기대지 않는다.** 이 화면은 폰이 Tailscale 로 붙어서 보는
+     것이라, 외부 주소가 안 뚫리는 경로가 실제로 있다. 웹폰트는 렌더링을
+     막는 자원이라 못 받으면 **화면이 통째로 검게 남는다** — 2026-08-24 에
+     정확히 그랬다. app.css 의 대체 글꼴(system-ui·ui-monospace)로 충분하다. #}
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  {# 시트 문법(카드 → 괘선). app.css 뒤에 실려 같은 선택자를 덮는다 (sheet.css 머리 주석). #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='sheet.css') }}">
   {# 탭 전용 CSS 자리. app.css 는 공통이라 여러 화면이 동시에 고치면 서로 덮는다.
      탭마다 자기 파일(static/<탭>.css)을 여기에 건다. 공통 규칙(색·간격·밀도)은
      app.css 에 두고, 여기에는 그 탭에서만 쓰는 것만 둔다. #}
   {% block styles %}{% endblock %}
-  <!-- 차트는 ECharts 하나로 끝낸다. 라이브러리를 더하지 않는다 (dashboard.md §6). -->
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <!-- 차트는 ECharts 하나로 끝낸다. 라이브러리를 더하지 않는다 (dashboard.md §6).
+       **CDN 이 아니라 우리 정적 파일에서 준다.** 이건 파싱을 막는 스크립트라
+       못 받으면 뒤따르는 /static/*.js 를 아예 요청하지 않는다 — 브라우저가
+       거기서 멈추고 화면이 검게 남는다(2026-08-24 실측: 폰에서 /trading 은
+       200 인데 정적 파일 요청이 한 건도 안 왔다). 매매 화면이 바깥 CDN 의
+       가용성에 걸려 있을 이유가 없다. -->
+  {# **defer 가 핵심이다.** 이 파일은 1MB 라, defer 없이 head 에 두면 다 받을
+     때까지 브라우저가 파싱을 멈춰 **화면에 아무것도 안 그려진다**. 폰이
+     Tailscale·LTE 로 붙으면 그 시간이 길다 — 2026-08-25 실측: CDN 을 로컬로
+     바꾼 뒤에도 echarts 와 trading.js 요청이 로그에 안 찍히고 화면이 검었다.
+     defer 면 내려받는 동안 파싱이 계속되고, 실행은 문서 순서대로 파싱 뒤에
+     일어난다. echarts 는 함수 안에서만 쓰이므로(scope.js `echarts.init`)
+     DOMContentLoaded 전에 정의되기만 하면 된다. #}
+  <script defer src="{{ url_for('static', filename='echarts.min.js') }}"></script>
 </head>
 <body>
+<noscript>
+  {# JS 가 꺼진 브라우저에는 다크 배경만 그려져 **검은 빈 화면**이 된다.
+     2026-08-25 에 폰이 정확히 그 상태였는데 화면에 아무 말이 없어 서버·
+     네트워크를 이틀 팠다. 상태를 문장으로 만든다. #}
+  <div style="padding:24px;color:#fff;background:#7f1d1d;font-size:16px;line-height:1.6">
+    <strong>JavaScript 가 꺼져 있다.</strong> 이 화면은 전부 JS 로 그려진다 —
+    설정 → Safari → 고급 → JavaScript, 또는 잠금 모드(Lockdown)를 확인할 것.
+  </div>
+</noscript>
 {% block body %}{% endblock %}
+<script>
+/* 헤더 높이 → --hdr-h. KPI 스트립이 그 밑에 sticky 로 붙는다(sheet.css). 헤더는
+   상태 문장·기준일 줄 때문에 높이가 화면마다 달라 CSS 만으로는 못 잰다. */
+(function () {
+  var head = document.querySelector("header");
+  if (!head) return;
+  function measure() { document.documentElement.style.setProperty("--hdr-h", head.offsetHeight + "px"); }
+  measure();
+  if (window.ResizeObserver) new ResizeObserver(measure).observe(head);
+  else window.addEventListener("resize", measure);
+})();
+</script>
+<script>
+/* [설명] 토글 — 패널 밑 설명 문단(.note)은 평소 접혀 있다(sheet.css). 상태는
+   저장하지 않는다(브라우저 저장소 금지, CLAUDE.md) — 새로 열면 다시 접힌다. */
+(function () {
+  var btn = document.querySelector(".notes-toggle");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var on = document.body.classList.toggle("show-notes");
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+})();
+</script>
+<script>
+/* 하단 탭 바(모바일 전용) — 상단 nav.tabs(_scope.html) 를 그대로 소스로
+   쓴다. 탭 목록을 여기 다시 적으면 _scope.html 에서 탭이 늘 때 두 곳을
+   고쳐야 하고, 하나만 고치면 조용히 어긋난다. 대신 이미 렌더된 링크를
+   런타임에 읽어 하단 바 4개 + "더보기" 시트로 재배치한다.
+   아이콘은 CDN 금지(오프라인에서도 떠야 한다)라 인라인 SVG 로 직접
+   그린다 — 자주 쓰는 4개(트레이딩·마켓·학습·시스템)만 아이콘이 있고,
+   나머지는 더보기 시트에 텍스트 목록으로만 뜬다. */
+(function () {
+  var MAIN_HREFS = ["/trading", "/market", "/learning", "/system"];
+  var ICONS = {
+    "/trading": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="4" x2="6" y2="20"/><rect x="4" y="9" width="4" height="6"/><line x1="12" y1="2" x2="12" y2="22"/><rect x="10" y="6" width="4" height="9"/><line x1="18" y1="6" x2="18" y2="18"/><rect x="16" y="10" width="4" height="5"/></svg>',
+    "/market": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><line x1="3" y1="12" x2="21" y2="12"/></svg>',
+    "/learning": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5c3-1.3 6-1.3 8 0v14c-2-1.3-5-1.3-8 0z"/><path d="M20 5c-3-1.3-6-1.3-8 0v14c2-1.3 5-1.3 8 0z"/></svg>',
+    "/system": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="18" r="2"/></svg>'
+  };
+  var MORE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+
+  function init() {
+    var links = document.querySelectorAll("header nav.tabs a");
+    if (!links.length) return;
+
+    var main = [];
+    var rest = [];
+    links.forEach(function (a) {
+      var href = a.getAttribute("href");
+      (MAIN_HREFS.indexOf(href) !== -1 ? main : rest).push(a);
+    });
+    if (!main.length) return;
+
+    // 지금 탭이 더보기 안에 있으면 더보기 아이콘 자체가 활성 색이어야
+    // 한다 — 안 그러면 하단 바 전체가 회색이라 길을 잃는다.
+    var restOn = rest.some(function (a) { return a.classList.contains("on"); });
+
+    var bar = document.createElement("nav");
+    bar.className = "bottom-tabs";
+    main.forEach(function (a) {
+      var href = a.getAttribute("href");
+      var item = document.createElement("a");
+      item.href = href;
+      item.className = "bottom-tab" + (a.classList.contains("on") ? " on" : "");
+      item.innerHTML = (ICONS[href] || "") + "<span>" + a.textContent + "</span>";
+      bar.appendChild(item);
+    });
+
+    var moreBtn = document.createElement("button");
+    moreBtn.type = "button";
+    moreBtn.className = "bottom-tab" + (restOn ? " on" : "");
+    moreBtn.innerHTML = MORE_ICON + "<span>더보기</span>";
+    bar.appendChild(moreBtn);
+    document.body.appendChild(bar);
+
+    if (!rest.length) return;
+
+    var sheet = document.createElement("div");
+    sheet.className = "more-sheet";
+    sheet.hidden = true;
+    var list = rest.map(function (a) {
+      return '<a href="' + a.getAttribute("href") + '" class="' +
+        (a.classList.contains("on") ? "on" : "") + '">' + a.textContent + "</a>";
+    }).join("");
+    sheet.innerHTML =
+      '<div class="more-sheet-backdrop"></div>' +
+      '<div class="more-sheet-panel">' +
+        '<div class="more-sheet-head"><span>더보기</span>' +
+        '<button type="button" class="more-sheet-close" aria-label="닫기">✕</button></div>' +
+        '<div class="more-sheet-list">' + list + "</div>" +
+      "</div>";
+    document.body.appendChild(sheet);
+
+    function open() { sheet.hidden = false; }
+    function close() { sheet.hidden = true; }
+    moreBtn.addEventListener("click", open);
+    sheet.querySelector(".more-sheet-backdrop").addEventListener("click", close);
+    sheet.querySelector(".more-sheet-close").addEventListener("click", close);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

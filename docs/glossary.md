@@ -12,7 +12,7 @@
 | 층 | 이름 | 역할 | 패키지 |
 |---|---|---|---|
 | 수집 | **Collector** ×2 | 시장 / 문서 수집. 점수를 내지 않는다 | `collectors/` |
-| 분석 | **Analyst** ×8 | chart, flow_kr, flow_us, fundamental, news, sns, regime, event, risk | `analysts/` |
+| 분석 | **Analyst** ×10 | chart, volume, flow_kr, flow_us, fundamental, news, sns, regime, event, risk | `analysts/` |
 | 결정 | **Selector** | 표를 모아 후보 선정 + Analyst 가중치 진화 | `selector/` |
 | 결정 | **Allocator** | RL 제어기 — 비중·타이밍·현금·KR/US 배분 | `allocator/` |
 | 결정 | **Executor** | 주문 변환·상한·리스크 가드·킬스위치 (AI 없음) | `executor/` |

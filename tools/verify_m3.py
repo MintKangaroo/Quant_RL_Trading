@@ -57,7 +57,7 @@ from tools.backfill import build_store, load_env  # noqa: E402
 from tools.measure_slippage import measure as measure_slippage  # noqa: E402
 from tools.measure_slippage import render as render_slippage  # noqa: E402
 
-_STATUSES = ("PASS", "FAIL", "미측정")
+_STATUSES = ("PASS", "FAIL", "미측정", "이월")
 
 
 @dataclass
@@ -90,6 +90,40 @@ def _run(command: list[str]) -> tuple[int, str]:
 SHADOW_RESTART_DATE = date(2026, 8, 14)
 REQUIRED_SHADOW_DAYS = 10
 SHADOW_SANDBOX = REPO_ROOT / "data" / "_shadow"
+
+#: **판단이 반쪽이었던 날.** 파이프라인은 끝까지 돌았고 킬스위치도 안 울렸지만,
+#: 그날 세션이 설계된 Analyst 를 다 못 쓰고 결정을 냈다. 사고가 아니라고 하기엔
+#: 그 결정의 근거가 절반이다.
+#:
+#: **이제는 창고가 답한다.** `analyst_failures` 에 Analyst 가 죽은 순간의
+#: 행이 남는다(`session/signals.py`). 아래 상수는 그 표가 생기기 전에 일어난
+#: 일만 든다 — 소급해 지어낼 수 없으니 그때 로그에서 읽어 손으로 적었다.
+#:
+#: 왜 창고를 읽는 쪽으로 옮겼나: 같은 날 정정본을 넣자 `signals` 는 그날을
+#: 6종으로 보여줬다. **정정본이 사고의 흔적을 지웠다.** 다른 표에서 추론하는
+#: 판정은 정정 한 번에 무너진다.
+FAILURES_TABLE = "analyst_failures"
+
+DEGRADED_SESSIONS: dict[date, str] = {
+    # analyst_failures 표가 생기기 전(커밋 dc60283 이전)에 일어난 일.
+    date(2026, 8, 20): "Analyst 3종(event·fundamental·regime)이 죽어 6종 중 3종으로 판단",
+}
+
+
+def _degraded_from_store(store: Store, as_of: datetime, lookback: int) -> dict[date, str]:
+    """창고가 아는 반쪽 세션. 표가 비어 있으면 빈 dict — 실패가 아니다."""
+    try:
+        rows = store.get(FAILURES_TABLE, as_of=as_of, lookback=lookback)
+    except Exception:  # noqa: BLE001
+        return {}
+    if rows.empty:
+        return {}
+    out: dict[date, str] = {}
+    for day, group in rows.groupby(rows["valid_from"].dt.date):
+        names = ", ".join(sorted(group["entity_id"].astype(str).unique()))
+        out[day] = f"Analyst {group['entity_id'].nunique()}종({names})이 죽었다"
+    return out
+
 
 #: 세션 하나가 정상적으로 끝까지 돈 것으로 보려면 이 네 단계가 다 있어야
 #: 한다(backtest/loop.py 가 매 세션 이 순서로 기록한다). 하나라도 빠지면
@@ -230,7 +264,10 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
     except Exception as exc:
         stale_days, nav_notes = set(filled_days), [f"nav_daily 를 못 읽었다: {exc}"]
 
-    incidents = incomplete_days | engaged_days
+    # 창고가 먼저다. 상수는 표가 생기기 전 구간만 채운다.
+    degraded = {**DEGRADED_SESSIONS, **_degraded_from_store(shadow, as_of, lookback)}
+    degraded_days = {day for day in degraded if day in filled_days}
+    incidents = incomplete_days | engaged_days | degraded_days
     verified_days = filled_days - incidents - stale_days
 
     evidence = [
@@ -241,6 +278,10 @@ def check_shadow(live_store: Store, as_of: datetime) -> Check:
         + (f": {_days(incomplete_days)}" if incomplete_days else ""),
         f"킬스위치 발동 {len(engaged_days)}일"
         + (f": {_days(engaged_days)}" if engaged_days else ""),
+        *[
+            f"판단 반쪽 {day.isoformat()}: {degraded[day]}"
+            for day in sorted(degraded_days)
+        ],
         *nav_notes,
         f"→ 검증된 무사고 체결일 {len(verified_days)}/{REQUIRED_SHADOW_DAYS}"
         + (f": {_days(verified_days)}" if verified_days else ""),
@@ -374,15 +415,53 @@ def check_live_trade(store: Store, as_of: datetime, market: str) -> Check:
 
 _SLIPPAGE_EXIT_STATUS = {0: "PASS", 1: "FAIL", 2: "미측정"}
 
+#: 판정에 필요한 최소 표본. ``measure_slippage`` 도 30건 미만이면 "통과로
+#: 읽지 마라" 를 찍는다.
+MIN_SLIPPAGE_SAMPLES = 30
+
 
 def check_slippage(store: Store, as_of: datetime, market: str) -> Check:
-    """``tools/measure_slippage.py`` 를 그대로 불러 쓴다 — 다시 구현하지 않는다."""
+    """``tools/measure_slippage.py`` 를 그대로 불러 쓴다 — 다시 구현하지 않는다.
+
+    ## 이 기준은 M3 를 막지 않는다 (사용자 결정 2026-08-17)
+
+    표본을 쌓으려면 실전을 돌려야 하고, 실전을 돌리려면 M3 를 닫아야 한다 —
+    **순환이다.** 게다가 배선 검증용 1주 주문은 시장에 충격을 안 줘서, 그
+    체결로 잰 오차는 전략의 체결 비용을 말해주지 않는다. 모델이 예측하는
+    충격은 거의 0 인데 실제로는 스프레드 절반이 붙어, 비율로 보면 통과하든
+    실패하든 숫자가 아무 뜻이 없다.
+
+    그래서 M3 는 **"배선이 도는가"** 까지만 보고(기준 4번이 그것이다),
+    **"모델이 현실과 맞는가" 는 실제 물량이 60거래일 쌓인 뒤 자본 증액
+    게이트에서 판정한다** — ``tools/verify_capital_gate.py``.
+
+    **검증을 뺀 것이 아니라 옮긴 것이다.** 옮긴 자리가 더 세다: 거기서는
+    표본 30건 미만이면 통과를 아예 안 준다. 그리고 그 게이트는 이 결정 전까지
+    ``config.capital`` 에 값만 있고 **읽는 코드가 0건**이었다 — 이 결정과
+    함께 검증기를 만들었다. 안 그러면 "미룬다" 가 "영영 안 잰다" 가 된다.
+
+    표본이 충분해지면 이 검사도 다시 실질 판정을 낸다. 이월은 **영구 면제가
+    아니다.**
+    """
     name = "슬리피지 실측이 모델 예측의 ±30% 이내"
     measurements, notes = measure_slippage(
         store, as_of=as_of, market=market, lookback=60, source=BROKER_SOURCE
     )
     text, code = render_slippage(measurements, notes, source=BROKER_SOURCE)
-    return Check(name, _SLIPPAGE_EXIT_STATUS[code], text.splitlines())
+    lines = text.splitlines()
+    if len(measurements) < MIN_SLIPPAGE_SAMPLES:
+        return Check(
+            name, "이월",
+            [
+                *lines,
+                f"표본 {len(measurements)}건 < {MIN_SLIPPAGE_SAMPLES}건.",
+                "→ 자본 증액 게이트로 이월한다 (tools/verify_capital_gate.py).",
+                "  표본을 쌓으려면 실전을 돌려야 하고 실전을 돌리려면 M3 를",
+                "  닫아야 한다 — 순환이라 M3 를 막지 않는다. 검증을 뺀 것이",
+                "  아니라 표본이 쌓이는 자리로 옮긴 것이다.",
+            ],
+        )
+    return Check(name, _SLIPPAGE_EXIT_STATUS[code], lines)
 
 
 # -----------------------------------------------------------------------------
@@ -415,8 +494,17 @@ def main(argv: list[str] | None = None) -> int:
     failed = [c for c in checks if c.status == "FAIL"]
     unmeasured = [c for c in checks if c.status == "미측정"]
     passed = [c for c in checks if c.status == "PASS"]
+    # **이월은 M3 완주를 막지 않는다.** 다른 게이트에서 판정하기로 한 것이라
+    # 미측정과 다르다 — 미측정은 "여기서 재야 하는데 못 쟀다" 이고, 이월은
+    # "여기서 잴 자리가 아니다" 다. 둘을 같이 세면 영원히 안 닫힌다.
+    deferred = [c for c in checks if c.status == "이월"]
 
-    print(f"PASS {len(passed)} · FAIL {len(failed)} · 미측정 {len(unmeasured)} / {len(checks)}")
+    print(
+        f"PASS {len(passed)} · FAIL {len(failed)} · 미측정 {len(unmeasured)} · "
+        f"이월 {len(deferred)} / {len(checks)}"
+    )
+    for check in deferred:
+        print(f"  이월: {check.name} → tools/verify_capital_gate.py")
     if failed:
         print("실패 — M4 로 넘어가지 않는다.")
         for c in failed:

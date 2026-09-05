@@ -218,8 +218,14 @@ def test_미장_패널은_ETF_이고_벤치마크가_아니다(client) -> None:
     assert us["instrument_panels"]["kind"] == "etf"
     assert _primary(us)["entity_id"] == "US:SPY"
     for row in _cards(us):
-        assert row["kind"] == "etf"
         assert row["benchmark"] is False, "ETF 가 벤치마크로 찍혔다"
+        if row["kind"] == "rate":
+            # **금리는 대용치가 아니라 원래 값이다.** ETF 규칙(티커 제목·
+            # 추종 대상)을 그대로 걸면 `US:RATE:UST10Y` 의 제목이
+            # "RATE:UST10Y" 가 된다 — 읽을 수 없는 이름이다.
+            assert row["label"] == row["entity_id"].split("RATE:", 1)[1]
+            continue
+        assert row["kind"] == "etf"
         # 제목은 티커다 — 지수 이름을 달고 ETF 를 그리면 대용치 바꿔치기다.
         assert row["label"] == row["entity_id"].split(":", 1)[1]
         assert row["tracks"]
@@ -387,6 +393,42 @@ def test_시가총액_순위는_시세와_다른_세션일_수_있다(client) ->
     assert "session" in _table(markets["KR"], "value")
 
 
+def test_시총이_며칠_밀려도_표가_남는다(store) -> None:
+    """**"없다" 와 "창 밖이다" 는 다른 사실이다.**
+
+    시총 수집은 시세와 다른 수집기라 며칠씩 밀린다 — 실측(2026-08-18): 국장
+    시세 08-14 · 시총 08-11. 창을 등락 창(5일)으로 잡았을 때 그 며칠에 국장
+    시총이 통째로 0행이 되어 화면이 "상장주식수가 없다" 고 말했다. 있는데 못
+    본 것이었고, 그 문구를 믿은 사람은 수집기를 팠다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    # 시세보다 8일 늦은 시총 하나뿐이다 — 등락 창(5일) 밖, 시총 창 안이다.
+    stale = NOW - timedelta(days=8)
+    store.append(
+        "market_stats",
+        [_row(KR_A, stale, market="KR", metric="market_cap", value=7e12)],
+        ingest_run_id="stats-stale",
+    )
+    caps, session = service._rank_caps(store, as_of=NOW, market="KR")
+    assert list(caps.index) == [KR_A], "창을 좁게 잡으면 있는 시총이 사라진다"
+    assert session == stale.date().isoformat()
+    # 창 밖으로 더 밀면 그때는 진짜로 못 본다 — 화면이 창을 적어야 하는 이유다.
+    beyond = service.CAP_RECENT_DAYS + 5
+    older, _ = service._rank_caps(store, as_of=NOW + timedelta(days=beyond), market="KR")
+    assert older.empty
+
+
+def test_트리맵이_자기_시총_세션을_들고_나간다(client) -> None:
+    """시세 세션과 다를 수 있다 — 화면이 날짜를 적어야 낡은 시총을 오늘
+    것으로 안 읽는다. 비었을 때는 창을 적어야 어디를 팔지 안다."""
+    from quant_rl_trading.dashboard.services import market as service
+
+    markets = client.get("/api/market").get_json()["data"]["markets"]
+    assert markets["KR"]["treemap"]["session"] is not None
+    assert markets["KR"]["treemap"]["lookback"] == service.CAP_RECENT_DAYS
+
+
 def test_시가총액은_국장만_찬다(client) -> None:
     """미장 시총이 빈 것은 조인 버그가 아니라 상장주식수 수집기가 없어서다."""
     markets = client.get("/api/market").get_json()["data"]["markets"]
@@ -445,4 +487,158 @@ def test_되감으면_그_시점_이후_값이_안_보인다(desk) -> None:
 
 def test_as_of_에_타임존이_없으면_거부한다(client) -> None:
     response = client.get("/api/market?as_of=2026-08-12T06:40:00")
+    assert response.status_code == 400
+
+
+# -- 봉 전환: 분봉 · 일봉 · 주봉 ----------------------------------------------------
+#
+# 마켓 탭 패널은 오래 일봉 하나였다. **주봉은 새로 수집하지 않는다** — 창고의
+# 일봉을 그 시장의 거래일 달력으로 접은 것이고, 여기서 고정하는 것은 그 접는
+# 규칙과 "미완성 주를 버리지 않는다" 는 약속이다.
+
+
+def _daily(sessions: list[tuple[str, float, float, float, float, float]]):
+    """세션 문자열을 인덱스로 갖는 일봉 표. ``_panel_frame`` 이 내놓는 모양이다."""
+    import pandas as pd
+
+    return pd.DataFrame(
+        [
+            {"open": o, "high": h, "low": lo, "close": c, "volume": v}
+            for _, o, h, lo, c, v in sessions
+        ],
+        index=[day for day, *_ in sessions],
+    )
+
+
+def test_주봉은_첫_시가와_마지막_종가로_접는다() -> None:
+    """시가 = 그 주 **첫 세션**의 open · 종가 = **마지막 세션**의 close ·
+    고가 = max · 저가 = min · 거래량 = 합.
+
+    첫/마지막을 pandas 의 ``first``/``last`` 로 접으면 안 된다 — 그 둘은 NaN 을
+    건너뛰므로, 첫 세션의 open 이 비면 **둘째 세션의 open** 이 그 주 시가로
+    올라앉는다. 없는 값이 조용히 다른 값이 되는 종류의 거짓이다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    rows = _daily([
+        ("2026-06-01", 100.0, 110.0, 99.0, 105.0, 10.0),
+        ("2026-06-02", 105.0, 120.0, 90.0, 92.0, 20.0),
+        ("2026-06-04", 92.0, 95.0, 91.0, 94.0, 30.0),
+        ("2026-06-05", 94.0, 99.0, 93.0, 98.0, 40.0),
+    ])
+    bars = service.weekly_bars(rows, market="KR", as_of=NOW)
+
+    assert len(bars) == 1
+    bar = bars[0]
+    assert bar["week"] == "2026-06-01"      # x 축은 그 주 월요일이다
+    assert bar["open"] == 100.0             # 첫 세션의 시가
+    assert bar["close"] == 98.0             # 마지막 세션의 종가
+    assert bar["high"] == 120.0
+    assert bar["low"] == 90.0
+    assert bar["volume"] == 100.0
+
+    # 첫 세션의 시가가 비면 **비운 채로 둔다.** ``first`` 로 접으면 여기서
+    # 둘째 세션의 105.0 이 그 주 시가로 올라앉는다.
+    import numpy as np
+
+    rows.loc["2026-06-01", "open"] = np.nan
+    assert service.weekly_bars(rows, market="KR", as_of=NOW)[0]["open"] is None
+
+
+def test_연휴가_낀_주도_끝난_주다() -> None:
+    """주의 경계를 달력일로 자르면 안 된다 — "금요일이 지났으면 끝" 으로 재면
+    금요일이 휴장인 주가 영원히 미완성으로 남는다.
+
+    2026-06-03 은 지방선거일이라 국장이 쉰다(``market_hours`` 예외층). 그 주는
+    거래일이 넷이고, 넷이 다 지났으므로 **끝난 주**다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    rows = _daily([
+        ("2026-06-01", 100.0, 110.0, 99.0, 105.0, 10.0),
+        ("2026-06-02", 105.0, 120.0, 90.0, 92.0, 20.0),
+        ("2026-06-04", 92.0, 95.0, 91.0, 94.0, 30.0),
+        ("2026-06-05", 94.0, 99.0, 93.0, 98.0, 40.0),
+    ])
+    bar = service.weekly_bars(rows, market="KR", as_of=NOW)[0]
+    assert bar["expected"] == 4          # 5가 아니다 — 선거일이 빠진다
+    assert bar["sessions"] == 4
+    assert bar["complete"] is True
+
+
+def test_미완성_주를_버리지_않고_그렇다고_말한다(desk) -> None:
+    """오늘이 수요일이면 이번 주 봉은 세션 두세 개짜리다. **그게 맞는 모습**
+    이고 지우면 화면에서 최신이 사라진다 — 대신 미완성이라는 사실을 싣는다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    data = service.panel_candles(
+        desk, as_of=NOW, lookback=30, market="KR",
+        entity_id="KR:IDX:KOSPI", interval="1W",
+    )
+    assert data["sessions"] == ["2026-08-10"]   # 지우지 않았다
+    assert data["close"] == 1010.0              # 마지막 세션의 종가 그대로
+    assert data["partial"] == {
+        "week": "2026-08-10", "sessions": 2, "expected": 5,
+        "last_session": "2026-08-12",
+    }
+
+
+def test_주봉도_넷이_다_있을_때만_봉이다(desk) -> None:
+    """종가만 있는 계열(FRED 미장 지수)을 접어도 봉은 안 생긴다. 없는
+    시가·고가·저가를 종가로 채우면 모든 주가 십자가가 된다."""
+    from quant_rl_trading.dashboard.services import market as service
+
+    data = service.panel_candles(
+        desk, as_of=NOW, lookback=30, market="KR",
+        entity_id="KR:IDX:KRX 반도체", interval="1W",
+    )
+    assert data["has_ohlc"] is False
+    assert data["ohlc"] == []      # 지어내지 않는다
+    assert data["closes"]          # 선은 그릴 수 있다
+
+
+def test_지수에는_분봉이_없고_화면이_그_이유를_받는다(desk) -> None:
+    """분봉 수집은 보유·워치리스트·shadow 보유 종목만 받는다 — 지수·ETF 는
+    한 봉도 없다. 그때 **빈 채로 두고 이유를 적는다**: 이유가 없으면 사용자는
+    고장으로 읽고 엉뚱한 데를 판다.
+    """
+    from quant_rl_trading.dashboard.services import market as service
+
+    intervals = service.panel_intervals(
+        desk, as_of=NOW, market="KR", entities=["KR:IDX:KOSPI"]
+    )
+    assert intervals["KR:IDX:KOSPI"] == ["1D", "1W"]   # 분봉은 하나도 안 켠다
+
+    data = service.panel_candles(
+        desk, as_of=NOW, lookback=30, market="KR",
+        entity_id="KR:IDX:KOSPI", interval="5m",
+    )
+    assert data["sessions"] == []
+    assert "분봉 수집" in data["reason"]
+
+
+def test_패널이_자기_봉_목록을_들고_나간다(client) -> None:
+    """첫 그림에 같이 실어 보낸다 — 화면이 버튼을 그리려고 패널마다 따로
+    물어보면 첫 로드에 요청이 여섯 개 더 나간다."""
+    kr = client.get("/api/market").get_json()["data"]["markets"]["KR"]
+    head = _primary(kr)
+    assert head["interval"] == "1D"          # 처음 그린 것은 일봉이다
+    assert head["intervals"] == ["1D", "1W"]
+
+
+def test_봉_전환_경로가_as_of_를_지킨다(desk) -> None:
+    """차트 하나짜리 조회라고 봐주면 그 하나가 미래를 본다 (불변식 9)."""
+    client = _build_app(store=desk, clock=ReplayClock(NOW)).test_client()
+    body = client.get(
+        f"/api/market/chart?entity=KR:IDX:KOSPI&market=KR&interval=1D"
+        f"&as_of={YESTERDAY.isoformat()}"
+    ).get_json()
+    assert body["as_of"] == YESTERDAY.isoformat()
+    assert body["data"]["closes"] == [1000.0]   # NOW 세션은 아직 안 보인다
+
+
+def test_모르는_봉은_거부한다(client) -> None:
+    """화면 버튼과 서버가 아는 이름이 갈리면 조용히 빈 화면이 된다."""
+    response = client.get("/api/market/chart?entity=KR:IDX:KOSPI&market=KR&interval=3M")
     assert response.status_code == 400

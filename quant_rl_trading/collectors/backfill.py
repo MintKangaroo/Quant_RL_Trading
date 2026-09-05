@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Mapping, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -183,6 +183,12 @@ class Backfiller:
             with latency.stage("normalize", f"{self.market}:{day.isoformat()}"):
                 price_rows = self._price_rows(bars, day, observed_at)
                 universe_rows = self._universe_rows(listed, day, observed_at)
+                if bars and not price_rows:
+                    # **스텁만 왔다.** 개장 전·장애 응답은 종가만 있고 OHLC·거래량이 0 이다. 그걸 적재하면
+                    # run id 가 기록돼 그 세션은 영영 다시 안 받는다(2026-09-01, bf-prices-KR-20260901 —
+                    # repair_prices_ls 로 정정본을 넣어야 했다). 적재하지 않고 오류로 끝내면 다음 실행이
+                    # 다시 시도한다.
+                    raise CollectorError(f"{self.market} {day.isoformat()}: 봉 {len(bars)}건이 전부 스텁(OHLC·거래량 0)")
 
             with latency.stage("append", f"{self.market}:{day.isoformat()}"):
                 prices = self._append(PRICES, price_rows, day)
@@ -221,6 +227,9 @@ class Backfiller:
         for bar in bars:
             code = str(bar.get("code") or "").strip()
             if not code or not self._keep(code):
+                continue
+            if _is_stub(bar):
+                # 개장 전 스텁(현재가 = 전일 종가, 나머지 0)은 봉이 아니다 — collect_prices_ls 와 같은 규칙.
                 continue
             rows.append(
                 {
@@ -371,6 +380,16 @@ def eta(done: int, total: int, elapsed: timedelta) -> timedelta | None:
     if done <= 0 or done >= total:
         return None
     return (elapsed / done) * (total - done)
+
+
+def _is_stub(bar: Mapping[str, Any]) -> bool:
+    """OHLC 중 하나라도 0 이하거나 거래량이 0 이하면 스텁. 거래정지일은 거래량 0 이 사실이지만 그날 봉은
+    그 종목에 없는 것이 맞다(휴장과 같은 취급, store/prices.py 참고)."""
+    for key in ("open", "high", "low", "close", "volume"):
+        value = _number(bar.get(key))
+        if value is None or value <= 0:
+            return True
+    return False
 
 
 def _number(value: Any) -> float | None:

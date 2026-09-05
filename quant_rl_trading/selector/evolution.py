@@ -31,15 +31,18 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import json
 import statistics
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from quant_rl_trading.backtest import loop as loop_module
+from quant_rl_trading.backtest import stats as stats_module
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 
 if TYPE_CHECKING:
@@ -73,6 +76,36 @@ DEFAULT_TURNOVER_PENALTY = 0.05
 #: 아니라 어림값이라는 것을 여기 적어 둔다.
 DEFAULT_STABILITY_THRESHOLD = 0.25
 DEFAULT_STABILITY_TOP_N = 10
+
+#: 안정성 검사의 귀무분포. ``stability_report`` 가 재는 "상위 개체가 서로 비슷한
+#: 정도" 는 **지형의 봉우리만이 아니라 작은 개체군의 유전적 드리프트로도** 작아
+#: 진다. 적합도를 유전자와 무관한 난수로 바꿔 시드 20개를 돌려 실측한 결과
+#: (2026-08-15), 신호가 전혀 없는 지형에서도 이렇게 나온다:
+#:
+#:     pop 16 × gen  2 →  0/20 통과 (거리 중앙값 0.488)
+#:     pop 16 × gen 15 → 18/20 통과 (거리 중앙값 0.099)   ← 거짓 양성 90%
+#:     pop 64 × gen 15 →  1/20 통과 (거리 중앙값 0.497)
+#:     pop 64 × gen 40 →  7/20 통과 (거리 중앙값 0.295)
+#:
+#: 즉 **거리 하나만으로는 노이즈와 봉우리를 구분할 수 없다.** 개체군이 작고
+#: 세대가 길수록 드리프트가 이겨서, 검사가 막으라고 만들어진 바로 그 경우에
+#: 통과 도장을 찍는다. 채택 판정은 이 거리와 함께 반드시
+#: ``holdout_report`` (동일가중 대비 홀드아웃 성적) 를 봐야 한다.
+NOISE_FLOOR_DISTANCE = {
+    (16, 15): 0.099,
+    (16, 40): 0.095,
+    (64, 15): 0.497,
+    (64, 40): 0.295,
+}
+
+#: 드리프트 귀무분포를 몇 번 복제해 만들지. 이 복제는 **백테스트를 안 돈다** —
+#: GA 연산자만 난수 적합도로 돌리므로 pop 64 × gen 40 에서도 초 단위다.
+DEFAULT_NULL_REPLICATES = 40
+
+#: 귀무분포 하위 몇 분위를 통과선으로 볼지. 0.05 면 **거짓 양성 5%** 다
+#: (정의상 — 신호가 없는 지형의 5%가 우연히 이보다 촘촘하게 몰린다).
+#: 옛 절대 문턱 방식은 같은 조건에서 90% 였다.
+NULL_ALPHA = 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -249,25 +282,159 @@ class StabilityReport:
     threshold: float
     stable: bool
     verdict: str
+    #: 드리프트 귀무분포의 하위 ``NULL_ALPHA`` 분위. 관측 거리가 이보다 작아야
+    #: "유전적 드리프트만으로는 설명 안 된다" 고 말할 수 있다. None 이면 귀무
+    #: 분포를 안 재고 절대 문턱만으로 판정한 것이다(옛 방식 — 못 믿는다).
+    null_quantile: float | None = None
+    null_replicates: int = 0
 
     def summary(self) -> str:
-        return (
+        head = (
             f"상위 {self.top_n}개 평균 쌍별 거리 {self.mean_pairwise_distance:.3f} "
-            f"(문턱 {self.threshold:.3f}) → {'안정' if self.stable else '불안정'}. "
-            f"{self.verdict}"
+            f"(문턱 {self.threshold:.3f}"
         )
+        if self.null_quantile is not None:
+            head += (
+                f", 드리프트 귀무 {int(NULL_ALPHA * 100)}%분위 {self.null_quantile:.3f} "
+                f"· 복제 {self.null_replicates}회"
+            )
+        return f"{head}) → {'안정' if self.stable else '불안정'}. {self.verdict}"
+
+
+def mean_pairwise_distance(individuals: Sequence[Individual]) -> float:
+    """정규화 가중치의 평균 쌍별 L1 거리. 0 이면 표현형이 한 점으로 붕괴했다.
+
+    ``stability_report`` 가 상위 N개에 쓰는 것과 같은 척도다. **개체군 전체**에
+    걸어 세대마다 기록하면 다양성 붕괴가 언제 일어났는지가 보인다 — 마지막
+    한 번만 재면 "붕괴한 채로 끝났다" 는 것만 알고 언제부터인지를 모른다.
+    """
+    if len(individuals) < 2:
+        return 0.0
+    analysts = individuals[0].analysts
+    vectors = [
+        [ind.normalized().get(a, 0.0) for a in analysts] for ind in individuals
+    ]
+    return statistics.mean(
+        sum(abs(x - y) for x, y in zip(v1, v2, strict=True))
+        for v1, v2 in itertools.combinations(vectors, 2)
+    )
+
+
+def gene_spread(individuals: Sequence[Individual]) -> float:
+    """원가중치 축별 표준편차의 평균 — **유전형** 다양성.
+
+    표현형 거리(``mean_pairwise_distance``)와 따로 보는 이유: 합성 공식이 스케일
+    불변이라 ``(0.2,0.2,0.2)`` 와 ``(0.8,0.8,0.8)`` 은 표현형이 같다. 표현형만
+    보면 다양성이 0 인데 유전형은 아직 퍼져 있는 상태가 존재하고, 그때 진화는
+    아직 죽지 않았다.
+    """
+    if len(individuals) < 2:
+        return 0.0
+    genes = np.array([ind.genes for ind in individuals], dtype=float)
+    return float(genes.std(axis=0).mean())
+
+
+@dataclass(frozen=True)
+class GAParams:
+    """드리프트 귀무분포를 만들 때 진짜 실행과 맞춰야 하는 값들.
+
+    귀무분포는 "같은 연산자를 같은 규모로 돌렸을 때 **신호가 없어도** 얼마나
+    몰리는가" 라서, 하나라도 다르면 다른 분포가 된다.
+    """
+
+    n_analysts: int
+    population_size: int
+    generations: int
+    tournament_k: int = DEFAULT_TOURNAMENT_K
+    crossover_rate: float = DEFAULT_CROSSOVER_RATE
+    sbx_eta: float = DEFAULT_SBX_ETA
+    mutation_sigma: float = DEFAULT_MUTATION_SIGMA
+    mutation_rate: float = DEFAULT_MUTATION_RATE
+    elitism: int = DEFAULT_ELITISM
+    stability_top_n: int = DEFAULT_STABILITY_TOP_N
+
+
+def drift_null_distances(
+    params: GAParams,
+    *,
+    replicates: int = DEFAULT_NULL_REPLICATES,
+    seed: int = 0,
+) -> list[float]:
+    """**적합도가 유전자와 무관할 때** 상위 N개가 얼마나 몰리는지의 분포.
+
+    이것이 이 모듈에서 제일 중요한 함수다. ``stability_report`` 가 재는 거리는
+    지형의 봉우리만이 아니라 **유전적 드리프트**로도 작아진다 — 토너먼트 선택과
+    엘리트 보존은 적합도가 순수 난수여도 개체군을 한 점으로 몬다. 그래서 거리
+    하나만 보면 "신호가 있다" 와 "개체군이 작고 세대가 길다" 를 구분할 수 없다.
+
+    여기서는 **적합도를 난수로 바꾼 같은 규모의 진화**를 여러 번 돌려, 드리프트
+    만으로 나올 수 있는 거리의 분포를 만든다. 관측 거리가 이 분포의 아래쪽
+    꼬리에 있어야만 "드리프트로는 설명 안 된다" 고 말할 수 있다.
+
+    백테스트를 돌지 않는다 — 난수 하나 뽑는 게 적합도라서 pop 64 × gen 40 도
+    초 단위다. 진화 한 번이 몇 시간인 것에 비하면 공짜다.
+    """
+    if replicates < 1:
+        raise ValueError("replicates 는 1 이상이어야 한다")
+    analysts = tuple(f"_null{i}" for i in range(params.n_analysts))
+    distances: list[float] = []
+    for replicate in range(replicates):
+        rng = np.random.default_rng((seed + 1) * 1_000_003 + replicate)
+
+        def random_fitness(
+            individual: Individual, generation: int, _rng: np.random.Generator = rng
+        ) -> FitnessResult:
+            value = float(_rng.normal(0.0, 1.0))
+            return FitnessResult(
+                individual=individual, fitness=value, ir_median=value,
+                turnover_median=0.0, l1_term=0.0,
+            )
+
+        outcome = evolve(
+            analysts=analysts,
+            population_size=params.population_size,
+            generations=params.generations,
+            evaluate=random_fitness,
+            tournament_k=params.tournament_k,
+            crossover_rate=params.crossover_rate,
+            sbx_eta=params.sbx_eta,
+            mutation_sigma=params.mutation_sigma,
+            mutation_rate=params.mutation_rate,
+            elitism=params.elitism,
+            # 조기 종료는 끈다 — 난수 적합도는 최고값이 계속 갱신되거나 전혀
+            # 갱신되지 않아, patience 가 걸리면 세대 수가 실제 실행과 달라진다.
+            patience=params.generations + 1,
+            seed=replicate,
+            stability_top_n=params.stability_top_n,
+            # **재귀 금지.** 귀무분포를 만드는 중에 또 귀무분포를 만들면 끝나지
+            # 않는다. 여기서는 거리만 필요하다.
+            null_replicates=0,
+        )
+        distances.append(outcome.stability.mean_pairwise_distance)
+    return sorted(distances)
 
 
 def stability_report(
     top: Sequence[Individual],
     *,
     threshold: float = DEFAULT_STABILITY_THRESHOLD,
+    null_distances: Sequence[float] | None = None,
 ) -> StabilityReport:
     """상위 개체들의 정규화 가중치가 얼마나 비슷한가.
 
-    비슷하면(거리가 작으면) 적합도 지형에 봉우리가 있다는 뜻이고 결과를 믿을
-    수 있다. 제각각이면 지형이 평평해 진화가 노이즈를 골랐다는 뜻이고, 그때는
-    **동일가중을 쓰는 것이 낫다** — 이 함수는 그 문장을 그대로 돌려준다.
+    **거리가 작다는 것만으로는 봉우리의 증거가 못 된다.** 토너먼트 선택과 엘리트
+    보존은 적합도가 순수 난수여도 개체군을 한 점으로 몬다 — 옛 판정(절대 문턱
+    0.25 하나)은 pop 16 × gen 15 에서 **신호가 전혀 없는 지형을 20번 중 18번**
+    "안정" 으로 통과시켰다(``NOISE_FLOOR_DISTANCE``). 자기가 막으라고 만들어진
+    바로 그 경우에서 통과 도장을 찍은 것이다.
+
+    그래서 ``null_distances`` — 같은 규모·같은 연산자로 **적합도만 난수로** 돌린
+    드리프트 귀무분포 — 를 같이 받는다. 관측 거리가 그 분포의 하위
+    ``NULL_ALPHA`` 분위보다 작아야만 "드리프트로는 설명 안 된다" 고 말한다.
+    거짓 양성률이 정의상 ``NULL_ALPHA`` 로 내려간다.
+
+    ``null_distances`` 를 안 주면 옛 방식(절대 문턱만)으로 판정하고, 리포트의
+    ``null_quantile`` 이 None 으로 남아 **그 판정을 믿으면 안 된다는 표시**가 된다.
     """
     if len(top) < 2:
         return StabilityReport(
@@ -277,28 +444,54 @@ def stability_report(
             stable=False,
             verdict="개체가 2개 미만이라 안정성을 판단할 수 없다",
         )
-    analysts = top[0].analysts
-    normed = [ind.normalized() for ind in top]
-    vectors = [[n.get(a, 0.0) for a in analysts] for n in normed]
-    distances = [
-        sum(abs(x - y) for x, y in zip(v1, v2, strict=True))
-        for v1, v2 in itertools.combinations(vectors, 2)
-    ]
-    mean_distance = statistics.mean(distances)
-    stable = mean_distance <= threshold
-    verdict = (
-        "상위 개체들의 가중치가 서로 비슷하다 — 적합도 지형에 실제 봉우리가 "
-        "있다. 진화 결과를 채택할 수 있다"
-        if stable
-        else "상위 개체들의 가중치가 제각각이다 — 적합도 지형이 평평하다는 "
-        "뜻이고, 이 진화 결과는 노이즈다. 동일가중을 쓰는 것이 낫다"
-    )
+    mean_distance = mean_pairwise_distance(top)
+    within_threshold = mean_distance <= threshold
+
+    if not null_distances:
+        verdict = (
+            "상위 개체들의 가중치가 서로 비슷하다 — 다만 **드리프트 귀무분포를 "
+            "재지 않았다.** 이 판정만으로 채택하지 마라(작은 개체군에서는 신호가 "
+            "없어도 이렇게 나온다)"
+            if within_threshold
+            else "상위 개체들의 가중치가 제각각이다 — 적합도 지형이 평평하다는 "
+            "뜻이고, 이 진화 결과는 노이즈다. 동일가중을 쓰는 것이 낫다"
+        )
+        return StabilityReport(
+            top_n=len(top),
+            mean_pairwise_distance=mean_distance,
+            threshold=threshold,
+            stable=within_threshold,
+            verdict=verdict,
+        )
+
+    quantile = float(np.quantile(np.asarray(null_distances, dtype=float), NULL_ALPHA))
+    beats_drift = mean_distance < quantile
+    stable = within_threshold and beats_drift
+    if not within_threshold:
+        verdict = (
+            "상위 개체들의 가중치가 제각각이다 — 적합도 지형이 평평하다는 뜻이고, "
+            "이 진화 결과는 노이즈다. 동일가중을 쓰는 것이 낫다"
+        )
+    elif not beats_drift:
+        verdict = (
+            f"상위 개체들이 몰려 있긴 하지만 **유전적 드리프트만으로 나올 수 있는 "
+            f"정도다**(귀무 {int(NULL_ALPHA * 100)}%분위 {quantile:.3f}). 봉우리를 "
+            "찾았다는 증거가 아니다 — 동일가중을 쓰는 것이 낫다"
+        )
+    else:
+        verdict = (
+            "상위 개체들이 드리프트로 설명되는 것보다 촘촘하게 몰렸다 — 적합도 "
+            "지형에 실제 봉우리가 있다는 증거다. 다만 채택의 최종 근거는 "
+            "홀드아웃 성적이다(holdout_report)"
+        )
     return StabilityReport(
         top_n=len(top),
         mean_pairwise_distance=mean_distance,
         threshold=threshold,
         stable=stable,
         verdict=verdict,
+        null_quantile=quantile,
+        null_replicates=len(null_distances),
     )
 
 
@@ -327,6 +520,69 @@ class GenerationRecord:
     best_fitness: float
     mean_fitness: float
     best_individual: Individual
+    #: 아래는 전부 2026-08-15 추가. 기존 세 필드의 뜻은 그대로다.
+    #: 적합도 곡선만으로는 "수렴했다" 와 "다양성이 죽어 더 못 움직인다" 가
+    #: 구분되지 않아서, 세대마다 같이 찍는다.
+    worst_fitness: float = 0.0
+    std_fitness: float = 0.0
+    #: 개체군 **전체**의 표현형 다양성. 상위 N개만 보는 안정성 검사와 다르다.
+    diversity: float = 0.0
+    #: 상위 10개의 표현형 다양성 — 안정성 검사와 같은 척도를 세대마다.
+    diversity_top: float = 0.0
+    #: 유전형 다양성(원가중치 표준편차).
+    gene_spread: float = 0.0
+    #: 적합도가 -inf 인 개체 수. 폴드가 통째로 결과를 못 낸 개체다 —
+    #: 이 값이 크면 적합도 곡선이 아니라 **창고·폴드 설정**을 먼저 의심해야 한다.
+    failed: int = 0
+
+    def as_json(self) -> dict[str, object]:
+        """체크포인트 한 줄. 개체는 정규화 가중치로 남긴다(사람이 읽는다)."""
+        return {
+            "generation": self.generation,
+            "best_fitness": self.best_fitness,
+            "mean_fitness": self.mean_fitness,
+            "worst_fitness": self.worst_fitness,
+            "std_fitness": self.std_fitness,
+            "diversity": self.diversity,
+            "diversity_top": self.diversity_top,
+            "gene_spread": self.gene_spread,
+            "failed": self.failed,
+            "best_weights": self.best_individual.normalized(),
+            "best_genes": list(self.best_individual.genes),
+        }
+
+
+class JsonlCheckpoint:
+    """세대마다 한 줄씩 append 하는 체크포인트.
+
+    **왜 도구가 아니라 여기 있는가.** 2026-08-15 새벽, 16×15 진화가 3시간을
+    돌다 죽었는데 로그에 세대가 한 줄도 없었다 — ``evolve`` 가 ``history`` 를
+    다 모은 뒤 호출부가 한꺼번에 찍는 구조라, 중간에 죽으면 그때까지 한 것이
+    통째로 사라진다. 진화는 몇 시간짜리 작업이고 이 기계는 다른 작업과 램을
+    나눠 쓴다. **중단은 예외가 아니라 기본값이다.**
+
+    ``flush()`` 를 매 줄 부른다 — 버퍼에 남은 줄은 죽을 때 같이 죽는다.
+    파일은 append 로만 연다: 재실행이 앞선 실행의 기록을 지우면 안 된다.
+    """
+
+    def __init__(self, path: Path, *, every: int = 1) -> None:
+        if every < 1:
+            raise ValueError("checkpoint_every 는 1 이상이어야 한다")
+        self.path = Path(path)
+        self.every = every
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def __call__(self, record: GenerationRecord) -> None:
+        if record.generation % self.every:
+            return
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record.as_json(), ensure_ascii=False) + "\n")
+            handle.flush()
+
+
+#: ``evolve`` 가 세대를 끝낼 때마다 부른다. 예외를 던지면 진화가 멈춘다 —
+#: 체크포인트를 못 쓰는 상태로 몇 시간을 더 도는 것보다 낫다.
+CheckpointFn = Callable[[GenerationRecord], None]
 
 
 @dataclass
@@ -361,6 +617,8 @@ def evolve(
     seed: int = 0,
     stability_top_n: int = DEFAULT_STABILITY_TOP_N,
     stability_threshold: float = DEFAULT_STABILITY_THRESHOLD,
+    checkpoint: CheckpointFn | None = None,
+    null_replicates: int = DEFAULT_NULL_REPLICATES,
 ) -> EvolutionResult:
     """population × generations 진화 한 번.
 
@@ -390,14 +648,27 @@ def evolve(
         fitnesses = [evaluate(individual, generation) for individual in population]
         scores = [result.fitness for result in fitnesses]
         best_index = max(range(len(scores)), key=lambda i: scores[i])
-        history.append(
-            GenerationRecord(
-                generation=generation,
-                best_fitness=scores[best_index],
-                mean_fitness=statistics.mean(scores),
-                best_individual=population[best_index],
-            )
+        # -inf 는 "탐색 안 한 지역" 이라 평균·표준편차를 삼켜 버린다. 통계는
+        # 유한한 것만으로 내고, 몇 개가 실패했는지는 따로 센다.
+        finite = [s for s in scores if s != float("-inf")]
+        ranked_now = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        record = GenerationRecord(
+            generation=generation,
+            best_fitness=scores[best_index],
+            mean_fitness=statistics.mean(scores),
+            best_individual=population[best_index],
+            worst_fitness=min(finite) if finite else float("-inf"),
+            std_fitness=statistics.pstdev(finite) if len(finite) > 1 else 0.0,
+            diversity=mean_pairwise_distance(population),
+            diversity_top=mean_pairwise_distance(
+                [population[i] for i in ranked_now[:stability_top_n]]
+            ),
+            gene_spread=gene_spread(population),
+            failed=len(scores) - len(finite),
         )
+        history.append(record)
+        if checkpoint is not None:
+            checkpoint(record)
         generations_run = generation + 1
 
         if scores[best_index] > best_fitness + 1e-9:
@@ -421,7 +692,31 @@ def evolve(
 
     ranked = sorted(range(len(fitnesses)), key=lambda i: fitnesses[i].fitness, reverse=True)
     top = [fitnesses[i].individual for i in ranked[:stability_top_n]]
-    stability = stability_report(top, threshold=stability_threshold)
+    # 귀무분포는 **실제로 돈 세대 수**로 만든다 — 조기 종료로 5세대만 돌았는데
+    # 40세대짜리 드리프트 분포와 비교하면 통과가 너무 쉬워진다.
+    null_distances = (
+        drift_null_distances(
+            GAParams(
+                n_analysts=len(analysts),
+                population_size=population_size,
+                generations=generations_run,
+                tournament_k=tournament_k,
+                crossover_rate=crossover_rate,
+                sbx_eta=sbx_eta,
+                mutation_sigma=mutation_sigma,
+                mutation_rate=mutation_rate,
+                elitism=elitism,
+                stability_top_n=stability_top_n,
+            ),
+            replicates=null_replicates,
+            seed=seed,
+        )
+        if null_replicates > 0
+        else None
+    )
+    stability = stability_report(
+        top, threshold=stability_threshold, null_distances=null_distances
+    )
 
     return EvolutionResult(
         population=population,
@@ -448,6 +743,16 @@ def _fold_end(market: Market, start: date, trading_days_count: int) -> date:
             f"(가진 것 {len(sessions)}개) — 폴드 창을 줄이거나 구간을 늘릴 것"
         )
     return sessions[trading_days_count - 1]
+
+
+def _annualized_turnover(performance: stats_module.Performance) -> float:
+    """구간 회전율을 연 회전율로. 거래일이 없으면 0.
+
+    적합도의 두 항(IR·회전율)이 **같은 시간 단위**여야 계수가 뜻을 갖는다.
+    """
+    if performance.days <= 0:
+        return 0.0
+    return performance.turnover * stats_module.TRADING_DAYS_PER_YEAR / performance.days
 
 
 def backtest_fitness(
@@ -530,7 +835,11 @@ def backtest_fitness(
             notes.append(f"{fold_start}: 성적 없음({'; '.join(result.notes)})")
             continue
         ir_values.append(result.performance.return_over_vol)
-        turnover_values.append(result.performance.turnover)
+        # ``Performance.turnover`` 는 **구간 누적**이다(체결금액/평균NAV). 리포트는
+        # 그 정의로 보는 게 맞지만, 적합도에서는 IR 항이 연율화된 값이라 그대로
+        # 빼면 두 항의 단위가 다르다 — 폴드를 길게 잡을수록 회전율 페널티만
+        # 자동으로 커진다. 여기서만 연율로 환산해 맞춘다.
+        turnover_values.append(_annualized_turnover(result.performance))
 
     if not ir_values:
         return FitnessResult(
@@ -557,18 +866,143 @@ def backtest_fitness(
     )
 
 
+# ---------------------------------------------------------------------------
+# 홀드아웃 — selector.md §4 "최종 검증은 별도 테스트 폴드에서 딱 한 번"
+# ---------------------------------------------------------------------------
+
+
+def uniform_individual(analysts: Sequence[str]) -> Individual:
+    """동일가중 개체. 진화가 이겨야 할 상대다 — selector.md §4 는 안정성 검사를
+    통과 못 하면 "동일가중을 쓰는 것이 낫다" 고 했다. 그 문장에 값을 붙이려면
+    동일가중을 **같은 폴드에서 같은 방식으로 채점**해야 한다.
+    """
+    return Individual(analysts=tuple(analysts), genes=tuple([1.0] * len(analysts)))
+
+
+@dataclass(frozen=True)
+class HoldoutReport:
+    """학습에 한 번도 안 쓴 폴드에서 잰 성적."""
+
+    folds: tuple[date, ...]
+    train_fitness: float
+    best: FitnessResult
+    uniform: FitnessResult
+    verdict: str
+
+    @property
+    def edge(self) -> float:
+        """동일가중 대비 초과 IR. **이 값이 0 이하면 진화는 아무것도 못 벌었다.**"""
+        return self.best.ir_median - self.uniform.ir_median
+
+    @property
+    def generalization_gap(self) -> float:
+        """학습 적합도 빼기 홀드아웃 적합도. 크면 학습 구간에 맞춘 것이다."""
+        return self.train_fitness - self.best.fitness
+
+    @property
+    def beats_uniform(self) -> bool:
+        return self.edge > 0.0
+
+    def summary(self) -> str:
+        return (
+            f"홀드아웃 {len(self.folds)}폴드 · 최고개체 IR {self.best.ir_median:+.4f} vs "
+            f"동일가중 IR {self.uniform.ir_median:+.4f} (초과 {self.edge:+.4f}) · "
+            f"일반화 격차 {self.generalization_gap:+.4f}. {self.verdict}"
+        )
+
+
+def holdout_report(
+    best: Individual,
+    *,
+    analysts: Sequence[str],
+    folds: Sequence[date],
+    train_fitness: float,
+    evaluate: Callable[[Individual], FitnessResult],
+) -> HoldoutReport:
+    """진화 결과를 **학습에 안 쓴 폴드**에서 딱 한 번 채점한다.
+
+    ``evaluate`` 가 홀드아웃 폴드 위의 백테스트다 — ``evolve`` 와 같은 이유로
+    창고·오버레이 격리는 호출부 몫이다(개체마다 새 레이어를 깔아야 journal 이
+    충돌하지 않는다).
+
+    **동일가중을 같이 잰다.** 이것이 이 함수의 핵심이다. 홀드아웃 IR 이 양수라는
+    것만으로는 진화가 기여했다는 증거가 안 된다 — 그 구간이 그냥 좋은 장이었을
+    수 있다. 같은 폴드의 동일가중을 빼야 **가중치 탐색이 번 것**이 남는다.
+
+    안정성 검사(``stability_report``)를 대체하는 게 아니라 **보완한다**:
+    그 검사는 작은 개체군에서 드리프트를 봉우리로 오인한다(``NOISE_FLOOR_DISTANCE``).
+    홀드아웃은 그 오인에 면역이다 — 드리프트는 홀드아웃 성적을 만들어 주지 않는다.
+    """
+    if not folds:
+        raise ValueError(
+            "홀드아웃 폴드가 없다 — 학습 구간 밖에 폴드를 만들 수 있는 날짜가 "
+            "있어야 한다. 구간을 넓히거나 fold_days 를 줄일 것"
+        )
+    best_result = evaluate(best)
+    uniform_result = evaluate(uniform_individual(analysts))
+    edge = best_result.ir_median - uniform_result.ir_median
+    if best_result.fitness == float("-inf"):
+        verdict = (
+            "홀드아웃에서 성적을 하나도 못 냈다 — 진화 결과를 채택할 근거가 없다"
+        )
+    elif edge > 0:
+        verdict = (
+            "진화한 가중치가 홀드아웃에서 동일가중을 이겼다 — 학습 구간 밖에서도 "
+            "기여가 남았다"
+        )
+    else:
+        verdict = (
+            "진화한 가중치가 홀드아웃에서 동일가중을 못 이겼다 — 학습 구간에서만 "
+            "좋았던 것이고, 동일가중을 쓰는 것이 낫다(selector.md §4)"
+        )
+    return HoldoutReport(
+        folds=tuple(folds),
+        train_fitness=train_fitness,
+        best=best_result,
+        uniform=uniform_result,
+        verdict=verdict,
+    )
+
+
 def resample_folds(
     available_starts: Sequence[date],
     count: int,
     rng: np.random.Generator,
+    *,
+    min_gap_days: int = 0,
 ) -> list[date]:
     """세대마다 검증 구간을 바꾼다(selector.md §4 과적합 방지).
 
     복원추출 없이 뽑되, 가용한 시작일보다 ``count`` 가 많으면 있는 만큼만
     준다 — 없는 폴드를 지어내지 않는다.
+
+    ``min_gap_days`` 는 뽑힌 시작일 사이의 **최소 간격(달력일)** 이다. 0 이면
+    옛 동작 그대로다.
+
+    **왜 필요한가.** 시작일만 무작위로 뽑으면 두 폴드가 거의 같은 구간이 될 수
+    있다. 2026-08-15 실측(seed 0, 15거래일 폴드, 2개월 후보군): 15세대 중 네
+    세대에서 두 시작일이 2~6일 차이였다 — 15거래일 창이니 **13일가량 겹친다.**
+    그 세대에서는 "여러 시작일의 중앙값으로 평가한다" 는 과적합 방어가 사실상
+    폴드 하나짜리가 되고, 그런 줄 모른 채 적합도를 믿게 된다.
+
+    간격을 못 채우면 **있는 만큼만 준다.** 억지로 채우려고 겹치는 폴드를 끼워
+    넣으면 방어가 있다고 착각하게 되므로, 모자라는 쪽이 정직하다.
     """
     if not available_starts:
         return []
     n = min(count, len(available_starts))
-    indices = rng.choice(len(available_starts), size=n, replace=False)
-    return [available_starts[int(i)] for i in indices]
+    if min_gap_days <= 0:
+        indices = rng.choice(len(available_starts), size=n, replace=False)
+        return [available_starts[int(i)] for i in indices]
+
+    # 무작위 순서로 훑으며 이미 뽑은 것과 충분히 떨어진 것만 취한다. 그리디라
+    # 최대 개수를 보장하진 않지만, 편향 없이 뽑으면서 겹침을 막는다.
+    order = rng.permutation(len(available_starts))
+    picked: list[date] = []
+    for index in order:
+        candidate = available_starts[int(index)]
+        if all(abs((candidate - chosen).days) >= min_gap_days for chosen in picked):
+            picked.append(candidate)
+            if len(picked) == n:
+                break
+    return picked

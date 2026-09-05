@@ -271,3 +271,69 @@ def test_액션_반영률을_계산한다(seeded) -> None:
 
     rate = action_reflection_rate(seeded, as_of=NOW)
     assert 0.0 <= rate <= 1.0
+
+
+# -- 상장폐지 보유 데드락 ------------------------------------------------------------
+
+
+def test_시세_없는_보유가_매수를_잠그지_않는다(seeded) -> None:
+    """**이게 몇 달치 백테스트를 조용히 무의미하게 만들었다.**
+
+    데이터 품질 게이트가 ``targets`` 전체를 세면, 상장폐지 보유 하나가 결측률을
+    임계 위로 밀어 올려 신규매수가 전면 차단된다. 그런데 그 종목은 시세가 없어
+    팔 수도 없으므로(sizing 의 price<=0 가드) 게이트가 풀릴 길이 없다.
+
+    2026-08-17 보정가 OOS 백테스트 실측: KR:005390 이 2025-09-29 상장폐지된 뒤로
+    매수가 한 건도 안 나갔고, 주식비중이 81% → 3.7% 로 단조 감소하다 그 한
+    종목만 남았다. 후보 24종목은 매일 정상이었고 점수도 양수였고 현금도 1억이
+    있었다. **못 파는 보유 하나가 전부를 잠갔다.**
+    """
+    clock = ReplayClock(NOW)
+    # 살 종목(시세 있음) + 상장폐지 보유(시세 없음).
+    mixed = [
+        Target("KR:A", weight=0.10, price=1_000.0, adv_value=1e9),
+        Target("KR:DEAD", weight=0.0, price=0.0, adv_value=0.0),
+    ]
+
+    result = pipeline.run(
+        seeded, clock, as_of=NOW, market="KR", targets=mixed,
+        holdings={"KR:DEAD": 944}, equity=10_000_000.0,
+    )
+
+    buys = [item for item in result.planned if item.order.side is Side.BUY]
+    assert buys, f"매수가 잠겼다 — notes={result.notes}"
+    assert not any("신규매수 차단" in item.reason for item in result.skipped)
+
+
+def test_못_파는_보유는_조용히_넘어가지_않는다(seeded) -> None:
+    """게이트를 안 걸더라도 사실은 남겨야 한다. 안 그러면 "왜 이 종목이 계속
+    있지" 를 아무도 못 묻는다."""
+    clock = ReplayClock(NOW)
+    mixed = [
+        Target("KR:A", weight=0.10, price=1_000.0, adv_value=1e9),
+        Target("KR:DEAD", weight=0.0, price=0.0, adv_value=0.0),
+    ]
+
+    result = pipeline.run(
+        seeded, clock, as_of=NOW, market="KR", targets=mixed,
+        holdings={"KR:DEAD": 944}, equity=10_000_000.0,
+    )
+
+    assert any("KR:DEAD" in note for note in result.notes), result.notes
+    assert any("팔 수 없다" in note for note in result.notes), result.notes
+
+
+def test_후보_시세가_빠지면_여전히_막는다(seeded) -> None:
+    """게이트를 무력화한 것이 아니다. **살 종목**의 결측은 그대로 걸린다 —
+    가격을 모르는 종목을 사려 들면 어제 가격으로 주문이 나간다."""
+    clock = ReplayClock(NOW)
+    # 창고에 없는 종목을 사려 한다 = 후보 중 결측.
+    unknown = [Target("KR:GHOST", weight=0.10, price=1_000.0, adv_value=1e9)]
+
+    result = pipeline.run(
+        seeded, clock, as_of=NOW, market="KR", targets=unknown,
+        holdings={}, equity=10_000_000.0,
+    )
+
+    assert result.planned == ()
+    assert any("결측" in note or "시세" in note for note in result.notes), result.notes

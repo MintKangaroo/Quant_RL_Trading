@@ -39,13 +39,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest.execution import currency_of
 from quant_rl_trading.broker import Fill
-from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials
 from quant_rl_trading.broker.ls_order_us import PATH_ACCNO_US
+from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials
 from quant_rl_trading.collectors.ls_client import PATH_ACCNO
 from quant_rl_trading.schemas.order import Side
 
@@ -55,11 +56,11 @@ if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 __all__ = [
+    "TR_FILLS",
     "FillOutcome",
     "FillState",
     "PendingFill",
     "SyncResult",
-    "TR_FILLS",
     "sync_fills",
 ]
 
@@ -72,6 +73,9 @@ TR_FILLS = "t0425"
 #: (부분체결 차분·자연키·비용 계산)은 시장과 무관해서 그대로 공유한다 —
 #: 갈리는 것은 "행을 어떻게 얻어오는가" 하나뿐이라 :class:`FillQuery` 로 뺐다.
 TR_FILLS_US = "COSAQ00102"
+
+#: 미장 주문일 기준 시간대. LS 는 **거래소 날짜**로 주문을 가른다.
+NEW_YORK = ZoneInfo("America/New_York")
 
 #: 미장 주문시장코드. **한 번에 전종목을 못 받는다** — ``OrdMktCode`` 가 필수라
 #: 뉴욕·나스닥을 각각 부르고 합쳐야 한다. 초당 1건 한도라 한 사이클에 2초 든다.
@@ -171,7 +175,7 @@ def sync_fills(
     # 시장별 조회. 결과는 (주문번호 → 행) 또는 실패 사유 문자열.
     fetched: dict[str, dict[str, dict[str, Any]] | str] = {}
     for market in sorted({item.market for item in pending}):
-        fetched[market] = _fetch_fill_rows(client, market)
+        fetched[market] = _fetch_fill_rows(client, market, as_of=as_of)
 
     recorded_so_far = _recorded_quantities(store, as_of=as_of, pending=pending)
 
@@ -297,7 +301,7 @@ _PRICE_KEYS: dict[str, tuple[str, ...]] = {
 
 
 def _fetch_fill_rows(
-    client: LSClient, market: str
+    client: LSClient, market: str, *, as_of: datetime
 ) -> dict[str, dict[str, Any]] | str:
     """그 시장의 체결 조회. 성공하면 주문번호→행, 실패하면 사유 문자열.
 
@@ -320,7 +324,16 @@ def _fetch_fill_rows(
                         "BnsTpCode": "0",  # 전체
                         "IsuNo": "",
                         "SrtOrdNo": 0,  # 정순이면 0 부터
-                        "OrdDt": "",
+                        # **주문일을 반드시 준다.** 비워 두면 LS 가 오늘로
+                        # 해석하고, 미장 주문은 한국 날짜가 넘어간 뒤에 조회되는
+                        # 일이 흔해서 그대로 "조회내역이 없습니다"(02679)가 온다.
+                        # 그 코드는 **"없다" 와 "잘못 물었다" 를 구분해 주지
+                        # 않는다** — 2026-08-17 SNAP 주문이 0.4초 만에 체결됐는데
+                        # 5회 조회가 전부 "브로커 응답에 주문 없음" 으로 돌아왔다.
+                        # 미장 주문일은 **뉴욕 날짜**다. 한국시간 22:40 은 뉴욕
+                        # 09:40 이라 같은 날이지만, 새벽 03:00(뉴욕 13:00)에 낸
+                        # 주문은 한국 날짜가 하루 앞선다.
+                        "OrdDt": as_of.astimezone(NEW_YORK).strftime("%Y%m%d"),
                         "ExecYn": "0",  # 0:전체 — 미체결 잔량과 체결을 한 번에
                         "CrcyCode": "USD",
                         "ThdayBnsAppYn": "0",

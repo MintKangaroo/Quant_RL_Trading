@@ -22,12 +22,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
+from quant_rl_trading.indicators import wilder_rsi
+
+from quant_rl_trading.accounting import performance as performance_module
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.dashboard.services import market as market_service
 from quant_rl_trading.replay.clock import Clock
@@ -41,6 +44,7 @@ from quant_rl_trading.reporting.sessions import (
     fx_source_latest,
 )
 from quant_rl_trading.store import Store
+from quant_rl_trading.store import mode as store_mode
 from quant_rl_trading.store.prices import read_prices
 
 DOCUMENTS = "documents"
@@ -67,6 +71,34 @@ REPORT_INDICES: dict[str, tuple[tuple[str, str], ...]] = {
         ("US:IDX:SOX", "필라델피아 반도체"),
         ("US:IDX:VIX", "VIX (S&P 변동성)"),
         ("US:IDX:VXN", "VXN (나스닥 변동성)"),
+    ),
+}
+
+#: 지수 **대용 ETF**. FRED 지수를 대체하지 않고 **옆에 세운다.**
+#:
+#: ## 왜 필요한가
+#:
+#: FRED 는 하루 늦다. 실측 2026-08-19 08:55 KST(뉴욕 마감 4시간 뒤) 에
+#: SP500·NASDAQ·NASDAQ100·SOX·VIX·VXN 이 08-17 에 멈춰 있었고 다우 계열
+#: (DJIA·DJTA·DJUA)만 08-18 이었다. 같은 시각 LS 해외는 네 ETF 모두 08-18 을
+#: 줬다. 이 메일은 미장 마감 뒤 새벽에 나가므로, 지수만 실으면 **읽는 사람이
+#: 방금 끝난 장을 못 본다.**
+#:
+#: ## 이름을 바꿔치기하지 않는다
+#:
+#: 라벨에 **ETF 라고 적는다.** "S&P 500" 이라 쓰고 SPY 를 실으면 그 순간
+#: 메일이 거짓말을 시작한다 — SPY 종가 767 은 S&P 500 의 7,745 가 아니고,
+#: 분배락·운용보수·추적오차만큼 등락도 어긋난다. 마켓 탭이 같은 규칙을 쓴다
+#: (``dashboard/services/market.py`` 의 ``US_ETF_PANELS``).
+#:
+#: 창고 위치도 다르다 — 이쪽은 ``indices`` 가 아니라 ``prices`` 다. 그래서
+#: 읽는 함수가 따로 있고, 화면에서도 다른 묶음으로 나간다.
+REPORT_PROXY_ETFS: dict[str, tuple[tuple[str, str], ...]] = {
+    "US": (
+        ("US:SPY", "SPY (S&P 500 추종 ETF)"),
+        ("US:QQQ", "QQQ (나스닥 100 추종 ETF)"),
+        ("US:DIA", "DIA (다우 추종 ETF)"),
+        ("US:SOXX", "SOXX (ICE 반도체 추종 ETF)"),
     ),
 }
 
@@ -100,6 +132,11 @@ class IndexRow:
     change: float | None
     session: date | None
     note: str | None = None
+    #: RSI(기본 14). 표본이 모자라면 ``None`` — **0 으로 채우지 않는다.**
+    #: 0 은 극단적 과매도라는 뜻이고, "못 쟀다" 와 정반대의 말이다.
+    rsi: float | None = None
+    #: ``"overbought"`` | ``"oversold"`` | ``None``. 임계는 store.config.
+    rsi_zone: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -110,6 +147,8 @@ class IndexRow:
             "change": self.change,
             "session": self.session.isoformat() if self.session else None,
             "note": self.note,
+            "rsi": self.rsi,
+            "rsi_zone": self.rsi_zone,
         }
 
 
@@ -138,6 +177,17 @@ class Floor:
         }
 
 
+#: 메일에 시장이 나오는 순서. **여기 하나만 고치면 전부 바뀐다.**
+#:
+#: 순서를 바꿔야 할 때 같은 튜플이 대여섯 군데 흩어져 있으면 반드시 한 곳을
+#: 빠뜨린다 — 이 저장소가 반복해서 겪은 결함 계열이다. 섹션·헤드라인·결측
+#: 목록·텍스트 대체본이 전부 이 하나를 읽는다.
+#:
+#: 미장이 앞이다. 이 메일은 **미장 마감 뒤 새벽에 나가서**, 읽는 시점에
+#: 방금 끝난 장은 미장이고 국장은 아직 열리지 않았다.
+MARKET_ORDER = ("US", "KR")
+
+
 @dataclass(frozen=True)
 class MarketBrief:
     market: str
@@ -149,6 +199,13 @@ class MarketBrief:
     rankings: list[Ranking]
     floor: Floor
     news: NewsSection
+    #: 지수 **대용 ETF**. 지수를 대체하는 것이 아니라 옆에 서는 줄이다 —
+    #: 출처(LS 해외)도 창고 표(``prices``)도 위의 ``prices``(FRED·``indices``)와
+    #: 다르므로 화면이 둘을 갈라서 보여야 한다.
+    #:
+    #: 기본값이 빈 목록인 이유는 국장이다 — 국장은 KRX 가 당일 지수를 주므로
+    #: 대용치가 없고, 그 자리를 억지로 채우지 않는다.
+    proxies: list[IndexRow] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -158,6 +215,7 @@ class MarketBrief:
             "price_session": self.price_session.as_dict(),
             "prices": [row.as_dict() for row in self.prices],
             "volatility": [row.as_dict() for row in self.volatility],
+            "proxies": [row.as_dict() for row in self.proxies],
             "rankings": [rank.as_dict() for rank in self.rankings],
             "floor": self.floor.as_dict(),
             "news": self.news.as_dict(),
@@ -178,6 +236,22 @@ class Briefing:
     #: 정상이라, 좌우로 가르면 그 사실이 안 보인다.
     macro: MacroSection
     markets: dict[str, MarketBrief]
+    #: 그날의 성과 — 매매내역·수익률·총수익률·자산증감.
+    #:
+    #: **회계가 접어 준 것을 그대로 든다** (``accounting/performance.py``).
+    #: 브리핑이 NAV 나 수익률을 자기가 계산하면 화면·보상함수와 어긋나고,
+    #: 어긋난 순간 어느 쪽이 맞는지 판정할 방법이 없다 (accounting.md §8).
+    #:
+    #: **창고 하나만 읽는다.** 이 값은 ``build_briefing`` 에 넘어온 그 store
+    #: 에서 온다 — 실전 창고로 부르면 실전, ``data/_shadow`` 로 부르면 모의
+    #: 운용이다. 한 메일에 두 창고 숫자가 섞이는 일이 구조적으로 없다.
+    #:
+    #: ``None`` 이면 성과 섹션을 아예 안 실은 것이다(옛 호출부·테스트).
+    #: "성과가 0" 과 다른 사실이라 렌더러가 자리를 통째로 비운다.
+    performance: performance_module.Performance | None = None
+    #: 데이터 기준일 — 국장 시세·지수, 미장 지수·시세, 환율의 창고 최신 세션 대 기대 세션.
+    #: 메일 맨 위에 그대로 적는다(사용자 요청 2026-08-28: "최신 데이터인지 두 번 검증하기 싫다").
+    freshness: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def gaps(self) -> list[Gap]:
@@ -194,7 +268,12 @@ class Briefing:
         낼 수 있어 ``fx_gap_kind`` 를 따로 판정한다.
         """
         out: list[Gap] = []
-        for code, brief in self.markets.items():
+        # 결측 목록도 섹션과 같은 순서다 — 위에서 본 순서와 아래 목록의
+        # 순서가 다르면 둘을 짝지어 읽을 수 없다.
+        ordered = [code for code in MARKET_ORDER if code in self.markets]
+        ordered += [code for code in self.markets if code not in MARKET_ORDER]
+        for code in ordered:
+            brief = self.markets[code]
             for ref in (brief.index_session, brief.price_session):
                 if ref.note:
                     out.append(Gap(MISSING, ref.note))
@@ -220,6 +299,7 @@ class Briefing:
             "gaps": [gap.as_dict() for gap in self.gaps],
             "macro": self.macro.as_dict(),
             "markets": {code: brief.as_dict() for code, brief in self.markets.items()},
+            "performance": self.performance.as_dict() if self.performance else None,
         }
 
 
@@ -246,6 +326,40 @@ class _Quote:
     session: date | None
     #: 등락을 잰 기준 세션. **직전 거래일이 아닐 수 있다.**
     prior: date | None
+
+
+def _quotes(frame: pd.DataFrame) -> tuple[dict[str, _Quote], date | None]:
+    """(entity_id → 마지막 두 세션, 그중 가장 최신 세션).
+
+    지수(``indices``)와 대용 ETF(``prices``)가 **같은 규칙을 쓰게** 하려고
+    뽑아 뒀다. 두 곳이 종가 0 을 다르게 다루면 같은 메일 안에서 한쪽만
+    -100% 로 보인다.
+    """
+    latest: dict[str, _Quote] = {}
+    observed: date | None = None
+    if frame.empty:
+        return latest, observed
+    for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
+        # 휴장·미수집 세션은 종가가 0 이나 NaN 으로 들어온다. 섞으면 지수가
+        # 하루 만에 -100% 로 보인다 (market_service.indices 와 같은 규칙).
+        closes = group["close"].astype(float)
+        live = group[closes > 0]
+        if live.empty:
+            continue
+        values = live["close"].astype(float)
+        last = float(values.iloc[-1])
+        previous = float(values.iloc[-2]) if len(values) >= 2 else None
+        session = _session_of(live["valid_from"].iloc[-1])
+        prior = _session_of(live["valid_from"].iloc[-2]) if len(values) >= 2 else None
+        latest[str(entity)] = _Quote(
+            close=last,
+            change=(last / previous - 1.0) if previous else None,
+            session=session,
+            prior=prior,
+        )
+        if session and (observed is None or session > observed):
+            observed = session
+    return latest, observed
 
 
 def _quote_note(quote: _Quote, *, market: str, expected: date | None) -> str | None:
@@ -297,31 +411,22 @@ def index_rows(
         columns=["entity_id", "close", "valid_from"],
     )
 
-    latest: dict[str, _Quote] = {}
-    observed: date | None = None
-    if not frame.empty:
-        for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
-            # 휴장·미수집 세션은 종가가 0 이나 NaN 으로 들어온다. 섞으면 지수가
-            # 하루 만에 -100% 로 보인다 (market_service.indices 와 같은 규칙).
-            closes = group["close"].astype(float)
-            live = group[closes > 0]
-            if live.empty:
-                continue
-            values = live["close"].astype(float)
-            last = float(values.iloc[-1])
-            previous = float(values.iloc[-2]) if len(values) >= 2 else None
-            session = _session_of(live["valid_from"].iloc[-1])
-            prior = _session_of(live["valid_from"].iloc[-2]) if len(values) >= 2 else None
-            latest[str(entity)] = _Quote(
-                close=last,
-                change=(last / previous - 1.0) if previous else None,
-                session=session,
-                prior=prior,
-            )
-            if session and (observed is None or session > observed):
-                observed = session
-
+    latest, observed = _quotes(frame)
     ref = describe(Market(market), "지수", expected=expected, observed=observed)
+
+    # RSI 는 창이 달라 따로 읽는다 — 지수 조회는 10일이라 RSI(14)에 모자란다.
+    # **가격지수만 잰다.** VIX 의 RSI 는 "변동성의 과매수" 라는 뜻이 되는데
+    # 그게 무엇인지 우리는 답할 수 없고, 답할 수 없는 숫자는 안 적는다.
+    period = int(store.config("reporting.rsi_period", as_of=as_of))
+    over = float(store.config("reporting.rsi_overbought", as_of=as_of))
+    under = float(store.config("reporting.rsi_oversold", as_of=as_of))
+    price_entities = [
+        entity for entity, _ in wanted
+        if entity not in market_service.VOLATILITY_INDICES
+    ]
+    rsi_by_entity = index_rsi(
+        store, as_of=as_of, market=market, entities=price_entities, period=period
+    )
 
     prices: list[IndexRow] = []
     volatility: list[IndexRow] = []
@@ -343,6 +448,14 @@ def index_rows(
                 note="창고에 이 지수가 없다",
             )
         else:
+            value = rsi_by_entity.get(entity)
+            zone = None
+            if value is not None:
+                zone = (
+                    "overbought" if value >= over
+                    else "oversold" if value <= under
+                    else None
+                )
             row = IndexRow(
                 entity_id=entity,
                 label=label,
@@ -351,9 +464,96 @@ def index_rows(
                 change=found.change,
                 session=found.session,
                 note=_quote_note(found, market=market, expected=expected),
+                rsi=value,
+                rsi_zone=zone,
             )
         (volatility if kind == "volatility" else prices).append(row)
     return prices, volatility, ref
+
+
+#: RSI 를 재려면 기간보다 넉넉한 표본이 있어야 한다. Wilder 평활은 앞쪽
+#: 값의 영향이 오래 남아서, 기간 딱 맞게 주면 첫 구간이 단순평균과 다를
+#: 바 없어진다. 휴장·연휴까지 감안해 달력일로 넉넉히 잡는다.
+RSI_LOOKBACK_DAYS = 150
+
+
+def index_rsi(
+    store: Store, *, as_of: datetime, market: str, entities: list[str], period: int
+) -> dict[str, float]:
+    """지수별 RSI. 못 잰 것은 **키 자체가 없다** (0 으로 채우지 않는다)."""
+    frame = store.get(
+        market_service.INDICES,
+        as_of=as_of,
+        lookback=RSI_LOOKBACK_DAYS,
+        market=market,
+        entity=entities,
+        columns=["entity_id", "close", "valid_from"],
+    )
+    if frame.empty:
+        return {}
+    out: dict[str, float] = {}
+    for entity, group in frame.groupby("entity_id"):
+        ordered = group.sort_values("valid_from")
+        value = wilder_rsi(ordered["close"], period)
+        if value is not None:
+            out[str(entity)] = value
+    return out
+
+
+def proxy_rows(
+    store: Store, *, as_of: datetime, market: str, expected: date | None
+) -> list[IndexRow]:
+    """지수 대용 ETF 줄. **지수 목록에 섞지 않고 따로 돌려준다.**
+
+    창고 위치가 다르다 — ``indices`` 가 아니라 ``prices`` 다(ETF 는 종목이다).
+    화면도 따로 묶어야 한다: 같은 표에 넣으면 "S&P 500 7,745" 와 "SPY 767" 이
+    나란히 서서 둘 중 하나가 틀린 것처럼 보인다. 다른 것이지 틀린 것이 아니다.
+
+    ``REPORT_PROXY_ETFS`` 에 없는 시장(국장)은 빈 목록이다 — 국장은 KRX 가
+    당일 지수를 주므로 대용치가 필요 없다.
+    """
+    wanted = REPORT_PROXY_ETFS.get(market, ())
+    if not wanted:
+        return []
+
+    frame = read_prices(
+        store,
+        as_of=as_of,
+        market=market,
+        entity=[entity for entity, _ in wanted],
+        lookback=INDEX_LOOKBACK_DAYS,
+        columns=["entity_id", "close", "valid_from"],
+    )
+    latest, _ = _quotes(frame)
+
+    rows: list[IndexRow] = []
+    for entity, label in wanted:
+        found = latest.get(entity)
+        if found is None:
+            rows.append(
+                IndexRow(
+                    entity_id=entity,
+                    label=label,
+                    kind="price",
+                    close=None,
+                    change=None,
+                    session=None,
+                    note="창고에 이 ETF 가 없다",
+                )
+            )
+            continue
+        rows.append(
+            IndexRow(
+                entity_id=entity,
+                label=label,
+                kind="price",
+                close=found.close,
+                change=found.change,
+                session=found.session,
+                note=_quote_note(found, market=market, expected=expected),
+            )
+        )
+    return rows
 
 
 #: 순위표 2종. 키는 창고의 컬럼 이름, 값은 (제목, 정렬 기준 설명).
@@ -408,9 +608,23 @@ class Ranking:
     rows: list[RankRow]
     #: 하한을 통과해 순위 경쟁에 들어간 종목 수.
     eligible: int
-    #: 그 세션에 값이 있던 전체 종목 수. eligible 과의 차이가 하한이 걸러낸 양이다.
+    #: 그 세션에 창고가 값을 아는 전체 종목 수. eligible 과의 차이가 걸러진 양이다.
+    #:
+    #: **언제나 ``eligible`` 이상이어야 한다.** 이 둘이 다른 모집단에서 오면
+    #: 비율이 1을 넘고, 그 위에 얹은 "커버리지 xx%" 가 통째로 거짓이 된다
+    #: (실측 사고: 43450%). ``rankings`` 의 시가총액 분기 주석 참고.
     universe: int
     note: str | None = None
+    #: ``rows[].change`` 를 잰 세션. **``session`` 과 다를 수 있다.**
+    #:
+    #: 시가총액 순위가 그렇다. 순위는 ``market_stats`` 의 시총으로 매기는데
+    #: 그 테이블이 ``prices`` 보다 늦게 들어와서, 실측 2026-08-18 기준으로
+    #: 순위는 08-11 시총이고 등락률은 08-14 시세다. **사흘이 한 줄 안에
+    #: 섞여 있고, 읽는 사람은 둘 다 08-11 로 읽는다.**
+    #:
+    #: 값을 맞추지 않고(더 오래된 등락으로 되돌리면 정보가 준다) **어느
+    #: 시점의 것인지 말한다.** 화면이 그 일을 한다 — ``render._ranking_rows``.
+    change_session: date | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -422,6 +636,9 @@ class Ranking:
             "rows": [row.as_dict() for row in self.rows],
             "eligible": self.eligible,
             "universe": self.universe,
+            "change_session": (
+                self.change_session.isoformat() if self.change_session else None
+            ),
             "note": self.note,
         }
 
@@ -608,8 +825,21 @@ def rankings(
                     prior=prior,
                     rows=rows,
                     eligible=len(frame),
-                    universe=len(panel),
+                    # **분모는 분자를 담는 모집단이어야 한다.** 여기 ``len(panel)``
+                    # 을 쓰던 때가 있었다 — 시세 판과 시총 판은 **다른 모집단**이라
+                    # 비율이 1을 넘을 수 있고, 실제로 넘었다. 2026-08-18 실측:
+                    # 미장 시세가 밀려 panel 이 15행인데 caps 는 4,345행이라
+                    # 메일에 **커버리지 43450%** 가 찍혀 나갔다.
+                    #
+                    # 합집합 = 그 세션에 창고가 **무엇이든 아는** 종목 수다.
+                    # caps 는 언제나 그 부분집합이라 비율이 구조적으로 1 이하다.
+                    # 정상 데이터에서는 시총을 모르는 종목만 분모에 더해지므로
+                    # 원래 뜻(시총을 아는 비율) 그대로다 — 실측 4,345/6,647 = 65%.
+                    universe=len(panel.index.union(caps.index)),
                     note=stale("시가총액", cap_session),
+                    # 등락률은 시총이 아니라 **시세 판**에서 왔다. 두 날짜가
+                    # 다를 수 있다는 사실을 여기서 잃어버리면 화면이 못 되찾는다.
+                    change_session=session,
                 )
             )
             continue
@@ -625,6 +855,7 @@ def rankings(
                 eligible=len(liquid),
                 universe=len(panel),
                 note=stale("시세", session),
+                change_session=session,
             )
         )
     return out, filled, panel
@@ -686,6 +917,9 @@ class MacroRow:
     unit: str
     #: **발표 시각.** ``valid_from``(우리가 안 시각)이 아니다.
     released_at: datetime
+    #: 시장 예측치(컨센서스, macro_consensus 표) — 피드 표기 그대로. 없으면 None.
+    forecast: str | None = None
+    forecast_previous: str | None = None
 
     @property
     def is_percent(self) -> bool:
@@ -838,7 +1072,37 @@ def macro_section(
     deduped = sorted(
         seen.values(), key=lambda row: (row.released_at, row.entity_id), reverse=True
     )
-    return MacroSection(deduped[:limit], _macro_notes(deduped), since)
+    deduped = _attach_consensus(store, deduped[:limit], as_of=as_of)
+    return MacroSection(deduped, _macro_notes(deduped), since)
+
+
+def _attach_consensus(store: Store, rows: list[MacroRow], *, as_of: datetime) -> list[MacroRow]:
+    """발표 행에 같은 지표·같은 날(±36시간)의 예측치를 붙인다. 없으면 그대로 — 지어내지 않는다."""
+    if not rows:
+        return rows
+    try:
+        frame = store.get(
+            "macro_consensus", as_of=as_of, lookback=MACRO_LOOKBACK_DAYS,
+            columns=["entity_id", "valid_from", "forecast", "previous", "observed_at"],
+        )
+    except Exception:
+        return rows
+    if frame.empty:
+        return rows
+    frame = frame.sort_values("observed_at")
+    out: list[MacroRow] = []
+    for row in rows:
+        hits = frame[frame["entity_id"] == row.entity_id]
+        if not hits.empty:
+            gap = (pd.to_datetime(hits["valid_from"], utc=True) - pd.Timestamp(row.released_at)).abs()
+            hits = hits[gap <= pd.Timedelta(hours=36)]
+        if hits.empty:
+            out.append(row)
+            continue
+        last = hits.iloc[-1]
+        forecast = str(last.get("forecast") or "").strip() or None
+        out.append(replace(row, forecast=forecast, forecast_previous=str(last.get("previous") or "").strip() or None))
+    return out
 
 
 def _macro_notes(rows: list[MacroRow]) -> list[str]:
@@ -1030,6 +1294,7 @@ def market_brief(
     prices, volatility, index_ref = index_rows(
         store, as_of=as_of, market=market, headline=headline, expected=expected
     )
+    proxies = proxy_rows(store, as_of=as_of, market=market, expected=expected)
     currency = market_service.CURRENCY.get(market, "")
     suffix = currency.lower()
     floor = Floor(
@@ -1055,6 +1320,7 @@ def market_brief(
         price_session=price_ref,
         prices=prices,
         volatility=volatility,
+        proxies=proxies,
         rankings=ranks,
         floor=filled,
         news=news_section(
@@ -1136,20 +1402,52 @@ def _translate_us_news(
         )
         for row in us.news.rows
     ]
-    new_us = MarketBrief(
-        market=us.market,
-        currency=us.currency,
-        index_session=us.index_session,
-        price_session=us.price_session,
-        prices=us.prices,
-        volatility=us.volatility,
-        rankings=us.rankings,
-        floor=us.floor,
+    # **필드를 손으로 옮겨 적지 않는다.** 여기는 뉴스만 바꾸는 자리인데
+    # 전부 나열해 두면, 나중에 필드가 하나 늘 때 이 함수만 빠뜨린다 —
+    # 실제로 그랬다(대용 ETF 줄이 미장에서만 조용히 사라졌다. 국장은 이
+    # 함수를 안 지나서 멀쩡했고, 그래서 더 안 보였다).
+    new_us = replace(
+        us,
         news=NewsSection(
             rows=new_rows, total=us.news.total, criteria=us.news.criteria, note=us.news.note
         ),
     )
     return {**markets, "US": new_us}
+
+
+def _performance(store: Store, *, as_of: datetime) -> performance_module.Performance:
+    """그날 성과. **회계에서 읽어 온다 — 여기서 계산하지 않는다.**
+
+    회계는 환율이 없으면 예외를 던진다(그게 옳다 — 1.0 으로 때우면 NAV 가
+    무너진다). 그런데 **리포트는 비필수 경로**라(reporting.md §2), 그 예외가
+    메일 전체를 못 나가게 하면 안 된다. 그래서 여기서 붙잡아 "못 쟀다" 로
+    바꾼다 — 없는 것을 0 으로 그리는 것이 아니라, 못 쟀다고 적는 것이다.
+    """
+    try:
+        return performance_module.daily(store, as_of=as_of)
+    except Exception as error:  # noqa: BLE001 - 메일은 나가야 한다
+        mode = store_mode.of(store.root)
+        return performance_module.Performance(
+            mode=mode.code,
+            mode_note=mode.note,
+            store_root=str(store.root),
+            session=None,
+            previous_session=None,
+            since=None,
+            nav=None,
+            previous_nav=None,
+            nav_change=None,
+            inflow=None,
+            pnl=None,
+            daily_return=None,
+            cumulative_return=None,
+            index_value=None,
+            drawdown=None,
+            principal=None,
+            total_pnl=None,
+            fills=[],
+            note=f"회계가 성과를 못 냈다 — {error}",
+        )
 
 
 def build_briefing(
@@ -1198,4 +1496,16 @@ def build_briefing(
             store, as_of=as_of, sessions=expected, limit=int(settings["macro_rows"])
         ),
         markets=markets,
+        performance=_performance(store, as_of=as_of),
+        freshness=_freshness(store, as_of=as_of),
     )
+
+
+def _freshness(store: Store, *, as_of: datetime) -> list[dict[str, Any]]:
+    """대시보드 띠와 **같은 계산**(services/freshness) — 메일과 화면이 다른 날짜를 말하면 안 된다."""
+    try:
+        from quant_rl_trading.dashboard.services.freshness import summary
+
+        return list(summary(store, as_of=as_of)["items"])
+    except Exception:  # 브리핑은 나가야 한다 — 띠가 못 만들어지면 빈 채로
+        return []

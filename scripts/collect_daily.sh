@@ -28,15 +28,60 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
 
     # 1. 시세 + 유니버스. --table 을 안 주면 이 둘이다.
     #
-    #    **국장만 부른다.** 미장 시세는 날짜 축이 아니라 **종목 축**이라
-    #    (LS g3204 는 심볼 하나의 전 기간을 준다) `--sessions` 가 먹지 않고,
+    #    **국장만 이 도구를 쓴다.** 미장 시세는 날짜 축이 아니라 **종목 축**
+    #    이라(LS g3204 는 심볼 하나의 기간을 준다) `--sessions` 가 먹지 않고,
     #    `--market US` 는 6,648종목 × 8배치를 통째로 다시 도는 전체 백필이
     #    된다 — 하루 한 번 도는 스크립트에서 부를 수 있는 물건이 아니다.
-    #    미장 일봉의 일일 증분 수집은 아직 없고, 지금은 사람이 백필 도구를
-    #    돌린다 (2026-08-15 기준 시세가 08-12 에서 멈춰 있다).
+    #    미장은 바로 아래 1-1 의 전용 증분 도구가 받는다.
     if [ "${MARKET}" = "KR" ]; then
         .venv/bin/python tools/backfill.py --market "${MARKET}" --sessions "${SESSIONS}"
         echo "  시세·유니버스 rc=$?"
+
+        # 상장주식수·시가총액. **위 한 줄에 안 딸려 온다** — `--table` 을 안 주면
+        # 시세와 유니버스 둘뿐이고 `shares` 패널(OPENAPI_PANELS)은 따로 불러야
+        # 한다. 그래서 시세는 매일 들어오는데 시총만 조용히 멈춰 있었다:
+        # 실측 2026-08-18 시세 08-14 · 시총 08-11 (3세션 결손).
+        #
+        # 마켓 탭의 시총 순위표·트리맵이 이걸 읽는다. 없으면 표가 통째로 비고,
+        # 화면은 "상장주식수가 없다"(= 수집기가 없다)고 말한다 — 있는 것을
+        # 없다고 말하는 문구라 원인을 엉뚱한 데서 찾게 된다.
+        .venv/bin/python tools/backfill.py \
+            --market "${MARKET}" --table shares --sessions "${SESSIONS}"
+        echo "  시가총액 rc=$?"
+    fi
+
+    # 1-1. 미장 시세. **여기 없어서 매번 며칠씩 밀려 있었다** — 실측 2026-08-18
+    #      국장 08-14 / 미장 08-12. 국장은 위 한 줄이 매일 받아 주는데 미장은
+    #      받는 경로가 전체 백필뿐이라 사람이 기억할 때만 들어왔다.
+    #
+    #      **오래 걸린다 — 종목당 1호출, 6,647종목에 약 111분이다.** 미장에는
+    #      국장 `t8407`(복수종목 현재가) 같은 다중조회 TR 이 없다. 실측으로
+    #      확인했다(2026-08-18): g3104·g3106·g3102·g3202·g3204 전부 종목 단건,
+    #      g3190 은 InBlock 조합 5가지 모두 `00009 해당 자료가 없습니다`.
+    #      그래서 줄일 수 있는 것은 호출 수가 아니라 **구간**이고, 최근 며칠만
+    #      받으면 종목당 1호출로 끝난다 (전체 백필은 종목당 4~8호출).
+    #
+    #      **첫 실행만 1.4배 든다.** 거래소(나스닥/뉴욕)를 모르면 한 번 치고
+    #      0행이면 다른 쪽으로 다시 친다 — LS 는 거래소가 틀려도 오류가 아니라
+    #      0행을 준다(실측). 맞힌 값은 data/backfill/us_exchanges.json 에 남아
+    #      이튿날부터 항상 1호출이다. 이 파일을 지우면 그날 45분이 더 든다.
+    #      `--source sec` 으로 한 번 돌리면 SEC 명단이 거래소를 같이 줘서
+    #      캐시가 한 번에 차고, **신규 상장 종목도 그때 들어온다** (기본값
+    #      `--source store` 는 이미 창고에 있는 종목만 최신으로 유지한다).
+    #
+    #      **이 스크립트가 08:40 에 도는 것이 전제다.** 미장 마감은 05:20 KST
+    #      (공표 정책), run_daily 는 16:10 이라 그 사이 두 시간은 여유가 있다.
+    #      급할 때는 `US_TOP=500` 으로 거래대금 상위만 먼저 받을 수 있지만,
+    #      그건 **부분 수집이라 나머지 종목의 그날 세션이 비게 된다** — 창고에
+    #      남는 표지도 다르다(run_id 에 `top500`). 임시 조치로만 쓴다.
+    #
+    #      종료코드는 행 수가 아니라 **창고가 몇 세션 밀렸나**로 정해진다.
+    #      0행은 "이미 다 받았다" 와 "고장났다" 를 구분하지 못한다 (환율이
+    #      그 문구로 11일을 숨긴 적이 있다).
+    if [ "${MARKET}" = "US" ]; then
+        .venv/bin/python tools/collect_us_prices.py \
+            --sessions "${SESSIONS}" ${US_TOP:+--top "${US_TOP}"}
+        echo "  미장 시세 rc=$?"
     fi
 
     # 2. 수급. **날짜축(KRX)이다** — 종목축(LS)은 991종목을 한 종목씩 받아
@@ -84,6 +129,23 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #      - market-cap : 매일. 시세가 매일 바뀌므로 시가총액도 매일 새로
     #        만든다. 이미 넣은 세션은 매니페스트가 건너뛴다.
     if [ "${MARKET}" = "US" ]; then
+        #      **의존 순서가 있다: 시세 → 명단 → 상장주식수 → 시가총액.**
+        #      미장 명단은 시세에서 유도하고(us-universe), 상장주식수는 "시세가
+        #      있는 종목만" 대상으로 삼으며(backfill.py), 시가총액은 주식수×종가다.
+        #      순서를 어기면 각 단계가 조용히 0행으로 끝난다.
+        #
+        #      명단이 빠져 있었다(2026-08-18 발견). 시세만 매일 새로 받고
+        #      명단은 백필 때만 갱신돼서, **새로 상장된 종목이 영영 안 들어왔다.**
+        #      실측: 시세 6,647종목인데 명단은 2026-08-12 에 멈춰 있었다.
+        .venv/bin/python tools/collect_us_prices.py --sessions "${SESSIONS}"
+        echo "  미장 일봉 rc=$?"
+        #      **`--sessions` 를 준다.** 안 주면 5년(약 1,250세션)을 통째로
+        #      훑는다 — 매일 도는 자리에 둘 물건이 아니다. 짧은 창에서는
+        #      **상폐 판정을 건너뛴다**(근거가 창 밖이라 오인한다). 상폐는
+        #      아래 주 1회 전체 창이 맡는다.
+        .venv/bin/python tools/backfill.py \
+            --market US --table universe --sessions "${SESSIONS}"
+        echo "  미장 명단 rc=$?"
         .venv/bin/python tools/backfill.py --market US --table shares-sec
         echo "  미장 상장주식수 rc=$?"
         #      **--sessions 를 반드시 준다.** 없으면 5년 전 구간을 다시 훑는데,
@@ -92,6 +154,45 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         .venv/bin/python tools/backfill.py \
             --market US --table market-cap --sessions "${SESSIONS}"
         echo "  미장 시가총액 rc=$?"
+        .venv/bin/python tools/collect_indices_us.py
+        echo "  미장 지수(Yahoo) rc=$?"
+        #      FINRA 일별 공매도 거래량(short_flow, flow_us 의 입력). 하루 한 파일이고
+        #      받은 날은 건너뛰므로 열흘 창으로 부르면 빠진 날만 채운다. 2026-08-18
+        #      백필 뒤 이 줄이 없어 8/19 부터 멈춰 있었다(2026-08-29 발견).
+        .venv/bin/python tools/backfill_finra.py \
+            --start "$(date -d '-10 days' +%F)" --end "$(date +%F)"
+        echo "  미장 공매도(FINRA) rc=$?"
+        #      공매도 잔고(kind=interest). 결제일(15일·말일) 뒤 10영업일이 지나야
+        #      공표된 것으로 보고 받는다 — 45일 창이면 결제일 셋이 들어와 공표
+        #      시각을 넘긴 것만 새로 채워진다. 받은 결제일은 건너뛴다.
+        .venv/bin/python tools/backfill_finra.py --kind interest \
+            --start "$(date -d '-45 days' +%F)" --end "$(date +%F)"
+        echo "  미장 공매도 잔고(FINRA) rc=$?"
+    fi
+
+    # 2-3. 기업행위 조정계수. **공시 단계 뒤에 와야 한다** — 후보를 그 표
+    #      (documents)에서 고르기 때문이다. 순서를 바꾸면 오늘 난 권리락을
+    #      내일까지 못 본다.
+    #
+    #      창고에는 원주가가 든다. 액면분할·무상증자·감자·주식병합이 보정되지
+    #      않으면 실제 손실이 아닌 가격 급변이 수익률이 되고, 모멘텀 창이
+    #      250일이면 사건 하나가 그 뒤 250세션을 오염시킨다. 5년 국장에서
+    #      유니버스의 4분의 1이 닿는다 (collectors/corporate_actions.py).
+    #
+    #      **급락 감시로는 못 잡는다.** 5% 무상증자는 가격이 5% 내려갈 뿐이다.
+    #      그래서 감시가 아니라 공시로 후보를 잡고 LS 로 배율을 확정한다.
+    #
+    #      보통 0~3종목이라 30초면 끝난다. 사건이 없는 날은 쓸 것도 없다.
+    #      스캔 파일은 매일 덮어쓴다 — 남겨 두면 --daily 가 어제 결과를 보고
+    #      오늘 사건을 건너뛴다.
+    if [ "${MARKET}" = "KR" ]; then
+        SCAN="logs/adjfactor-daily-KR.json"
+        rm -f "${SCAN}"
+        .venv/bin/python tools/scan_corporate_actions.py \
+            --daily --market KR --out "${SCAN}"
+        echo "  기업행위 스캔 rc=$?"
+        .venv/bin/python tools/backfill_adj_factor.py --scan "${SCAN}" --market KR --daily
+        echo "  기업행위 적재 rc=$?"
     fi
 
     # 3. 지수. **여기 없어서 조용히 낡아 있었다** — fx 와 같은 사고다.
@@ -109,6 +210,10 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
                 --market KR --table "${PANEL}" --sessions "${SESSIONS}"
             echo "  지수(${PANEL}) rc=$?"
         done
+        # 오늘 지수는 KRX 가 내일 오후에야 준다 — LS t1511 로 오늘 종가를 먼저 적는다.
+        # 없으면 23:05 shadow 의 벤치마크가 매일 null 로 시작한다.
+        .venv/bin/python tools/collect_indices_ls.py
+        echo "  지수(LS t1511) rc=$?"
     fi
 
     # 4. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이
@@ -125,4 +230,6 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #    창고가 중복을 거부하므로 매일 다시 받아도 안전하다.
     .venv/bin/python tools/collect_fx.py
     echo "  환율 rc=$?"
+    .venv/bin/python tools/collect_fx_yahoo.py
+    echo "  환율(Yahoo) rc=$?"
 } >>"${LOG}" 2>&1

@@ -54,7 +54,7 @@ universe:
   exclude_flags: [관리종목, 거래정지, 정리매매]
 
 execution:
-  max_adv_ratio: 0.03        # 일 거래대금 대비 매수 상한
+  max_adv_ratio: 1.0         # 일 거래대금 대비 매수 상한. 2026-08-28 0.03→1.0 (모의 단계, 후보 43% 절단 해소). 실전 전환 전 재조임
   max_liquidation_days: 3
   defer_minutes: 30          # 개장 후 신규매수 보류
   order_type: limit          # 시장가는 청산·킬스위치에만
@@ -85,6 +85,10 @@ selector:
   population: 64
   generations: 40
   l1_penalty: 0.01
+  turnover_penalty: 0.05
+  checkpoint_dir: logs/evolution   # 세대 체크포인트 JSONL 이 쌓이는 곳
+  checkpoint_every: 1              # 몇 세대마다 한 줄 남길지
+  min_fold_gap_days: 21            # 한 세대 두 폴드의 최소 시작일 간격(달력일)
 
 allocator:
   action_reflection_floor: 0.30   # 미만이면 경고 — RL이 아니라 룰 시스템
@@ -92,6 +96,9 @@ allocator:
   n_max_candidates: 30
   gamma: 0.997
   gae_lambda: 0.95
+  rl:
+    checkpoint: ""                # 정책 체크포인트. 비면 어디서도 정책을 쓰지 않는다
+    modes: ["paper"]              # 정책이 결정하는 장부 모드 — paper 만. shadow·live 는 룰 (rl-training.md §13)
 
 fx:
   rebalance_deadband: 0.10   # 10%p 넘을 때만 환전
@@ -148,6 +155,13 @@ data_quality:                  # 데이터 화면 경고선
 execution:                     # 체결 시뮬레이터
   impact_k: 0.1                # 충격비용 = k × 변동성 × √(주문량/ADV)
   min_order_value: 100000.0    # 이보다 작으면 수수료가 잡아먹는다
+
+exposure:                      # 노출 제어 (selector/exposure.py)
+  regime_confirm_sessions: 2   # 국면 배수 확인 기간 — 낮추기 즉시, 올리기 N 세션 연속 확인.
+                               # crisis↔volatile 이 하루걸러 뒤집혀 절반을 팔았다 사던 왕복을 막는다 (2026-08-28)
+
+selector:
+  exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
 ```
 
 ---

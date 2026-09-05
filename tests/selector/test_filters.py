@@ -30,7 +30,8 @@ NOW = datetime(2026, 8, 12, 6, 40, tzinfo=UTC)
 SESSIONS = [NOW - timedelta(days=offset) for offset in range(460, -1, -1)]
 
 PARAMS = filters.FilterParams(
-    min_turnover=500_000_000.0, min_listed_days=180, max_price_ratio=0.15
+    min_turnover=500_000_000.0, min_listed_days=180, max_price_ratio=0.15,
+    capacity_multiple=0.0,
 )
 
 
@@ -190,7 +191,8 @@ def test_짧은_창에서도_최신_상태가_유지된다(store) -> None:
     store.append("prices", prices, ingest_run_id="p-short")
 
     short = filters.FilterParams(
-        min_turnover=500_000_000.0, min_listed_days=5, max_price_ratio=0.15
+        min_turnover=500_000_000.0, min_listed_days=5, max_price_ratio=0.15,
+        capacity_multiple=0.0,
     )
     result = filters.tradable_universe(
         store, as_of=NOW, market="KR", params=short, equity=100_000_000.0
@@ -199,6 +201,66 @@ def test_짧은_창에서도_최신_상태가_유지된다(store) -> None:
     # 창(10세션)이 전 종목의 과거를 다 덮으므로 신규주 판정은 걸리지 않는다.
     assert result.kept == ("KR:000100",)
     assert result.dropped["KR:000300"] == "상장폐지·거래불가"
+
+
+def test_자본이_커지면_용량_하한이_상수를_넘어선다(store) -> None:
+    """상수 하한은 통과해도 목표금액이 못 담을 종목은 배수 하한이 뺀다.
+
+    자본 5억 · 배수 1.6 → 실효 하한 8억. 6억짜리는 상수(5억)는 넘지만 8억엔
+    못 미쳐 **"거래대금 용량 미달"** — "못 파는 종목" 이 아니라 "못 사는 종목"
+    이다. 10억짜리는 남는다 (portfolio-construction.md §부록).
+    """
+    days = [NOW - timedelta(days=offset) for offset in range(9, -1, -1)]
+    rows, prices = [], []
+    for day in days:
+        for entity, value in (("KR:000600", 6e8), ("KR:001000", 1e9)):
+            rows.append(_universe_row(entity, day))
+            price = _price_row(entity, day)
+            price["value"] = value
+            prices.append(price)
+    store.append("universe", rows, ingest_run_id="u-cap")
+    store.append("prices", prices, ingest_run_id="p-cap")
+
+    params = filters.FilterParams(
+        min_turnover=500_000_000.0, min_listed_days=5, max_price_ratio=0.15,
+        capacity_multiple=1.6,
+    )
+    result = filters.tradable_universe(
+        store, as_of=NOW, market="KR", params=params, equity=500_000_000.0
+    )
+
+    assert result.kept == ("KR:001000",)
+    assert result.dropped["KR:000600"] == "거래대금 용량 미달"
+
+
+def test_배수_하한은_KR_에만_걸린다(store) -> None:
+    """US 는 거래대금이 달러라 원화 자본에 배수를 걸 수 없다 — 절대 하한만.
+
+    같은 6억짜리라도 시장이 US 면 배수가 꺼져 절대 하한(5억)만 본다.
+    """
+    days = [NOW - timedelta(days=offset) for offset in range(9, -1, -1)]
+    rows, prices = [], []
+    for day in days:
+        row = _universe_row("US:AAA", day)
+        row["entity_id"] = "US:AAA"
+        row["market"] = "US"
+        rows.append(row)
+        price = _price_row("US:AAA", day)
+        price["market"] = "US"
+        price["value"] = 6e8
+        prices.append(price)
+    store.append("universe", rows, ingest_run_id="u-us")
+    store.append("prices", prices, ingest_run_id="p-us")
+
+    params = filters.FilterParams(
+        min_turnover=500_000_000.0, min_listed_days=5, max_price_ratio=0.15,
+        capacity_multiple=1.6,
+    )
+    result = filters.tradable_universe(
+        store, as_of=NOW, market="US", params=params, equity=500_000_000.0
+    )
+
+    assert result.kept == ("US:AAA",)
 
 
 def test_정정본은_마지막_행_판정을_바꾼다(store) -> None:
@@ -222,3 +284,49 @@ def test_정정본은_마지막_행_판정을_바꾼다(store) -> None:
 
     assert result.kept == ()
     assert result.dropped["KR:000100"] == "상장폐지·거래불가"
+
+
+# -- 순위 하한 (2026-08-30) ------------------------------------------------------
+
+
+def _ranked(store, **kw):  # type: ignore[no-untyped-def]
+    from dataclasses import replace
+
+    return filters.tradable_universe(
+        store, as_of=NOW, market="KR", params=replace(PARAMS, **kw), equity=100_000_000.0
+    )
+
+
+def test_순위_하한이_꺼져_있으면_아무것도_안_거른다(seeded) -> None:
+    """기본값 0 — 켜기 전에는 오늘과 같은 유니버스여야 한다."""
+    assert _run(seeded).kept == _ranked(
+        seeded, top_turnover_rank=0, top_volume_rank=0, top_market_cap_rank=0
+    ).kept
+
+
+def test_거래대금_상위_N_만_남는다(seeded) -> None:
+    full = _run(seeded)
+    assert len(full) >= 2, "시험 창고에 종목이 둘 이상 남아야 순위가 의미 있다"
+    capped = _ranked(seeded, top_turnover_rank=1)
+
+    assert len(capped) == 1
+    assert capped.kept[0] in full.kept
+    # 이유를 남긴다 — 후보가 준 날 설명할 수 있어야 한다.
+    assert "거래대금 순위 밖" in capped.dropped.values()
+
+
+def test_시총_관측이_없으면_거르지_않는다(seeded) -> None:
+    """수집 사고가 조용히 유니버스를 비우면 안 된다."""
+    assert _ranked(seeded, top_market_cap_rank=1).kept == _run(seeded).kept
+
+
+def test_참조표에는_창을_걸지_않는다() -> None:
+    """`sectors` 는 참조 표다 — 창을 걸면 지도가 조용히 빈다 (2026-08-30).
+
+    DART 업종은 한 날짜(2021-08-11)로 백필돼 있어서 30일 창이 그 행을 통째로
+    잘랐고, 그 위의 팩터 공분산·섹터 제약이 전부 무력화됐다. 예외도 경고도
+    없었다 — 그래서 상수로 못 박아 지킨다.
+    """
+    from quant_rl_trading.selector import candidates
+
+    assert candidates.SECTOR_LOOKBACK_DAYS is None

@@ -95,11 +95,14 @@ Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 | `docs/design/agents.md` | 에이전트 명세, Signal 스키마 |
 | `docs/design/accounting.md` | NAV·TWR·배당·세금 — 보상 함수의 r_port 정의 |
 | `docs/design/selector.md` | Analyst 가중치 진화, 후보 선정 |
+| `docs/design/portfolio-construction.md` | 비중 산출 — 섹터 하방베타, 팩터 공분산, 리스크 기여 균등, RL 과의 충돌 처리 |
 | `docs/runbook.md` | 배포, 장애 등급, 킬스위치, 복구 |
 | `docs/design/rl-training.md` | RL 학습 절차, 진단, 하이퍼파라미터 |
 | `docs/design/reporting.md` | 리포트 3종, 이메일 제약 |
 | `docs/design/dashboard.md` | 3탭 화면 명세, 밀도 규칙, API 규약 |
 | `docs/design/config.md` | 모든 임계치의 단일 소스 (config/quant_rl_trading.yaml) |
+| `docs/design/self-improvement.md` | 자기개선 루프 — 홀드아웃 금고, 사전등록, 시행 예산, DSR |
 | `docs/design/ls-api.md` | LS API 제약 확인 목록 |
 | `docs/milestones.md` | M1~M5, 완료 기준, 중단 기준 |
+| `docs/rl-postmortem.md` | RL 시도 전부 — 판마다 한 일·실패 이유·배운 것, 종합 결론 |
 | `START-HERE.md` | 전체 실행 순서, 부트스트랩 프롬프트 |

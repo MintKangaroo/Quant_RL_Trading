@@ -16,8 +16,9 @@ as_of 는 요청한 시점 하나로 고정한다.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import duckdb
@@ -72,6 +73,32 @@ def _duckdb_type(dtype: pa.DataType) -> str:
     return "VARCHAR"
 
 
+#: 파일 집합 지문 → 그 집합에 실제로 있는 컬럼 이름들.
+#:
+#: **무효화 조건: 파일 목록이 달라지면 키가 달라진다. 그게 전부다.**
+#: 이 창고는 append-only 이고(writer.append 가 이미 있는 경로에 쓰려 하면
+#: StoreError 로 거부한다) 합치기(compact)는 원본을 지우고 새 이름으로 쓴다.
+#: 그래서 **같은 경로 집합은 언제나 같은 내용**이고, 스키마도 같다. 늦게
+#: 도착한 정정본은 새 파일로 들어오므로 집합이 바뀌어 캐시를 못 탄다 —
+#: 이 저장소가 여러 번 낸 "캐시가 늦게 온 입력을 영영 못 받는" 사고가
+#: 여기서는 구조적으로 안 난다.
+#:
+#: 경로 목록을 통째로 키로 들면 테이블 하나에 1MB 씩 쌓이므로 해시로 접는다.
+_SCHEMA_CACHE: dict[bytes, frozenset[str]] = {}
+
+#: 캐시 상한. 창고에 파일이 하나 들어올 때마다 새 지문이 생기므로 무한정
+#: 늘어난다 — 대시보드 프로세스는 며칠씩 떠 있다.
+_SCHEMA_CACHE_MAX = 256
+
+
+def _schema_key(spec: TableSpec, files: Sequence[str]) -> bytes:
+    digest = hashlib.blake2b(spec.name.encode(), digest_size=16)
+    for path in files:
+        digest.update(b"\0")
+        digest.update(str(path).encode())
+    return digest.digest()
+
+
 def _scan_columns(
     connection: duckdb.DuckDBPyConnection,
     spec: TableSpec,
@@ -93,15 +120,27 @@ def _scan_columns(
 
     append-only 창고에서 컬럼 추가는 정상적인 진화다. 옛 행에 그 값이 없었다는
     것은 사실이고, 그 사실은 NULL 이다. 예외가 아니다.
+
+    **이 질의는 parquet 푸터를 전부 연다.** 조각이 많은 표에서는 그 자체가
+    본 질의만큼 비싸다 — 실측으로 ``ingest_latency``(파일 6,391개)는 조회
+    1.9초 중 0.54초가 여기였고, Data Quality 요약 한 번이 이걸 14번 불렀다.
+    그래서 파일 집합 단위로 캐싱한다(``_SCHEMA_CACHE`` 의 무효화 조건 참고).
     """
-    available = {
-        str(row[0])
-        for row in connection.execute(
-            "SELECT column_name FROM "
-            "(DESCRIBE SELECT * FROM read_parquet(?, union_by_name = true))",
-            [list(files)],
-        ).fetchall()
-    }
+    key = _schema_key(spec, files)
+    available = _SCHEMA_CACHE.get(key)
+    if available is None:
+        available = frozenset(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT column_name FROM "
+                "(DESCRIBE SELECT * FROM read_parquet(?, union_by_name = true))",
+                [list(files)],
+            ).fetchall()
+        )
+        if len(_SCHEMA_CACHE) >= _SCHEMA_CACHE_MAX:
+            # 오래된 것부터 버린다 (dict 는 삽입 순서를 지킨다).
+            del _SCHEMA_CACHE[next(iter(_SCHEMA_CACHE))]
+        _SCHEMA_CACHE[key] = available
     return [
         name
         if name in available
@@ -147,12 +186,16 @@ def _scope(
     ``query`` 와 ``latest_by_entity`` 가 같은 창을 봐야 한다. 두 벌로 두면
     한쪽만 고쳐졌을 때 두 조회가 조용히 다른 데이터를 본다.
     """
+    # **참조 속성 테이블은 valid_from 으로 건다** (schema.TableSpec.reference_data,
+    # data-contract.md §3). 파티션은 observed_date 축이라 상한도 같이 푼다 —
+    # 안 풀면 2026-08-15 파티션이 2025 년 as_of 에서 아예 안 열린다.
+    reference = spec.reference_data
     files = list(
         paths.iter_data_files(
             root,
             spec.name,
-            upper=paths.observed_date(as_of),
-            lower=paths.prune_lower_bound(
+            upper=date.max if reference else paths.observed_date(as_of),
+            lower=None if reference else paths.prune_lower_bound(
                 valid_floor.date() if valid_floor else None, spec.observation_lag_days
             ),
         )
@@ -160,7 +203,7 @@ def _scope(
     if not files:
         return None
 
-    predicates = ["observed_at <= ?"]
+    predicates = ["valid_from <= ?" if reference else "observed_at <= ?"]
     params: list[object] = [[str(path) for path in files], as_of]
 
     if entity is not None:
@@ -190,10 +233,17 @@ def _scope(
         # entity_id 의 시장 접두어와 market 값이 다르면 애초에 append 를
         # 거부한다(TableSpec.market_prefixed_entity, 2026-08-15 사고 이후
         # 추가 — KR 백필이 US 종목 6,648개를 market="KR" 로 찍었었다).
-        if "market" not in spec.all_columns:
+        if "market" in spec.all_columns:
+            predicates.append("market = ?")
+            params.append(market)
+        elif spec.market_prefixed_entity:
+            # market 컬럼은 없어도 entity_id 접두어가 곧 시장이다(signals 등).
+            # 이 경우까지 거부하면 호출자는 pandas 로 거를 수밖에 없고, 그게
+            # 여지 측정을 두 번 죽인 RSS 7.9GB 였다(2026-09-02).
+            predicates.append("starts_with(entity_id, ?)")
+            params.append(f"{market}:")
+        else:
             raise SchemaViolation(f"{spec.name} 에는 market 컬럼이 없다")
-        predicates.append("market = ?")
-        params.append(market)
 
     return predicates, params
 

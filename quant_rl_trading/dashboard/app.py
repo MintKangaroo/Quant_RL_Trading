@@ -6,11 +6,12 @@ Store 와 Clock 을 **주입받는다**. 앱이 스스로 만들면 테스트가
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
-import math
+from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
@@ -23,8 +24,10 @@ from quant_rl_trading.dashboard.api import (
     learning,
     market,
     system,
+    thirteen_f,
     trading,
 )
+from quant_rl_trading.dashboard.services.live_quotes import LiveIndexCache, LiveQuoteCache
 from quant_rl_trading.replay.clock import Clock, LiveClock
 from quant_rl_trading.settings import load_env
 from quant_rl_trading.store import ConfigNotFound, Store, StoreError
@@ -77,7 +80,20 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.json = SafeJSONProvider(app)
     app.config["QUANT_RL_STORE"] = store if store is not None else Store()
+    # 미장 paper 는 shadow 장부다. 주 장부가 data/_paper 이면 옆의 data/_shadow 를
+    # 두 번째 장부로 연다(?ledger=shadow). 없으면 None — 전환 버튼만 안 뜬다.
+    main_root = Path(app.config["QUANT_RL_STORE"].root)
+    shadow_root = main_root.parent / "_shadow"
+    app.config["QUANT_RL_STORE_SHADOW"] = (
+        Store(root=shadow_root) if main_root.name == "_paper" and shadow_root.is_dir() else None
+    )
     app.config["QUANT_RL_CLOCK"] = clock if clock is not None else LiveClock()
+    # 장중 시세 캐시. **회계와 무관한 참고 값 전용**이다(services/live_quotes 참고).
+    # 자격증명이 없거나 장외면 빈 결과를 돌려주므로, 여기서 실패를 따지지 않는다 —
+    # 화면이 그 열을 비워 그린다.
+    app.config["QUANT_RL_LIVE_QUOTES"] = LiveQuoteCache(_ls_client_factory)
+    # 지수·대표 ETF 는 TR 과 경로가 달라 캐시를 따로 둔다(live_quotes 참고).
+    app.config["QUANT_RL_LIVE_INDEX"] = LiveIndexCache(_ls_client_factory)
     #: 한글 응답을 이스케이프하지 않는다. 사람이 읽는 JSON 이다.
     app.json.ensure_ascii = False  # type: ignore[attr-defined]
 
@@ -87,6 +103,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(trading.bp)
     app.register_blueprint(market.bp)
     app.register_blueprint(headlines.bp)
+    app.register_blueprint(thirteen_f.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(learning.bp)
     app.register_blueprint(ai_review.bp)
@@ -121,6 +138,10 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     def headlines_page() -> str:
         return render_template("headlines.html")
 
+    @app.get("/thirteen-f")
+    def thirteen_f_page() -> str:
+        return render_template("thirteen_f.html")
+
     @app.get("/system")
     def system_page() -> str:
         return render_template("system.html")
@@ -132,6 +153,26 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     @app.get("/ai-review")
     def ai_review_page() -> str:
         return render_template("ai_review.html")
+
+    @app.after_request
+    def _no_cache(response):  # type: ignore[no-untyped-def]
+        # **캐시 금지.** 모바일 Safari 가 정적 JS 와 API GET 을 잠깐 캐시해서, 서버를
+        # 재시작해도 옛 배지·옛 패널이 떴다(2026-08-28 실측 — 20분 뒤에도 "미연결").
+        # 이 화면은 매 요청이 새 사실이어야 한다.
+        #
+        # **정적 파일은 예외다** (2026-08-29). no-store 를 /static 에도 걸었더니 휴대폰이
+        # 탭을 열 때마다 echarts 1MB 를 LTE 로 다시 받았고, 그게 늦으면 뒤 스크립트가
+        # "Can't find variable: echarts" 로 죽었다. 정적 파일은 ETag 재검증(304)으로
+        # 충분하다 — 서버를 재시작해도 파일이 바뀌면 ETag 가 바뀌고, 안 바뀌면 옛 것이
+        # 곧 지금 것이다. 벤더 라이브러리는 아예 하루 캐시.
+        if request.path.startswith("/static/"):
+            if request.path.endswith("echarts.min.js"):
+                response.headers["Cache-Control"] = "public, max-age=86400"
+            else:
+                response.headers["Cache-Control"] = "no-cache"
+            return response
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
 
     @app.errorhandler(HTTPException)
     def http_error(error: HTTPException) -> Any:
@@ -147,3 +188,14 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
         return {"error": str(error), "status": 500}, 500
 
     return app
+
+
+def _ls_client_factory():
+    """장중 시세용 LS 클라이언트. **키가 없으면 None** — 대시보드는 자격증명
+    없이도 떠야 한다(데모·백테스트 창고를 볼 때가 그렇다)."""
+    from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
+
+    credentials = LSCredentials.from_env(prefix="LS_")
+    if not credentials.usable():
+        return None
+    return LSClient(credentials=credentials, live_trading=True)

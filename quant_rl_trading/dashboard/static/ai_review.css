@@ -32,14 +32,14 @@
 .air-spacer { flex: 1; }
 
 .air-card {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 5px;
   padding: 16px; margin-bottom: 12px;
 }
 .air-card .note { margin-bottom: 0; }
 
 /* KPI 스트립 (실측치) */
 .air-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-.air-kpi { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; }
+.air-kpi { background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; padding: 9px 11px; }
 .air-kpi .k { font-size: 10px; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .05em; }
 .air-kpi .v { font-size: 16px; font-weight: 600; font-family: "IBM Plex Mono", monospace; color: var(--text); }
 .pos { color: var(--up); } .neg { color: var(--down); } .mut { color: var(--dim); }
@@ -49,13 +49,14 @@
   color: var(--text); text-transform: uppercase; letter-spacing: .05em;
 }
 .air-h .hint { font-size: 10px; font-weight: 400; color: var(--dim); text-transform: none; letter-spacing: 0; }
-.air-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
-.air-grid2 > .air-card { margin-bottom: 0; }
-@media (max-width: 820px) { .air-grid2 { grid-template-columns: 1fr; } }
+/* 좌우 2단은 app.css 의 .grid2 를 그대로 쓴다(768px 아래 자동 1열) — 여기서
+   같은 경계값을 다시 선언하면 나중에 한쪽만 고쳐지고 탭마다 접히는 폭이
+   갈린다. 이 파일에 남기는 것은 .grid2 안에 앉은 .air-card 의 여백뿐이다. */
+.grid2 > .air-card { margin-bottom: 0; }
 
 /* 빈 자리 — 계산 근거가 없는 위젯. "무엇이 필요한지" 를 말한다. */
 .air-placeholder {
-  border: 1px dashed var(--border); border-radius: 6px; padding: 12px 14px;
+  border: 1px dashed var(--border); border-radius: 5px; padding: 12px 14px;
   font-size: 12px; color: var(--dim); line-height: 1.6; background: var(--panel2);
 }
 .air-placeholder b { color: var(--muted); }

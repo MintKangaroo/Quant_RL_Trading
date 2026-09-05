@@ -20,6 +20,60 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 ---
 
+## 화면
+
+아래는 전부 **데모 창고(`data/_demo`)** 로 찍은 것이다. 이 저장소는 공개라
+실계좌 화면을 올리면 보유종목·주문번호가 영구히 남는다 — 가리는 것이 아니라
+애초에 다른 창고를 찍는다. 마스킹은 한 군데만 빠뜨려도 그게 그대로 공개된다.
+
+데모 창고는 **"우리가 무엇을 샀나"(trades·orders·nav)만 지어내고** 시세·유니버스는
+실전과 같은 공개 시장 데이터를 읽는다. 그래서 화면 구성·색·배치는 실물과 같고
+계좌만 가짜다. 헤더의 `DEMO` 배지가 그 사실을 말한다.
+
+| 트레이딩 | 마켓 |
+|---|---|
+| [![트레이딩](docs/images/trading.png)](docs/images/trading.png) | [![마켓](docs/images/market.png)](docs/images/market.png) |
+| 자산·손익·리스크·주문을 한 화면에. 정지 버튼은 숫자와 같은 눈높이에 있다 | KR·US 를 좌우로. 트리맵 색은 ±5%에서 꽉 찬다 |
+
+| 13F — 기관 보유 | 수익률 캘린더 |
+|---|---|
+| [![13F](docs/images/thirteen-f.png)](docs/images/thirteen-f.png) | [![캘린더](docs/images/calendar.png)](docs/images/calendar.png) |
+| 미국 기관의 분기말 보유. **45일 낡았다는 사실을 KPI 로 올린다** | 빈칸은 0% 가 아니라 **장이 없던 날**이다 |
+
+| 학습 | 타임머신 |
+|---|---|
+| [![학습](docs/images/learning.png)](docs/images/learning.png) | [![타임머신](docs/images/data-quality-timemachine.png)](docs/images/data-quality-timemachine.png) |
+| 지금은 애널리스트 적중도가 학습을 대신한다 (RL 은 M4) | `?as_of=` 로 되감으면 **그 시점 이후가 안 보인다** |
+
+| AI 리뷰 | 에이전트 상태 |
+|---|---|
+| [![AI 리뷰](docs/images/ai-review.png)](docs/images/ai-review.png) | [![에이전트 상태](docs/images/agent-health.png)](docs/images/agent-health.png) |
+| 왜 그 종목을 골랐는지 | 누가 가중치를 받고 있는가 |
+
+| 뉴스 · 일정 | 중요 시황 |
+|---|---|
+| [![브리핑](docs/images/briefing.png)](docs/images/briefing.png) | [![뉴스](docs/images/headlines.png)](docs/images/headlines.png) |
+| 휴장이면 데이터를 지어내지 않고 **휴장이라고 적는다** | |
+
+| 데이터 품질 | 시스템 |
+|---|---|
+| [![데이터 품질](docs/images/data-quality.png)](docs/images/data-quality.png) | [![시스템](docs/images/system.png)](docs/images/system.png) |
+| "안 물어봤다" 와 "없다" 를 구분해서 적는다 | 배관이 도는가 |
+
+### 모바일
+
+<p>
+<img src="docs/images/trading-mobile.png" width="30%" alt="트레이딩 (모바일)">
+<img src="docs/images/market-mobile.png" width="30%" alt="마켓 (모바일)">
+<img src="docs/images/learning-mobile.png" width="30%" alt="학습 (모바일)">
+</p>
+
+탭이 열 개라 하단 바 다섯 칸에 못 넣는다. 자주 쓰는 넷만 두고 나머지는 더보기
+시트로 내렸다 — **현재 탭이 시트 안에 있으면 더보기 아이콘이 켜진다.** 하단 바가
+전부 회색이면 지금 어디 있는지 모른다.
+
+---
+
 ## 왜 처음부터 다시 만드는가
 
 이 프로젝트에는 선행 프로젝트가 둘 있다. `LS_KR`(국장)과 `LS_USA`(미장)다. 강화학습 기반으로 만들었지만 **학습이 되지 않아 사실상 룰 기반으로 동작한 실패 사례**다.
@@ -181,7 +235,28 @@ IC 측정 파이프라인이 **실제로 누수를 잡는지** 먼저 증명했�
 
 > **백테스트 IC가 0.15처럼 나오면 재능이 아니라 버그다.** 먼저 누수를 의심할 것.
 
-### M3 — Selector + Executor 🚧
+### M3 — Selector + Executor 🚧 → 2026-08-28 마감 판정 대기
+
+#### 2026-08-28 현황 (아래 검증기 출력은 8/14 것 — 역사로 남긴다)
+
+| 완료 기준 | 상태 |
+|---|---|
+| shadow 10거래일 무사고 | **9/10** — 8/14 재시작 뒤 8/14·18·19·20·21·24·25·26·27, 오늘 밤 23:05 가 열 번째 |
+| OOS 백테스트 MDD 20% 이내 | ✅ 워크포워드 2026-01-02~06-30(가중치는 2026-01-02 시점 측정) **MDD −11.6%** |
+| 킬스위치 발동 테스트 | ✅ |
+| 실전 소액 투입(배선 검증) | ✅ 8/17·18 실계좌 1주 왕복 (KR 067290 · US SNAP) |
+| 슬리피지 ±30% | 자본 증액 게이트로 이월 |
+
+**M3-8 모의계좌 실운용이 8/28 에 시작됐다** (`docs/design/backtest.md §9`). shadow 는 내부
+`PaperBroker` 로 체결을 흉내 내지만, 이 단계는 **LS 모의투자 계좌에 실제 주문**을 낸다.
+결정은 08:40(전날 데이터, LS 가 장외 주문을 안 받아서), 체결 대사는 15:45(t0425 → trades),
+장부는 `data/_paper`(대시보드 5059). 첫날 계좌·장부 종목·수량 15건 1:1 일치. shadow(5060)와의
+NAV 차이가 곧 체결 비용 실측이다.
+
+선정 규칙 변경(사전등록 시행, `docs/protocols/selection-2026-08-27.md`): 완충 구간
+진입 24·퇴출 48(회전 5.6→1.3회/년), 국면 배수 확인 기간 2세션(crisis↔volatile 왕복 차단),
+ADV 상한 3%→100%(모의 단계 한정 — 실전 전환 전 재조임). 섹터 중립화·LightGBM 랭커는 기각.
+
 
 완료 기준을 사람이 손으로 켜지 않는다. `uv run python tools/verify_m3.py` 가 실제 창고 위에서 판정한다.
 
@@ -227,121 +302,83 @@ M1 검증기의 교훈이 여기서도 적용된다 — **매매 0건이면 MDD�
 
 ---
 
-## 구조
+### M4 — RL 학습 ⏹ 배분·매매 전반 RL 종료 (2026-09-04) · 집행 RL 로 이월
 
-```
-quant_rl_trading/
-  store/        데이터 게이트 — Parquet/DuckDB를 만질 수 있는 유일한 패키지
-  replay/       Clock, 이벤트 로그, 에이전트 캐시, 체결 시뮬레이터
-  collectors/   수집 전담. 점수를 내지 않는다
-  analysts/     점수·판정을 낸다. 수집하지 않는다
-  selector/     후보 선정, Analyst 가중치 진화        (M3)
-  allocator/    RL 제어기 — 목표 비중                  (M4)
-  executor/     주문 변환, 리스크 가드, 킬스위치        (M3)
-  auditor/      귀속 분석                              (M5)
-  modelops/     재학습 판정, 드리프트 감지              (M5)
-  dashboard/    Flask + ECharts. 모든 API가 as_of를 받는다
-  schemas/      Order, Signal, Verdict
-tools/
-  backfill.py     백필 실행기 + 검증 리포트
-  measure_ic.py   Analyst IC 측정
-  measure_slippage.py  슬리피지 실측 vs 모델 예측 (M3 완료 기준 5번)
-  verify_m1.py    M1 완료 기준 검증
-  verify_m3.py    M3 완료 기준 검증 — PASS/FAIL/미측정 3상태
-  verify_live_order.py  실계좌 주문 검증 — 국장·미장, 8단계 사람 확인, 기본 드라이런
-  preflight_live_order.py  실주문 사전점검 — 조회 TR 만, 주문 경로가 파일에 없다
-  invariant_guard.py  불변식 정적 가드 (AST 기반)
-  find_dead_code.py   호출부가 0건인 공개 함수 (배선 누락 탐지)
-```
+RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카나리, 배분 RL 1~4회차, 매매 전반 RL 2회, 그리고 그 사이의
+감독학습 랭커. 판마다 한 일·실패한 이유·배운 것은 **[`docs/rl-postmortem.md`](docs/rl-postmortem.md)** 한 문서에 있다.
 
-### 데이터 흐름
+요약하면 이렇다. 학습이 실제로 고장난 것은 두 번뿐이었고(카나리 예산 144배 부족, 관측에 환율 원값 1,478 이 들어가 가치
+손실이 정책을 굶김) 둘 다 고쳤다. 그 뒤의 네 판은 전부 **"그 자리에 배울 신호가 없다"** 로 끝났다 — 규칙이 고른 24종목
+안에서 비중을 바꿔 얻을 알파가 없었고(3·4회차, 반영률 0.95 로 운전대를 잡고도 균등가중과 0 차이), 선정·사이징·회전을
+한 번에 맡기면 종목 하나를 외우거나(9/2) 장치로 그걸 막으면 학습창에서조차 못 오른다(9/4 마지막 시도, 대조 대비
+−41%p/년). 학습이 이긴 유일한 곳은 **종목 순위를 맞추는 감독학습**(시행 L, 순위 목적 GBM) 이었고, 그것이 지금
+`ranker` Analyst 로 두 시장에서 매매를 하고 있다.
 
-```
-Collector → data/raw/ (원본 보존, 삭제 금지)
-             ↓ 정규화
-          store.append()  ← observed_at 없으면 거부
-             ↓
-      data/curated/{table}/observed_date=YYYY-MM-DD/
-             ↓
-          store.get(as_of=...)  ← observed_at <= as_of 강제
-             ↓
-     Analyst → Selector → Allocator → Executor
-```
+| 판 | 결과 | 문서 |
+|---|---|---|
+| 오라클 카나리 (8/20~23) | 배관 정상 · 게이트가 예산 144배 부족한 채 오판 | `docs/design/rl-training.md §0` |
+| 배분 1회차 (8/25) | 보상 평평 · 현금 도망 | `rl-training.md` 1회차 판정 |
+| 배분 2회차 (8/27~29) | 관측 스케일 결함 수정 → OOS 과적합(현금 타이밍 외움) | `rl-training.md` 2회차 판정 |
+| 배분 3회차 파일럿 (9/1) | 반영률 0.95 인데 균등가중과 0 차이 → 배분엔 알파 없음 | `rl-training.md` 3회차 설계 |
+| 매매 전반 베타 (9/2) | 종목 하나로 +680% (외움), OOS IC 반토막 | [`docs/protocols/e2e-rl-2026-09.md`](docs/protocols/e2e-rl-2026-09.md) |
+| **시행 L 랭커 (9/3)** | **채택** — 목적을 순위로 바꾸자 fundamental 을 이김 | [`rank-objective-ranker-2026-09.md`](docs/protocols/rank-objective-ranker-2026-09.md) |
+| 배분 4회차 파일럿 (9/4) | ranker 후보로 바꿔도 검증 우위 0 | [`drl-round4-2026-09.md`](docs/protocols/drl-round4-2026-09.md) |
+| 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 영구 종료 | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
 
----
+시도 예산(5회) 중 1회가 남았고, 그것은 **집행 RL**(룰 TWAP 1차 관문 ~10/1 뒤, `docs/protocols/execution-rl-2026-09.md`)에만
+쓴다. 학습 중 과적합 전조는 `tools/watch_overfit.py` 가 본다.
 
-## 데이터 소스 — 결정 기록
+## 하루 운영 순서 — 전부 크론이 돌린다
 
-이 부분은 시행착오가 많았고, 기록해 둘 가치가 있다.
+원칙은 하나다. **수집이 먼저, 판단은 그 뒤, 주문은 장중, 대사·회계는 마감 뒤.** 순서를 틀리면 판정이 조용히 0건이 된다
+(`docs/runbook.md`, memory `pipeline-must-run-after-data`). 평일 기준, KST.
 
-| 소스 | 결과 |
+### 국장 (KR) — 모의계좌 실주문
+
+| 시각 | 단계 | 하는 일 |
+|---|---|---|
+| 08:20 | 수집 | 국장 뉴스 |
+| **08:40** | **주문** | 모의계좌 세션 — 전날 밤 shadow 가 고른 후보로 주문 생성, 첫 TWAP 조각 전송 (`scripts/run_paper.sh session`) |
+| 09:00~15:00 (30분) | 수집 | 장중 시세 스냅샷 |
+| 09:00~14:40 (20분) | 집행 | TWAP 조각 배포 — 기준점 뒤 1시간마다 한 조각 (`tools/release_slices.py`) |
+| 09:20~15:10 (20분) | 집행 | 미체결 재호가 (`tools/chase_orders.py`) |
+| 15:20 | 집행 | 마감 재호가 — 남은 조각 정리 |
+| 15:40 | 수집 | 국장 뉴스 |
+| **15:45** | **대사** | 계좌 체결 확정(t0425)·잔고 대조(t0424)·스냅샷 (`scripts/run_paper.sh reconcile`) |
+| 15:52 | 수집 | LS 일봉 |
+| **15:55** | **수집** | KRX 시세·명단·수급·공매도·재무·기업행위·조정계수·지수·거시·환율 (`scripts/collect_daily.sh KR`) |
+| 16:02 | 수집 | 국장 지수(LS) |
+| 17:30 | 수집 | 네이버 컨센서스 |
+| 22:40 | 수집 | 일일 수집 재실행 — 낮에 빠진 것 보충 |
+| **22:55** | **판단** | Analyst 8종 점수(ranker 는 맨 뒤) + 뉴스·SNS 판정 → `signals` (`scripts/run_daily.sh KR`) |
+| **23:05** | **선정** | shadow 세션 — 후보 24 선정(평활·완충 72), 내일 주문 계획 (`scripts/run_shadow.sh KR`) |
+| 23:20 | 회계 | NAV·TWR·낙폭 갱신 (`scripts/refresh_accounting.sh KR`) |
+| 23:35 | 리뷰 | AI 일일 리뷰 (`tools/daily_review.py`) |
+
+### 미장 (US) — shadow (돈이 오가지 않는 시뮬레이션)
+
+| 시각 | 단계 | 하는 일 |
+|---|---|---|
+| 00:00~05:00 (20분) | 집행 | 미장 TWAP 조각 배포 (shadow 장부, 전송 없음) |
+| 06:00 | 수집 | 브리핑 전 갱신 — 미장 지수·상위 종목·ETF·컨센서스·환율 |
+| 06:30 | 리포트 | 아침 브리핑 메일 |
+| 07:25 | 수집 | 실적 발표 일정 |
+| **08:40** | **수집** | EDGAR 재무·주식수·미장 시세·지수·FINRA 공매도 (`scripts/collect_daily.sh US`) |
+| **12:00** | **판단** | 미장 Analyst 8종 점수 → `signals` (`scripts/run_daily.sh US`) |
+| **12:20** | **선정·체결** | shadow 세션 — 전 세션 주문을 그날 봉으로 체결 시뮬 + 오늘 후보·주문 (`scripts/run_shadow.sh US`) |
+| 22:00~23:40 (20분) | 집행 | 미장 TWAP 조각 배포 |
+
+### 주 1회 · 상시
+
+| 시각 | 하는 일 |
 |---|---|
-| 네이버 계열 무료 시세 | ❌ **수정주가만 준다.** 2021-04-08 카카오 종가를 109,992로 돌려준다 (실제 548,000). 일주일 뒤 액면분할이 소급 반영된 값이라 전 구간이 미래를 본다 |
-| pykrx (data.krx.co.kr) | ⚠️ 원주가·상폐종목 모두 제공하지만 **약관상 자동화 수집 금지.** 대량 조회로 IP 차단됨 |
-| KRX Open API | ✅ 정식 경로. 다만 **수급·공매도·PER/PBR이 없다** (엔드포인트 탐색으로 확인) |
-| LS `/stock/frgr-itt` (t1717) | ✅ **투자자별 수급.** 경로를 `/stock/market-data`로 착각해 한 번 "없다"고 잘못 결론냈다 |
-| OpenDART | ✅ 재무제표 + **접수일(`rcept_dt`)** — `observed_at` 을 정확히 찍을 수 있다 |
+| 토 10:00 | 미장 상장폐지 갱신 |
+| 일 18:00 | 유동주식비율(참조, `tools/collect_float_ratio.py`) |
+| 2분마다 | 메모리 감시(`scripts/memory_guard.sh`) |
+| 10분마다 · 재부팅 시 | 장기 작업 감시자·자동 복구(`scripts/job_supervisor.sh`, `scripts/reboot_recover.sh`) |
 
-**약관을 지킨다.** 차단당한 뒤 요청 간격을 늘려 탐지를 피하거나 IP를 바꾸는 방법은 쓰지 않았다. 명시적으로 적용된 접근 제한을 뚫는 것이고, 약관 위반을 알고도 계속하는 것이 되기 때문이다.
-
-PER/PBR은 DART 재무 + 주가로 직접 계산한다. 남이 계산해 준 값보다 **시점 정합성이 정확하다.**
-
----
-
-## 실행
-
-### 요구사항
-
-Python 3.12, [uv](https://docs.astral.sh/uv/). 데이터 소스 키는 `.env.example` 참고.
-
-```bash
-git clone https://github.com/MintKangaroo/Quant_RL_Trading.git
-cd Quant_RL_Trading
-uv sync
-cp .env.example .env   # 키를 채운다
-```
-
-### 백필
-
-```bash
-uv run python tools/backfill.py --years 5 --symbols 10   # 시험 실행 (10종목)
-uv run python tools/backfill.py --years 5                # 전체
-uv run python tools/backfill.py --table flows-ls         # 투자자별 수급
-uv run python tools/backfill.py --report                 # 검증 리포트
-```
-
-중단해도 된다. 다시 같은 명령을 치면 이미 들어간 세션은 건너뛰고 이어받는다. 재개의 기준은 체크포인트 파일이 아니라 **창고의 매니페스트**라, 체크포인트가 유실돼도 정확하다.
-
-### 대시보드
-
-```bash
-# shadow 창고를 본다. **실전 창고는 자본이 0이라 화면이 비어 있다.**
-QUANT_RL_DATA_ROOT=data/_shadow uv run python -m flask \
-    --app quant_rl_trading.dashboard.app:create_app run --port 5057
-```
-
-헤더 배지가 모드(LIVE/SHADOW/BACKTEST)를 **창고 경로에서 유도해** 띄운다.
-shadow 를 보면서 실전이라고 착각하는 것이 이 화면에서 가능한 가장 비싼 오해다.
-
-```bash
-# 모든 엔드포인트가 as_of 를 받는다
-curl 'localhost:5057/api/data-quality/summary'
-curl --get --data-urlencode 'as_of=2023-06-15T16:01:00+09:00' \
-     localhost:5057/api/data-quality/coverage
-```
-
-### 검증
-
-```bash
-uv run pytest tests/                      # 385 passed
-uv run python tools/invariant_guard.py    # 불변식 위반 0건
-uv run python tools/verify_m1.py          # M1 완료 기준
-uv run ruff check . && uv run mypy
-```
-
-`tests/invariants/` 는 커밋 전 필수 통과다. 여기에는 결정론·미래 훔쳐보기·생존편향·정정공시·늦게 도착한 정정본·브라우저 저장소 금지 검사가 들어 있다.
-
----
+한 줄로: **15:55 수집 → 22:55 점수 → 23:05 후보·주문 계획 → 다음 날 08:40 주문 → 장중 조각·재호가 → 15:45 대사 → 23:20 회계.**
+미장은 **08:40 수집 → 12:00 점수 → 12:20 주문 → 그날 밤 조각 배포 → 다음 12:20 체결 시뮬.**
 
 ## 마일스톤
 
@@ -351,15 +388,15 @@ uv run ruff check . && uv run mypy
 |---|---|---|
 | **M1** | 데이터 창고 + 리플레이 엔진 | ✅ 완료 |
 | **M2** | Analyst 9종 + IC 검증 (purged K-fold + embargo) | ✅ 완료 |
-| **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | 🔄 진행 중 |
-| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | |
+| **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | ✅ 2026-08-28 완료 · 모의계좌 운용 중 |
+| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | ⏹ 배분·매매 전반 RL 종료(9/4) · 집행 RL 1회 남음 — [`rl-postmortem.md`](docs/rl-postmortem.md) |
 | **M5** | Auditor + ModelOps + Claude 리뷰 | |
 
 ### 중단 기준
 
 선행 프로젝트가 실패한 결정적 이유 중 하나는 **중단 기준이 없었다는 것**이다.
 
-- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리
+- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리 — **2026-09-04 발동.** 배분 4회·매매 전반 2회 뒤 룰+감독학습 랭커로 간다([`rl-postmortem.md`](docs/rl-postmortem.md))
 - Analyst가 6개월간 하나도 IC 0.03을 못 넘김 → 피처·타깃 설계 원점 재검토
 - 실전 12개월간 shadow IR이 지속적으로 음수 → 프로젝트 종료 검토
 

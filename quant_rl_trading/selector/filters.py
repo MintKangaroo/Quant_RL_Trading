@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.store.errors import ConfigNotFound
 from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
@@ -29,6 +30,8 @@ DOCUMENTS = "documents"
 
 #: 거래대금 평균을 낼 창(거래일).
 TURNOVER_WINDOW = 20
+#: 시가총액이 사는 표 (reporting.briefing 과 같은 이름을 쓴다)
+MARKET_STATS = "market_stats"
 
 #: 부실 공시를 이 기간 안에 냈으면 매매 대상에서 뺀다. 관리종목 지정·불성실
 #: 공시는 한 번 나면 한동안 유효한 사실이다.
@@ -37,9 +40,19 @@ DISTRESS_WINDOW_DAYS = 120
 
 @dataclass(frozen=True)
 class FilterParams:
+    #: **절대 하한.** 자본과 무관하게 이보다 안 거래되는 종목은 안 산다.
     min_turnover: float
     min_listed_days: int
     max_price_ratio: float
+    #: 자본에서 유도하는 유동성 하한의 배수. 실효 하한은
+    #: ``max(min_turnover, capacity_multiple × 자본)`` 이다 (KR 만).
+    #: 0 이면 배수를 끄고 절대 하한만 쓴다.
+    capacity_multiple: float
+    #: 순위 하한 — 절대 하한을 통과한 뒤 상위 N 만 남긴다. 0 이면 안 쓴다
+    #: (config `universe.top_*_rank`, 사전등록 시행으로 켠다).
+    top_turnover_rank: int = 0
+    top_volume_rank: int = 0
+    top_market_cap_rank: int = 0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime, market: str) -> FilterParams:
@@ -48,7 +61,32 @@ class FilterParams:
             min_turnover=float(store.config(f"universe.{key}", as_of=as_of)),
             min_listed_days=int(store.config("universe.min_listed_days", as_of=as_of)),
             max_price_ratio=float(store.config("universe.max_price_ratio", as_of=as_of)),
+            capacity_multiple=float(
+                store.config("universe.turnover_capacity_multiple", as_of=as_of)
+            ),
+            top_turnover_rank=_rank_config(store, "top_turnover_rank", as_of=as_of),
+            top_volume_rank=_rank_config(store, "top_volume_rank", as_of=as_of),
+            top_market_cap_rank=_rank_config(store, "top_market_cap_rank", as_of=as_of),
         )
+
+    def effective_floor(self, *, market: str, equity: float) -> float:
+        """자본을 반영한 실효 거래대금 하한.
+
+        **KR 에만 배수를 건다.** 자본(NAV)은 원화이고 KR 거래대금도 원화라 바로
+        비교되지만, US 거래대금은 달러라 환산 없이는 못 건다 — 미장 자본·환율
+        처리가 설계되기 전까지 US 는 절대 하한만 쓴다 (config 주석 참고).
+        """
+        if market != "KR" or equity <= 0 or self.capacity_multiple <= 0:
+            return self.min_turnover
+        return max(self.min_turnover, self.capacity_multiple * equity)
+
+
+def _rank_config(store: Store, name: str, *, as_of: datetime) -> int:
+    """순위 하한 설정. **없으면 0(끔)** — 이 키가 없던 시점의 as_of 조회도 돌아야 한다."""
+    try:
+        return int(store.config(f"universe.{name}", as_of=as_of))
+    except ConfigNotFound:
+        return 0
 
 
 @dataclass(frozen=True)
@@ -62,6 +100,13 @@ class FilterResult:
         return len(self.kept)
 
 
+#: 1주 가격이 자본의 상한을 넘어 탈락한 이유. **상수로 두는 이유가 있다** —
+#: RL 피처 캐시(`allocator/cache.py`)가 "이 세션의 캐시가 자본과 무관한가" 를
+#: 이 이유의 개수로 판단한다. 문자열을 두 곳에 적으면 한쪽만 고쳐지고, 그러면
+#: 캐시가 조용히 다른 후보 목록을 내준다.
+PRICE_CAP_REASON = "1주 가격이 자본의 상한 초과"
+
+
 def tradable_universe(
     store: Store, *, as_of: datetime, market: str, params: FilterParams, equity: float
 ) -> FilterResult:
@@ -70,6 +115,11 @@ def tradable_universe(
     ``equity`` 는 자본(NAV)이다. **1주 가격이 자본의 15% 를 넘는 종목은 뺀다** —
     한 주도 제대로 못 담는 종목을 후보에 두면 목표 비중이 라운딩에서 통째로
     사라지고, 그 자리는 현금으로 남는다.
+
+    거래대금 하한도 자본에서 유도한다. 상수 하한을 통과해도 **목표금액이
+    ``max_adv_ratio`` 상한에 잘리는** 종목은 실효적으로 못 담는다 — 자본이
+    커지면 상수 하한은 "못 파는 종목" 이 아니라 "못 사는 종목" 을 걸러야 한다
+    (portfolio-construction.md §부록). ``FilterParams.effective_floor`` 참고.
     """
     lookback = max(params.min_listed_days + 30, 400)
     # **창은 400일이지만 쓰는 것은 종목당 두 값뿐이다** — 마지막 상태와 창 안
@@ -137,24 +187,98 @@ def tradable_universe(
     last_close = recent.groupby("entity_id")["close"].tail(1)
     last_close = recent.loc[last_close.index].set_index("entity_id")["close"]
 
+    floor = params.effective_floor(market=market, equity=equity)
+    # 하한이 상수를 넘었나 — 자본이 유동성을 조이기 시작한 자리다. 이유를
+    # 두 개로 가른다: 상수 미달은 "못 파는 종목", 배수 미달은 "못 사는 종목".
+    capital_floor = floor > params.min_turnover
+
     kept: list[str] = []
     for entity in alive:
         if entity not in turnover.index or pd.isna(turnover[entity]):
             dropped[entity] = "거래대금 관측 없음"
             continue
-        if float(turnover[entity]) < params.min_turnover:
-            dropped[entity] = "거래대금 하한 미달"
+        value = float(turnover[entity])
+        if value < floor:
+            dropped[entity] = (
+                "거래대금 용량 미달"
+                if capital_floor and value >= params.min_turnover
+                else "거래대금 하한 미달"
+            )
             continue
         price = float(last_close.get(entity, 0.0))
         if price <= 0:
             dropped[entity] = "종가 없음"
             continue
         if equity > 0 and price > equity * params.max_price_ratio:
-            dropped[entity] = "1주 가격이 자본의 상한 초과"
+            dropped[entity] = PRICE_CAP_REASON
             continue
         kept.append(entity)
 
+    kept = _apply_rank_caps(
+        store, kept, dropped,
+        as_of=as_of, market=market, params=params, turnover=turnover, prices=recent,
+    )
     return FilterResult(kept=tuple(sorted(kept)), dropped=dropped)
+
+
+def _apply_rank_caps(
+    store: Store,
+    kept: list[str],
+    dropped: dict[str, str],
+    *,
+    as_of: datetime,
+    market: str,
+    params: FilterParams,
+    turnover: pd.Series,
+    prices: pd.DataFrame,
+) -> list[str]:
+    """순위 하한 — 절대 하한을 통과한 것들 중 **상위 N** 만 남긴다.
+
+    절대 하한(원)은 시장이 통째로 얼어붙은 날에는 의미가 없고, 자본이 커지면
+    "못 사는 종목" 을 거르는 쪽으로 성격이 바뀐다. 순위는 **그날의 시장 안에서**
+    자른다. 셋 다 0 이면 아무것도 안 한다(기본값).
+
+    **셋은 교집합이다** — 거래대금 상위 300 ∧ 시총 상위 300 이면 둘 다 드는 것만
+    남는다. 합집합으로 두면 "상위" 라는 말이 무의미해진다.
+    """
+    if not kept:
+        return kept
+    caps: list[tuple[str, int, pd.Series]] = []
+    if params.top_turnover_rank > 0:
+        caps.append(("거래대금 순위 밖", params.top_turnover_rank, turnover))
+    if params.top_volume_rank > 0:
+        volume = prices.groupby("entity_id")["volume"].tail(TURNOVER_WINDOW)
+        volume = prices.loc[volume.index].groupby("entity_id")["volume"].mean()
+        caps.append(("거래량 순위 밖", params.top_volume_rank, volume))
+    if params.top_market_cap_rank > 0:
+        caps.append(("시총 순위 밖", params.top_market_cap_rank, _market_caps(store, as_of=as_of, market=market)))
+    for reason, limit, series in caps:
+        ranked = series.reindex(kept).dropna()
+        if ranked.empty:
+            # 잴 값이 없으면 **거르지 않는다** — 관측이 없는 것을 "순위 밖" 으로
+            # 적으면 수집 사고가 조용히 유니버스를 비운다.
+            continue
+        survivors = set(ranked.nlargest(limit).index)
+        for entity in kept:
+            if entity in ranked.index and entity not in survivors:
+                dropped[entity] = reason
+        kept = [entity for entity in kept if entity not in ranked.index or entity in survivors]
+    return kept
+
+
+def _market_caps(store: Store, *, as_of: datetime, market: str) -> pd.Series:
+    """종목별 최신 시가총액. 없으면 빈 시리즈 — 호출자가 "거르지 않는다" 로 받는다."""
+    frame = store.get(
+        MARKET_STATS, as_of=as_of, lookback=20, until=as_of, market=market,
+        columns=["entity_id", "metric", "value", "valid_from"],
+    )
+    if frame.empty:
+        return pd.Series(dtype=float)
+    caps = frame[frame["metric"] == "market_cap"]
+    if caps.empty:
+        return pd.Series(dtype=float)
+    caps = caps.sort_values("valid_from").groupby("entity_id")["value"].last()
+    return caps.astype(float)
 
 
 def distressed(store: Store, *, as_of: datetime, market: str) -> set[str]:

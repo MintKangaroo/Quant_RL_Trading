@@ -39,13 +39,24 @@ class SizingParams:
     settlement_days: int = 2
 
     @classmethod
-    def from_store(cls, store: Store, *, as_of: datetime) -> SizingParams:
+    def from_store(
+        cls, store: Store, *, as_of: datetime, fx_rate: float = 1.0
+    ) -> SizingParams:
+        """``fx_rate`` 는 **시장 통화 1단위의 원화 가격**(미장이면 USD/KRW).
+
+        `execution.min_order_value` 는 원 단위다(config.md). 미장 주문값은 달러라
+        그대로 비교하면 $100,000 미만이 전부 "소액" 으로 걸러져 주문이 0건이 된다
+        (2026-09-02 미장 shadow 실측). 원화 임계치는 하나만 두고 여기서 나눈다.
+        """
+        if fx_rate <= 0:
+            raise ValueError(f"환율은 양수여야 한다: {fx_rate!r}")
         return cls(
             max_adv_ratio=float(store.config("execution.max_adv_ratio", as_of=as_of)),
             max_liquidation_days=int(
                 store.config("execution.max_liquidation_days", as_of=as_of)
             ),
-            min_order_value=float(store.config("execution.min_order_value", as_of=as_of)),
+            min_order_value=float(store.config("execution.min_order_value", as_of=as_of))
+            / fx_rate,
             max_price_ratio=float(store.config("universe.max_price_ratio", as_of=as_of)),
             settlement_days=int(store.config("execution.settlement_days", as_of=as_of)),
         )

@@ -80,6 +80,35 @@ def _weight_as_of(earliest_start: date, warmup_days: int) -> datetime:
     return datetime.combine(probe_day, dtime(0, 0), tzinfo=SEOUL)
 
 
+def _build_checkpoint(
+    store: Store, as_of: datetime, args: argparse.Namespace, *, market: str
+) -> evolution_module.JsonlCheckpoint | None:
+    """세대 체크포인트. 경로·주기는 ``store.config`` 에서 온다 (불변식 10).
+
+    ``--checkpoint none`` 이면 끈다. 파일 이름에 market·seed·규모를 박는 이유는
+    같은 디렉터리에 여러 실행이 쌓이기 때문이다 — 이름이 같으면 두 실행의
+    세대가 한 파일에 섞여 나중에 어느 줄이 어느 실행인지 못 가린다.
+    """
+    if args.checkpoint == "none":
+        return None
+    every = (
+        args.checkpoint_every
+        if args.checkpoint_every is not None
+        else int(store.config("selector.checkpoint_every", as_of=as_of))
+    )
+    if args.checkpoint:
+        return evolution_module.JsonlCheckpoint(Path(args.checkpoint), every=every)
+    directory = Path(str(store.config("selector.checkpoint_dir", as_of=as_of)))
+    if not directory.is_absolute():
+        directory = REPO_ROOT / directory
+    stamp = as_of.strftime("%Y%m%dT%H%M%S")
+    name = (
+        f"evolution-{market}-p{args.population or 'cfg'}"
+        f"g{args.generations or 'cfg'}-seed{args.seed}-{stamp}.jsonl"
+    )
+    return evolution_module.JsonlCheckpoint(directory / name, every=every)
+
+
 def _available_fold_starts(
     market: Market, start: date, end: date, fold_trading_days: int
 ) -> list[date]:
@@ -116,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--board", default="KOSPI")
     parser.add_argument("--l1-penalty", type=float, default=None, help="기본: selector.l1_penalty")
     parser.add_argument(
-        "--turnover-penalty", type=float, default=evolution_module.DEFAULT_TURNOVER_PENALTY
+        "--turnover-penalty", type=float, default=None, help="기본: selector.turnover_penalty"
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--patience", type=int, default=evolution_module.DEFAULT_PATIENCE)
@@ -128,7 +157,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--sandbox", default=str(DEFAULT_SANDBOX))
     parser.add_argument("--fresh", action="store_true", help="샌드박스를 비우고 시작한다")
+    parser.add_argument(
+        "--holdout-start", default=None,
+        help="홀드아웃 구간 시작 (YYYY-MM-DD). --holdout-end 와 같이 준다. "
+        "학습 구간(--start~--end) 과 겹치면 안 된다 — selector.md §4 는 최종 "
+        "검증을 '별도 테스트 폴드에서 딱 한 번' 이라고 못 박았다.",
+    )
+    parser.add_argument("--holdout-end", default=None, help="홀드아웃 구간 끝 (YYYY-MM-DD)")
+    parser.add_argument(
+        "--checkpoint-every", type=int, default=None, help="기본: selector.checkpoint_every"
+    )
+    parser.add_argument(
+        "--min-fold-gap-days", type=int, default=None,
+        help="한 세대 두 폴드의 최소 시작일 간격(달력일). 기본: selector.min_fold_gap_days",
+    )
+    parser.add_argument(
+        "--checkpoint", default=None,
+        help="세대 체크포인트 JSONL 경로. 기본은 selector.checkpoint_dir 아래 "
+        "자동 생성. 'none' 이면 끈다.",
+    )
     args = parser.parse_args(argv)
+
+    # 이 도구는 몇 시간을 돈다. 출력이 파이프·리다이렉트로 가면 파이썬이 블록
+    # 버퍼링을 걸어, 죽을 때까지 로그가 **0바이트**로 남는다 — 2026-08-15 새벽
+    # 3시간짜리 실행이 정확히 그렇게 아무것도 안 남기고 끝났다. 줄 단위로 바꾼다.
+    sys.stdout.reconfigure(line_buffering=True)
 
     load_env()
     market_enum = Market(args.market)
@@ -159,11 +212,47 @@ def main(argv: list[str] | None = None) -> int:
         if args.l1_penalty is not None
         else float(real_store.config("selector.l1_penalty", as_of=as_of))
     )
+    turnover_penalty = (
+        args.turnover_penalty
+        if args.turnover_penalty is not None
+        else float(real_store.config("selector.turnover_penalty", as_of=as_of))
+    )
+    min_fold_gap_days = (
+        args.min_fold_gap_days
+        if args.min_fold_gap_days is not None
+        else int(real_store.config("selector.min_fold_gap_days", as_of=as_of))
+    )
 
     fold_starts = _available_fold_starts(market_enum, start, end, args.fold_days)
     if not fold_starts:
         print(f"{start}~{end} 에 {args.fold_days}거래일짜리 폴드가 없다.", file=sys.stderr)
         return 2
+
+    holdout_starts: list[date] = []
+    if bool(args.holdout_start) != bool(args.holdout_end):
+        print("--holdout-start 와 --holdout-end 는 같이 준다.", file=sys.stderr)
+        return 2
+    if args.holdout_start:
+        holdout_from = date.fromisoformat(args.holdout_start)
+        holdout_to = date.fromisoformat(args.holdout_end)
+        if holdout_from <= end:
+            # 학습 폴드는 [start, end] 안에서만 뽑히므로, 홀드아웃이 end 보다
+            # 앞서면 같은 날을 두 번 쓴다. 그러면 "별도 테스트 폴드" 가 아니다.
+            print(
+                f"홀드아웃 시작 {holdout_from} 이 학습 구간 끝 {end} 보다 앞선다 — "
+                "겹치면 홀드아웃이 아니다.",
+                file=sys.stderr,
+            )
+            return 2
+        holdout_starts = _available_fold_starts(
+            market_enum, holdout_from, holdout_to, args.fold_days
+        )
+        if not holdout_starts:
+            print(
+                f"{holdout_from}~{holdout_to} 에 {args.fold_days}거래일짜리 폴드가 없다.",
+                file=sys.stderr,
+            )
+            return 2
 
     sandbox = Path(args.sandbox)
     if args.fresh and sandbox.exists():
@@ -192,14 +281,41 @@ def main(argv: list[str] | None = None) -> int:
             source="evolution-prime",
         )
 
-    print(f"프라이밍: {start}~{end} 신호 계산 (한 번만, 이후 개체들이 공유)…")
-    prime_started = time.perf_counter()
-    loop_module.run(
-        priming_store, start=start, end=end, market=args.market,
-        capital=args.capital, board=args.board, warmup_days=args.warmup, produce_signals=True,
+    # 홀드아웃 폴드도 이 신호를 읽는다 — 프라이밍이 학습 구간까지만 돌면
+    # 홀드아웃 백테스트가 신호 0건으로 조용히 끝난다(backtest.md §7 의 그 함정).
+    prime_end = max(end, holdout_starts[-1] if holdout_starts else end)
+    if holdout_starts:
+        prime_end = max(prime_end, date.fromisoformat(args.holdout_end))
+    # **이 파일 문서가 "한 번만" 이라고 주장하는 그 한 번이 실제로는 매번이었다.**
+    # 위 ``ingest_run_recorded`` 는 가중치 적재만 막았고 아래 ``loop_module.run``
+    # 은 무조건 돌았다 — 신호 적재는 중복이라 조용히 버려지지만 **6종 Analyst
+    # 피처 계산 비용은 그대로 낸다.** 2026-08-15 실측으로 3,639초(61분)다.
+    # 재실행할 때마다 한 시간씩.
+    #
+    # 완료 표시를 창고가 아니라 샌드박스 파일로 두는 이유: 이건 창고 데이터가
+    # 아니라 **이 도구가 이미 한 일**에 대한 캐시 상태다. 창고에 심으면
+    # append-only 사실 기록에 도구 진행상황이 섞인다. 프라이밍이 성공한 **뒤에**
+    # 쓴다 — 먼저 쓰면 중간에 죽었을 때 안 끝난 것을 끝났다고 표시한다.
+    primed_marker = priming_root / ".primed"
+    prime_key = f"{args.market} {start} {prime_end} warmup={args.warmup}"
+    already_primed = (
+        primed_marker.exists()
+        and prime_key in primed_marker.read_text(encoding="utf-8").splitlines()
     )
-    prime_elapsed = time.perf_counter() - prime_started
-    print(f"프라이밍 완료: {prime_elapsed:.1f}s")
+    prime_elapsed = 0.0
+    if already_primed:
+        print(f"프라이밍 재사용: {start}~{prime_end} 신호가 이미 있다 (계산 건너뜀)")
+    else:
+        print(f"프라이밍: {start}~{prime_end} 신호 계산 (한 번만, 이후 개체들이 공유)…")
+        prime_started = time.perf_counter()
+        loop_module.run(
+            priming_store, start=start, end=prime_end, market=args.market,
+            capital=args.capital, board=args.board, warmup_days=args.warmup, produce_signals=True,
+        )
+        prime_elapsed = time.perf_counter() - prime_started
+        with primed_marker.open("a", encoding="utf-8") as handle:
+            handle.write(prime_key + "\n")
+        print(f"프라이밍 완료: {prime_elapsed:.1f}s")
 
     # 2. 개체 레이어 — 매 평가마다 새로 깐다. journal·analyst_weights 만 이
     #    개체 몫이고, signals 는 프라이밍 레이어를 그대로 링크로 본다.
@@ -215,31 +331,60 @@ def main(argv: list[str] | None = None) -> int:
     #: 탓으로 읽는다).
     fold_cache: dict[int, list[date]] = {}
 
-    def evaluate(
-        individual: evolution_module.Individual, generation: int
+    def _score(
+        individual: evolution_module.Individual,
+        generation: int,
+        folds: list[date],
     ) -> evolution_module.FitnessResult:
-        folds = fold_cache.get(generation)
-        if folds is None:
-            folds = evolution_module.resample_folds(fold_starts, args.folds_per_eval, rng_folds)
-            fold_cache[generation] = folds
+        """개체 하나를 새 레이어에서 채점한다. 학습·홀드아웃이 같이 쓴다."""
         if individual_root.exists():
             shutil.rmtree(individual_root)
         layer = overlay.build(
             root=individual_root, source=priming_layer.root, writable=INDIVIDUAL_WRITABLE
         )
-        eval_store = Store(root=layer.root)
-        started = time.perf_counter()
-        result = evolution_module.backtest_fitness(
-            eval_store, individual,
+        return evolution_module.backtest_fitness(
+            Store(root=layer.root), individual,
             market=args.market, fold_starts=folds, fold_trading_days=args.fold_days,
             generation=generation, weight_as_of=weight_as_of, capital=args.capital,
             warmup_days=args.warmup, board=args.board,
-            l1_penalty=l1_penalty, turnover_penalty=args.turnover_penalty,
+            l1_penalty=l1_penalty, turnover_penalty=turnover_penalty,
             # 프라이밍이 이미 구간 전체의 신호를 채웠다. 개체는 읽기만 한다.
             produce_signals=False,
         )
+
+    #: 홀드아웃 평가. ``generation`` 을 음수로 주어 학습 세대의 run_id 와 절대
+    #: 겹치지 않게 한다 — 겹치면 적재가 "이미 있음" 으로 무시되고 홀드아웃이
+    #: 학습 때 쓴 가중치를 읽는다.
+    def _evaluate_holdout(
+        individual: evolution_module.Individual, folds: list[date]
+    ) -> evolution_module.FitnessResult:
+        return _score(individual, -1, folds)
+
+    def evaluate(
+        individual: evolution_module.Individual, generation: int
+    ) -> evolution_module.FitnessResult:
+        folds = fold_cache.get(generation)
+        if folds is None:
+            folds = evolution_module.resample_folds(
+                fold_starts, args.folds_per_eval, rng_folds,
+                min_gap_days=min_fold_gap_days,
+            )
+            if len(folds) < args.folds_per_eval:
+                # 조용히 줄이지 않는다 — 중앙값 평가의 표본이 줄었다는 뜻이라
+                # 그 세대의 적합도는 다른 세대와 같은 잣대가 아니다.
+                print(
+                    f"  세대 {generation}: 간격 {min_fold_gap_days}일을 지키며 "
+                    f"{args.folds_per_eval}개를 못 뽑아 {len(folds)}개로 평가한다"
+                )
+            fold_cache[generation] = folds
+        started = time.perf_counter()
+        result = _score(individual, generation, folds)
         eval_timings.append(time.perf_counter() - started)
         return result
+
+    checkpoint = _build_checkpoint(real_store, as_of, args, market=args.market)
+    if checkpoint is not None:
+        print(f"세대 체크포인트: {checkpoint.path} (매 {checkpoint.every}세대)")
 
     print(
         f"진화 시작: {args.market} · population {population} · generations {generations} · "
@@ -250,6 +395,7 @@ def main(argv: list[str] | None = None) -> int:
         analysts=active, population_size=population, generations=generations,
         evaluate=evaluate, patience=args.patience, seed=args.seed,
         stability_top_n=args.stability_top_n, stability_threshold=args.stability_threshold,
+        checkpoint=checkpoint,
     )
     evolve_elapsed = time.perf_counter() - evolve_started
 
@@ -258,17 +404,43 @@ def main(argv: list[str] | None = None) -> int:
     for record in outcome.history:
         print(
             f"  세대 {record.generation:>3}  최고 {record.best_fitness:+.4f}  "
-            f"평균 {record.mean_fitness:+.4f}  최고개체 "
+            f"평균 {record.mean_fitness:+.4f}  다양성 {record.diversity:.3f}  "
+            f"유전형퍼짐 {record.gene_spread:.3f}  실패 {record.failed}  최고개체 "
             f"{_format_weights(record.best_individual)}"
         )
 
     print()
     print(outcome.stability.summary())
+    floor = evolution_module.NOISE_FLOOR_DISTANCE.get((population, outcome.generations_run))
+    if floor is not None:
+        print(
+            f"  ※ 같은 pop×gen 에서 **신호가 전혀 없는** 지형의 거리 중앙값이 "
+            f"{floor:.3f} 다. 이 거리만으로는 봉우리와 유전적 드리프트를 구분하지 "
+            f"못한다 — 홀드아웃을 보라(evolution.NOISE_FLOOR_DISTANCE)."
+        )
     print(f"채택 여부: {'가능' if outcome.adopt else '불가 — 동일가중을 대신 쓸 것'}")
 
     best = max(outcome.fitnesses, key=lambda item: item.fitness)
     print(f"\n최종 최고 개체 적합도 {best.fitness:+.4f}  IR중앙값 {best.ir_median:+.4f}  "
           f"회전율중앙값 {best.turnover_median:.3f}  가중치 {_format_weights(best.individual)}")
+
+    holdout = None
+    if holdout_starts:
+        picked = evolution_module.resample_folds(
+            holdout_starts, args.folds_per_eval, np.random.default_rng(args.seed + 2),
+            min_gap_days=min_fold_gap_days,
+        )
+        print(f"\n홀드아웃 폴드 {[str(d) for d in picked]} — 학습에 한 번도 안 쓴 구간")
+        holdout = evolution_module.holdout_report(
+            best.individual,
+            analysts=active,
+            folds=picked,
+            train_fitness=best.fitness,
+            # 홀드아웃도 개체마다 새 레이어를 깐다 — 최고 개체와 동일가중이
+            # 같은 journal 을 쓰면 두 번째 적재가 조용히 무시된다.
+            evaluate=lambda individual: _evaluate_holdout(individual, picked),
+        )
+        print(holdout.summary())
 
     _print_cost_projection(
         eval_timings=eval_timings,

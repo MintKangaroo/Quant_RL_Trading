@@ -13,6 +13,7 @@ httpx 는 ``MockTransport`` 로 막는다. ``confirm``/``prompt`` 는 스크립�
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import ClassVar
 
 import httpx
@@ -27,6 +28,7 @@ from quant_rl_trading.broker.ls_order_us import (
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.schemas.order import Side
+from tools import verify_live_order
 from tools.verify_live_order import (
     Quote,
     RunConfig,
@@ -359,6 +361,20 @@ def us_deposit_response(order_able: float = 9.49) -> httpx.Response:
     )
 
 
+def us_holdings_response(*rows: dict) -> httpx.Response:
+    """``COSOQ00201`` 잔고평가 — **예수금 TR 은 종목을 안 준다.**
+
+    이 스텁이 없어서 미장 검증 테스트 넷이 "예상하지 못한 TR" 로 죽었다.
+    실주문 경로가 잔고를 두 번 부르는 것이 정상이다 — 예수금(현금)과
+    잔고평가(종목)는 서로 다른 TR 이고, 하나로 갈음하면 2026-08-17 처럼
+    체결된 SNAP 1주를 "보유 0종목" 으로 읽는다.
+    """
+    return httpx.Response(
+        200,
+        json={"rsp_cd": "00000", "COSOQ00201OutBlock4": list(rows)},
+    )
+
+
 def make_us_client(handler, *, live_trading: bool) -> LSClient:  # type: ignore[no-untyped-def]
     def routed(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/oauth2/token":
@@ -501,8 +517,12 @@ def test_호가단위_배수인_가격은_그대로_남는다():
 
 def test_USD_주문가능금액을_읽는다_원화5원이_아니다():
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers.get("tr_cd") == "COSOQ02701"
         assert request.url.path == "/overseas-stock/accno"
+        # 잔고는 **두 번** 부른다 — 예수금(현금)과 잔고평가(종목)는 다른 TR 이다.
+        tr = request.headers.get("tr_cd")
+        if tr == "COSOQ00201":
+            return us_holdings_response()
+        assert tr == "COSOQ02701"
         return us_deposit_response()
 
     client = make_us_client(handler, live_trading=True)
@@ -532,6 +552,8 @@ def test_USD_예수금보다_큰_주문은_거부된다():
         tr = request.headers.get("tr_cd")
         if tr == "COSOQ02701":
             return us_deposit_response(order_able=9.49)
+        if tr == "COSOQ00201":
+            return us_holdings_response()
         if tr == "g3104":
             return us_quote_response(close=15.00)  # 1주 $15 > $9.49
         raise AssertionError(f"예수금 검사에서 멈춰야 하는데 {tr} 까지 갔다")
@@ -583,6 +605,8 @@ def test_미장_드라이런은_국장TR을_하나도_안_부른다():
         seen.append(tr)
         if tr == "COSOQ02701":
             return us_deposit_response()
+        if tr == "COSOQ00201":
+            return us_holdings_response()
         if tr == "g3104":
             return us_quote_response()
         raise AssertionError(f"예상하지 못한 TR: {tr}")
@@ -596,7 +620,8 @@ def test_미장_드라이런은_국장TR을_하나도_안_부른다():
     # 국장 TR 이 하나도 안 나갔다.
     for kr_tr in ("t0424", "t1102", "t0425", "CSPAT00601", "CSPAT00701", "CSPAT00801"):
         assert kr_tr not in seen, f"미장 검증인데 국장 TR {kr_tr} 이 나갔다"
-    assert seen == ["COSOQ02701", "g3104"]
+    # 예수금 → 잔고평가 → 시세. 잔고평가를 빼면 보유 종목을 못 본다.
+    assert seen == ["COSOQ02701", "COSOQ00201", "g3104"]
     # 주문 본문은 출력됐지만 전송은 없다.
     assert any("COSAT00301InBlock1" in line for line in lines)
 
@@ -606,6 +631,8 @@ def test_미장도_dry_run이면_주문TR이_안_나간다():
         tr = request.headers.get("tr_cd")
         if tr == "COSOQ02701":
             return us_deposit_response()
+        if tr == "COSOQ00201":
+            return us_holdings_response()
         if tr == "g3104":
             return us_quote_response()
         raise AssertionError(f"드라이런인데 {tr} 이 나갔다")
@@ -663,3 +690,33 @@ def json_body(request: httpx.Request) -> dict:
     import json
 
     return json.loads(request.content.decode("utf-8"))
+
+
+class Test무인_승인:
+    """``--assume-yes`` 는 절차를 넘기되 **위험은 넘기지 않는다.**
+
+    이 도구의 확인은 두 종류다. "1단계 — 토큰을 발급받는다. 계속할까?" 는
+    절차를 넘기는 물음이고, "킬스위치가 걸려 있다. 그래도 계속할까?" 는
+    위험을 알면서 밀고 갈까 라는 물음이다. 둘을 한 스위치로 자동 승인하면
+    **무인 실행이 킬스위치를 스스로 무시한다.**
+    """
+
+    def test_절차_확인은_승인한다(self) -> None:
+        assert verify_live_order.auto_confirm("1단계 — 토큰을 발급받는다. 계속할까?")
+        assert verify_live_order.auto_confirm("위 내용으로 매수 주문을 실제로 낸다. 계속할까?")
+
+    def test_킬스위치는_거부한다(self) -> None:
+        assert not verify_live_order.auto_confirm("킬스위치가 걸려 있다. 그래도 계속할까?")
+
+    def test_장외시간은_거부한다(self) -> None:
+        assert not verify_live_order.auto_confirm("정규장 시간이 아니다. 그래도 계속할까?")
+
+    def test_거래제한은_거부한다(self) -> None:
+        assert not verify_live_order.auto_confirm("거래 제한이 걸려 있다. 그래도 계속할까?")
+
+    def test_위험_문구가_코드와_같은_말을_쓴다(self) -> None:
+        """표지 문자열이 실제 호출부와 어긋나면 **위험 확인이 조용히 자동
+        승인된다.** 소스에서 직접 세어 둘이 같은지 지킨다."""
+        source = Path(verify_live_order.__file__).read_text(encoding="utf-8")
+        # 정의부 1곳 + 실제 확인 3곳.
+        assert source.count(verify_live_order.OVERRIDE_MARKER) >= 4

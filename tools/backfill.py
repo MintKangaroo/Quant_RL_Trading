@@ -53,6 +53,7 @@ from quant_rl_trading.collectors.ls_us_source import (  # noqa: E402
     UsPriceBackfiller,
 )
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
+from quant_rl_trading.collectors.outcome import availability_key  # noqa: E402
 from quant_rl_trading.collectors.panels import (  # noqa: E402
     OPENAPI_PANELS,
     PANELS,
@@ -67,7 +68,7 @@ from quant_rl_trading.replay.clock import Clock, LiveClock  # noqa: E402
 from quant_rl_trading.settings import (
     load_env,
 )
-from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
+from quant_rl_trading.store import ConfigNotFound, SchemaViolation, Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 #: 수급은 종목 축이라 패널과 실행 경로가 다르다.
@@ -86,12 +87,33 @@ US_MARKET_CAP = "market-cap"
 ENV_FILE = REPO_ROOT / ".env"
 
 
+#: 창고에 설정이 심겨 있는지 볼 때 찔러보는 키.
+#:
+#: ``backfill.years`` 하나만 보던 자리다. 그러면 **나중에 추가된 키는 영영
+#: 안 심긴다** — 창고에는 옛 키가 있으니 시딩을 건너뛰고, 새 키를 읽는 쪽은
+#: ``ConfigNotFound`` 를 본다. 0행 판정(collectors/outcome.py)은 설정이 없으면
+#: "확인 못 했다" 로 가므로, 안 심긴 것이 매일 밤 실패로 나온다.
+CONFIG_PROBES = (
+    "backfill.years",
+    availability_key("krx_openapi:market_stats"),
+)
+
+
 def build_store(root: Path | None = None) -> Store:
     store = Store(root=root) if root is not None else Store()
-    try:
-        store.config("backfill.years", as_of=LiveClock().now())
-    except ConfigNotFound:
-        store.seed_config_defaults()
+    now = LiveClock().now()
+    for probe in CONFIG_PROBES:
+        try:
+            store.config(probe, as_of=now)
+        except ConfigNotFound:
+            try:
+                store.seed_config_defaults()
+            except SchemaViolation as clash:
+                # yaml 과 창고가 어긋나 있으면 시딩은 발효 시점을 요구한다.
+                # 여기서 임의로 밀지 않는다 — 밀면 과거 as_of 조회가 소급해
+                # 바뀐다. 대신 시끄럽게 적고 간다.
+                print(f"설정 시딩을 건너뛴다: {clash}", file=sys.stderr)
+            break
     return store
 
 
@@ -195,8 +217,13 @@ def run_backfill(
             status = "FAIL" if result.error else "ok"
         tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
         counts = " ".join(f"{name}={rows}" for name, rows in sorted(result.counts.items()))
+        # 0행이면 **그게 무엇인지** 함께 적는다. `indices=0` 만 적히던 자리가
+        # 휴장인지 우리 실패인지 로그로 가릴 수 없던 곳이다.
+        verdict = getattr(result, "verdict", None)
         print(
-            f"[{index}/{len(pending)}] {day} {status}  {counts}{tail}"
+            f"[{index}/{len(pending)}] {day} {status}  {counts}"
+            + (f" [{verdict}]" if verdict is not None else "")
+            + tail
             + (f"  {result.error}" if result.error else "")
         )
 
@@ -341,9 +368,21 @@ def run_us_price_backfill(
 
 
 def run_us_universe_backfill(
-    store: Store, clock: Clock, *, years: int, dry_run: bool = False
+    store: Store, clock: Clock, *, years: int, sessions: int | None = None,
+    dry_run: bool = False,
 ) -> int:
     """미장 명단 — 이미 들어온 시세에서 유도해 적재한다.
+
+    ## ``sessions`` 를 주면 짧은 창으로 돌고 **상폐 판정을 건너뛴다**
+
+    크론에 넣으려면 5년을 훑을 수 없다. 그런데 상폐 판정은 "마지막 봉이 패널
+    끝에서 ``DEAD_SESSIONS``(10) 이상 떨어졌나" 라서 **창이 짧으면 근거가
+    창 밖에 있다** — 20세션만 보면 그 창 초반에만 나온 종목이 전부 상폐로
+    찍힌다. 실제로는 그 종목이 창 밖에서 멀쩡히 거래됐을 수 있다.
+
+    그래서 짧은 창에서는 명단만 갱신하고 상폐는 손대지 않는다. 상폐는 전체
+    창으로 따로(주 1회) 돈다. **건너뛴 사실을 로그에 남긴다** — 조용히
+    넘어가면 "상폐가 왜 안 잡히지" 를 아무도 안 묻는다.
 
     시세만 있고 명단이 없으면 Analyst 는 대상이 0개다. 실측에서 미장
     chart·risk 가 "300세션 측정, 표본 0일 / 0행, IC nan" 으로 끝났다.
@@ -358,14 +397,21 @@ def run_us_universe_backfill(
     market = Market.US
     now = clock.now()
 
-    print(f"{market} 명단 — 시세에서 유도 (최근 {years}년)", flush=True)
+    # **실제로 본 창을 적는다.** `--sessions` 를 줬는데 "최근 5년" 이라고
+    # 찍으면 로그가 거짓말을 하고, 나중에 "5년을 훑었는데 왜 명단이 모자라지"
+    # 를 묻게 된다.
+    span = f"최근 {sessions}세션" if sessions else f"최근 {years}년"
+    print(f"{market} 명단 — 시세에서 유도 ({span})", flush=True)
     # 여기서 묻는 것은 "그 세션에 봉이 있었나" 하나이고 종가는 읽지도 않는다.
     # 거르려고 close 를 얹으면 5년 스캔에 컬럼 하나가 통째로 더 붙는다.
     # 미장이라 KRX 휴장일 0 세션 자체가 없다.
+    # 짧은 창은 거래일이 아니라 달력일로 넉넉히 잡는다 — 미장 거래일 달력을
+    # 여기서 다시 계산하느니 주말·휴일 몫을 얹는 편이 싸고 안전하다.
+    lookback = (sessions * 2 + 10) if sessions else (365 * years + 10)
     frame = store.get(  # invariant-allow: price-read
         PRICES,
         as_of=now,
-        lookback=365 * years + 10,
+        lookback=lookback,
         market=str(market),
         columns=["observed_at"],
     )
@@ -374,12 +420,14 @@ def run_us_universe_backfill(
         return 2
 
     report = up.BuildReport()
-    sessions: list[date] = []
+    # 인자 ``sessions`` 와 이름이 겹치지 않게 둔다 — 겹치면 짧은 창 분기가
+    # 자기 인자를 덮어써서 조용히 전체 창처럼 굴었다.
+    session_days: list[date] = []
     last_seen: dict[str, tuple[date, object, object]] = {}
     started = time.monotonic()  # invariant-allow: wallclock
 
     for day, records in up.group_sessions(frame):
-        sessions.append(day)
+        session_days.append(day)
         rows = up.session_rows(records, market=market)
         for row in rows:
             last_seen[str(row["entity_id"])] = (
@@ -403,14 +451,26 @@ def run_us_universe_backfill(
 
         if report.sessions % 50 == 0:
             elapsed = timedelta(seconds=time.monotonic() - started)  # invariant-allow: wallclock
-            remaining = eta(report.sessions, len(sessions), elapsed)
+            remaining = eta(report.sessions, len(session_days), elapsed)
             tail = f"  남은시간 ~{_short(remaining)}" if remaining else ""
             print(f"  [{report.sessions}] {day} rows={len(rows)}{tail}", flush=True)
 
     # 상폐는 마지막에 한 번. 마지막 봉이 언제였는지는 전 세션을 다 봐야 안다.
-    dead = up.delisting_rows(last_seen, sessions, market=market)
+    # **짧은 창에서는 아예 하지 않는다** — 근거가 창 밖에 있어서, 그 창
+    # 초반에만 나온 종목을 상폐로 오인한다(모듈 docstring 참고).
+    if sessions:
+        print(
+            f"  상폐 판정을 건너뛴다 — 창이 {len(session_days)}세션이라 "
+            f"근거({up.DEAD_SESSIONS}세션 이상 결측)가 창 밖에 있다. "
+            "상폐는 전체 창으로 따로 돈다",
+            flush=True,
+        )
+        print(f"\n완료 — {report.render()}")
+        return 0
+
+    dead = up.delisting_rows(last_seen, session_days, market=market)
     if dead and not dry_run:
-        run_id = up.delisting_run_id(market, sessions[-1])
+        run_id = up.delisting_run_id(market, session_days[-1])
         if not store.ingest_run_recorded(UNIVERSE, run_id):
             report.delisted = store.append(
                 UNIVERSE, dead, ingest_run_id=run_id, source=up.SOURCE
@@ -1068,6 +1128,10 @@ def main(argv: list[str] | None = None) -> int:
             store,
             clock,
             years=args.years or int(store.config("backfill.years", as_of=clock.now())),
+            # **`--sessions` 를 여기서 안 넘기면 인자를 만든 의미가 없다.**
+            # 이 저장소에서 제일 자주 나는 결함이 정확히 그 모양이다 —
+            # 함수는 받는데 CLI 가 안 준다.
+            sessions=args.sessions,
             dry_run=args.dry_run,
         )
 

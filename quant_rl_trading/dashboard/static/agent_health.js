@@ -81,8 +81,9 @@ async function renderIcHistory() {
       const hit = series.points.find((p) => p.at === at);
       return hit ? hit.ic : null;
     }),
-    lineStyle: { width: 1.6, color: [COLOR.down, COLOR.up, COLOR.text, COLOR.warn][index % 4] },
-    itemStyle: { color: [COLOR.down, COLOR.up, COLOR.text, COLOR.warn][index % 4] },
+    // 계열 구분이지 손익·상태가 아니다 — 공용 범주 팔레트를 쓴다.
+    lineStyle: { width: 1.6, color: COLOR.series[index % COLOR.series.length] },
+    itemStyle: { color: COLOR.series[index % COLOR.series.length] },
   });
 
   instance.setOption({

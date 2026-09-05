@@ -81,10 +81,22 @@ async function renderJobs() {
     }).join("")}</tbody></table>`;
 }
 
+/* 지연 배지. **거래일 기준이다** — 서버가 그렇게 센다(services/system.py
+ * `_trading_days_since`). 달력일로 세던 시절에는 연휴만 지나면 전 테이블이
+ * 빨간불이었고, 매일 뜨는 빨간불은 곧 아무도 안 보는 빨간불이 된다.
+ *
+ * `alarm: false` 인 테이블은 **사건 테이블**이다(입출금 등). 며칠째 안 들어온
+ * 것이 고장이 아니라 정상이라, 마지막 날짜는 보여주되 경보색을 안 쓴다.
+ */
 function tableStaleChip(row) {
   if (row.latest_valid_from === null) return '<span class="chip tone-flat">미가동</span>';
   if (row.stale_days === null) return "";
-  if (row.stale_days > 3) return `<span class="chip tone-off">${row.stale_days}일 지연</span>`;
+  if (row.alarm === false) {
+    return `<span class="chip tone-flat" title="입출금처럼 사건이 있을 때만 생기는 표라 지연 경보를 걸지 않는다">${row.stale_days}거래일 전</span>`;
+  }
+  if (row.stale_days > 3) {
+    return `<span class="chip tone-off">${row.stale_days}거래일 지연</span>`;
+  }
   return '<span class="chip tone-on">최신</span>';
 }
 
@@ -232,7 +244,7 @@ async function renderProcesses() {
   const target = document.getElementById("proc-rows");
   target.innerHTML = data.processes.length
     ? data.processes.map((p) => `<tr>
-        <td>${num(p.pid)} · ${esc(p.command)}</td>
+        <td class="cmd" title="${esc(p.command)}">${num(p.pid)} · ${esc(p.command)}</td>
         <td class="num">${dec(p.cpu_pct, 1)}</td>
         <td class="num">${num(p.rss_mb)}</td>
         <td class="num">${dec(p.uptime_h, 1)}</td>

@@ -35,9 +35,12 @@ from quant_rl_trading.analysts.chart import ChartAnalyst  # noqa: E402
 from quant_rl_trading.analysts.event import EventAnalyst  # noqa: E402
 from quant_rl_trading.analysts.flow_kr import FlowKrAnalyst  # noqa: E402
 from quant_rl_trading.analysts.flow_us import FlowUsAnalyst  # noqa: E402
-from quant_rl_trading.analysts.fundamental import FundamentalAnalyst  # noqa: E402
+from quant_rl_trading.analysts.fundamental import FundamentalAnalyst
+from quant_rl_trading.analysts.ranker import RankerAnalyst  # noqa: E402
 from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
 from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
+from quant_rl_trading.analysts.volume import VolumeAnalyst  # noqa: E402
+from quant_rl_trading.selector.constraints import CONSTRAINT_ANALYSTS
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
 from quant_rl_trading.replay.clock import Clock, LiveClock, ReplayClock  # noqa: E402
@@ -50,8 +53,10 @@ ANALYSTS: dict[str, type[Analyst]] = {
     "flow_kr": FlowKrAnalyst,
     "flow_us": FlowUsAnalyst,
     "fundamental": FundamentalAnalyst,
+    "ranker": RankerAnalyst,
     "regime": RegimeAnalyst,
     "risk": RiskAnalyst,
+    "volume": VolumeAnalyst,
 }
 
 #: 라벨을 만들 때 훑는 구간의 여유분(달력일). 측정 구간보다 넉넉해야 앞뒤가
@@ -116,7 +121,7 @@ def measure(
     sessions: int,
     verbose: bool,
     as_of: datetime | None = None,
-) -> ic.ICResult:
+) -> tuple[pd.DataFrame, pd.DataFrame, ic.ICResult]:
     """``as_of`` 를 주면 **그 시점까지만 알고** 측정한다 — 워크포워드용이다.
 
     백테스트가 진짜 OOS 이려면, 평가 구간에서 쓰는 가중치가 그 구간 데이터를
@@ -125,7 +130,7 @@ def measure(
     """
     clock: Clock = LiveClock() if as_of is None else ReplayClock(as_of)
     as_of = clock.now()
-    threshold, min_days = ic.thresholds(store, as_of=as_of)
+    threshold, min_days, t_min = ic.thresholds(store, as_of=as_of)
 
     targets = ic.build_targets(
         store, as_of=as_of, lookback=target_span(sessions), market=str(market)
@@ -141,7 +146,7 @@ def measure(
     analyst = ANALYSTS[name](store, clock, market=market)
     scores = score_sessions(analyst, store, calendar, market, verbose=verbose)
 
-    return ic.evaluate(
+    return scores, targets, ic.evaluate(
         scores,
         targets,
         analyst=analyst.name,
@@ -149,6 +154,7 @@ def measure(
         market=str(market),
         threshold=threshold,
         min_sample_days=min_days,
+        t_min=t_min,
     )
 
 
@@ -202,10 +208,32 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     clock: Clock = LiveClock() if cutoff is None else ReplayClock(cutoff)
 
+    # **적재가 막힐 것을 측정 전에 확인한다.** run_id 는 (market, as_of) 만으로
+    # 정해지므로 여기서 이미 알 수 있다. 확인 없이 돌면 Analyst 6종을 몇 시간
+    # 계산한 뒤 마지막 append 에서 DuplicateIngestRun 으로 튕긴다 — 실제로
+    # 2026-08-17 워크포워드 재실행이 **4시간 반을 그렇게 버렸다.**
+    #
+    # 중복 거부 자체는 옳다(append-only 창고에서 같은 run_id 를 두 번 쓰면
+    # 안 된다). 틀린 것은 **막힐 걸 알면서 일을 다 하고 나서 막히는 것**이다.
+    # **시각은 한 번만 읽는다.** LiveClock 을 두 번 부르면 run_id 와 행의
+    # observed_at 이 몇 초 어긋나 무엇이 언제 적재됐는지 되짚기 어려워진다.
+    measured_at = clock.now()
+    run_id = f"ic-{market}-{measured_at:%Y%m%dT%H%M%S}"
+    if args.save and store.ingest_run_recorded("analyst_weights", run_id):
+        print(
+            f"{run_id} 은 이미 적재됐다 — 같은 (시장, as_of) 로 잰 가중치가 창고에 "
+            "있다. 측정을 건너뛴다.\n"
+            "  다시 재려면 --as-of 를 바꾸거나, 창고를 새로 깔고(--data-root) 돌릴 것.\n"
+            "  --save 없이 돌리면 적재 없이 숫자만 다시 볼 수 있다."
+        )
+        return 0
+
     results = []
+    alpha_scores: dict[str, pd.DataFrame] = {}
+    targets_frame = None
     for name in args.analyst:
         print(f"\n=== {name} ===", flush=True)
-        result = measure(
+        scores, targets_frame, result = measure(
             name,
             store,
             market=market,
@@ -215,16 +243,41 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(render(result))
         results.append(result)
+        # 한계기여 계산의 재료 — **통과한 알파**만 모은다. 제약 Analyst(risk)는
+        # 합성에 안 들어가므로(selector/constraints.py) 여기서도 뺀다.
+        if result.passed and name not in CONSTRAINT_ANALYSTS:
+            alpha_scores[name] = scores
 
     if args.save:
         # 적재 시각도 측정 시점이다. 지금 시각으로 찍으면 과거 as_of 조회가
         # 이 가중치를 못 보고, 워크포워드 백테스트는 여전히 0건이 된다.
-        now = clock.now()
+        now = measured_at
         rows = [
             result.row(as_of=now, observed_at=now, source="ic-measure")
             for result in results
         ]
-        run_id = f"ic-{market}-{now:%Y%m%dT%H%M%S}"
+        # **한계기여 가중** (2026-08-25, ic.marginal_shares 독스트링이 규칙 원본).
+        # 통과 = 자격이고 가중치 = 기여다. 동등 가중은 겹치는 신호(event↔재무)가
+        # 중복 투표하게 한다 — 실측으로 event 의 한계기여가 ~0 이었다.
+        if len(alpha_scores) >= 2 and targets_frame is not None:
+            shares, details = ic.marginal_shares(
+                alpha_scores, targets_frame, t_min=2.0
+            )
+            print("\n[한계기여] 통과 알파의 가중치 — ΔIC(전체−하나뺀것) 기준")
+            for name in sorted(shares):
+                delta, t_value = details[name]
+                print(f"    {name:12s} ΔIC {delta:+.4f} · t {t_value:5.2f} "
+                      f"→ 가중치 {shares[name]:.3f}")
+            if all(value == 1.0 for value in shares.values()) and len(set(
+                    round(d, 6) for d, _ in details.values())) > 1:
+                pass
+            if max(
+                (d for d, t in details.values() if pd.notna(d)), default=0.0
+            ) <= 0.0:
+                print("    ⚠️ 전부 0 — 동등 가중으로 물러섰다(쌍둥이 신호는 LOO 로 안 갈린다)")
+            for row in rows:
+                if row["entity_id"] in shares:
+                    row["weight"] = round(float(shares[row["entity_id"]]), 6)
         written = store.append("analyst_weights", rows, ingest_run_id=run_id)
         print(f"\nanalyst_weights 적재: {written}행")
 

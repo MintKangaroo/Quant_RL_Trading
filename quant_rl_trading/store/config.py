@@ -83,7 +83,12 @@ def defaults_rows(
             # (`EMPTY` 주석 참고). 시딩이 이 키를 만지지 않는다.
             continue
         if previous is None:
-            rows.append(_row(name, value_json, DEFAULTS_EPOCH, 0))
+            # **새 키**: 창고가 비어 있는 첫 시딩이면 에포크(어느 as_of 로도 보이게), 이미 설정이
+            # 있는 창고에 나중에 더하는 키는 ``effective_at`` 부터다. 2026-08-28 에 새 키 둘을
+            # 에포크로 심었다가 과거 세션 RL 캐시 지문 930개가 전부 깨져 학습 재개가 실패했다 —
+            # 그때 없던 키가 그때 있었던 것처럼 보이면 안 된다.
+            born = moment if (known and effective_at is not None) else DEFAULTS_EPOCH
+            rows.append(_row(name, value_json, born, 0))
         elif previous[0] != value_json:
             rows.append(_row(name, value_json, moment, previous[1] + 1))
         # 값이 그대로면 아무것도 쓰지 않는다. 같은 사실을 두 번 적지 않는다.
@@ -194,6 +199,24 @@ def read_section(frame: Any, name: str, as_of: datetime) -> dict[str, Any]:
     return out
 
 
+def resolve(frame: Any, name: str, as_of: datetime) -> Any:
+    """``config`` 표 **전체**에서 이름 하나를 푼다. 값 하나거나 섹션이다.
+
+    ``Store.config`` 와 ``MemoStore.config`` 가 같은 규칙을 쓰게 한 벌만 둔다.
+    둘로 두면 캐시를 씌운 쪽만 다르게 풀리는 사고가 난다.
+
+    표를 이름으로 안 좁히고 통째로 받는 이유는 ``Store.config`` 의 주석에
+    적었다 — 조회 고정비가 이름 수만큼 곱해지는 것을 막고, 인자가 같은
+    조회 하나로 통일해 요청 캐시가 걸리게 하기 위함이다.
+    """
+    exact = frame[frame["entity_id"] == name] if not frame.empty else frame
+    if "." in name or not exact.empty:
+        # 점이 있거나, 그 이름의 값이 실제로 있으면 값 하나다.
+        # ``config_version`` 처럼 섹션에 속하지 않는 최상위 값이 여기 걸린다.
+        return read_value(exact, name, as_of)
+    return read_section(frame, name, as_of)
+
+
 __all__ = [
     "CONFIG_TABLE",
     "DEFAULTS_EPOCH",
@@ -202,4 +225,5 @@ __all__ = [
     "defaults_run_id",
     "read_section",
     "read_value",
+    "resolve",
 ]

@@ -102,7 +102,17 @@ class KrxSource:
     #: 일시적 오류 재시도 횟수. KRX 는 종종 HTML 오류 페이지를 돌려준다.
     retries: int = 3
     retry_pause_sec: float = 1.5
+    #: **정상 호출 사이의 최소 간격.** 재시도에만 쉬고 성공 호출은 쉬지 않으면
+    #: 백필이 초당 여러 번 때린다 — 2026-09-01 공매도 백필이 그렇게 86세션을
+    #: 받고 그 뒤로 계속 빈 응답(IndexError)·HTML 오류를 받았다. 데이터가 없는
+    #: 것이 아니라 **거절당한 것**이었다. `LSClient.min_interval_sec` 과 같은 관용구다.
+    #:
+    #: 3초로 둔다. 하루 5세션(=10콜)이면 30초라 일상 수집에는 부담이 없고,
+    #: 과거 백필은 어차피 한 번만 하는 일이라 느려도 된다. **남의 서버를 우리
+    #: 편의로 두들기지 않는다** — 막히면 데이터를 통째로 잃는다.
+    min_interval_sec: float = 3.0
     sleep: Callable[[float], None] = time.sleep
+    _last_call_at: float = field(default=0.0, repr=False)
     _api: Any = field(default=None, repr=False)
     _names: Any = field(default=None, repr=False)
 
@@ -140,7 +150,13 @@ class KrxSource:
         last: Exception | None = None
         for attempt in range(self.retries):
             try:
-                return action()
+                # **때리기 전에 쉰다.** 남의 서버다.
+                gap = self.min_interval_sec - (time.monotonic() - self._last_call_at)
+                if gap > 0:
+                    self.sleep(gap)
+                result = action()
+                self._last_call_at = time.monotonic()
+                return result
             except Exception as error:  # 소스가 던지는 모든 것 — 경계이므로 넓게 잡는다
                 last = error
                 if attempt + 1 < self.retries:

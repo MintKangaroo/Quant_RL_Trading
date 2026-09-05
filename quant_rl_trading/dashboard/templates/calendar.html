@@ -7,21 +7,11 @@
    as_of 는 연 쪽에서 쿼리로 넘어온다 — 새 창이 조용히 지금을 보면
    달력만 다른 시점을 말하게 된다. #}
 <header>
-  <h1>수익률 캘린더</h1>
-  <span class="badge dim" id="mode-badge">Quant_RL_Trading</span>
+  {# 공통 헤더(_scope.html)와 같은 문법 — 이름·부제·기준 시각. 탭 줄만 없다(별도 창).
+     타임머신 입력 칸은 8/18 에 전 화면에서 걷었고 여기도 같다 — 되감기는 ?as_of= 로 든다. #}
+  <h1>Quant_RL_Trading</h1>
+  <span class="sub" id="mode-badge">수익률 캘린더</span>
   <span class="sub num" id="as-of-label">—</span>
-
-  <button type="button" class="scope-toggle" id="scope-toggle"
-          title="과거 시점으로 되감기">🕘 시점</button>
-
-  <form class="controls" id="scope-form" hidden>
-    <label for="as-of">as_of</label>
-    <input type="datetime-local" id="as-of" name="as_of" step="60">
-    <label for="lookback">창(일)</label>
-    <input type="number" id="lookback" name="lookback" min="1" style="width: 76px">
-    <button type="submit">조회</button>
-    <button type="button" id="live">지금</button>
-  </form>
 </header>
 
 <main class="terminal">
@@ -41,6 +31,7 @@
       </span>
     </h2>
     <div id="calendar-full" class="cal"></div>
+    <div id="day-detail" class="day-detail" hidden></div>
     <p class="note">
       수익률은 <strong>TWR</strong> 이다. NAV 증감으로 재면 입금일이 수익으로 잡힌다.
       <strong>빈칸은 0% 가 아니라 장이 없던 날이다</strong> — 그래서 색도 숫자도 주지 않는다.

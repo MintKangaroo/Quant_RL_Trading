@@ -9,15 +9,157 @@
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
 
 <main class="terminal">
+  {# 장부 전환 — 국장은 LS 모의계좌 장부(data/_paper), 미장은 shadow 장부(data/_shadow).
+     LS 모의투자가 해외주식을 막아 두 장부가 갈렸다(2026-09-02). market·ledger 는 URL 로
+     흐르고(scope.js params) 모든 API 가 그걸 같이 받는다. #}
+  <nav class="ledger-switch seg" aria-label="장부">
+    <a href="/trading?market=ALL" data-ledger="all">종합</a>
+    <a href="/trading" data-ledger="paper">국장 · 모의계좌</a>
+    <a href="/trading?market=US&amp;ledger=shadow" data-ledger="shadow">미장 · shadow</a>
+  </nav>
+  <script>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var on = (q.get("market") || "").toUpperCase() === "ALL" ? "all" : (q.get("ledger") || "paper").toLowerCase();
+    document.querySelectorAll(".ledger-switch a").forEach(function (a) {
+      if (a.dataset.ledger === on) a.classList.add("on");
+    });
+  })();
+  </script>
   <!-- KPI 줄. 마지막 칸이 EMERGENCY STOP 이다 (trading.js 가 채운다). -->
   <section class="kpis" id="kpis"></section>
 
+  {# 증권사 계좌가 말하는 숫자 — 장부(KPI)와 나란히 둔다. 둘이 다르면 어느
+     쪽이 틀렸는지 묻는 자리다. 외부 조회(t0424)라 KPI 와 따로 늦게 그린다. #}
+  {# 데스크톱에서는 **가로 두 칸**이다 — 왼쪽 계좌 대조(키-값 표), 오른쪽 경고·AI 리뷰·
+     오늘의 성과. 한 줄에 하나씩 쌓으면 1,900px 의 4분의 3이 빈다(2026-09-02 사용자 지적).
+     모바일에서는 세로로 돌아간다(sheet.css .grid-top). #}
+  <section class="grid-top">
+    <div class="grid-top-left">
+  <section class="panel" id="account-panel" style="display:none">
+    <h2>증권사 계좌 <span class="sub" id="account-sub">t0424 조회 · 장부와 대조</span></h2>
+    <div id="account-kpis" class="scroll"></div>
+  </section>
+
+    </div>
+    <div class="grid-top-right">
   <section class="alerts" id="alerts"></section>
 
+  {# Claude 일일 리뷰 헤드라인 (M5). 해설자이지 심판이 아니다 — 숫자는 아래 성과 칸과
+     같은 함수(accounting.performance)에서 왔고, 리뷰가 없으면 칸도 없다. #}
+  <section class="panel review" id="panel-review" hidden>
+    <div class="review-head"><span class="badge dim">AI 리뷰</span><span class="sub" id="review-stamp"></span></div>
+    <p class="review-headline" id="review-headline"></p>
+    <details class="fold"><summary>자세히</summary><p class="review-body" id="review-body"></p></details>
+  </section>
+
+  {# 성과 넷 — 매매내역 · 수익률 · 총수익률 · 자산증감.
+     숫자는 전부 accounting/performance.py 에서 오고, 같은 함수를 이메일
+     브리핑도 읽는다. 화면과 메일이 각자 접으면 어느 쪽이 맞는지 판정할
+     방법이 없다 (accounting.md §8). #}
+  {# 성과 | 총자산 곡선 — 반반 (사용자 요청 2026-09-02). #}
+  <div class="grid-half perf-equity">
+  <section class="panel" id="panel-performance">
+    <h2>오늘의 성과
+      <span class="right"><span class="sub" id="perf-stamp"></span></span>
+    </h2>
+    <div id="perf-summary" class="perf-summary"></div>
+    <div id="perf-fills" class="scroll dense"></div>
+    <p class="note">
+      <strong>자산 증감과 수익률은 다른 사실이다.</strong> 증감에는 입출금이
+      섞여 있고 수익률(TWR)은 그것을 빼고 잰다 — 그래서 증감 옆에 그중
+      입출금이 얼마인지 함께 적는다 (<code>accounting.md §6</code>).
+      <strong>매매가 없던 날은 "0건" 이 아니라 없었다고 적는다</strong> —
+      "0" 과 "없다" 와 "못 쟀다" 는 다른 사실이다.
+    </p>
+  </section>
+
+  {# 총자산 일별 꺾은선 — 원 단위, 한 축 (사용자 요청 2026-08-28: 지수+낙폭 두 축은 읽기 어렵다) #}
+  <section class="panel" id="panel-equity">
+    <div>
+      <h2>총자산 (일별)
+        <span class="right"><span class="sub" id="equity-sub"></span></span>
+      </h2>
+      <div class="chart" id="chart-equity"></div>
+      <p class="note">
+        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
+      </p>
+    </div>
+  </section>
+  </div>
+    </div>
+  </section>
+  <section class="grid-half">
+    <div class="panel">
+      <h2>Positions
+        <span class="right"><span class="sub" id="positions-count"></span></span>
+      </h2>
+      <div class="positions-body">
+        <div id="positions" class="scroll dense"></div>
+        {# 현금도 한 조각이다. 주식 비중만 100% 로 그리면 실제 익스포저가
+           가려진다 — 익스포저 KPI 가 말하는 것과 이 파이가 어긋나면 안 된다. #}
+        {# 2행: 파이 | 일별 수익률 막대(최근 20세션, TWR). 같은 nav_daily 라 달력·총자산
+           곡선과 어긋나지 않는다. 탭 CSS(trading.css)의 flex 규칙과 싸우지 않게 그리드 상자로 감싼다. #}
+        <div class="positions-viz">
+          <div class="chart positions-pie" id="chart-positions-pie"></div>
+          <div class="chart positions-daily" id="chart-daily-returns"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Orders &amp; Executions</h2>
+      <div id="orders" class="scroll dense"></div>
+      <p class="note">
+        최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
+        "빠르다" 로 읽힌다.
+      </p>
+    </div>
+  </section>
+
+  {# Underwater(낙폭) 패널은 뺐다 (사용자 요청 2026-08-31). 계좌가 갓 시작해
+     낙폭이 사실상 0 이라 선이 0% 에 납작하게 붙어 아무것도 안 보였다. 낙폭
+     자체는 상단 KPI 스트립(현재낙폭)에 이미 있다. 렌더러(renderUnderwater)와
+     서비스(_series 의 benchmark_drawdown)는 /calendar 등에서 재사용 가능해 남겨 둔다. #}
+  <section>
+    {# [표시하기] 로 새 창을 띄우던 축소판이었다. 사람이 그 버튼을 눌러서
+       보던 화면이 원래 보고 싶던 화면이었으므로, 한 번 더 누르게 하지 않고
+       여기서 바로 그린다. 별도 창(/calendar)은 그대로 살아 있다 —
+       같은 렌더러를 쓰므로 두 화면이 어긋날 일이 없다.
+
+       지수 대비는 뺐다. 같은 패널 안에서 **초과수익의 빨강**과 **손실의
+       빨강**이 다른 것을 뜻해 한 색이 두 가지를 말하고 있었다. #}
+    <div class="panel">
+      <h2>
+        <span class="seg">
+          <button type="button" id="cal-prev" title="이전 달">‹</button>
+          <button type="button" id="cal-next" title="다음 달">›</button>
+        </span>
+        <span id="cal-label">수익률 캘린더</span>
+        <span class="right"><span class="sub">일별 TWR · 거래일만</span></span>
+      </h2>
+      <div id="calendar" class="cal"></div>
+      {# 하루를 누르면 그날 지수와 내 수익률이 여기 한 줄로 뜬다.
+         비어 있는 것이 기본이다 — 안 눌렀는데 숫자가 있으면 어느 날 것인지
+         모른다. #}
+      <div id="day-detail" class="day-detail" hidden></div>
+      <p class="note">
+        수익률은 <strong>TWR</strong> 이다. NAV 증감으로 재면 입금일이 수익으로
+        잡힌다. <strong>빈칸은 0% 가 아니라 장이 없던 날이다</strong> — 그래서
+        색도 숫자도 주지 않는다. 진하기는 이 창 전체에서의 상대 크기라
+        달끼리 비교할 수 있다.
+      </p>
+      <div id="cal-months" class="scroll dense"></div>
+    </div>
+  </section>
+
+  {# 부가 패널은 접어 둔다 — 모바일에서 한 화면에 핵심(KPI·계좌·성과·보유·달력)만 (사용자 요청 2026-08-28). #}
+  <details class="fold">
+    <summary>후보 · 차트 · AI 결정 흔적</summary>
   <section class="grid-desk">
     <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
     <div class="panel" id="panel-watchlist">
-      <h2>Watchlist
+      <h2>후보 종목
         <span class="right"><span class="sub" id="watchlist-count"></span></span>
       </h2>
       <div id="watchlist" class="scroll dense"></div>
@@ -30,21 +172,24 @@
         <span id="chart-title">—</span>
         <span class="sub" id="chart-sub"></span>
         <span class="right">
-          {# 창고에 있는 것은 일봉뿐이다. 나머지 시간대는 꺼진 채로 둔다 —
-             자리를 지우면 "이 화면은 일봉 전용" 이 되고, 채우면 없는 봉을
-             그리게 된다. #}
+          {# 버튼은 창고에 그 구간이 있을 때만 켜진다 — trading.js 가
+             /api/trading/chart 응답의 available_intervals 로 매 종목마다
+             다시 켜고 끈다. 자리를 지우면 "이 화면은 일봉 전용" 이 되고,
+             무조건 켜 두면 없는 봉을 그리게 된다. 그래서 마크업에서는
+             전부 disabled 로 시작하고(분봉 수집이 아직 그 종목을 못 받았을
+             수 있다는 뜻), JS 가 실제로 있는 구간만 연다. #}
           <span class="seg" id="chart-timeframe">
-            <button type="button" disabled title="분봉은 창고에 없다">1m</button>
-            <button type="button" disabled title="분봉은 창고에 없다">5m</button>
-            <button type="button" disabled title="분봉은 창고에 없다">15m</button>
-            <button type="button" disabled title="시간봉은 창고에 없다">1H</button>
-            <button type="button" disabled title="시간봉은 창고에 없다">4H</button>
-            <button type="button" class="on" title="창고에 있는 것은 일봉이다">1D</button>
+            <button type="button" data-interval="1m" disabled title="이 종목의 1분봉이 창고에 없다">1m</button>
+            <button type="button" data-interval="5m" disabled title="이 종목의 5분봉이 창고에 없다">5m</button>
+            <button type="button" data-interval="15m" disabled title="이 종목의 15분봉이 창고에 없다">15m</button>
+            <button type="button" data-interval="1H" disabled title="이 종목의 1시간봉이 창고에 없다">1H</button>
+            <button type="button" data-interval="4H" disabled title="이 종목의 4시간봉이 창고에 없다">4H</button>
+            <button type="button" data-interval="1D" class="on" title="창고에 항상 있는 것은 일봉이다">1D</button>
           </span>
         </span>
       </h2>
       <div class="chart tall" id="chart-candle"></div>
-      <p class="note">
+      <p class="note" id="chart-note">
         <strong>일봉이다.</strong> 창고에 있는 것이 일봉이고, 없는 봉을 그리면
         화면이 창고보다 많이 아는 것처럼 보인다. ▲▼ 는 우리 체결이다.
       </p>
@@ -60,17 +205,10 @@
       <p class="note" id="decision-note"></p>
     </div>
   </section>
-
+  </details>
+  <details class="fold">
+    <summary>자산 곡선 · 리스크 모니터</summary>
   <section class="grid-desk2">
-    <div class="panel">
-      <h2>Portfolio Equity
-        <span class="right"><span class="sub" id="equity-sub"></span></span>
-      </h2>
-      <div class="chart" id="chart-equity"></div>
-      <p class="note">
-        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
-      </p>
-    </div>
     <div class="panel">
       <h2>Risk Monitor</h2>
       <div id="risk"></div>
@@ -80,82 +218,14 @@
       </p>
     </div>
   </section>
+  </details>
+
+
 
   {# 아래 네 패널은 **두 줄로 접는다.** 세로로 쌓으면 패널 하나가 화면 폭을
      통째로 먹어서, 낙폭 차트는 납작해지고 달력 칸은 쓸데없이 커진다.
      dashboard.md §2 는 1920×1080 에서 스크롤 없이 들어갈 것을 요구한다. #}
-  <section class="grid-half">
-    <div class="panel">
-      <h2>Underwater
-        <span class="right">
-          {# 벤치마크가 무엇인지·왜 비었는지를 화면이 스스로 말한다.
-             trading.js 가 config.benchmark 에서 온 값으로 채운다. #}
-          <span class="sub" id="benchmark-badge"></span>
-          <span class="sub">낙폭 · 12 / 22 / 30% 밴드</span>
-        </span>
-      </h2>
-      <div class="chart" id="chart-underwater"></div>
-      <p class="note">
-        배경 밴드가 <strong>보상 함수 그 자체다</strong> — 자유 · 페널티 · 급증
-        (<code>reward-and-risk.md</code>). 점선은 벤치마크 낙폭이고,
-        <strong>우리와 같은 전 기간 고점으로 잰다</strong>.
-        벤치마크는 <strong>가격지수 기준 · 배당 미반영</strong> — 국내 대형주
-        기준 연 2~3%p 만큼 우리가 유리하게 나온다(총수익지수는 지금 키로 받을
-        수 없다, <code>accounting.md §7.1</code>).
-        <span id="benchmark-gap"></span>
-      </p>
-    </div>
 
-    <div class="panel">
-      <h2>수익률 캘린더 · 지수 대비
-        <span class="right">
-          <span class="sub">최근 달 · 일별 TWR</span>
-          {# 새 창은 as_of 를 물려받는다 (trading.js). 안 물려주면 달력만
-             조용히 지금을 본다. #}
-          <button type="button" id="calendar-popout" title="새 창에서 크게 보기">표시하기</button>
-        </span>
-      </h2>
-      {# 달력이 패널 폭의 일부만 쓴다 — 그 오른쪽 공백에 지수 대비를 붙인다.
-         같은 달·같은 nav_daily 에서 나온 값이라 두 패널이 서로 다른 시점을
-         말할 일이 없다. #}
-      <div class="cal-compare">
-        <div id="calendar" class="cal"></div>
-        <div id="bench-compare" class="bench-compare"></div>
-      </div>
-      <p class="note">
-        <strong>빈칸은 0% 가 아니라 장이 없던 날이다.</strong> 전체는
-        [표시하기] 로 새 창에서 본다. 지수 대비는 <strong>가격지수 기준 ·
-        배당 미반영</strong> — 국내 대형주 기준 연 2~3%p 만큼 우리가 유리하게
-        나온다(총수익지수는 지금 키로 받을 수 없다). 여기 네 지수는
-        <strong>참고용</strong>이고, 보상 함수가 쓰는 공식 벤치마크는
-        <code>config.benchmark</code> 의 혼합지수다 — Underwater 패널의 배지가
-        그것을 말한다.
-      </p>
-    </div>
-  </section>
-
-  <section class="grid-half">
-    <div class="panel">
-      <h2>Positions
-        <span class="right"><span class="sub" id="positions-count"></span></span>
-      </h2>
-      <div class="positions-body">
-        <div id="positions" class="scroll dense"></div>
-        {# 현금도 한 조각이다. 주식 비중만 100% 로 그리면 실제 익스포저가
-           가려진다 — 익스포저 KPI 가 말하는 것과 이 파이가 어긋나면 안 된다. #}
-        <div class="chart positions-pie" id="chart-positions-pie"></div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h2>Orders &amp; Executions</h2>
-      <div id="orders" class="scroll dense"></div>
-      <p class="note">
-        최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
-        "빠르다" 로 읽힌다.
-      </p>
-    </div>
-  </section>
 
 </main>
 {% endblock %}
@@ -163,5 +233,6 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
 <script src="{{ url_for('static', filename='calendar.js') }}"></script>
+<script src="{{ url_for('static', filename='candles.js') }}"></script>
 <script src="{{ url_for('static', filename='trading.js') }}"></script>
 {% endblock %}

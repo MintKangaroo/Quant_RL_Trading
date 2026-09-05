@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -38,6 +39,8 @@ PAYLOADS = Path(__file__).parent / "payloads"
 #: 옮겨 갔기 때문이다 — 좌우 두 칸이 아니라서 짝 검사가 안 맞는다. 대신
 #: 시장 경계가 보이는지·양쪽 시장이 다 찼는지를 아래에서 따로 본다.
 PAIRED = ("indices", "breadth", "rankings", "macro")
+
+from tests.dashboard._browser import style_shim
 
 HARNESS = """
 const ids = new Set(IDS);
@@ -61,6 +64,7 @@ function element(id) {
   };
 }
 global.document = {
+  documentElement: element("html"),
   getElementById(id) {
     if (!ids.has(id) && !made.has(id)) return null;   // 브라우저와 같다
     return (cache[id] = cache[id] || element(id));
@@ -68,6 +72,7 @@ global.document = {
   querySelectorAll: () => [], querySelector: () => null,
   createElement: () => element("made"), addEventListener() {},
 };
+
 global.window = {
   location: { search: "" }, addEventListener() {},
   setInterval() { return 0; }, clearInterval() {}, open() { return null; },
@@ -84,7 +89,7 @@ global.echarts = {
   }),
 };
 global.fetch = async () => { throw new Error("fetch 는 스텁이 가로챈다"); };
-"""
+""" + style_shim()
 
 DRIVER = """
 // 괄호가 필요하다 — 화살표 함수 뒤의 중괄호는 객체가 아니라 본문으로 읽힌다.
@@ -132,8 +137,8 @@ def _payload() -> dict:
     return json.loads((PAYLOADS / "market.json").read_text(encoding="utf-8"))["market"]
 
 
-def _render() -> dict[str, str]:
-    payload = _payload()
+def _render(payload: dict | None = None) -> dict[str, str]:
+    payload = payload if payload is not None else _payload()
     ids = sorted(
         set(re.findall(r'id="([^"]+)"', (TEMPLATES / "market.html").read_text(encoding="utf-8")))
         | set(re.findall(r'id="([^"]+)"', (TEMPLATES / "_scope.html").read_text(encoding="utf-8")))
@@ -147,6 +152,10 @@ def _render() -> dict[str, str]:
     js = "\n".join([
         HARNESS.replace("IDS", json.dumps(ids)),
         (STATIC / "scope.js").read_text(encoding="utf-8"),
+        # market.html 이 market.js 보다 먼저 싣는다. 빠뜨리면 브라우저에서는
+        # 멀쩡한 화면이 여기서만 죽는다 — 반대로, **여기서 죽으면 브라우저에서도
+        # 죽는다**. 봉 그리기는 트레이딩 탭과 공유한다(candles.js).
+        (STATIC / "candles.js").read_text(encoding="utf-8"),
         source,
         DRIVER.replace("PAYLOAD", json.dumps(payload)).replace("JOBS", jobs),
     ])
@@ -428,6 +437,45 @@ def test_환율_차트는_사라졌고_패널은_칸_안에_있다(rendered: dic
     assert "chart:chart-indices" not in rendered
 
 
+# -- 빈 자리에서 죽지 않는다 ---------------------------------------------------
+
+
+def test_국장_시총이_비어도_미장_칸이_끝까지_그려진다() -> None:
+    """**한 줄에서 죽으면 그 아래가 통째로 안 돈다.**
+
+    2026-08-18 실측: 국장 시총이 창 밖으로 밀려 트리맵이 빈 경로로 들어갔고,
+    그 경로가 없는 이름(`noCapReason`)을 불러 ReferenceError 로 죽었다. 죽은
+    자리는 국장 트리맵인데 **사라진 것은 미장 칸 전부**였다 — 지수 목록도,
+    시장 폭도, 순위표도, 거시지표도. 사용자에게는 "미장이 안 뜬다" 로 보인다.
+
+    그래서 고정한다: **어느 칸이 비어도 나머지 칸은 끝까지 찬다.** 기본 판은
+    양쪽 트리맵이 다 차 있어 이 경로를 한 번도 안 밟았고, 그래서 이 고장이
+    테스트를 통과했다.
+    """
+    if shutil.which("node") is None:
+        pytest.skip("node 가 없다")
+    payload = _payload()
+    payload["data"]["markets"]["KR"]["treemap"]["rows"] = []
+    rendered = _render(payload)
+
+    assert "상장주식수" in rendered["chart-treemap-kr"]
+    # 죽었으면 이 뒤가 통째로 없다 — 미장 칸이 실제로 찼는지 본다.
+    for panel in PAIRED:
+        assert rendered[f"{panel}-us"].strip("\x00").strip(), f"{panel}-us 가 비었다"
+    assert rendered.get("chart:chart-treemap-us"), "미장 트리맵이 안 그려졌다"
+
+
+def test_시총_세션을_트리맵_옆에_적는다() -> None:
+    """시총 세션은 시세 세션과 다를 수 있다(수집기가 다르다). 날짜를 안 적으면
+    며칠 지난 시총이 오늘 것으로 읽힌다."""
+    if shutil.which("node") is None:
+        pytest.skip("node 가 없다")
+    payload = _payload()
+    payload["data"]["markets"]["KR"]["treemap"]["session"] = "2026-08-11"
+    rendered = _render(payload)
+    assert "2026-08-11" in rendered["treemap-note-kr"]
+
+
 # -- 순위표 3종 -----------------------------------------------------------------
 
 
@@ -508,12 +556,22 @@ def test_국장과_미장의_세션이_다르면_화면이_그걸_말한다(rend
 
 @pytest.mark.parametrize("suffix", ["kr", "us"])
 def test_순위표_줄마다_이름_가격_등락_시총이_있다(rendered: dict[str, str], suffix: str) -> None:
+    """**등락은 장중 값으로 그린다.** 순위 자체는 종가로 서지만(그래야 새로
+    고칠 때마다 순위가 흔들리지 않는다) 표에 찍히는 숫자는 지금 값이다.
+
+    그래서 여기서 확인하는 것은 ``change``(종가 기준)가 아니라
+    ``live_change`` 다. 장이 닫혀 장중 값이 없으면 종가로 되돌아간다 —
+    두 경우를 다 밟는다.
+    """
     dump = rendered[f"rankings-{suffix}"]
     for table in _rankings(suffix)["tables"]:
         for row in table["rows"]:
             assert html.escape(row["name"]) in dump
-            if row["change"] is not None:
-                assert dec2(row["change"] * 100) + "%" in dump
+            shown = row.get("live_change")
+            if shown is None:
+                shown = row["change"]
+            if shown is not None:
+                assert dec2(shown * 100) + "%" in dump
 
 
 def test_상승률과_하락률은_같은_모집단을_쓴다(rendered: dict[str, str]) -> None:
@@ -558,3 +616,82 @@ def test_줄_수는_config_가_정한다(rendered: dict[str, str]) -> None:
         assert data["rows"] == data["floor"]["rows"]
         for table in data["tables"]:
             assert len(table["rows"]) <= data["rows"]
+
+
+# -- 봉 전환 버튼 ---------------------------------------------------------------
+#
+# **꺼진 버튼도 화면에 남아야 한다.** 지수·ETF 에는 분봉이 한 봉도 없는데
+# (수집이 보유·워치리스트·shadow 보유 종목만 받는다) 버튼을 지우면 "이 화면은
+# 일봉 전용" 이 되고, 켜 두면 눌렀을 때 빈 화면이 뜬다. 남기고 끄고 **이유를
+# title 에 적는** 것이 셋 중 유일하게 정직한 길이다.
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_패널마다_봉_전환_버튼이_선다(rendered: dict[str, str], suffix: str) -> None:
+    dump = _group(rendered, suffix)
+    for interval in ("1m", "5m", "15m", "1H", "4H", "1D", "1W"):
+        assert f'data-interval="{interval}"' in dump, f"{interval} 버튼이 없다"
+    # 지금 그린 것은 일봉이다 — **그 버튼에만** 불이 켜진다. 두 개가 켜져
+    # 있으면 화면이 무엇을 보고 있는지 말하지 않는 것과 같다.
+    lit = [
+        interval
+        for interval in ("1m", "5m", "15m", "1H", "4H", "1D", "1W")
+        for chunk in [dump.partition(f'data-interval="{interval}"')[2]]
+        if 'class="on"' in chunk[: chunk.index("</button>")]
+    ]
+    assert lit == ["1D"], lit
+    # 버튼은 패널마다 하나씩이고, 어느 패널의 것인지 자기가 안다.
+    for panel in _panels(suffix)["panels"]:
+        assert f'data-entity="{html.escape(panel["entity_id"])}"' in dump
+
+
+@pytest.mark.parametrize("suffix", ["kr", "us"])
+def test_분봉이_없으면_버튼이_꺼지고_이유를_적는다(rendered, suffix: str) -> None:
+    """**왜 꺼졌는지 화면이 말해야 한다.** 이유가 없으면 사용자는 고장으로
+    읽고, 실제 원인(수집 대상이 아니다)에서 멀어진다."""
+    data = _panels(suffix)
+    dump = _group(rendered, suffix)
+    for panel in data["panels"]:
+        # 실측: 지수·ETF 는 분봉이 하나도 없다.
+        assert panel["intervals"] == ["1D", "1W"], panel["entity_id"]
+    assert "disabled" in dump
+    assert "보유·워치리스트" in dump, "왜 꺼졌는지 화면이 말하지 않는다"
+
+
+def test_창고에_분봉이_있으면_그_버튼만_켜진다() -> None:
+    """민감도 — 버튼을 끄는 판단이 **응답의 사실**을 따라가는지 본다.
+
+    실창고의 지수·ETF 에는 분봉이 없어 위 검사는 "전부 꺼짐" 만 본다. 그것만
+    보면 "무조건 끈다" 로 짜여 있어도 통과한다. 그래서 응답을 한 줄 바꿔 넣고
+    그 봉만 켜지는지 확인한다.
+    """
+    payload = _payload()
+    panel = payload["data"]["markets"]["KR"]["instrument_panels"]["panels"][0]
+    panel["intervals"] = ["5m", "1D", "1W"]
+    dump = _group(_render(payload), "kr")
+
+    assert '<button type="button" data-interval="5m"' in dump
+    tail = dump.partition('data-interval="5m"')[2]
+    assert "disabled" not in tail[: tail.index("</button>")], "있는 봉인데 꺼져 있다"
+    # 나머지 분봉은 여전히 꺼져 있다 — 하나가 켜졌다고 다 켜지면 안 된다.
+    for interval in ("1m", "15m", "1H", "4H"):
+        after = dump.partition(f'data-interval="{interval}"')[2]
+        assert "disabled" in after[: after.index("</button>")], f"{interval} 이 켜져 있다"
+
+
+def test_템플릿이_공용_봉_렌더러를_싣는다() -> None:
+    """**노드 하니스는 이걸 못 잡는다.** 하니스는 스크립트 목록을 자기가 들고
+    있어서, 템플릿에서 ``candles.js`` 를 빼도 여기 검사들은 전부 통과한다 —
+    그리고 브라우저에서만 ``candleOption is not defined`` 로 죽는다. 오늘 이
+    화면이 그 방식으로 두 번 깨졌다.
+
+    두 탭 다 본다. 봉 그리는 코드가 한 벌이라는 것은 곧 **두 화면이 같은
+    파일에 의존한다**는 뜻이고, 한쪽 템플릿만 고치면 다른 쪽이 죽는다.
+    """
+    for name, main in (("market.html", "market.js"), ("trading.html", "trading.js")):
+        source = (TEMPLATES / name).read_text(encoding="utf-8")
+        # 주석에도 파일 이름이 나오므로 **script 태그만** 본다.
+        loaded = re.findall(r"filename='([^']+\.js)'", source)
+        assert "candles.js" in loaded, f"{name} 이 candles.js 를 안 싣는다"
+        # 순서도 본다 — 뒤에 실으면 함수가 없는 채로 실행된다.
+        assert loaded.index("candles.js") < loaded.index(main), f"{name} 의 로드 순서"

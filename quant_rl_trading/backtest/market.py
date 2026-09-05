@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.executor.ticks import tick_size as kr_tick_size
@@ -47,12 +47,22 @@ def _positive(value: object) -> float | None:
 
 
 def states(
-    store: Store, *, as_of: datetime, entities: list[str], market: str
+    store: Store,
+    *,
+    as_of: datetime,
+    entities: list[str],
+    market: str,
+    session_day: date | None = None,
 ) -> dict[str, MarketState]:
     """체결일의 종목별 시장 상태. **그날 봉이 없는 종목은 빠진다.**
 
     빠진 종목은 호출자가 미체결로 처리한다. 직전 종가로 때우면 거래정지
     종목을 정지 중에 사고파는 백테스트가 된다.
+
+    ``session_day`` 는 **봉의 날짜**다. 주지 않으면 ``as_of`` 의 달력 날짜를 쓰는데,
+    그건 국장에서만 맞는다 — 미장 세션 시각(ET 16:20 = KST 익일 05:20)의 KST 날짜는
+    봉 날짜(ET 기준)보다 하루 뒤라, 2026-09-03 미장 첫 체결이 전부 "체결일 시세 없음"
+    으로 빠졌다. 호출자(backtest/loop)는 자기가 도는 세션 날짜를 안다 — 그걸 준다.
     """
     if not entities:
         return {}
@@ -69,7 +79,7 @@ def states(
     if frame.empty:
         return {}
 
-    session_day = as_of.date()
+    session_day = session_day or as_of.date()
     # **체결가는 원주가, 변동성은 보정가.** 체결은 실제로 거래된 값으로 해야
     # 하고(보정가로 체결하면 분할 직후 수량·금액이 배율만큼 틀어진다),
     # 변동성은 수익률로 재므로 반대다 — 분할 하루가 -90% 로 남으면 충격비용이

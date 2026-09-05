@@ -20,6 +20,11 @@ STATIC = REPO_ROOT / "quant_rl_trading" / "dashboard" / "static"
 PAYLOADS = REPO_ROOT / "tests" / "dashboard" / "payloads"
 
 TABS = ("market", "headlines", "system", "learning", "ai_review", "calendar_page")
+#: 탭 스크립트보다 먼저 실리는 보조 스크립트 — 거기서 부르는 경로도 잡는다
+#: (tests/dashboard/test_tab_render.py 의 preload 와 같은 목록).
+EXTRA_SCRIPTS = {"market": ("candles.js",), "headlines": ("schedule.js",), "calendar_page": ("calendar.js",)}
+#: 변수로 조립돼 정규식이 못 잡는 경로. 손으로 적는다.
+EXTRA_PATHS = {"headlines": ("headlines/schedule",)}
 
 
 def main() -> int:
@@ -28,8 +33,11 @@ def main() -> int:
 
     failures = 0
     for tab in TABS:
-        source = (STATIC / f"{tab}.js").read_text(encoding="utf-8")
-        paths = sorted(set(re.findall(r'fetchJson\(\s*"([^"]+)"', source)))
+        source = "\n".join(
+            (STATIC / name).read_text(encoding="utf-8")
+            for name in (*EXTRA_SCRIPTS.get(tab, ()), f"{tab}.js")
+        )
+        paths = sorted(set(re.findall(r'fetchJson\(\s*"([^"]+)"', source)) | set(EXTRA_PATHS.get(tab, ())))
         captured: dict[str, object] = {}
         for path in paths:
             response = client.get(f"/api/{path}")

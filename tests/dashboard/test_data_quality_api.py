@@ -117,7 +117,10 @@ def body(response: Any) -> dict[str, Any]:
 #: 필수 파라미터가 있는 라우트. **명단을 여기 두는 것이 요점이다** — 새
 #: 엔드포인트가 파라미터를 요구하면 여기 등록해야 하고, 등록하지 않으면 아래
 #: 테스트가 실패한다. 400 을 이유로 규약 검사에서 빠져나가는 길을 막는다.
-REQUIRED_PARAMS = {"/api/trading/chart": "&entity=KR:000100"}
+REQUIRED_PARAMS = {
+    "/api/trading/chart": "&entity=KR:000100",
+    "/api/market/chart": "&entity=KR:IDX:KOSPI",
+}
 
 
 # -- 불변식 9 -----------------------------------------------------------------

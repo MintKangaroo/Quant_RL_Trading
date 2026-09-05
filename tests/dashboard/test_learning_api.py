@@ -182,3 +182,210 @@ def test_walk_forward_compares_fixed_snapshot_against_live_store(client) -> None
     assert rows["fundamental"]["live_measured"] is False
     assert rows["fundamental"]["live_ic"] is None
     assert rows["fundamental"]["delta_ic"] is None
+
+
+# -- 학습 지표 (M4) ----------------------------------------------------------
+#
+# **픽스처가 새 경로를 밟게 한다.** 이 저장소에서 두 번, 테스트는 전부
+# 통과하는데 화면만 깨진 적이 있다 — 픽스처에 새 필드가 없어서 새로 만든
+# 분기를 아무 테스트도 지나가지 않았기 때문이다. 그래서 여기서는 0행일
+# 때와 기록이 있을 때를 **둘 다** 밟는다.
+
+
+def _update_row(run_id: str, update: int, ev: float) -> dict[str, Any]:
+    return {
+        "entity_id": run_id,
+        "valid_from": NOW,
+        "observed_at": NOW,
+        "source": "ppo",
+        "update": update,
+        "step": update * 2048,
+        "seed": 7,
+        "market": "KR",
+        "curriculum": "C1",
+        "explained_variance": ev,
+        "approx_kl": 0.015,
+        "entropy": 1.2,
+        "grad_norm": 0.8,
+        "action_reflection": 0.42,
+        "policy_churn": 0.11,
+        "concentration_sum": 30.0,
+        "episode_reward": 0.03,
+        "cash_weight": 0.59,
+        "git_commit": "abc1234",
+        "config_fingerprint": "fp",
+    }
+
+
+def test_학습_기록이_없으면_없다고_말한다(client) -> None:
+    """0행과 '쟀는데 0' 은 다른 사실이다 (불변식 3)."""
+    data = body(client.get("/api/learning/training-runs"))["data"]
+
+    assert data["has_data"] is False
+    assert data["runs"] == []
+    # 경고선은 기록이 없어도 온다 — 화면이 축을 그릴 수 있어야 한다.
+    assert data["guards"]["explained_variance"]["floor"] == 0.1
+
+
+def test_학습_기록이_있으면_곡선을_돌려준다(seeded) -> None:
+    seeded.append(
+        "rl_updates",
+        [_update_row("rl-20260819-a", i, 0.05 * i) for i in range(1, 4)],
+        ingest_run_id="rl-seed",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/learning/training-runs"))["data"]
+
+    assert data["has_data"] is True
+    assert len(data["runs"]) == 1
+    run = data["runs"][0]
+    assert run["updates"] == [1, 2, 3]
+    assert run["series"]["explained_variance"] == pytest.approx([0.05, 0.10, 0.15])
+    # 재현성 정보가 화면까지 온다 (§11) — 없으면 좋은 성적을 다시 못 만든다.
+    assert run["seed"] == 7
+    assert run["git_commit"] == "abc1234"
+
+
+def test_마지막으로_기록한_실행이_맨_위다(seeded) -> None:
+    """run_id 문자열로 정렬하면 "rl-2026…" 이 "m4-…" 를 이겨 옛 판이 화면을
+    차지한다 (2026-08-27 실측). 최신은 이름이 아니라 **마지막 기록 시각**이다."""
+    from datetime import timedelta
+
+    old = [{**_update_row("rl-20260819-a", i, 0.1), "observed_at": NOW - timedelta(days=3)} for i in (1, 2)]
+    new = [
+        {**_update_row("m4-round2-r6", i, 0.2), "observed_at": NOW - timedelta(minutes=3 * (3 - i))}
+        for i in (1, 2, 3)
+    ]
+    seeded.append("rl_updates", old + new, ingest_run_id="rl-seed-order")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/learning/training-runs"))["data"]
+
+    assert [r["run_id"] for r in data["runs"]] == ["m4-round2-r6", "rl-20260819-a"]
+    live = data["runs"][0]
+    # 3분 간격으로 기록이 이어졌고 마지막이 지금이면 살아 있는 것이다.
+    assert live["status"] == "running"
+    assert live["last_update"] == 3
+    assert live["total_updates"] > 3
+    assert live["pace_minutes"] == pytest.approx(3.0)
+    assert live["eta_minutes"] == pytest.approx(3.0 * (live["total_updates"] - 3))
+    # 사흘 전에 멈춘 판은 멈춘 것이다 — "진행 중" 으로 꾸미지 않는다.
+    assert data["runs"][1]["status"] == "stopped"
+
+
+def test_총량에_닿은_실행은_완주다(seeded) -> None:
+    from quant_rl_trading.allocator.budget import total_updates
+
+    total = total_updates()
+    seeded.append(
+        "rl_updates",
+        [_update_row("m4-done", u, 0.3) for u in (total - 1, total)],
+        ingest_run_id="rl-seed-done",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/learning/training-runs"))["data"]
+    assert data["runs"][0]["status"] == "completed"
+    assert data["runs"][0]["eta_minutes"] is None
+
+
+def test_쉬운_말_요약이_배우는_중인지_말한다(seeded) -> None:
+    from datetime import timedelta
+
+    rows = []
+    for i in range(1, 121):
+        row = _update_row("m4-plain", i, 0.5)
+        row["observed_at"] = NOW - timedelta(minutes=3 * (121 - i))
+        row["episode_reward"] = -0.01 + 0.0002 * i   # 오른다
+        row["cash_weight"] = 0.03
+        row["action_reflection"] = 0.55
+        rows.append(row)
+    seeded.append("rl_updates", rows, ingest_run_id="rl-seed-plain")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    run = body(client.get("/api/learning/training-runs"))["data"]["runs"][0]
+    assert "배우고 있다" in run["plain"]
+    assert "도망은 없다" in run["plain"]
+    assert "55%" in run["plain"]
+
+
+# -- 정책 평가 (rl_evaluations) --------------------------------------------------
+
+
+def _evaluation_rows(run_id: str, at: datetime, *, envs: int, gap_oos: float) -> list[dict]:
+    rows = []
+    for window, gap in (("train", 0.001), ("oos", gap_oos)):
+        for arm in ("policy", "equal"):
+            rows.append({
+                "entity_id": run_id, "valid_from": at, "observed_at": at,
+                "source": "test", "eval_window": window, "arm": arm,
+                "episode_days": 20, "envs": envs, "steps": 30, "eval_seed": 0,
+                "train_seed": 0, "market": "KR",
+                "reward_mean": 0.004 if arm == "policy" else 0.006,
+                "reward_sum": 0.12, "reward_std": 0.01, "cash_weight": 0.18,
+                "action_reflection": 0.86, "cost": 0.00018, "turnover": 0.18,
+                "drawdown": 0.03,
+                "gap_vs_equal": gap if arm == "policy" else None,
+                "verdict": ("overfit" if gap_oos <= 0 else "generalizes") if arm == "policy" else None,
+                "checkpoint": "data/rl_checkpoints/x.pt", "update": 1220,
+            })
+    return rows
+
+
+def test_evaluations_are_absent_until_measured(client) -> None:
+    data = body(client.get(f"/api/learning/evaluations?as_of={NOW.isoformat()}"))["data"]
+    assert data["has_data"] is False
+    assert data["train_seeds"] == []
+
+
+def test_evaluations_report_latest_batch_and_spread(seeded) -> None:
+    """최신 배치가 표가 되고, 같은 run 의 이전 평가는 편차 이력이 된다.
+    학습 시드는 하나면 하나라고 말한다."""
+    first = NOW - timedelta(hours=2)
+    seeded.append("rl_evaluations", _evaluation_rows("r6", first, envs=4, gap_oos=-0.0019),
+                  ingest_run_id="e1")
+    seeded.append("rl_evaluations", _evaluation_rows("r6", NOW - timedelta(hours=1), envs=16,
+                                                     gap_oos=-0.0017), ingest_run_id="e2")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get(f"/api/learning/evaluations?as_of={NOW.isoformat()}"))["data"]
+    assert data["has_data"] is True
+    latest = data["latest"]
+    assert latest["run_id"] == "r6"
+    assert latest["envs"] == 16
+    assert latest["verdict"] == "overfit"
+    assert latest["table"]["oos"]["gap"] == pytest.approx(-0.0017)
+    assert latest["table"]["oos"]["policy"]["cash_weight"] == pytest.approx(0.18)
+    assert [h["envs"] for h in data["history"]] == [4, 16]
+    assert data["train_seeds"] == [0]
+
+    # 되감으면 나중 평가는 안 보인다 (불변식 9).
+    earlier = body(client.get(f"/api/learning/evaluations?as_of={first.isoformat()}"))["data"]
+    assert earlier["latest"]["envs"] == 4
+
+
+# -- 커리큘럼 (C0~C5) ------------------------------------------------------------
+
+
+def test_curriculum_marks_c1_failed_when_oos_is_overfit(seeded, tmp_path, monkeypatch) -> None:
+    """실행이 있는 단계만 상태가 붙고, 판정은 rl_evaluations 에서 온다. 나머지는 미착수."""
+    from quant_rl_trading.dashboard.services import system as system_service
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "gate-c1.log").write_text("[PASS] ①\n[PASS] ②\n[PASS] ③\nPASS 3 · FAIL 0 / 3\n")
+    monkeypatch.setenv(system_service.LOGS_DIR_ENV, str(logs))
+    at = NOW - timedelta(hours=1)
+    seeded.append("rl_updates", [{
+        "entity_id": "r6", "valid_from": at, "observed_at": at, "source": "test",
+        "update": 1220, "step": 1220 * 16384, "seed": 0, "market": "KR", "curriculum": "C1",
+        "explained_variance": 0.99, "approx_kl": 0.02, "entropy": -98.0, "grad_norm": 25.0,
+        "action_reflection": 0.67, "policy_churn": 0.25, "concentration_sum": 90.0,
+        "episode_reward": 0.016, "cash_weight": 0.025, "git_commit": "abc", "config_fingerprint": "f",
+    }], ingest_run_id="u")
+    seeded.append("rl_evaluations", _evaluation_rows("r6", at, envs=16, gap_oos=-0.0017),
+                  ingest_run_id="e")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get(f"/api/learning/curriculum?as_of={NOW.isoformat()}"))["data"]
+    by = {s["stage"]: s for s in data["stages"]}
+    assert by["C0"]["status"] == "passed"
+    assert by["C1"]["status"] == "failed"
+    assert "과적합" in by["C1"]["note"]
+    assert by["C2"]["status"] == "pending"
+    assert data["current"] == "C1"

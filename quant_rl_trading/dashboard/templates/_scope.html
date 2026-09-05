@@ -8,41 +8,43 @@
    정지 버튼은 숫자와 같은 눈높이에 있어야 한다. 헤더의 도구 줄에 끼워 두면
    조회 버튼 옆의 또 다른 버튼이 된다. #}
 <header>
-  <h1>AI Auto-Trading Terminal</h1>
-  <span class="badge dim" title="quant_rl_trading">Quant_RL_Trading</span>
+  {# 공식 명칭 하나만 쓴다 (PRODUCT.md). 구호("AI Auto-Trading Terminal")와 배지로
+     같은 이름을 두 번 적던 것을 걷었다 — 관제 화면의 머리는 이름과 상태면 된다. #}
+  <h1>Quant_RL_Trading</h1>
 
 {# 세 갈래다 — 운용(무엇을 샀나) · 분석(왜 그렇게 골랐나) · 운영(배관이 도는가).
    순서가 곧 읽는 순서다. 운영을 앞에 두면 매일 아침 배관부터 보게 된다. #}
   <nav class="tabs">
     <a href="/trading" class="{{ 'on' if active == 'trading' }}">트레이딩</a>
     <a href="/market" class="{{ 'on' if active == 'market' }}">마켓</a>
+    <a href="/thirteen-f" class="{{ 'on' if active == 'thirteen-f' }}">13F</a>
     <a href="/headlines" class="{{ 'on' if active == 'headlines' }}">중요 시황</a>
     <a href="/briefing" class="{{ 'on' if active == 'briefing' }}">뉴스 · 일정</a>
     <span class="sep"></span>
     <a href="/learning" class="{{ 'on' if active == 'learning' }}">학습</a>
     <a href="/ai-review" class="{{ 'on' if active == 'ai-review' }}">AI 리뷰</a>
     <span class="sep"></span>
-    <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">Data Quality</a>
-    <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">Agent Health</a>
+    <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">데이터 품질</a>
+    <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">에이전트 상태</a>
     <a href="/system" class="{{ 'on' if active == 'system' }}">시스템</a>
   </nav>
 
   <span class="statusbar" id="statusbar" hidden></span>
   <span class="sub num" id="as-of-label">—</span>
+  {# 둘째 줄: 데이터 기준일 띠(왼쪽) · [설명] 토글(오른쪽 끝). 줄바꿈 요소는
+     flex-basis:100% 짜리 빈 span 이다(sheet.css .hdr-break). #}
+  <span class="hdr-break" aria-hidden="true"></span>
+  <div class="freshness" id="freshness" hidden></div>
+  <button type="button" class="notes-toggle" aria-pressed="false"
+          title="패널 아래 설명 문단을 편다">설명</button>
 
-  {# 타임머신은 **접어 둔다.** 기능은 이 화면의 근간이지만(불변식 9 — 되감으면
-     그 시점 이후가 안 보인다), 평소에는 쓰지 않는다. 빈 날짜 칸을 늘 펼쳐 두면
-     아홉 개 탭 전부에서 "안 채워진 입력" 처럼 보인다. as_of 가 걸려 있으면
-     scope.js 가 자동으로 펼친다 — 되감은 채로 접혀 있으면 그게 제일 위험하다. #}
-  <button type="button" class="scope-toggle" id="scope-toggle"
-          title="과거 시점으로 되감기">🕘 시점</button>
+  {# 타임머신 컨트롤(as_of 입력·창·조회·지금)을 화면에서 걷어냈다
+     (사용자 요청 2026-08-18). **기능이 사라진 것은 아니다** — 되감기는
+     ``?as_of=...&lookback=...`` 로 그대로 돈다(scope.js ``params()`` 는
+     URL 에서만 읽는다, 불변식 9).
 
-  <form class="controls" id="scope-form" hidden>
-    <label for="as-of">as_of</label>
-    <input type="datetime-local" id="as-of" name="as_of" step="60">
-    <label for="lookback">창(일)</label>
-    <input type="number" id="lookback" name="lookback" min="1" style="width: 76px">
-    <button type="submit">조회</button>
-    <button type="button" id="live">지금</button>
-  </form>
+     왜 지웠나: 아홉 탭 전부에서 늘 비어 있는 날짜 칸이 "안 채운 입력" 처럼
+     보였다. 평소에 안 쓰는 도구가 매일 보는 자리를 차지하고 있었다.
+     되감은 상태는 오른쪽 as_of 배지가 (live) 를 떼면서 계속 말해 준다 —
+     그게 진짜 필요한 신호이고, 이건 남겨 뒀다. #}
 </header>

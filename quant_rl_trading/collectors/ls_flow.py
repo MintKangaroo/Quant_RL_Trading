@@ -26,6 +26,7 @@ from typing import Any
 from quant_rl_trading.collectors.errors import LSAPIError
 from quant_rl_trading.collectors.krx_source import KRXUnavailable
 from quant_rl_trading.collectors.ls_client import LSClient
+from quant_rl_trading.collectors.publication import not_before_collection
 
 #: 수급 조회 경로. 문서에서 확인하고 실호출로 검증했다.
 PATH_FLOW = "/stock/frgr-itt"
@@ -81,6 +82,7 @@ def normalize_flow_rows(
     entity_id: str,
     market: str,
     observed_at_for: Any,
+    collected_at: datetime,
 ) -> list[dict[str, Any]]:
     """t1717OutBlock → flows 행.
 
@@ -90,6 +92,12 @@ def normalize_flow_rows(
 
     ``observed_at_for`` 는 거래일 → 관측시각 함수다. 봉과 마찬가지로 그날
     자정이 아니라 **마감 후 공표 시각**이어야 한다.
+
+    다만 ``t1717`` 이 하루 중 언제 값을 내는지는 확인하지 못했다. 봉의 공표
+    일정(마감+lag)을 그대로 물려 쓰면 그 차이만큼 미래를 보므로,
+    ``collected_at``(우리가 실제로 받아 온 시각)을 하한으로 건다 —
+    ``not_before_collection``. 늦게 찍는 쪽은 못 보는 것뿐이지만 이르게 찍는
+    쪽은 미래를 본다.
     """
     normalized: list[dict[str, Any]] = []
     for row in rows:
@@ -98,7 +106,7 @@ def normalize_flow_rows(
             continue
         session = datetime.strptime(raw_date, "%Y%m%d").date()
         try:
-            observed_at = observed_at_for(session)
+            observed_at = not_before_collection(observed_at_for(session), collected_at)
         except Exception:
             # 아직 공표되지 않았거나 거래일이 아니다. 지어내지 않고 버린다.
             continue
@@ -120,7 +128,13 @@ def normalize_flow_rows(
                     # 단가가 없으면 금액도 없다. 0 으로 채우지 않는다.
                     "net_value": None if price is None else volume * price,
                     "net_volume": volume,
-                    "is_final": True,
+                    # **잠정치인지 확정치인지 모른다.** t1717 응답에 그 구분이
+                    # 없다. 예전에는 True 를 박았는데 그건 확인한 사실이 아니라
+                    # 희망이었고, 창고의 flows 는 그 결과 한 행도 빠짐없이
+                    # "확정치" 다. 모르는 것은 null 로 둔다. 정정은 revision 을
+                    # 올린 새 행으로 들어오고(불변식 4), 읽기가 자연키마다 최신
+                    # revision 을 고른다 — 확정치 대체는 그 경로로 성립한다.
+                    "is_final": None,
                 }
             )
     return normalized
@@ -207,6 +221,7 @@ class LSFlowBackfiller:
             entity_id=entity_id,
             market=self.market,
             observed_at_for=self.observed_at_for,
+            collected_at=self.clock.now(),
         )
         if not rows:
             # 상장 전이거나 수급이 없는 종목. 빈 것을 성공으로 기록하지 않는다 —

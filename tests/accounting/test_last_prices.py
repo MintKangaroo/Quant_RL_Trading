@@ -115,3 +115,47 @@ def test_only_zeros_in_window_yields_nothing(holiday, store) -> None:
     prices = last_prices(store, as_of=DAY0 + timedelta(days=1, hours=12), entities=[ENTITY])
 
     assert prices == {}
+
+
+@pytest.fixture
+def delisted(store):  # type: ignore[no-untyped-def]
+    """정상 종목 하나와, **오래 전에 시세가 끊긴 종목** 하나.
+
+    상장폐지의 모양이다. `KR:005390` 이 2025-09-29 를 마지막으로 끊겼고,
+    백테스트가 그 종목을 들고 있었다.
+    """
+    store.seed_config_defaults()
+    rows = [_row(ENTITY, DAY0, 10_000.0), _row(OTHER, DAY0, 5_000.0)]
+    # 정상 종목만 계속 거래된다. OTHER 는 DAY0 이후로 시세가 없다.
+    for offset in range(1, 120):
+        rows.append(_row(ENTITY, DAY0 + timedelta(days=offset), 10_000.0 + offset))
+    store.append("prices", rows, ingest_run_id="p-delisted")
+    return store
+
+
+def test_상장폐지_종목도_마지막_종가를_쓴다(delisted) -> None:
+    """**30일 창 밖으로 밀려나도 사라지면 안 된다.**
+
+    2026-08-17 실측: KR:005390 이 2025-09-29 를 마지막으로 끊겼는데
+    백테스트가 그것을 들고 있었고, 정확히 30일 뒤 세션에서 창 밖으로 밀려나며
+    6시간짜리 워크포워드가 `KeyError: 가격이 없다` 로 끝났다.
+    """
+    prices = last_prices(
+        delisted, as_of=DAY0 + timedelta(days=100), entities=[ENTITY, OTHER]
+    )
+
+    assert OTHER in prices, "상장폐지 종목이 사라졌다 — nav.value 가 여기서 터진다"
+    assert prices[OTHER] == 5_000.0, "마지막으로 거래된 종가여야 한다"
+    # 살아 있는 종목은 평소대로 최신 종가를 쓴다 (as_of 까지의 마지막 행).
+    assert prices[ENTITY] == 10_000.0 + 100
+
+
+def test_정말_없으면_넣지_않는다(delisted) -> None:
+    """긴 창에서도 못 찾으면 그건 **정말 모르는 것**이다. 지어내지 않는다 —
+    `nav.value` 가 예외를 던지는 것이 맞다."""
+    prices = last_prices(
+        delisted, as_of=DAY0 + timedelta(days=100), entities=[ENTITY, "KR:999999"]
+    )
+
+    assert "KR:999999" not in prices
+    assert ENTITY in prices

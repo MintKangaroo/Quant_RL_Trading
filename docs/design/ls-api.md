@@ -47,6 +47,30 @@ ECOS 503 오판, `t1511` 경로, `t8419`↔`t8418`). 그래서 아래는 **근�
 `g3103|g3202|g3203|g3204`. 실시간은 `/websocket/overseas-stock` =
 `AS0`(주문접수) `AS1`(체결) `AS2`(정정) `AS3`(취소) `AS4`(거부) + `GSC` `GSH`.
 
+### 0-1-1. 국장 차트도 경로가 따로다 — `t8410` 은 `/stock/chart` 다
+
+미장이 `market-data`/`chart` 로 갈리는 것과 **똑같이 국장도 갈린다.**
+`market_collector.py` 가 일봉 `t8410` 을 `/stock/market-data` 로 부르고 있어서
+**그 메서드는 한 번도 성공한 적이 없었다** (실측 2026-08-15).
+
+```
+/stock/market-data + t8410  →  HTTP 500 {"rsp_cd":"IGW00215", ...}  유효하지 않은 TR CD
+/stock/chart       + t8410  →  200, 정상 200행
+```
+
+국장 일봉이 KRX Open API 로 들어오는 덕에 아무도 몰랐다. `PATH_FLOW`
+(`/stock/frgr-itt`)와 같은 함정이고 증상까지 같다 — **경로가 틀리면 "TR 이
+없다"** 고 나와서 "LS 에는 그 데이터가 없다" 는 잘못된 결론으로 간다.
+
+상수는 `ls_client.PATH_CHART` 다. 경로는 고쳤지만 `collect_ohlcv` 는 막아
+두었다 — 국장 일봉의 정본은 KRX 이고, `prices` 자연키가
+`(entity_id, valid_from)` 이라 두 소스가 같이 쓰면 어느 값이 남는지가 **수집
+순서에 달린다.** 쓰려면 정본을 먼저 정해라.
+
+`sujung` 을 `"Y"`/`"N"` 두 번 불러 나누면 **기업행위 조정계수**가 나온다.
+`collectors/corporate_actions.py` 가 이 경로를 쓴다. `qrycnt` 는 3000 을 줘도
+**501행에서 끊기므로**(실측) 5년치는 `edate` 를 밀며 3페이지를 넘겨야 한다.
+
 ### 0-2. `CIDBQ*` 는 해외주식이 아니다 — 해외**선물**이다
 
 선행 프로젝트(`ls_us_rl_trader/broker/ls_client.py:13-15`)가 `CIDBQ01500` 을
@@ -318,6 +342,45 @@ live_account_fingerprint:
 - **주문 본문 검증.** 실계좌라 보낼 수 없다. 첫 미장 주문 때 확인해야 한다.
 
 ---
+
+### 0-13. 분봉 TR — 국장 `t8412` · 미장 `g3203` (실측 2026-08-18)
+
+| | TR | 경로 | trName |
+|---|---|---|---|
+| 국장 N분 | `t8412` | `/stock/chart` | 주식차트(N분) |
+| 미장 N분 | `g3203` | `/overseas-stock/chart` | 차트NMIN 조회 |
+| 미장 N틱 | `g3202` | `/overseas-stock/chart` | 차트NTICK 조회 |
+
+카탈로그(`GET openapi.ls-sec.co.kr/api/apis/public`)의 `trName` 으로 확인하고
+**실계좌 키로 직접 호출**했다. `ncnt` 1/5/15/60/240 전부 응답이 왔다
+(국장 005930, 미장 AAPL).
+
+**`g3202` 를 N분봉으로 적어 둔 주석이 저장소에 있었고 틀렸다.** 그건 N틱이다.
+없는 TR 은 에러가 나서 바로 알지만 **있는데 뜻이 다른 TR 은 200 을 주고 봉을
+준다** — 틱을 분봉으로 알고 창고에 넣으면 아무도 모른다. 이 표가 `t8410`
+경로 사고(0-1-1)와 같은 자리에 있는 이유다.
+
+#### 미장 `loctime` 은 거래소 현지시간이다
+
+KST 가 아니다. 실측으로 확인했다 — UTC 07:24 에 `loctime="031900"` 이고
+같은 응답의 `timediff` 가 −13 이라, 오프셋 −4(EDT)로 환산하면 UTC 07:19 로
+맞아떨어진다.
+
+**다만 코드는 `timediff` 를 읽지 않는다.** `zoneinfo.ZoneInfo` 로 거래소
+지역시각을 만들고 `.astimezone(UTC)` 로 바꾼다
+(`intraday_collector._local_timestamp`, `market_hours.SPECS` 의 timezone 을
+재사용). 이유 둘:
+
+- `timediff` 는 LS 문서에 정의가 없다. 값의 의미를 매번 믿어야 한다
+- tz 데이터베이스는 서머타임 규칙이 바뀌어도 라이브러리가 따라간다.
+  `market_hours.py`·`publication.py` 가 이미 같은 원칙을 쓴다 — **시간대를
+  다루는 방법이 파일마다 다른 것이 제일 나쁘다**
+
+`timediff` 는 "loctime 이 현지시간이 맞다" 를 확인하는 근거로만 썼다.
+
+어느 쪽이든 **오프셋을 상수로 박지 마라.** 미국은 서머타임이 있어서 1년에
+두 번, 특정 날짜에만 한 시간씩 틀어진다 — 그런 결함은 몇 달 뒤에 발견되고
+그때는 이미 데이터가 오염돼 있다.
 
 ## 1. 반드시 실측할 것
 

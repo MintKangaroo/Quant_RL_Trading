@@ -29,6 +29,8 @@ SCOPE_TEMPLATE = REPO_ROOT / "quant_rl_trading" / "dashboard" / "templates" / "_
 
 #: 렌더러가 부르는 DOM API 만 흉내 낸다. 요소가 템플릿에 있으면 객체를,
 #: 없으면 **null 을** 돌려준다 — 브라우저와 같은 실패를 재현하기 위해서다.
+from tests.dashboard._browser import style_shim
+
 HARNESS = """
 const ids = new Set(IDS);
 const made = new Set();          // JS 가 innerHTML 로 만들어 넣는 요소
@@ -62,7 +64,7 @@ global.document = {
 global.window = { location: { search: "" }, addEventListener() {} };
 global.echarts = { init: () => ({ setOption() {}, resize() {} }) };
 global.fetch = async () => { throw new Error("fetch 는 스텁이 가로챈다"); };
-"""
+""" + style_shim()
 
 DRIVER = """
 // scope.js 가 선언한 함수를 우리 것으로 갈아 끼운다. `global.` 로 얹으면
@@ -70,10 +72,42 @@ DRIVER = """
 fetchJson = async (path) => (path.startsWith("trading/chart") ? CHART : TRADING);
 runAll = async (jobs) => { for (const job of jobs) await job(); };
 loadTrading().then(
-  () => console.log("OK"),
+  () => {
+    // 렌더 결과를 내보낸다. "끝까지 돌았다" 와 "옳은 값을 그렸다" 는 다른
+    // 질문이고, 후자를 못 물으면 숫자가 조용히 틀려도 통과한다.
+    const dump = {};
+    for (const id of Object.keys(cache)) dump[id] = cache[id].innerHTML;
+    console.log("DUMP " + JSON.stringify(dump));
+    console.log("OK");
+  },
   (error) => { console.log("FAIL " + error.message); process.exitCode = 1; }
 );
 """
+
+
+def _render(tmp_path: Path, trading: dict, chart: dict) -> dict[str, str]:
+    """렌더러를 한 번 돌리고 요소별 innerHTML 을 돌려준다."""
+    import re
+
+    ids = sorted(
+        set(re.findall(r'id="([^"]+)"', TEMPLATE.read_text()))
+        | set(re.findall(r'id="([^"]+)"', SCOPE_TEMPLATE.read_text()))
+    )
+    trading_js = (STATIC / "trading.js").read_text().replace("runAll([loadTrading]);", "")
+    script = "\n".join([
+        HARNESS.replace("IDS", json.dumps(ids)),
+        (STATIC / "scope.js").read_text(),
+        (STATIC / "calendar.js").read_text(),
+        (STATIC / "candles.js").read_text(),
+        trading_js,
+        DRIVER.replace("TRADING", json.dumps(trading)).replace("CHART", json.dumps(chart)),
+    ])
+    path = tmp_path / "render.js"
+    path.write_text(script)
+    result = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=60)
+    assert "OK" in result.stdout, f"{result.stdout}\n{result.stderr}"
+    line = next(row for row in result.stdout.splitlines() if row.startswith("DUMP "))
+    return json.loads(line[len("DUMP "):])
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
@@ -101,6 +135,7 @@ def test_트레이딩_렌더러가_실제_응답으로_끝까지_돈다(tmp_path
         # trading.html 이 trading.js 보다 먼저 싣는다. 빠뜨리면 브라우저에서는
         # 되는데 테스트만 ReferenceError 로 죽는다.
         (STATIC / "calendar.js").read_text(),
+        (STATIC / "candles.js").read_text(),
         trading_js,
         DRIVER.replace("TRADING", json.dumps(trading)).replace("CHART", json.dumps(chart)),
     ])
@@ -113,107 +148,95 @@ def test_트레이딩_렌더러가_실제_응답으로_끝까지_돈다(tmp_path
     assert "OK" in result.stdout, f"{result.stdout}\n{result.stderr}"
 
 
-# -- 지수 대비: 누적 초과 곡선 ---------------------------------------------------
+# -- 장 마감 후 (2026-08-19) ---------------------------------------------------
 
 
-def _render_with(payload: dict, tmp_path: Path) -> dict[str, str]:
-    """주어진 응답으로 트레이딩 렌더러를 돌리고 각 요소의 innerHTML 을 돌려준다.
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_장_마감_후에는_오늘_수익을_종가로_잡는다(tmp_path: Path) -> None:
+    """**0.00% 는 "안 움직였다" 가 아니라 "아직 모른다" 였다.**
 
-    기본 페이로드(`trading.json`)는 창고가 얕아 **벤치마크가 전부
-    ``available: False``** 다 — 그것만으로는 곡선 경로가 한 줄도 안 돈다.
-    그래서 벤치마크가 실제로 찬 응답을 따로 물려 이 검사에만 쓴다.
+    일봉 수집은 장이 끝난 뒤에 돈다. 그 사이 창고 기준 `nav`·`today_pnl` 은
+    아직 어제를 가리키고, 그때 실시간 값을 버리면 화면이 오늘 수익률을
+    0.00% 로 보여준다. 실측 2026-08-19 16:22(shadow): 실제 -1.13% 였다.
+
+    마감 후의 마지막 체결가는 곧 오늘 종가이므로, 그 값을 써야 한다.
     """
-    import re
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
 
-    ids = sorted(
-        set(re.findall(r'id="([^"]+)"', TEMPLATE.read_text()))
-        | set(re.findall(r'id="([^"]+)"', SCOPE_TEMPLATE.read_text()))
-    )
-    chart = json.loads((Path(__file__).parent / "payloads" / "chart.json").read_text())
-    trading_js = (STATIC / "trading.js").read_text().replace("runAll([loadTrading]);", "")
-    driver = """
-fetchJson = async (path) => (path.startsWith("trading/chart") ? CHART : TRADING);
-runAll = async (jobs) => { for (const job of jobs) await job(); };
-loadTrading().then(
-  () => {
-    const dump = {};
-    for (const [id, el] of Object.entries(cache)) dump[id] = el.innerHTML;
-    console.log("DUMP " + JSON.stringify(dump));
-  },
-  (error) => { console.log("FAIL " + error.message); process.exitCode = 1; }
-);
-"""
-    script = "\n".join([
-        HARNESS.replace("IDS", json.dumps(ids)),
-        (STATIC / "scope.js").read_text(),
-        (STATIC / "calendar.js").read_text(),
-        trading_js,
-        driver.replace("TRADING", json.dumps(payload)).replace("CHART", json.dumps(chart)),
-    ])
-    path = tmp_path / "bench.js"
-    path.write_text(script)
-    result = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=60)
-    line = next((row for row in result.stdout.splitlines() if row.startswith("DUMP ")), None)
-    assert line, f"{result.stdout}\n{result.stderr}"
-    return json.loads(line[len("DUMP "):])
+    # 장이 닫힌 상태로 바꾼다. 회계는 아직 어제라 today_pnl 이 0 이다.
+    kpis = trading["data"]["kpis"]
+    kpis["live_session_open"] = False
+    kpis["live_is_close"] = True
+    kpis["live_today_pnl"] = -111690.0
+    kpis["live_change"] = -0.0113
+    kpis["today_pnl"] = 0.0
+    kpis["daily_return"] = 0.0
+
+    dump = _render(tmp_path, trading, chart)
+    kpi_html = "".join(dump.values())
+
+    # 오늘 수익금이 0 이 아니라 장중 마지막 값으로 찍혀야 한다.
+    assert "111,690" in kpi_html, "마감 후 오늘 수익금이 종가로 안 잡힌다"
+    # 종가라는 사실을 화면이 말해야 한다 — 안 적으면 어제 값과 구분이 안 된다.
+    assert "종가" in kpi_html
 
 
-def _bench_payload() -> dict:
-    return json.loads(
-        (Path(__file__).parent / "payloads" / "trading_benchmark.json").read_text()
-    )
+# -- 오늘의 성과 ----------------------------------------------------------------
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
-def test_지수_대비는_일별_막대가_아니라_누적_곡선이다(tmp_path: Path) -> None:
-    """이 전략은 저베타라(베타 0.131 · 상승일 포착률 14%) 상승장에서 일별
-    초과가 음수인 날이 줄줄이 나오는 것이 **정상 동작**이다. 막대로 그리면
-    화면이 매일 "졌다" 고 스무 번 외치고, 그 빨강은 같은 패널 캘린더의
-    빨강(**진짜 손실**)과 같은 색이라 한 패널에서 두 뜻이 된다.
-    """
-    dump = _render_with(_bench_payload(), tmp_path)["bench-compare"]
-    assert "bench-curve" in dump, "곡선이 안 그려졌다"
-    assert "bench-daily" not in dump and 'class="bar' not in dump, "일별 막대가 남아 있다"
-    # 0선이 있어야 "앞섰나 뒤졌나" 를 곡선 모양만으로 읽을 수 있다.
-    assert 'class="zero"' in dump
+def test_성과_패널이_증감_옆에_입출금을_적는다(tmp_path: Path) -> None:
+    """증감과 수익률은 다른 사실이다. 입출금이 안 적히면 입금일에 둘이
+    서로를 거짓말쟁이로 만든다 (accounting.md §6)."""
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    trading["data"]["performance"]["inflow"] = 490_238_209.0
+    trading["data"]["performance"]["nav_change"] = 490_240_814.55
+    chart = json.loads((payloads / "chart.json").read_text())
+
+    dump = _render(tmp_path, trading, chart)
+    html = dump["perf-summary"]
+    # 당일 수익률·총자산 등은 KPI 카드에만 있다(중복 제거, 2026-08-28). 성과 패널엔 증감·실현손익만.
+    assert "자산 증감" in html and "당일 실현손익" in html and "당일 수익률" not in html
+    assert "490,238,209" in html, "증감 옆에 입출금이 안 적힌다"
+    # 수익률 자리에 다섯 자리 퍼센트가 있으면 안 된다.
+    # 당일 수익률(TWR) 칸은 KPI 카드로 옮겨졌다 — 입출금이 수익률에 안 섞이는 것은
+    # test_kpi 쪽에서 본다.
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
-def test_곡선의_끝점이_머리의_누적_초과와_같다(tmp_path: Path) -> None:
-    """**다르면 그게 결함이다.** 실제로 어긋나 있었다 — 서비스가
-    ``cumulative_index`` 는 지수 자기 거래일로, ``daily`` 는 우리 거래일로
-    만들어서 국장에서 3.6~4.4%p 벌어졌다. 축을 두 달력의 합집합으로 바꿔
-    맞췄다.
-    """
-    for row in _bench_payload()["data"]["benchmark_compare"]["benchmarks"]:
-        if not row.get("available"):
-            continue
-        assert row["daily"], row["label"]
-        assert row["daily"][-1]["cumulative_excess"] == pytest.approx(
-            row["cumulative_excess"], abs=1e-12
-        ), f"{row['label']} 곡선 끝점이 머리 숫자와 다르다"
+def test_성과_패널이_매수에_실현손익_0_을_안_적는다(tmp_path: Path) -> None:
+    """매수 자리의 ``0원`` 은 "본전" 으로 읽힌다."""
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    dump = _render(tmp_path, trading, chart)
+    assert "아직 실현 없음" in dump["perf-fills"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
-def test_호버가_우리_지수_누적초과_셋을_다_보여준다(tmp_path: Path) -> None:
-    """일별 초과가 아니라 **누적**이다."""
-    dump = _render_with(_bench_payload(), tmp_path)["bench-compare"]
-    assert "누적 초과" in dump
-    assert "우리 " in dump and "지수 " in dump
+def test_회계_스냅샷이_없으면_숫자를_안_그린다(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    trading["data"]["performance"] = None
+    chart = json.loads((payloads / "chart.json").read_text())
+    dump = _render(tmp_path, trading, chart)
+    assert dump["perf-summary"] == ""
+    assert "잴 수 없다" in dump["perf-fills"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
-def test_양쪽이_다_관측되지_않은_날을_지우지_않는다(tmp_path: Path) -> None:
-    """한쪽이 없는 날은 그쪽 누적이 안 움직인다 — 즉 "그날 그쪽 수익률이 0"
-    이라고 가정한 셈이다. 휴장이면 맞고 미수집이면 틀린데 둘을 못 가르므로,
-    **가정했다는 사실 자체**를 화면이 말해야 한다."""
-    payload = _bench_payload()
-    missing = [
-        sum(1 for d in row["daily"] if not d["paired"])
-        for row in payload["data"]["benchmark_compare"]["benchmarks"]
-        if row.get("available")
-    ]
-    assert any(missing), "이 페이로드에는 미대응 날이 없다 — 검사가 무의미하다"
-    dump = _render_with(payload, tmp_path)["bench-compare"]
-    assert 'class="gap"' in dump, "미대응 날이 점으로 안 찍혔다"
-    assert "한쪽이 안 움직인 것으로 잰다" in dump, "가정을 화면이 안 말한다"
+def test_매매가_없던_날은_0건이_아니라_없었다고_적는다(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    perf = trading["data"]["performance"]
+    perf["fills"] = []
+    perf["fill_count"] = 0
+    perf["buy_count"] = perf["sell_count"] = 0
+    chart = json.loads((payloads / "chart.json").read_text())
+    dump = _render(tmp_path, trading, chart)
+    assert "체결된 매매가 없다" in dump["perf-fills"]
+    assert "0건" not in dump["perf-fills"]
+

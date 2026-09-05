@@ -213,9 +213,11 @@ def test_params_come_from_store_config(store, ts) -> None:  # type: ignore[no-un
 
     loaded = FillParams.from_store(store, as_of=ts(2026, 8, 1))
 
-    assert loaded.max_adv_ratio == 0.03
-    assert loaded.max_liquidation_days == 3
-    assert loaded == PARAMS
+    # 설정 기본값은 바뀐다(max_adv_ratio 0.03 → 1.0, 2026-09 TWAP). 숫자를 여기 박으면 이 테스트가
+    # 설정 변경마다 깨진다 — 확인할 것은 "설정에서 읽는다" 이지 값이 아니다.
+    assert loaded.max_adv_ratio == float(store.config("execution.max_adv_ratio", as_of=ts(2026, 8, 1)))
+    assert loaded.max_liquidation_days == int(store.config("execution.max_liquidation_days", as_of=ts(2026, 8, 1)))
+    assert loaded.min_order_value == float(store.config("execution.min_order_value", as_of=ts(2026, 8, 1)))
 
 
 def test_same_input_gives_same_output() -> None:
@@ -223,3 +225,14 @@ def test_same_input_gives_same_output() -> None:
     second = simulate_fill(buy(1_000), state(), PARAMS)
 
     assert first.canonical() == second.canonical()
+
+
+def test_from_store_divides_min_order_value_by_fx(store, ts) -> None:  # type: ignore[no-untyped-def]
+    """미장 최소주문금액은 원화 설정을 환율로 나눈 달러다 (2026-09-04 미장 체결 0건의 원인)."""
+    store.seed_config_defaults()
+    krw = FillParams.from_store(store, as_of=ts(2026, 8, 1))
+    usd = FillParams.from_store(store, as_of=ts(2026, 8, 1), fx_rate=1350.0)
+    assert usd.min_order_value == pytest.approx(krw.min_order_value / 1350.0)
+    assert usd.impact_k == krw.impact_k
+    with pytest.raises(ValueError):
+        FillParams.from_store(store, as_of=ts(2026, 8, 1), fx_rate=0.0)

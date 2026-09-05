@@ -10,6 +10,19 @@
   <section class="kpis" id="kpis"></section>
 
   <section class="panel">
+    <h2>일정 <span class="sub mobile-hide">이달 — 지표 발표 · 실적 발표</span>
+      <span class="right">
+        <button type="button" class="linky" id="sched-prev" title="이전 달">‹</button>
+        <span class="sub num" id="sched-label">—</span>
+        <button type="button" class="linky" id="sched-next" title="다음 달">›</button>
+      </span>
+    </h2>
+    <p class="muted" id="sched-note">시각은 서울 기준. 미장 실적은 Nasdaq 확정 일정(장 전/장 후), 국장 실적은 작년 같은 분기 공시일 기준 <b>예상</b>.</p>
+    <div id="schedule" class="sched"></div>
+    <div id="sched-day" class="sched-day" hidden></div>
+  </section>
+
+  <section class="panel">
     <h2>매수 차단 — News · SNS 판정
       <span class="right"><span class="sub" id="verdicts-count"></span></span>
     </h2>
@@ -49,5 +62,6 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
+<script src="{{ url_for('static', filename='schedule.js') }}"></script>
 <script src="{{ url_for('static', filename='headlines.js') }}"></script>
 {% endblock %}
