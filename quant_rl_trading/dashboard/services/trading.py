@@ -215,6 +215,114 @@ def _apply_us_sleeve(view: dict[str, Any], sleeve: dict[str, Any]) -> None:
         })
 
 
+# -- 종합(국장 모의계좌 + 미장 슬리브) ------------------------------------------------
+
+
+def combined_payload(
+    store_kr: Store, store_us: Store, clock: Any, *, as_of: datetime, lookback: int, live_quotes: Any = None
+) -> dict[str, Any]:
+    """종합 탭 — 두 장부를 원화로 합친 총자산·증감·수익률·곡선. **종목·주문은 없다** (사용자 요청 2026-09-05).
+
+    국장 = LS 모의계좌 장부(data/_paper), 미장 = shadow 장부의 달러 슬리브(data/_shadow, `_us_sleeve`).
+    환산은 국장 스냅샷의 환율 하나로 한다 — 곡선의 과거 날짜도 같은 환율을 쓴다(환율 손익을 섞지 않고
+    "지금 환율로 본 자산" 을 보여준다; 문구로 적는다). 원금은 두 장부의 입출금 합(달러는 환산).
+    """
+    ctx_kr = build_context(store_kr, clock, as_of=as_of, market="KR", live_quotes=live_quotes)
+    k_kr = kpis(store_kr, ctx_kr)
+    perf_kr = performance_module.daily(store_kr, as_of=as_of, snapshot=ctx_kr.snapshot, fill_limit=None).as_dict()
+    eq_kr = equity_curve(store_kr, ctx_kr, lookback=lookback)
+    fx = float(ctx_kr.snapshot.valuation.fx_rate or 0.0)
+    sleeve = None
+    try:
+        ctx_us = build_context(store_us, clock, as_of=as_of, market="US", live_quotes=None)
+        sleeve = _us_sleeve(store_us, ctx_us, lookback=lookback)
+        us_positions = len([p for e, p in ctx_us.book.positions.items() if str(e).startswith("US:") and p.quantity > 0])
+    except LookupError:
+        us_positions = 0
+    us_nav = (sleeve["nav"] * fx) if sleeve else 0.0
+    us_change = ((sleeve["nav_change"] or 0.0) * fx) if sleeve else 0.0
+    us_principal = (sleeve["principal"] * fx) if sleeve else 0.0
+    us_equity = (sleeve["equity"] * fx) if sleeve else 0.0
+    us_cash = (sleeve["cash"] * fx) if sleeve else 0.0
+    nav = float(k_kr["nav"]) + us_nav
+    today_pnl = float(k_kr.get("today_pnl") or 0.0) + us_change
+    principal = float(k_kr.get("principal") or 0.0) + us_principal
+    total_pnl = nav - principal if principal > 0 else None
+    # 곡선 — 날짜 합집합, 각 장부는 마지막 알던 값을 끌고 간다(forward fill).
+    kr_series = pd.Series(eq_kr["nav"], index=pd.to_datetime(eq_kr["sessions"])) if eq_kr["sessions"] else pd.Series(dtype=float)
+    us_series = pd.Series(sleeve["curve"]["nav"], index=pd.to_datetime(sleeve["curve"]["sessions"])) * fx if sleeve else pd.Series(dtype=float)
+    idx = kr_series.index.union(us_series.index).sort_values()
+    total = kr_series.reindex(idx).ffill().fillna(0.0) + us_series.reindex(idx).ffill().fillna(0.0)
+    total = total[total > 0]
+    sessions = [d.date().isoformat() for d in total.index]
+    navs = [float(v) for v in total.to_list()]
+    base = navs[0] if navs else nav
+    index = [100.0 * v / base for v in navs]
+    peak = pd.Series(navs).cummax()
+    drawdown = [float(v / p - 1.0) for v, p in zip(navs, peak)] if navs else []
+    peak_now = max(navs + [nav]) if navs else nav
+    # 일별 수익률은 **입출금을 뺀다** — 9/2 달러 입금이 +96% 로 찍히면 달력이 거짓말을 한다. 두 장부의 capital_flows
+    # 를 날짜별로 합쳐(달러는 같은 환율) (NAV_t − 입금_t) / NAV_{t−1} − 1 로 잰다.
+    flows_by_day: dict[str, float] = {}
+    for st, mult_of in ((store_kr, lambda c: 1.0 if c == "KRW" else fx), (store_us, lambda c: fx if c == "USD" else 0.0)):
+        try:
+            fl = st.get("capital_flows", as_of=as_of, entity=ledger_module.ACCOUNT, lookback=lookback * 3)
+        except Exception:  # noqa: BLE001 — 장부가 없으면 입출금도 없다
+            continue
+        for row in ([] if fl.empty else fl.to_dict(orient="records")):
+            key = pd.Timestamp(row["valid_from"]).date().isoformat()
+            flows_by_day[key] = flows_by_day.get(key, 0.0) + float(row["amount"]) * mult_of(str(row["currency"]))
+    daily = [0.0]
+    for i in range(1, len(navs)):
+        prev_nav = navs[i - 1]
+        daily.append((navs[i] - flows_by_day.get(sessions[i], 0.0)) / prev_nav - 1.0 if prev_nav > 0 else 0.0)
+    days = [{"session": s_, "return": float(r), "nav": float(v)} for s_, r, v in zip(sessions, daily, navs)]
+    months: dict[str, float] = {}
+    for day in days:
+        key = day["session"][:7]
+        months[key] = (1.0 + months.get(key, 0.0)) * (1.0 + day["return"]) - 1.0
+    previous_nav = navs[-1] if navs and sessions[-1] < as_of.date().isoformat() else (navs[-2] if len(navs) > 1 else None)
+    k = {
+        "currency": "KRW", "combined": True, "nav": nav, "nav_after_tax": None,
+        "principal": principal or None, "today_pnl": today_pnl, "total_pnl": total_pnl,
+        "daily_return": today_pnl / (nav - today_pnl) if nav - today_pnl > 0 else None,
+        "cumulative_return": nav / principal - 1.0 if principal > 0 else None,
+        "index_value": 100.0 * nav / base if base else None, "drawdown": nav / peak_now - 1.0 if peak_now else None,
+        "mdd": min(drawdown + [nav / peak_now - 1.0]) if navs else None, "win_rate": None, "win_samples": 0,
+        "equity": float(k_kr.get("equity") or 0.0) + us_equity, "equity_kr": float(k_kr.get("equity_kr") or 0.0),
+        "equity_us": (sleeve["equity"] if sleeve else 0.0), "cash_krw": float(k_kr.get("cash_krw") or 0.0) + us_cash,
+        "cash_usd": (sleeve["cash"] if sleeve else 0.0), "fx_rate": fx,
+        "exposure": (float(k_kr.get("equity") or 0.0) + us_equity) / nav if nav > 0 else None,
+        "action_reflection": k_kr.get("action_reflection"), "action_reflection_floor": k_kr.get("action_reflection_floor"),
+        "positions": int(k_kr.get("positions") or 0) + us_positions,
+        "live_nav": None, "live_change": None, "live_today_pnl": None, "live_drawdown": None, "live_mdd": None,
+        "live_equity": None, "live_covered": 0, "live_is_close": None, "live_session_open": None,
+        "kr_nav": float(k_kr["nav"]), "us_nav_usd": (sleeve["nav"] if sleeve else 0.0), "us_nav_krw": us_nav,
+    }
+    for key in ("killswitch", "rejected", "orders_total", "ai_state", "policy"):
+        if key in k_kr:
+            k[key] = k_kr[key]
+    perf = dict(perf_kr)
+    perf.update({
+        "currency": "KRW", "nav": nav, "previous_nav": previous_nav, "nav_change": today_pnl, "pnl": today_pnl,
+        "inflow": 0.0, "daily_return": k["daily_return"], "cumulative_return": k["cumulative_return"],
+        "index_value": k["index_value"], "drawdown": k["drawdown"], "principal": principal, "total_pnl": total_pnl,
+        "mode": "PAPER+SHADOW", "mode_note": f"국장 모의계좌 + 미장 shadow 슬리브 · 달러는 현재 환율 {fx:,.0f}원 으로 환산",
+        "fills": [], "fill_count": 0, "buy_count": 0, "sell_count": 0, "realized_pnl": None,
+    })
+    return {
+        # risk 는 국장 장부의 것 — KPI 줄이 킬스위치·낙폭 밴드 문구를 여기서 읽는다(None 이면 화면이 죽는다).
+        "market": "ALL", "system": system(store_kr, ctx_kr), "kpis": k, "risk": risk(store_kr, ctx_kr), "alerts": [],
+        "positions": [], "watchlist": [], "decision": None, "orders": [],
+        "equity": {"sessions": sessions, "nav": navs, "index": index, "drawdown": drawdown,
+                   "benchmark": [None] * len(navs), "benchmark_drawdown": [None] * len(navs),
+                   "benchmark_note": "종합 — 벤치마크 없음(두 시장 합산)", "benchmark_label": {"label": "—"}},
+        "calendar": {"days": days, "months": [{"month": m, "return": v} for m, v in sorted(months.items())],
+                     "indices": _index_daily_returns(store_kr, as_of=as_of, lookback=lookback)},
+        "performance": perf,
+    }
+
+
 # -- KPI -----------------------------------------------------------------------
 
 

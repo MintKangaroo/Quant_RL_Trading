@@ -13,13 +13,14 @@
      LS 모의투자가 해외주식을 막아 두 장부가 갈렸다(2026-09-02). market·ledger 는 URL 로
      흐르고(scope.js params) 모든 API 가 그걸 같이 받는다. #}
   <nav class="ledger-switch seg" aria-label="장부">
+    <a href="/trading?market=ALL" data-ledger="all">종합</a>
     <a href="/trading" data-ledger="paper">국장 · 모의계좌</a>
     <a href="/trading?market=US&amp;ledger=shadow" data-ledger="shadow">미장 · shadow</a>
   </nav>
   <script>
   (function () {
     var q = new URLSearchParams(location.search);
-    var on = (q.get("ledger") || "paper").toLowerCase();
+    var on = (q.get("market") || "").toUpperCase() === "ALL" ? "all" : (q.get("ledger") || "paper").toLowerCase();
     document.querySelectorAll(".ledger-switch a").forEach(function (a) {
       if (a.dataset.ledger === on) a.classList.add("on");
     });

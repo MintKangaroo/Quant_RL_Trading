@@ -14,7 +14,7 @@ from typing import Any
 from flask import Blueprint, current_app, request
 from werkzeug.exceptions import BadRequest
 
-from quant_rl_trading.dashboard.api.common import clock, envelope, scope, store
+from quant_rl_trading.dashboard.api.common import shadow_store, clock, envelope, scope, store
 from quant_rl_trading.dashboard.services import account as account_service
 from quant_rl_trading.dashboard.services import trading as service
 from quant_rl_trading.executor import guards
@@ -27,6 +27,8 @@ MARKETS = ("KR", "US")
 
 def _market() -> str:
     value = (request.args.get("market") or "KR").upper()
+    if value == "ALL":
+        return value
     if value not in MARKETS:
         raise BadRequest(f"market 은 {MARKETS} 중 하나여야 한다: {value!r}")
     return value
@@ -35,6 +37,15 @@ def _market() -> str:
 @bp.get("")
 def overview() -> Any:
     current = scope()
+    if _market() == "ALL":
+        # 종합 — 국장 모의계좌 장부 + 미장 shadow 슬리브. ledger 파라미터와 무관하게 둘 다 연다.
+        return envelope(
+            current,
+            service.combined_payload(
+                store(), shadow_store() or store(), clock(), as_of=current.as_of, lookback=current.lookback,
+                live_quotes=current_app.config.get("QUANT_RL_LIVE_QUOTES"),
+            ),
+        )
     return envelope(
         current,
         service.payload(

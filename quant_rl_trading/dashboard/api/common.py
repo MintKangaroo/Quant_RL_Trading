@@ -43,6 +43,18 @@ class RequestScope:
     live: bool
 
 
+def shadow_store() -> Store | None:
+    """shadow 장부(data/_shadow). 종합 탭이 ledger 파라미터와 무관하게 연다. 없으면 None."""
+    shadow: Store | None = current_app.config.get("QUANT_RL_STORE_SHADOW")
+    if shadow is None:
+        return None
+    cached = g.get("quant_rl_store_shadow")
+    if cached is None:
+        cached = MemoStore(shadow)
+        g.quant_rl_store_shadow = cached
+    return cached  # type: ignore[no-any-return]
+
+
 def store() -> Store:
     """요청 하나가 쓰고 버리는 읽기 캐시를 씌워 돌려준다.
 

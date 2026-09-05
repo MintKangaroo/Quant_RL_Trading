@@ -806,7 +806,11 @@ function renderEquity(body) {
   // 낙폭은 아래 언더워터 차트가 따로 그린다. 날짜는 M/D, 점을 찍어 하루가 보이게.
   const nav = e.nav || [];
   const days = e.sessions.map((s) => `${Number(String(s).slice(5, 7))}/${Number(String(s).slice(8, 10))}`);
-  const eok = (v) => (v == null ? "—" : v >= 1e8 ? (v / 1e8).toFixed(2) + "억" : num(Math.round(v / 1e4)) + "만");
+  // 축 단위 — 원화는 억·만, 달러는 K·M. 달러에 "37만" 을 붙이면 원으로 읽힌다(9/5 폰 실측).
+  const usd = unitCode() === "USD";
+  const eok = (v) => (v == null ? "—"
+    : usd ? (Math.abs(v) >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "M" : "$" + num(Math.round(v / 1e3)) + "K")
+    : v >= 1e8 ? (v / 1e8).toFixed(2) + "억" : num(Math.round(v / 1e4)) + "만");
   const first = nav.find((v) => v != null);
   const bench = (e.benchmark || []).map((b) => (b == null || first == null ? null : first * b / (e.benchmark.find((x) => x != null) || 1)));
   chart("chart-equity").setOption({
@@ -817,7 +821,7 @@ function renderEquity(body) {
       const prev = i > 0 ? nav[i - 1] : null;
       const d = prev != null && nav[i] != null ? nav[i] - prev : null;
       return `${e.sessions[i]}<br>총자산 <b>${num(Math.round(nav[i]))}${unit()}</b>`
-        + (d != null ? `<br>전일 대비 ${d >= 0 ? "+" : ""}${num(Math.round(d))}원` : "")
+        + (d != null ? `<br>전일 대비 ${d >= 0 ? "+" : ""}${num(Math.round(d))}${unit()}` : "")
         + (bench[i] != null ? `<br>벤치마크 ${num(Math.round(bench[i]))}원` : "");
     } },
     grid: { left: 56, right: 14, top: 28, bottom: 28 },
@@ -1123,7 +1127,7 @@ function renderPositionsPie(body) {
       backgroundColor: COLOR.panel,
       borderColor: COLOR.border,
       textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
-      formatter: (p) => `${p.name}<br/>${num(Math.round(p.value))} KRW · ${p.percent.toFixed(1)}%`,
+      formatter: (p) => `${p.name}<br/>${num(Math.round(p.value))} ${unitCode()} · ${p.percent.toFixed(1)}%`,
     },
     legend: {
       type: "scroll",
@@ -1201,15 +1205,32 @@ async function loadTrading() {
   if (equitySub) equitySub.textContent = `${body.data.equity.sessions.length}세션`;
 
   renderKpis(body);
-  renderAccount(body).catch(() => {});  // 외부 조회 — 느리고 실패할 수 있다, KPI 를 막지 않는다
+  // **종합 탭**(?market=ALL)은 합산 숫자와 곡선만이다 — 종목·주문·계좌 패널은 시장 탭에서 본다
+  // (사용자 요청 2026-09-05). 숨기는 것은 섹션 단위다: 빈 표를 그리면 "0종목" 이 사실처럼 읽힌다.
+  const combined = (params().get("market") || "KR").toUpperCase() === "ALL";
+  // 렌더 테스트의 DOM 스텁엔 closest 가 없다 — 있을 때만 올라간다.
+  const up = (el, sel) => (el && typeof el.closest === "function" ? el.closest(sel) : null);
+  const hide = (el) => { if (el) el.hidden = combined; };
+  hide(document.getElementById("account-panel"));
+  hide(document.getElementById("panel-review"));
+  hide(document.getElementById("positions"));                       // 표만 — 같은 패널의 일별 수익률 차트는 남긴다
+  hide(document.getElementById("chart-positions-pie"));
+  hide(up(document.getElementById("orders"), ".panel"));
+  for (const id of ["watchlist", "chart-candle", "risk"]) hide(up(document.getElementById(id), "details"));
+  const posHead = up(document.getElementById("positions"), ".panel");
+  const posH2 = posHead && posHead.querySelector ? posHead.querySelector("h2") : null;
+  if (posH2 && combined) posH2.textContent = "일별 수익률 · 종합";
+  if (!combined) renderAccount(body).catch(() => {});  // 외부 조회 — 느리고 실패할 수 있다, KPI 를 막지 않는다
   renderAlerts(body);
-  renderWatchlist(body);
-  renderDecision(body);
-  renderRisk(body);
-  renderPositions(body);
-  renderPositionsPie(body);
+  if (!combined) {
+    renderWatchlist(body);
+    renderDecision(body);
+    renderRisk(body);
+    renderPositions(body);
+    renderPositionsPie(body);
+    renderOrders(body);
+  }
   renderDailyReturns(body);
-  renderOrders(body);
   renderPerformance(body);
   renderEquity(body);
   // renderUnderwater 는 뺐다 (사용자 요청 2026-08-31 — 낙폭이 0 이라 안 보였다).
@@ -1217,7 +1238,7 @@ async function loadTrading() {
   renderCalendarPanel(body);
 
   // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
-  await renderCandles(body.data.decision.entity_id, body.data.positions);
+  if (!combined) await renderCandles(body.data.decision.entity_id, body.data.positions);
 
   // 장중이면 다음 갱신을 예약한다. **그리기가 끝난 뒤**여야 한다 — 앞에 두면
   // 느린 세션에서 갱신이 겹쳐 쌓인다.
