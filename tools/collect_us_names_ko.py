@@ -37,6 +37,12 @@ def _held_entities(root: str, now: datetime) -> set[str]:
     return out
 
 
+def _flush(store: Store, rows: list, run_id: str, upto: int) -> int:
+    if not rows:
+        return 0
+    return int(store.append(nn.NAMES_KO, rows, ingest_run_id=f"{run_id}-p{upto}", source=nn.SOURCE))
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="data")
@@ -63,7 +69,7 @@ def main(argv=None) -> int:
     if args.limit:
         tickers = tickers[: args.limit]
     print(f"{day} · 종목 {len(tickers)} · 간격 {INTERVAL_SEC}s", flush=True)
-    rows = []; fails = 0; empty = 0
+    rows = []; fails = 0; empty = 0; written = 0
     with httpx.Client(timeout=15, headers={"User-Agent": USER_AGENT}) as client:
         for i, ticker in enumerate(tickers, 1):
             parsed = None; last_error = None
@@ -90,8 +96,12 @@ def main(argv=None) -> int:
             else:
                 empty += 1
             if i % 200 == 0:
-                print(f"  [{i}/{len(tickers)}] 행 {len(rows)} · 없음 {empty} · 실패 {fails}", flush=True)
-    written = store.append(nn.NAMES_KO, rows, ingest_run_id=run_id, source=nn.SOURCE) if rows else 0
+                # **200종목마다 적재한다.** 6,575종목 40분짜리를 끝에 한 번 쓰면 재부팅(2026-09-05 12:05, WSL)에
+                # 2,600종목이 통째로 날아간다. 조각 run id 로 나눠 쓰고, 다음 실행은 --missing-only 로 이어받는다.
+                written += _flush(store, rows, run_id, i)
+                rows = []
+                print(f"  [{i}/{len(tickers)}] 누적 적재 {written} · 없음 {empty} · 실패 {fails}", flush=True)
+    written += _flush(store, rows, run_id, len(tickers))
     print(f"완료 — 적재 {written}행 · 없음 {empty} · 실패 {fails} / {len(tickers)}", flush=True)
     return 0 if fails < max(10, len(tickers) // 10) else 1
 
