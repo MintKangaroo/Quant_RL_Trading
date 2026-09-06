@@ -295,8 +295,10 @@ def table_freshness(
     # 되감기(as_of 과거)는 캐시하지 않는다 — 그 답은 as_of 마다 다르다. 지금 시각 조회는
     # 35개 표를 훑는 데 수 초가 들어(2026-08-30 실측 17초, 부하 중) 60초 동안 재사용한다.
     hit = _freshness_cache.get(key)
-    if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC * 3 and (
-        live or abs((as_of - hit[2]).total_seconds()) < 120
+    # 창(180초)은 뒤의 예열 스레드(start_freshness_refresher, 90초마다)가 채운다 — 화면이
+    # 직접 43개 표를 훑는 일은 예열이 죽었을 때뿐이다(실측 2026-09-07: 훑기 한 번 11초).
+    if hit is not None and now - hit[0] < _FRESHNESS_TTL_SEC * 9 and (
+        live or abs((as_of - hit[2]).total_seconds()) < 240
     ):
         # 화면은 요청마다 "지금" 을 as_of 로 보내므로 초 단위로 다르다. 2분 안이면 같은 답이다 —
         # 되감기(과거 as_of)는 다른 시각이라 캐시를 안 탄다.
@@ -359,6 +361,29 @@ def table_freshness(
     if live:
         _freshness_cache[key] = (now, out, as_of)
     return out
+
+
+def start_freshness_refresher(store: Store, clock: Any, *, interval_sec: float = 90.0) -> None:
+    """표 최신성 캐시를 **뒤에서** 채운다. 화면이 시스템 탭을 열 때 11초를 안 기다리게.
+
+    `table_freshness` 는 표 43개의 parquet 푸터를 열어 보는 일이라 한 번에 4~11초다.
+    요청마다 하면 첫 화면이 그만큼 늦고, 60초 캐시는 그 다음 요청이 또 낸다. 그래서
+    데몬 스레드가 `interval_sec` 마다 `live=True` 로 미리 재 둔다. 시각은 주입된
+    Clock 에서 얻는다(불변식 2). 실패는 삼키고 다음 주기에 다시 한다 — 예열이 죽어도
+    화면은 느려질 뿐 틀리지 않는다.
+    """
+    import threading
+    import time as _time
+
+    def run() -> None:
+        while True:
+            try:
+                table_freshness(store, as_of=clock.now(), live=True)
+            except Exception:  # noqa: BLE001 — 예열 실패는 다음 주기가 만회한다
+                pass
+            _time.sleep(interval_sec)
+
+    threading.Thread(target=run, name="freshness-refresher", daemon=True).start()
 
 
 def cache_stats(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
