@@ -1084,7 +1084,7 @@ def _index_daily_returns(
         keep = closes > 0.0
         closes = closes[keep]
         sessions = rows.loc[keep.index[keep], "valid_from"]
-        changes = closes.pct_change()
+        changes = closes.pct_change()  # invariant-allow: price-adjust — 지수(KOSPI·S&P) 종가라 분할·증자가 없다
         for stamp, change in zip(sessions, changes, strict=False):
             if pd.isna(change):
                 continue

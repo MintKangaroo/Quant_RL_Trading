@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -39,7 +39,7 @@ INSIDER_LOOKBACK_DAYS = 100
 INSIDER_SESSIONS = 60
 
 
-def _session_index(prices: pd.DataFrame) -> list:
+def _session_index(prices: pd.DataFrame) -> list[date]:
     return sorted(prices["session"].unique())
 
 
