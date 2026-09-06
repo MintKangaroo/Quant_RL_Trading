@@ -274,6 +274,10 @@ def test_미장_패널_제목은_지수_이름이_아니다(rendered: dict[str, 
     data = _panels("us")
     assert data["kind"] == "etf"
     for spec in data["panels"] + data["missing"]:
+        # 국채 10년물 선 차트는 ETF 가 아니라 금리다(kind=rate) — ETF 규칙 밖.
+        if ":RATE:" in spec["entity_id"]:
+            assert spec["kind"] == "rate"
+            continue
         assert spec["kind"] == "etf"
         # 제목은 티커다. entity_id 의 시장 접두어만 뗀 것.
         assert spec["label"] == spec["entity_id"].split(":", 1)[1]
@@ -285,6 +289,8 @@ def test_미장_패널_제목은_지수_이름이_아니다(rendered: dict[str, 
     dump = _group(rendered, "us")
     for spec in data["panels"] + data["missing"]:
         assert f'class="index-panel-name">{spec["label"]}<' in dump
+        if spec["kind"] == "rate":
+            continue  # 금리는 무엇을 "추종" 하지 않는다 — 배지가 없는 것이 맞다
         # 화면은 esc() 를 지난다 — "S&P 500" 은 "S&amp;P 500" 으로 찍힌다.
         assert f'{html.escape(spec["tracks"])} 추종' in dump
 
@@ -369,11 +375,12 @@ def test_봉은_넷이_다_있을_때만_그린다(rendered: dict[str, str], suf
     이유를 적는다."""
     for i, panel in enumerate(_panels(suffix)["panels"]):
         series = json.loads(rendered[f"chart:chart-index-{suffix}-{i}"])
+        # 첫 시리즈가 봉(또는 선)이고, 둘째는 RSI 줄이다(1eeae91). RSI 는 여기서 안 본다.
         if panel["has_ohlc"]:
-            assert series == [panel["ohlc"]], f"{panel['label']} 봉이 원 OHLC 가 아니다"
+            assert series[0] == panel["ohlc"], f"{panel['label']} 봉이 원 OHLC 가 아니다"
             assert all(len(bar) == 4 for bar in panel["ohlc"])
         else:
-            assert series == [panel["closes"]]
+            assert series[0] == panel["closes"]
             assert "봉을 못 그린다" in _group(rendered, suffix)
 
 

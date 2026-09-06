@@ -551,6 +551,9 @@ function pnlCells(row) {
 
 function renderOrders(body) {
   const rows = body.data.orders;
+  // 서버가 **마지막 주문일 하루치만** 준다(사용자 요청 2026-09-07). 어느 날인지 머리에 적는다.
+  const head2 = document.getElementById("orders-head");
+  if (head2) head2.textContent = rows.length ? `${rows[0].time.slice(0, 10)} · ${rows.length}건` : "";
   if (!rows.length) {
     document.getElementById("orders").innerHTML =
       `<p class="empty">기록된 주문이 없다. Session 이 돌면 여기 쌓인다.</p>`;
@@ -813,14 +816,28 @@ function renderEquity(body) {
     : v >= 1e8 ? (v / 1e8).toFixed(2) + "억" : num(Math.round(v / 1e4)) + "만");
   const first = nav.find((v) => v != null);
   const bench = (e.benchmark || []).map((b) => (b == null || first == null ? null : first * b / (e.benchmark.find((x) => x != null) || 1)));
+  // 누적 수익률 — 입출금을 뺀 TWR 지수(`index`)로 센다. NAV 비율로 세면 입금이 수익으로 보인다.
+  // 지수가 없으면 NAV 비율로 대신하되 그것도 없으면 안 적는다(0 은 "본전" 으로 읽힌다).
+  const idx = (e.index && e.index.length === nav.length) ? e.index : null;
+  const base0 = idx ? idx.find((v) => v != null) : first;
+  const retAt = (i) => {
+    const v = idx ? idx[i] : nav[i];
+    return v == null || !base0 ? null : v / base0 - 1;
+  };
+  const lastI = nav.length - 1;
+  const totalRet = retAt(lastI);
+  const signed = (r) => (r == null ? "—" : (r >= 0 ? "+" : "") + (r * 100).toFixed(2) + "%");
+  const navName = totalRet == null ? "총자산" : `총자산 · 누적 ${signed(totalRet)}`;
   chart("chart-equity").setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: ["총자산", "벤치마크(같은 출발점)"] },
+    legend: { ...BASE.legend, data: [navName, "벤치마크(같은 출발점)"] },
     tooltip: { trigger: "axis", formatter: (items) => {
       const i = items[0].dataIndex;
       const prev = i > 0 ? nav[i - 1] : null;
       const d = prev != null && nav[i] != null ? nav[i] - prev : null;
+      const r = retAt(i);
       return `${e.sessions[i]}<br>총자산 <b>${num(Math.round(nav[i]))}${unit()}</b>`
+        + (r != null ? `<br>누적 수익률 <b>${signed(r)}</b>` : "")
         + (d != null ? `<br>전일 대비 ${d >= 0 ? "+" : ""}${num(Math.round(d))}${unit()}` : "")
         + (bench[i] != null ? `<br>벤치마크 ${num(Math.round(bench[i]))}원` : "");
     } },
@@ -829,7 +846,7 @@ function renderEquity(body) {
     yAxis: { type: "value", scale: true, ...AXIS,
       axisLabel: { ...AXIS.axisLabel, formatter: (v) => eok(v) } },
     series: [
-      { name: "총자산", type: "line", data: nav, showSymbol: true, symbolSize: 6, smooth: false,
+      { name: navName, type: "line", data: nav, showSymbol: true, symbolSize: 6, smooth: false,
         lineStyle: { color: COLOR.up, width: 2.2 }, itemStyle: { color: COLOR.up },
         areaStyle: { color: COLOR.up, opacity: 0.08 } },
       { name: "벤치마크(같은 출발점)", type: "line", data: bench, showSymbol: false,
@@ -1119,6 +1136,9 @@ function renderPositionsPie(body) {
     { name: "현금", value: cashValue, itemStyle: { color: COLOR.bench } },
   ].filter((slice) => slice.value > 0);
 
+  // 폰 폭에선 범례를 **아래에 가로로**. 오른쪽 세로 범례는 520px 아래에서 도넛 위에 겹친다
+  // (2026-09-07 아이폰 실측 — 범례 글자가 도넛 안으로 들어갔다).
+  const narrow = (target.clientWidth || window.innerWidth) < 520;
   chart("chart-positions-pie").setOption({
     backgroundColor: "transparent",
     animation: false,
@@ -1129,20 +1149,16 @@ function renderPositionsPie(body) {
       textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
       formatter: (p) => `${p.name}<br/>${num(Math.round(p.value))} ${unitCode()} · ${p.percent.toFixed(1)}%`,
     },
-    legend: {
-      type: "scroll",
-      orient: "vertical",
-      right: 4,
-      top: "middle",
-      textStyle: { color: COLOR.muted, fontSize: 10 },
-      itemWidth: 10,
-      itemHeight: 10,
-    },
+    legend: narrow
+      ? { type: "scroll", orient: "horizontal", bottom: 0, left: "center",
+          textStyle: { color: COLOR.muted, fontSize: 10 }, itemWidth: 10, itemHeight: 10 }
+      : { type: "scroll", orient: "vertical", right: 4, top: "middle",
+          textStyle: { color: COLOR.muted, fontSize: 10 }, itemWidth: 10, itemHeight: 10 },
     series: [
       {
         type: "pie",
-        radius: ["38%", "70%"],
-        center: ["36%", "50%"],
+        radius: narrow ? ["30%", "56%"] : ["38%", "70%"],
+        center: narrow ? ["50%", "40%"] : ["36%", "50%"],
         avoidLabelOverlap: true,
         itemStyle: { borderColor: COLOR.panel, borderWidth: 1 },
         label: { show: false },

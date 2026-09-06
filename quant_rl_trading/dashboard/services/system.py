@@ -51,7 +51,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -684,13 +684,24 @@ def summary(
     silent_jobs = [j for j in jobs if j["last_run_ok"] is None]
 
     job_stale_hours = float(thresholds["job_stale_warn_hours"])
-    stale_success = [
-        j
-        for j in jobs
-        if j["last_success_at"] is not None
-        and (as_of - datetime.fromisoformat(j["last_success_at"])).total_seconds() / 3600
-        > job_stale_hours
-    ]
+
+    def _stale(job: dict[str, Any]) -> bool:
+        """시간이 지났고 **그 사이에 거래일이 하루 이상 통째로 지나갔을 때**만.
+
+        달력 시간만 보면 월요일 아침마다 넷이 운다 — 금요일 밤 성공이 56시간 전이라
+        (2026-09-07 07:30 아이폰 실측). 주말·휴장일엔 돌 일이 없으니 놓친 게 아니다.
+        기준은 국장 달력이다(수집·판단·shadow·뉴스 전부 국장 세션에 묶여 돈다).
+        """
+        if job["last_success_at"] is None:
+            return False
+        last = datetime.fromisoformat(job["last_success_at"])
+        if (as_of - last).total_seconds() / 3600 <= job_stale_hours:
+            return False
+        start = last.date() + timedelta(days=1)
+        end = as_of.date() - timedelta(days=1)
+        return start <= end and bool(trading_days(Market.KR, start, end))
+
+    stale_success = [j for j in jobs if _stale(j)]
 
     warnings: list[str] = []
     if safety["killswitch_engaged"]:

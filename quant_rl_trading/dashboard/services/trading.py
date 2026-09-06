@@ -888,6 +888,10 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     names = _names(store, as_of=as_of, entities=sorted(set(frame["entity_id"])))
     rows: list[dict[str, Any]] = []
     ordered = frame.sort_values(["valid_from", "observed_at"], ascending=False)
+    # **당일(마지막 주문일) 하루치만.** 열흘치를 쌓아 보이면 오늘 낸 주문이 어디까지인지
+    # 눈으로 갈라야 한다(사용자 요청 2026-09-07). 날짜는 화면이 자르는 ISO 문자열과 같은 기준.
+    days = ordered["valid_from"].map(lambda v: pd.Timestamp(v).date())
+    ordered = ordered[days == days.iloc[0]]
     for row in ordered.head(ORDER_ROWS).to_dict(orient="records"):
         session = str(row["session_id"])
         key = f"{session}|{row['entity_id']}"

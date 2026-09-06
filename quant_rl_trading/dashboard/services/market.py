@@ -100,7 +100,7 @@ from typing import Any
 
 import pandas as pd
 
-from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.market_hours import Market, is_regular_session, trading_days
 from quant_rl_trading.dashboard.services import trading as trading_service
 from quant_rl_trading.indicators import wilder_rsi_series
 from quant_rl_trading.store import Store
@@ -1303,7 +1303,7 @@ def market_panel(
     live_rows: list[dict[str, Any]] = []
     for table in ranked.get("tables") or []:
         live_rows.extend(table.get("rows") or [])
-    filled = attach_live(live_rows, live_quotes)
+    filled = attach_live(live_rows, live_quotes, market=market, moment=as_of)
 
     # **지수·대표 ETF 는 다른 캐시다.** 화면 첫 줄(대표 지수 카드)이 이걸
     # 읽는다 — 안 붙이면 그 카드가 전일 종가를 오늘 값으로 보여준다.
@@ -1325,7 +1325,7 @@ def market_panel(
         block for block in (panels.get("panels") or [])
         if block.get("role") == "primary"
     ]
-    index_filled = attach_live(index_rows, live_index)
+    index_filled = attach_live(index_rows, live_index, market=market, moment=as_of)
 
     return {
         "market": market,
@@ -1360,8 +1360,15 @@ def market_panel(
 # -- 장중 값 --------------------------------------------------------------------
 
 
-def attach_live(rows: list[dict[str, Any]], cache: Any) -> int:
+def attach_live(
+    rows: list[dict[str, Any]], cache: Any, *, market: str | None = None, moment: datetime | None = None,
+) -> int:
     """장중 시세를 **참고 열에만** 채운다. 몇 종목이 찼는지 돌려준다.
+
+    ``market``·``moment`` 를 주면 **정규장 밖에서는 아무것도 얹지 않는다.** 장 밖의
+    LS 현재가는 전일 종가에 등락 0.00% 를 붙여 돌아오는데, 그걸 실시간 점과 함께
+    보이면 옆 칸의 종가 등락률(+29.91%)과 "같은 종목·다른 숫자" 가 된다
+    (2026-09-07 07:28 아이폰 실측). 장 밖엔 종가가 곧 최신값이라 덮을 이유도 없다.
 
     ``live_price``·``live_change`` 는 종가 기반 값(``change``·``market_cap``)을
     **덮지 않는다.** 트레이딩 탭이 ``live_nav`` 를 종가 NAV 와 갈라 둔 것과 같은
@@ -1376,6 +1383,8 @@ def attach_live(rows: list[dict[str, Any]], cache: Any) -> int:
     나가고, 화면은 아래 ``live`` 블록의 ``supported`` 로 그 사실을 말한다.
     """
     if cache is None:
+        return 0
+    if market is not None and moment is not None and not is_regular_session(Market(market), moment):
         return 0
     # 순위표 안에는 종목 행이 아닌 것도 섞여 있다(하한 설명·집계 줄). 종목이
     # 아닌 행에 장중 값을 붙일 수는 없으므로 조용히 건너뛴다 — 여기서 죽으면
