@@ -459,7 +459,9 @@ RL 은 종목 선정이 아니라 **집행·사이징**에 쓴다(2회차 실증
 ### 완료 기준
 - [x] 일일 리뷰 자동 생성, headline이 Fund 화면에 표시 — `auditor/daily_review.py` · `tools/daily_review.py`(평일 23:35) · `reviews` 표 · 트레이딩 탭 머리 카드 (2026-08-29 첫 리뷰)
 - [x] 리뷰 결과가 `agent_cache` 에 저장되어 리플레이 시 재호출 없음 — 사실 해시 키, `tests/auditor/test_daily_review.py` (2026-08-29)
-- [ ] Analyst별 성과 귀속이 가중치 진화에 피드백
+- [ ] ~~Analyst별 성과 귀속이 가중치 진화에 피드백~~ → **재정의(2026-09-07, `docs/design/modelops-ranker.md`)**: 랭커가 가중치를
+  독점한 뒤 진화시킬 가중치가 없다. 랭커 IC·입력 IC 주 1회 자동 측정 + 감쇠 경보 + 재학습 게이트가 학습 탭에 서고
+  두 주 연속 자동으로 돌면 완료(재학습 실행은 홀드아웃 개봉 뒤)
 - [x] LLM 월 비용이 예산 내 — `llm_usage` 실측 대 `llm.monthly_budget_usd`, 초과 시 호출 거부 + `skipped_budget` 기록 (2026-08-29; 이달 $1.23/$50)
 
 ---
