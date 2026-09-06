@@ -601,6 +601,12 @@ system:
   table_stale_warn_days: 3   # 최근 파티션이 이보다 오래되면 경고
   cache_lookback_days: 30    # LLM 캐시 적재 현황을 보는 창
 
+# 랭커 ModelOps (docs/design/modelops-ranker.md ①) — 감쇠 경보의 기준. 화면이 이 값을 읽는다(불변식 10).
+modelops:
+  ranker:
+    fail_streak: 2           # 랭커 IC 가 합격선(analyst.ic_threshold) 아래로 **연속** 이 횟수면 "랭커 감쇠". 한 번은 잡음이다
+    input_decay_ratio: 0.5   # 랭커 입력 Analyst 의 IC 가 직전 측정의 이 비율 아래로 떨어지면 "입력 감쇠"
+
 research:
   # 자기개선 안전장치 (self-improvement.md §1). 시행 예산 없는 탐색은
   # 자기기만이다 — 분기 예산을 소진하면 다음 분기까지 탐색을 멈춘다.

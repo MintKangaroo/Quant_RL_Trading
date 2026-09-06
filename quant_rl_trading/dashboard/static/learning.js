@@ -214,7 +214,9 @@ async function renderGate() {
     </tr>`;
   });
 
-  document.getElementById("gate").innerHTML = `<table>
+  // 랭커 ModelOps 경보 — 없으면 아무것도 안 그린다(빈 목록은 "정상" 이 아니라 "경보 없음" 이다).
+  const alerts = (data.alerts || []).map((a) => `<div class="alert warn">${a.text}</div>`).join("");
+  document.getElementById("gate").innerHTML = `${alerts}<table>
     <thead><tr>
       <th>애널리스트</th><th>상태</th><th class="num">적중도</th>
       <th class="num">가중치</th><th class="num">측정 시각</th>

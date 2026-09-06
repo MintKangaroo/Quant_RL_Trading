@@ -132,7 +132,45 @@ def analyst_gate(store: Store, *, as_of: datetime, lookback: int) -> dict[str, A
         "measured_count": len(measured),
         "total": len(roster),
         "active_weight": sum(float(item["weight"]) for item in roster),
+        "alerts": ranker_decay_alerts(store, as_of=as_of, lookback=lookback),
     }
+
+
+def ranker_decay_alerts(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
+    """랭커 ModelOps ① — 감쇠 경보 (docs/design/modelops-ranker.md).
+
+    - 랭커 감쇠: 시장별 랭커 IC 가 합격선 아래로 ``modelops.ranker.fail_streak`` 번 **연속**.
+    - 입력 감쇠: 랭커 입력 Analyst 의 IC 가 직전 측정의 ``input_decay_ratio`` 아래로.
+    측정이 모자라면(연속 횟수 미만) 경보를 만들지 않는다 — 없는 것을 0 으로 채우지 않는다.
+    임계치 셋 다 store.config 에서 읽는다(불변식 10). 여기서는 아무것도 바꾸지 않는다 —
+    가중치는 한계기여 규칙이 정하고, 이 경보는 사람이 볼 표지다.
+    """
+    from quant_rl_trading.analysts.ranker import BASE_ANALYSTS
+
+    threshold = float(store.config("analyst.ic_threshold", as_of=as_of))
+    streak = int(store.config("modelops.ranker.fail_streak", as_of=as_of))
+    ratio = float(store.config("modelops.ranker.input_decay_ratio", as_of=as_of))
+    frame = store.get(agent_health.WEIGHTS, as_of=as_of, lookback=lookback, columns=["entity_id", "market", "valid_from", "ic"])
+    if frame.empty:
+        return []
+    frame = frame.sort_values("valid_from")
+    alerts: list[dict[str, Any]] = []
+    for market, part in frame.groupby("market"):
+        by_name = {str(name): grp["ic"].astype(float).tolist() for name, grp in part.groupby("entity_id")}
+        ranker = by_name.get("ranker") or []
+        if len(ranker) >= streak and all(value < threshold for value in ranker[-streak:]):
+            alerts.append({
+                "kind": "ranker_decay", "market": str(market), "analyst": "ranker",
+                "text": f"랭커 감쇠 ({market}) — IC {' → '.join(f'{v:+.3f}' for v in ranker[-streak:])}, 합격선 {threshold:.2f} 아래 {streak}회 연속",
+            })
+        for name in BASE_ANALYSTS:
+            series = by_name.get(name) or []
+            if len(series) >= 2 and series[-2] > 0 and series[-1] < ratio * series[-2]:
+                alerts.append({
+                    "kind": "input_decay", "market": str(market), "analyst": name,
+                    "text": f"입력 감쇠 {name} ({market}) — IC {series[-2]:+.3f} → {series[-1]:+.3f} (직전의 {ratio:.0%} 아래)",
+                })
+    return alerts
 
 
 #: 경고선. `docs/design/rl-training.md` §10 의 표를 그대로 옮긴 것이고,
