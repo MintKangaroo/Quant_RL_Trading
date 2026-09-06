@@ -1,5 +1,8 @@
 """참조 속성 예외 (data-contract.md §3) — 게이트가 valid_from 을 보는 테이블은
-sectors 하나뿐이고, 예측 정보 테이블은 여전히 observed_at 으로 막힌다."""
+여기 적힌 것뿐이고, 예측 정보 테이블은 여전히 observed_at 으로 막힌다.
+
+목록에 넣으려면 "예측 정보가 아니다" 를 tables.py 주석에 적어야 한다:
+sectors(업종, 2026-08-23) · names_ko(회사명, 2026-09-05) · float_ratio(유동주식비율, 2026-09-05)."""
 
 from __future__ import annotations
 
@@ -10,11 +13,14 @@ from quant_rl_trading.store.tables import get_spec
 pytestmark = pytest.mark.invariant
 
 
-def test_참조_속성은_sectors_뿐이다() -> None:
+REFERENCE_TABLES = ["float_ratio", "names_ko", "sectors"]
+
+
+def test_참조_속성은_등록된_표뿐이다() -> None:
     from quant_rl_trading.store.tables import _SPECS
 
     flagged = sorted(name for name, spec in _SPECS.items() if spec.reference_data)
-    assert flagged == ["sectors"], flagged
+    assert flagged == REFERENCE_TABLES, flagged
 
 
 def test_섹터는_늦게_받았어도_그때의_분류로_보인다(store, ts) -> None:  # type: ignore[no-untyped-def]
