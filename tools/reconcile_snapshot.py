@@ -26,7 +26,9 @@ from quant_rl_trading.accounting import ledger as L  # noqa: E402
 from quant_rl_trading.accounting import nav as NAV  # noqa: E402
 from quant_rl_trading.accounting.rates import Rates  # noqa: E402
 from quant_rl_trading.accounting.snapshot import last_prices  # noqa: E402
+from quant_rl_trading.accounting.book import Side as BookSide  # noqa: E402
 from quant_rl_trading.broker import balance as B  # noqa: E402
+from quant_rl_trading.broker.fills import _fetch_fill_rows  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.dashboard.services.account import _client  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
@@ -38,6 +40,32 @@ from tools.run_session import build_store  # noqa: E402
 TRADES = "trades"
 SOURCE = "snapshot_reconcile"
 QTY_EPS = 0.5
+
+
+def fill_price_from_rows(rows: dict[str, dict], *, code: str, side: str) -> float | None:
+    """당일 체결 조회(t0425 행)에서 그 종목·방향의 **체결가중평균**. 체결이 없으면 None.
+
+    정정 수량이 어느 주문에서 빠졌는지는 모르지만, 같은 날 같은 방향 체결의 평균이
+    브로커 평균매입단가보다 훨씬 가깝다(2026-09-07 실측: 평균매입단가로 적은 매도 정정
+    6건이 실제보다 +6만 원, 이 값으로 적으면 0). ``rows`` 는 주문번호→행이고 행의
+    ``expcode``·``medosu``·``cheqty``·``cheprice`` 를 본다(국장 t0425).
+    """
+    qty = 0.0
+    amt = 0.0
+    for row in rows.values():
+        if str(row.get("expcode", "")).strip() != code:
+            continue
+        medosu = str(row.get("medosu", ""))
+        row_side = "sell" if "매도" in medosu else ("buy" if "매수" in medosu else "")
+        if row_side != side:
+            continue
+        q = float(row.get("cheqty") or 0)
+        px = float(row.get("cheprice") or 0)
+        if q <= 0 or px <= 0:
+            continue
+        qty += q
+        amt += q * px
+    return (amt / qty) if qty > 0 else None
 
 
 def _currency(market: str) -> str:
@@ -77,8 +105,13 @@ def main(argv: list[str] | None = None) -> int:
 
     # 3) 차이 → 정정 거래
     currency = _currency(market)
+    # 당일 체결 조회 — 정정 단가의 1순위. 실패하면 평균매입단가로 물러난다(그 사실을 적는다).
+    fills_today = _fetch_fill_rows(_client(store, as_of=now, market=market), market, as_of=now)
+    if isinstance(fills_today, str):
+        print(f"체결 조회 실패({fills_today}) — 정정 단가를 평균매입단가로 잡는다", file=sys.stderr)
+        fills_today = {}
     rows = []
-    print(f"{'종목':12s} {'브로커':>9s} {'장부':>9s} {'정정':>9s} {'단가':>10s}")
+    print(f"{'종목':12s} {'브로커':>9s} {'장부':>9s} {'정정':>9s} {'단가':>10s}  근거")
     for entity in sorted(set(broker) | set(ledger)):
         b_qty, avg = broker.get(entity, (0.0, 0.0))
         l_qty = ledger.get(entity, 0.0)
@@ -86,11 +119,20 @@ def main(argv: list[str] | None = None) -> int:
         if abs(delta) <= QTY_EPS:
             continue
         side = "buy" if delta > 0 else "sell"
-        price = avg if avg > 0 else (last_prices(store, as_of=now, entities=[entity]).get(entity) or 0.0)
+        filled = fill_price_from_rows(fills_today, code=entity.split(":", 1)[1], side=side)
+        if filled:
+            price, basis = filled, "당일 체결가중평균"
+        elif avg > 0:
+            price, basis = avg, "브로커 평균매입단가(체결 조회에 없음)"
+        else:
+            price, basis = (last_prices(store, as_of=now, entities=[entity]).get(entity) or 0.0), "마지막 종가"
         if price <= 0:
             print(f"{entity:12s} {b_qty:>9.0f} {l_qty:>9.0f}   단가 없음 — 건너뜀", file=sys.stderr)
             continue
-        print(f"{entity:12s} {b_qty:>9.0f} {l_qty:>9.0f} {delta:>+9.0f} {price:>10,.0f}  {side}")
+        # 정정도 거래다 — 브로커 현금은 수수료·세금을 뗀 값이므로 장부도 같은 규칙으로 뗀다.
+        # 0 으로 두면 장부 현금이 브로커보다 그만큼 많아진다(매도 0.165%).
+        fee, tax = rates.costs(side=BookSide(side), gross=abs(delta) * price, currency=currency)
+        print(f"{entity:12s} {b_qty:>9.0f} {l_qty:>9.0f} {delta:>+9.0f} {price:>10,.0f}  {side} · {basis}")
         rows.append(
             {
                 "entity_id": entity,
@@ -99,8 +141,8 @@ def main(argv: list[str] | None = None) -> int:
                 "quantity": abs(delta),
                 "price": price,
                 "currency": currency,
-                "fee": 0.0,   # 정정 항목 — 실제 수수료는 브로커 현금에 이미 반영됐다
-                "tax": 0.0,
+                "fee": float(fee),
+                "tax": float(tax),
                 "order_id": f"snapshot-recon-{now.date().isoformat()}|{entity}",
                 "valid_from": now,
                 "observed_at": now,

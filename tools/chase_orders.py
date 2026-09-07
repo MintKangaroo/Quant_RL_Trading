@@ -166,9 +166,23 @@ def main(argv: list[str] | None = None) -> int:
     #
     # 01442(정정수량이 정정가능수량 초과)는 다르다 — 일부는 아직 살아 있다는 뜻이라
     # 종결로 적지 않는다. 다음 회차가 체결을 다시 대사하면 잔량이 맞아 든다.
-    for order_id, message in outcome.errors:
-        if BROKER_ORDER_GONE in message:
-            terminal.setdefault(order_id, OrderStatus.FILLED.value)
+    # 01433("정정/취소할 수량 없음")은 우리가 재호가하려던 사이에 브로커가 다 채운 경우다.
+    # 전에는 그냥 FILLED 로 적었는데, 그러면 trades 에 체결이 없는 채로 종결돼 15:45 대사가
+    # 브로커 **평균매입단가**로 정정하게 된다(2026-09-07 실측: 6종목 매도대금 +6만 원 과대,
+    # 수수료·세금 0). 그래서 그 주문들만 체결을 한 번 더 조회해 실제 체결가로 trades 에
+    # 적고, 체결을 확인한 것만 FILLED 로 적는다. 못 찾으면 sent 로 남겨 대사에 맡긴다.
+    gone = [order_id for order_id, message in outcome.errors if BROKER_ORDER_GONE in message]
+    if gone:
+        again = sync_fills(
+            store, client, clock, as_of=now, pending=[p for p in pending if p.order_id in gone]
+        )
+        known = supervise.cumulative_from_sync(again)
+        print(f"  이미종결 되찾기: trades {again.rows_written}행 적재 · 체결 확인 {len(known)}/{len(gone)}건")
+        for order_id in gone:
+            if order_id in known:
+                terminal.setdefault(order_id, OrderStatus.FILLED.value)
+            else:
+                print(f"  이미종결 {order_id} — 체결을 못 찾아 sent 로 둔다(대사가 잡는다)")
     if terminal:
         by_id = {
             f"{session_id}|{r.entity_id}|{r.slice_seq}": r for r in frame.itertuples(index=False)
