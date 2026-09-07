@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import sys
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +31,9 @@ from tools.trial_selection_pair import index_of  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/regime-crisis-rule-2026-09.md")
 JUDGE_START = date(2025, 1, 2)
+#: 대리 경로 구성 시작 — START(2024-02)부터 올리면 시세 패널이 5.6GB 로 커널 OOM 에 죽는다(2026-09-07 두 번).
+#: 판정 창 앞 EMA5·완충 워밍업에 한 달이면 충분하다. 결과는 판정 창 안의 수익만 쓴다.
+PANEL_START = date(2024, 12, 1)
 VARIANTS = {  # 이름: (대용 지수, crisis 모멘텀 하한)
     "R0": ("KR:IDX:KRX 300", 0.0),
     "R1": ("KR:IDX:KRX 300", -0.03),
@@ -43,7 +46,7 @@ MIN_HISTORY = 120  # regime.state 와 같다
 def state_at(closes: pd.Series, day: date, floor: float) -> str:
     """세션 ``day`` 의 판단에 쓰는 국면 — ``day`` **전날까지**의 종가만 본다(라이브와 같은 지연)."""
     hist = closes[closes.index < day]
-    hist = hist[hist.index >= day - pd.Timedelta(days=LOOKBACK_DAYS).to_pytimedelta()]
+    hist = hist[hist.index >= day - timedelta(days=LOOKBACK_DAYS)]
     if len(hist) < MIN_HISTORY:
         return "unknown"
     returns = hist.pct_change()
@@ -94,7 +97,7 @@ def main(argv=None) -> int:
     digest = hashlib.sha256(PROTOCOL.read_bytes()).hexdigest()[:16]
     print(f"=== 시행 R — {PROTOCOL} (해시 {digest}) ===", flush=True)
     store = Store(root=Path(args.root))
-    sessions = trading_days(Market.KR, START, END)
+    sessions = trading_days(Market.KR, PANEL_START, END)
     panel = Panel(store, sessions)
     sidx = {s: i for i, s in enumerate(panel.sessions)}
     days = [s for s in panel.sessions if JUDGE_START <= s <= END]
@@ -103,7 +106,9 @@ def main(argv=None) -> int:
     net = frame["net"].to_numpy(dtype=float)
     days = days[: len(net)]
     params = ExposureParams.from_store(store, as_of=datetime.combine(END, time(23, 0), tzinfo=UTC))
-    closes = {e: index_of(store, sessions, "KR", e) for e in {v[0] for v in VARIANTS.values()}}
+    # 지수는 판정 창 앞 400일 분포가 필요하다 — 패널과 달리 START(2024-02)부터 읽는다(작다).
+    index_sessions = trading_days(Market.KR, START, END)
+    closes = {e: index_of(store, index_sessions, "KR", e) for e in {v[0] for v in VARIANTS.values()}}
     for e, c in closes.items():
         print(f"{e}: {len(c)}세션 {c.index.min()}~{c.index.max()}")
     print(f"판정 {len(days)}세션 {days[0]}~{days[-1]} · 배수 {params.regime_scale} · 확인 {params.regime_confirm_sessions}세션", flush=True)

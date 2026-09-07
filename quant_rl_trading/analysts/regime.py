@@ -42,6 +42,7 @@ import numpy as np
 import pandas as pd
 
 from quant_rl_trading.analysts.base import Analyst, combine, rank_score
+from quant_rl_trading.store.errors import ConfigNotFound
 
 INDICES = "indices"
 
@@ -65,6 +66,31 @@ HIGH_VOL_QUANTILE = 0.75
 RATE_SERIES = "US:RATE:UST10Y"
 
 State = Literal["bull", "bear", "volatile", "crisis", "unknown"]
+
+#: crisis 문턱(config 키). 시행 R: "변동성 높음 + 모멘텀 < 0" 은 부호 하나에 노출 절반이 갈렸다
+#: (2026-09-04 모멘텀 −0.6% 로 crisis → 익스포저 37%). 판정 창 2025-01~2026-06 에서 −3% 폭 기준이
+#: 수익·MDD·전환 횟수 셋 다 나았다(docs/protocols/regime-crisis-rule-2026-09.md).
+CRISIS_FLOOR_KEY = "exposure.crisis_momentum_floor"
+
+
+def classify(index: pd.Series, *, crisis_floor: float = 0.0) -> State:
+    """지수 종가 시계열 → 국면. **순수 함수** — 시행 도구와 실전이 같은 규칙을 쓴다.
+
+    60일 실현변동성이 자기 분포의 75% 분위 위면 "높음". 높음 ∧ 21세션 모멘텀 < ``crisis_floor`` → crisis,
+    높음 ∧ 그 위 → volatile, 보통 ∧ 모멘텀 ≥ 0 → bull, 보통 ∧ 음수 → bear.
+    """
+    if len(index) < 120:
+        return "unknown"
+    returns = index.pct_change()
+    realized = returns.rolling(60).std()
+    current_vol = float(realized.iloc[-1])
+    threshold = float(realized.dropna().quantile(HIGH_VOL_QUANTILE))
+    momentum = float(index.iloc[-1] / index.iloc[-21] - 1.0)
+    if not np.isfinite(current_vol) or not np.isfinite(momentum):
+        return "unknown"
+    if current_vol > threshold:
+        return "crisis" if momentum < crisis_floor else "volatile"
+    return "bull" if momentum >= 0.0 else "bear"
 
 #: 상태별 종목 축 가중치. 부호가 통째로 뒤집히는 것이 이 Analyst 의 전부다.
 #: 위험 회피 국면에서는 저베타·저변동·지수와 덜 붙는 종목을 산다.
@@ -158,18 +184,18 @@ class RegimeAnalyst(Analyst):
         index = self._index_close(as_of)
         if index is None or len(index) < 120:
             return "unknown"
+        return classify(index, crisis_floor=self._crisis_floor(as_of))
 
-        returns = index.pct_change()
-        realized = returns.rolling(60).std()
-        current_vol = float(realized.iloc[-1])
-        threshold = float(realized.dropna().quantile(HIGH_VOL_QUANTILE))
-        momentum = float(index.iloc[-1] / index.iloc[-21] - 1.0)
+    def _crisis_floor(self, as_of: datetime) -> float:
+        """crisis 로 읽는 21세션 모멘텀 상한 — 시행 R(2026-09-07 채택)의 −3%.
 
-        if not np.isfinite(current_vol) or not np.isfinite(momentum):
-            return "unknown"
-        if current_vol > threshold:
-            return "crisis" if momentum < 0.0 else "volatile"
-        return "bull" if momentum >= 0.0 else "bear"
+        설정이 발효되기 전 as_of 는 **옛 규칙(0)** 이다 — 과거 재현이 흐려지지 않게
+        ConfigNotFound 를 0 으로 받는다(불변식 10: 값은 config 가, 부재는 역사가 말한다).
+        """
+        try:
+            return float(self.store.config(CRISIS_FLOOR_KEY, as_of=as_of))
+        except ConfigNotFound:
+            return 0.0
 
     # -- 관측 -------------------------------------------------------------------
 
