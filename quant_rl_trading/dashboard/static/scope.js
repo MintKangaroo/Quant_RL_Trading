@@ -232,6 +232,33 @@ async function runAll(jobs) {
         `<div class="alert">${job.name}: ${error.message}</div>`;
     }
   }
+  scheduleAutoRefresh(jobs);
+}
+
+/* 자동 갱신 (사용자 요청 2026-09-07). **라이브일 때만** — URL 에 as_of 가 있으면 되감기라
+   갱신할 것이 없다. 탭이 안 보이면(폰 백그라운드) 쉬고, 다시 보이면 곧장 한 번 돈다.
+   주기는 60초: 장중 시세 캐시(live_quotes 20초)와 회계·주문은 세션 단위라 그보다 잦을 이유가 없고,
+   더 잦으면 LS 호출과 창고 질의가 화면 수만큼 늘어난다. 실패해도 다음 주기에 다시 한다. */
+const AUTO_REFRESH_MS = 60000;
+let autoRefreshTimer = null;
+let autoRefreshJobs = null;
+function scheduleAutoRefresh(jobs) {
+  if (params().has("as_of")) return;
+  autoRefreshJobs = jobs;
+  if (autoRefreshTimer !== null) return;
+  autoRefreshTimer = setInterval(() => {
+    if (document.visibilityState !== "visible" || !autoRefreshJobs) return;
+    const alerts = document.getElementById("alerts");
+    if (alerts) alerts.innerHTML = "";
+    const jobs = autoRefreshJobs; autoRefreshJobs = null;
+    runAll(jobs);
+  }, AUTO_REFRESH_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && autoRefreshJobs) {
+      const jobs = autoRefreshJobs; autoRefreshJobs = null;
+      runAll(jobs);
+    }
+  }, { once: false });
 }
 
 window.addEventListener("resize", () => {
