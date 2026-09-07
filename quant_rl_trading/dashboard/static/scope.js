@@ -179,10 +179,20 @@ function kpi(label, value, note, warn, extra = {}) {
 function showScope(body) {
   const label = document.getElementById("as-of-label");
   if (body.live) {
-    label.hidden = true;
+    // 라이브는 한 조각만: 마지막 갱신 시각(초)과 자동 갱신 주기. 자동 갱신이 도는지 눈으로
+    // 확인할 유일한 자리다(사용자 질문 2026-09-07) — 초가 바뀌면 돌고 있는 것이다.
+    label.hidden = false;
+    label.classList.remove("rewound");
+    label.classList.add("live-tick");
+    const at = new Date(body.as_of);
+    const hh = String(at.getHours()).padStart(2, "0");
+    const mm = String(at.getMinutes()).padStart(2, "0");
+    const ss = String(at.getSeconds()).padStart(2, "0");
+    label.textContent = params().has("as_of") ? "" : `갱신 ${hh}:${mm}:${ss} · 자동 ${AUTO_REFRESH_MS / 1000}초`;
     return;
   }
   label.hidden = false;
+  label.classList.remove("live-tick");
   label.classList.add("rewound");
   const stamp = String(body.as_of).replace("T", " ").slice(0, 16);
   label.textContent = `${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;

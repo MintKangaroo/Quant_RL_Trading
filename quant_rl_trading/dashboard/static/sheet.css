@@ -439,3 +439,6 @@ main { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 768px) { .positions-viz { grid-template-columns: minmax(0, 1fr); } }
 .positions-viz.single { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 768px) { .positions-daily { height: 180px; } }
+
+/* 라이브 갱신 표지 — 되감기 경고(.rewound)와 달리 조용하다. 초가 바뀌면 자동 갱신이 도는 것이다. */
+#as-of-label.live-tick { color: var(--dim); font-size: 11px; }
