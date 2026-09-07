@@ -1081,8 +1081,7 @@ function renderDailyReturns(body) {
   if (!days.length) { target.innerHTML = `<p class="empty">일별 수익률이 아직 없다.</p>`; return; }
   chart("chart-daily-returns").setOption({
     backgroundColor: "transparent", animation: false,
-    title: { text: "일별 수익률 · 최근 20세션", left: 0, top: 0, textStyle: { color: COLOR.muted, fontSize: 11, fontWeight: 500 } },
-    grid: { left: 44, right: 8, top: 28, bottom: 22 },
+    grid: { left: 44, right: 8, top: 12, bottom: 22 },
     tooltip: { trigger: "axis", backgroundColor: COLOR.panel2, borderColor: COLOR.border, textStyle: { color: COLOR.text, fontFamily: "IBM Plex Mono", fontSize: 11 },
       formatter: (ps) => `${ps[0].axisValue}<br>${pct(ps[0].value)}` },
     xAxis: { type: "category", data: days.map((d) => d.session.slice(5)), ...AXIS, axisLabel: { ...AXIS.axisLabel, interval: 4 } },

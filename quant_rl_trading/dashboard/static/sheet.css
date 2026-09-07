@@ -437,4 +437,5 @@ main { grid-template-columns: minmax(0, 1fr); }
 .positions-viz > .positions-pie { width: 100%; min-width: 0; flex: none; height: 260px; }
 .positions-daily { width: 100%; min-width: 0; height: 260px; }
 @media (max-width: 768px) { .positions-viz { grid-template-columns: minmax(0, 1fr); } }
+.positions-viz.single { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 768px) { .positions-daily { height: 180px; } }
