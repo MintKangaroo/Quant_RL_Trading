@@ -65,7 +65,7 @@ def liquidity_decay(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     raw["turnover_decay"] = np.log(adv20.clip(lower=1.0)) - np.log(adv120.clip(lower=1.0))
     raw.loc[adv120.isna() | (adv120 <= 0), "turnover_decay"] = np.nan
 
-    returns = close.pct_change().tail(20).abs()
+    returns = close.pct_change(fill_method=None).tail(20).abs()
     illiq = (returns / value.tail(20).replace(0.0, np.nan)).mean()
     raw["amihud_20"] = np.log(illiq.where(illiq > 0))
 
