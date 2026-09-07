@@ -251,6 +251,12 @@ def decide(
     else:
         exceeded = market_price < cap
         new_price = max(market_price, cap)
+    # **호가단위로 맞춘다.** 시세 캐시의 현재가는 호가가 아닐 수 있다 — 실측 2026-09-07:
+    # KR:023160 재호가 25,975원(50원 단위 위반) → LS rsp_cd 01403 "호가단위를 확인하세요",
+    # 세 차례 전부 실패해 잔량이 장 끝까지 남았다. cap 은 orders.limit_price 가 이미
+    # 반올림했으므로, 시세 쪽만 상한을 넘지 않는 방향(매수 내림·매도 올림)으로 옮긴다.
+    market = "US" if str(order.entity_id).startswith("US:") else "KR"
+    new_price = orders_module.round_to_tick(new_price, side=order.side, market=market)
 
     if exceeded:
         abandoned = replace(order, status=OrderStatus.ABANDONED, last_action_at=now)
