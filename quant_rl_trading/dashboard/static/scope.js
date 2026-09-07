@@ -263,6 +263,10 @@ function scheduleAutoRefresh(jobs) {
     const jobs = autoRefreshJobs; autoRefreshJobs = null;
     runAll(jobs);
   }, AUTO_REFRESH_MS);
+  // 렌더 테스트는 이 파일을 node 로 돌린다 — 살아 있는 타이머가 이벤트 루프를 붙잡아
+  // 프로세스가 안 끝난다(2026-09-07 실측: 트레이딩 렌더 테스트 5건 60초 타임아웃).
+  // 브라우저의 setInterval 은 숫자를 돌려주고 unref 가 없으니 그대로 지나간다.
+  if (autoRefreshTimer && typeof autoRefreshTimer.unref === "function") autoRefreshTimer.unref();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && autoRefreshJobs) {
       const jobs = autoRefreshJobs; autoRefreshJobs = null;
