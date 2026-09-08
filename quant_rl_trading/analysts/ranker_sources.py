@@ -25,6 +25,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "G4": ("insider_sell_60", "insider_net_60"),
     # G5 (2026-09-08 추가, 사용자 승인) — 회계 품질. 현금흐름이 창고에 없어 운전자본 발생액·Altman Z'' 축약형·적자 연속.
     "G5": ("accrual_wc", "z_lite", "loss_streak"),
+    # G6 (2026-09-08 추가, 사용자 승인) — 미장 8-K 2.02(실적 발표) 기준 PEAD. 시행 J 는 10-Q 공시일이라 앞 2~3주를 놓쳤다.
+    "G6": ("pead_2d", "days_since_earn", "earn_gap"),
 }
 
 #: G1 — ADV120 이 필요하므로 달력일로 넉넉히.
@@ -262,7 +264,72 @@ def accounting_quality(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     return raw_f.replace([np.inf, -np.inf], np.nan).dropna(how="all")
 
 
-BUILDERS = {"G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling, "G5": accounting_quality}
+# --------------------------------------------------------------------------- G6 미장 8-K 실적 발표 PEAD
+
+
+EARN_LOOKBACK_DAYS = 120
+EARN_MAX_SESSIONS = 60
+EARN_ITEM = "2.02"
+
+
+def earnings_drift(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G6. 최근 60세션 안 마지막 8-K 2.02(실적 발표) 뒤의 반응. 미장만(국장 documents 엔 8-K 가 없다).
+
+    - ``pead_2d``        = 발표일 t 와 t+1 의 2일 누적 초과수익(종목 − 명단 동일가중). 발표 시각(장 전/후)을 모르므로
+                           [t, t+1] 로 잡는다(시행 C 와 같은 규칙).
+    - ``days_since_earn``= 마지막 발표 뒤 지난 세션 수(0~60). 없으면 결측.
+    - ``earn_gap``       = 발표일 t 의 하루 초과수익(반응의 첫날만).
+    발표일은 `documents` 의 8-K 제목에 2.02 항목이 있는 행의 접수일. 60세션이 넘은 발표는 결측(드리프트가 끝났다).
+    """
+    docs = analyst.store.get(
+        "documents", as_of=as_of, lookback=EARN_LOOKBACK_DAYS, columns=["entity_id", "valid_from", "doc_type", "title"],
+    )
+    if docs.empty:
+        return pd.DataFrame()
+    prefix = f"{analyst.market}:"
+    docs = docs[docs["entity_id"].astype(str).str.startswith(prefix) & (docs["doc_type"] == "earnings")
+                & docs["title"].astype(str).str.contains(EARN_ITEM, regex=False)].copy()
+    if docs.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=EARN_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    close = analyst.wide(prices, "close")
+    sessions = list(close.index)
+    if len(sessions) < 5:
+        return pd.DataFrame()
+    returns = close.pct_change(fill_method=None)
+    excess = returns.sub(returns.mean(axis=1), axis=0)
+    docs["day"] = docs["valid_from"].dt.date
+    last = docs.sort_values("valid_from").groupby("entity_id")["day"].last()
+    day_pos = {d: i for i, d in enumerate(sessions)}
+    raw = pd.DataFrame(index=pd.Index(sorted(close.columns), name="entity_id"))
+    pead, since, gap = {}, {}, {}
+    for entity, day in last.items():
+        if entity not in raw.index:
+            continue
+        # 접수일 그 날 또는 다음 세션
+        pos = next((day_pos[s_] for s_ in sessions if s_ >= day), None)
+        if pos is None:
+            continue
+        ago = len(sessions) - 1 - pos
+        if ago > EARN_MAX_SESSIONS:
+            continue
+        since[entity] = float(ago)
+        e0 = excess.iloc[pos][entity] if pos < len(sessions) else np.nan
+        e1 = excess.iloc[pos + 1][entity] if pos + 1 < len(sessions) else np.nan
+        gap[entity] = float(e0)
+        pead[entity] = float(np.nansum([e0, e1])) if not (np.isnan(e0) and np.isnan(e1)) else np.nan
+    raw["pead_2d"] = pd.Series(pead)
+    raw["days_since_earn"] = pd.Series(since)
+    raw["earn_gap"] = pd.Series(gap)
+    return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
+BUILDERS = {
+    "G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling,
+    "G5": accounting_quality, "G6": earnings_drift,
+}
 
 
 def build(group: str, analyst: Analyst, as_of: datetime) -> pd.DataFrame:

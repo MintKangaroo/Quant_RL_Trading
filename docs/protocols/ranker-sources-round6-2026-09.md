@@ -94,6 +94,15 @@
   Sloan 발생액·Beneish M 은 못 만든다 — 운전자본 변화가 현금 변화를 섞는다는 한계를 적는다. 분기 복원·TTM·공시 전 차단은
   fundamental Analyst 와 같은 함수. 주 시장 국장(①②③) + 미장(④). 순서는 G4 뒤(다섯 번째), 묶음당 1회.
 
+### G6 — 미장 8-K 2.02 실적 발표 PEAD (documents · **미장만** · 2026-09-08 추가 등록, 사용자 승인; 국장은 전부 0)
+| 피처 | 정의 |
+|---|---|
+| `pead_2d` | 마지막 8-K 2.02 접수일 t 와 t+1 의 2일 누적 초과수익(종목 − 명단 동일가중) |
+| `days_since_earn` | 마지막 발표 뒤 지난 세션 수(0~60, 넘으면 결측) |
+| `earn_gap` | 발표일 t 하루 초과수익 |
+- 시행 J(10-Q 공시일 SUE, IC 0.015)의 후속 조건 그대로 — 발표일을 8-K 2.02 로 앞당긴다(최근 120일 4,703건). 발표 시각을
+  몰라 반응 창은 [t, t+1](시행 C 규칙). 주 시장 미장(①②③) + 국장(④, 전부 0 이라 사실상 무영향). 여섯 번째, 묶음당 1회.
+
 ## 채택 시 배선 (측정 뒤 별도 커밋)
 
 1. `analysts/ranker.py` 의 `FEATURES` 에 묶음 피처 추가 → `ranker-v0.2.0`. 피처 계산은 **`ranker.features()` 안에서 store.get 으로**
@@ -112,7 +121,7 @@
 
 ## 시행 수·기록
 
-family `ranker` 5회(묶음당 1회, 2026Q4 예산; G5 는 9/8 추가). 도구 `tools/trial_ranker_sources.py --group G1|G2|G3|G4|G5 [--save]`(시행 L 의 루프 재사용).
+family `ranker` 6회(묶음당 1회, 2026Q4 예산; G5·G6 는 9/8 추가). 도구 `tools/trial_ranker_sources.py --group G1|…|G6 [--save]`(시행 L 의 루프 재사용).
 결과 표는 이 문서 하단에, research_trials `ranker-sources-round6-2026-09:G1..G4` 로.
 
 ## 커버리지 (측정 전에 봐도 되는 것 — 수익과 무관)
