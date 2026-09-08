@@ -285,3 +285,23 @@ def test_재호가_지정가는_호가단위에_맞는다() -> None:
         repriced, action = lifecycle.decide(order, market_price=25_975.0, now=now, params=params)
         assert action.type is ActionType.REPRICE
         assert repriced.limit_price == expected
+
+
+def test_시세가_지정가와_같으면_정정하지_않고_기다린다() -> None:
+    """실측 2026-09-08: 같은 값으로 정정하면 LS 01441 로 거부돼 재시도만 소진된다."""
+    from datetime import UTC, datetime, timedelta
+
+    from quant_rl_trading.executor import lifecycle
+    from quant_rl_trading.executor.lifecycle import ActionType, OpenOrder, OrderStatus
+    from quant_rl_trading.schemas.order import Side
+
+    now = datetime(2026, 9, 8, 1, 0, tzinfo=UTC)
+    params = lifecycle.LifecycleParams(retry_after_sec=1, max_retries=3, max_slippage=0.05)
+    order = OpenOrder(
+        order_id="KR-2026-09-07|KR:005945|3", entity_id="KR:005945", side=Side.SELL,
+        reference_price=60_000.0, limit_price=60_000.0, original_quantity=10, remaining_quantity=10,
+        retry_count=0, status=OrderStatus.SUBMITTED, last_action_at=now - timedelta(seconds=10),
+    )
+    same, action = lifecycle.decide(order, market_price=60_000.0, now=now, params=params)
+    assert action.type is ActionType.WAIT
+    assert same.retry_count == 0 and same.limit_price == 60_000.0
