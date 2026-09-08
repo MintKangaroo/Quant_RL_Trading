@@ -15,8 +15,11 @@ from tools.trial_ranker_sources import build_panel
 store = Store(root=Path("data"))
 kr, _ = load_kr(); us = load_us()
 sessions = {"KR": sorted(kr["session"].unique()), "US": sorted(us["session"].unique())}
-for group in ("G1", "G2", "G3", "G4"):
-    for market in ("KR", "US"):
+import os
+groups = tuple(os.environ.get("GROUPS", "G1,G2,G3,G4,G5").split(","))
+markets = tuple(os.environ.get("MARKETS", "KR,US").split(","))
+for group in groups:
+    for market in markets:
         if (group, market) in (("G3", "KR"), ("G4", "US")):
             continue  # 등록대로 그 시장은 전부 0 — 굽지 않는다
         out = build_panel(store, group, market, sessions[market])

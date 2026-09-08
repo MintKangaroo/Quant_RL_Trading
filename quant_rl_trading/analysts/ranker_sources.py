@@ -23,6 +23,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "G2": ("distress_120", "dilution_60", "filing_burst_20"),
     "G3": ("short_intensity_20", "short_intensity_chg", "days_to_cover"),
     "G4": ("insider_sell_60", "insider_net_60"),
+    # G5 (2026-09-08 추가, 사용자 승인) — 회계 품질. 현금흐름이 창고에 없어 운전자본 발생액·Altman Z'' 축약형·적자 연속.
+    "G5": ("accrual_wc", "z_lite", "loss_streak"),
 }
 
 #: G1 — ADV120 이 필요하므로 달력일로 넉넉히.
@@ -202,7 +204,65 @@ def insider_selling(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
 
 
-BUILDERS = {"G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling}
+# --------------------------------------------------------------------------- G5 회계 품질
+
+
+FUND_LOOKBACK_DAYS = 1150  # fundamental Analyst 와 같다 — 4분기 전 값과 TTM 이 필요하다
+
+
+def accounting_quality(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G5. 이익의 질과 부도 거리 — "무너질 종목" 의 고전적 재료.
+
+    - ``accrual_wc``  = (운전자본 − 4분기 전 운전자본) / 총자산. 운전자본 = 유동자산 − 유동부채.
+                        현금흐름표가 없어 Sloan 발생액의 대용이다(현금 변화가 섞인다 — 한계로 적는다).
+    - ``z_lite``      = 6.56·WC/TA + 6.72·EBIT_ttm/TA + 1.05·자본/부채. Altman Z'' 에서 이익잉여금 항을 뺀 것.
+    - ``loss_streak`` = 최근 분기부터 거슬러 순이익 < 0 인 연속 분기 수(최대 8).
+    분기 복원·TTM 은 fundamental Analyst 와 **같은 함수**를 쓴다(공시 전 재무는 store.get 이 막는다).
+    """
+    from quant_rl_trading.analysts.fundamental import (
+        FLOW_METRICS, FUNDAMENTALS, SOURCE_BY_MARKET, STOCK_METRICS, to_quarterly, trailing_twelve_months,
+    )
+
+    raw = analyst.store.get(FUNDAMENTALS, as_of=as_of, lookback=FUND_LOOKBACK_DAYS, market=str(analyst.market))
+    if raw.empty:
+        return pd.DataFrame()
+    raw = raw[(raw["source"] == SOURCE_BY_MARKET.get(str(analyst.market), "dart")) & (raw["observed_at"] >= raw["valid_from"])]
+    if raw.empty:
+        return pd.DataFrame()
+    quarterly = to_quarterly(raw)
+    if quarterly.empty:
+        return pd.DataFrame()
+    series = trailing_twelve_months(quarterly).sort_values(["entity_id", "metric", "fiscal_year", "quarter"])
+    latest = series.groupby(["entity_id", "metric"]).tail(1)
+    prev4 = series.groupby(["entity_id", "metric"]).nth(-5)  # 4분기 전 (최근 것이 -1)
+    entities = pd.Index(sorted(set(latest["entity_id"])), name="entity_id")
+    columns = list(dict.fromkeys((*FLOW_METRICS, *STOCK_METRICS)))
+
+    def spread(frame: pd.DataFrame, value_column: str) -> pd.DataFrame:
+        if frame.empty:
+            return pd.DataFrame(index=entities, columns=columns, dtype=float)
+        return frame.pivot_table(index="entity_id", columns="metric", values=value_column).reindex(index=entities, columns=columns)
+
+    point, ttm, point_prev = spread(latest, "value"), spread(latest, "ttm"), spread(prev4, "value")
+    ta = point["total_assets"].where(point["total_assets"] > 0)
+    wc = point["current_assets"] - point["current_liabilities"]
+    wc_prev = point_prev["current_assets"] - point_prev["current_liabilities"]
+    raw_f = pd.DataFrame(index=entities)
+    raw_f["accrual_wc"] = (wc - wc_prev) / ta
+    liabilities = point["total_liabilities"].where(point["total_liabilities"] > 0)
+    raw_f["z_lite"] = 6.56 * wc / ta + 6.72 * ttm["operating_income"] / ta + 1.05 * point["total_equity"] / liabilities
+    ni = series[series["metric"] == "net_income"].sort_values(["entity_id", "fiscal_year", "quarter"])
+    streak = ni.groupby("entity_id")["value"].apply(
+        lambda v: int(next((i for i, x in enumerate(reversed(v.tolist()[-8:])) if not (x < 0)), min(len(v), 8)))
+    )
+    raw_f["loss_streak"] = streak.reindex(entities).astype(float)
+    tradable = analyst.tradable_entities(as_of, lookback=FUND_LOOKBACK_DAYS)
+    if tradable is not None:
+        raw_f = raw_f.loc[raw_f.index.intersection(pd.Index(sorted(tradable)))]
+    return raw_f.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
+BUILDERS = {"G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling, "G5": accounting_quality}
 
 
 def build(group: str, analyst: Analyst, as_of: datetime) -> pd.DataFrame:
