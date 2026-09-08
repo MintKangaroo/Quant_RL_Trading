@@ -162,7 +162,7 @@ function kpi(label, value, note, warn, extra = {}) {
   return `<div class="kpi${warn ? " warn" : ""}${tone}">
     <div class="kpi-label">${label}</div>
     <div class="kpi-value">${value}${unit}</div>
-    <div class="kpi-note" title="${plain}">${note || ""}</div>
+    <div class="kpi-note${extra.keepNote ? " keep" : ""}" title="${plain}">${note || ""}</div>
     ${line}
   </div>`;
 }

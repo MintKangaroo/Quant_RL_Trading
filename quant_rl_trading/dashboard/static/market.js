@@ -97,7 +97,7 @@ function marketKpis(body, code) {
         ? `${arrow(move)}${pct(move)}${liveOn ? " · 장중" : " · 종가"}`
         : "창고에 없다",
       false,
-      { tone: head ? signClass(move) : "", spark: head ? head.closes : null }
+      { tone: head ? signClass(move) : "", spark: head ? head.closes : null, keepNote: true }
     ),
     // 지수 하나로는 "지수는 올랐는데 종목의 70%는 내렸다" 를 볼 수 없다.
     kpi(
@@ -118,7 +118,7 @@ function renderKpis(body) {
       f.rate === null ? "—" : num(Math.round(f.rate)),
       f.change === null ? "환율 없음" : `${arrow(f.change)}${pct(f.change)}`,
       false,
-      { tone: signClass(f.change), spark: f.rates }
+      { tone: signClass(f.change), spark: f.rates, keepNote: true }
     ),
     ...marketKpis(body, "US").reverse(),
   ];

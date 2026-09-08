@@ -42,7 +42,7 @@ from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.selector.combine import contributions
-from quant_rl_trading.collectors.market_hours import Market, is_regular_session
+from quant_rl_trading.collectors.market_hours import Market, is_regular_session, is_trading_day
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
 from quant_rl_trading.store import mode as mode_module
@@ -318,7 +318,7 @@ def combined_payload(
                    "benchmark": [None] * len(navs), "benchmark_drawdown": [None] * len(navs),
                    "benchmark_note": "종합 — 벤치마크 없음(두 시장 합산)", "benchmark_label": {"label": "—"}},
         "calendar": {"days": days, "months": [{"month": m, "return": v} for m, v in sorted(months.items())],
-                     "indices": _index_daily_returns(store_kr, as_of=as_of, lookback=lookback)},
+                     "indices": _index_daily_returns(store_kr, as_of=as_of, lookback=lookback, market="KR")},
         "performance": perf,
     }
 
@@ -430,7 +430,7 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     mdd = None
     peak_nav = None
     if not curve.empty:
-        ordered = curve.sort_values(["valid_from", "observed_at"])
+        ordered = _trading_sessions_only(curve, context.market).sort_values(["valid_from", "observed_at"])
         returns = ordered["twr_return"].astype(float)
         # **승률은 일간이다.** LS_KR 은 종목별 매도 기준이었는데, 우리는 아직
         # 매도 이력이 거의 없다. 없는 것을 재면 표본 두세 건짜리 승률이 나오고
@@ -936,6 +936,20 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
 # -- 시계열 --------------------------------------------------------------------
 
 
+def _trading_sessions_only(frame: pd.DataFrame, market: str) -> pd.DataFrame:
+    """nav_daily 에서 **휴장일 행을 뺀다.** 재부팅 복구가 토요일에 회계를 돌려 9/5 행이 생겼고(2026-09-05 15:40),
+    달력이 그 날을 0.00% 거래일로 그렸다. 창고는 append-only 라 지우지 않고 읽는 쪽이 거른다."""
+    if frame.empty:
+        return frame
+    try:
+        mkt = Market(str(market).upper())
+    except ValueError:
+        return frame
+    days = pd.to_datetime(frame["valid_from"]).dt.date
+    keep = [is_trading_day(mkt, d) for d in days]
+    return frame[pd.Series(keep, index=frame.index)]
+
+
 def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, Any]:
     """NAV·누적지수·낙폭 시계열. 회계가 남긴 것을 그대로 읽는다.
 
@@ -959,7 +973,7 @@ def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, 
             "benchmark_note": None,
         }
         return empty
-    ordered = frame.sort_values(["valid_from", "observed_at"]).tail(EQUITY_SESSIONS)
+    ordered = _trading_sessions_only(frame, context.market).sort_values(["valid_from", "observed_at"]).tail(EQUITY_SESSIONS)
     benchmark = [
         float(value) if pd.notna(value) else None for value in ordered["benchmark_index"]
     ]
@@ -1060,7 +1074,7 @@ CALENDAR_INDICES: tuple[tuple[str, str], ...] = (
 
 
 def _index_daily_returns(
-    store: Store, *, as_of: datetime, lookback: int
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None
 ) -> dict[str, dict[str, float]]:
     """세션 → {지수 이름: 그날 등락률}.
 
@@ -1071,15 +1085,17 @@ def _index_daily_returns(
 
     없는 날은 **키를 안 만든다.** 0 으로 채우면 휴장이 보합으로 보인다.
     """
+    # 국장 화면엔 코스피·코스닥만(사용자 요청 2026-09-08) — 미장 지수 셋이 한 줄에 서면 어느 시장 얘기인지 흐려진다.
+    wanted = [(e, l) for e, l in CALENDAR_INDICES if market is None or e.startswith(f"{market}:")]
     frame = store.get(
         INDICES, as_of=as_of, lookback=lookback, columns=["close", "valid_from"],
-        entity=[entity for entity, _ in CALENDAR_INDICES],
+        entity=[entity for entity, _ in wanted],
     )
     if frame.empty:
         return {}
 
     out: dict[str, dict[str, float]] = {}
-    for entity, label in CALENDAR_INDICES:
+    for entity, label in wanted:
         rows = frame[frame["entity_id"] == entity].sort_values("valid_from")
         if rows.empty:
             continue
@@ -1116,7 +1132,7 @@ def returns_calendar(
     )
     if frame.empty:
         return {"days": [], "months": [], "indices": {}}
-    ordered = frame.sort_values(["valid_from", "observed_at"])
+    ordered = _trading_sessions_only(frame, str(market)).sort_values(["valid_from", "observed_at"])
     if str(market).upper() == "US":
         # **달러 슬리브** — 장부 전체 TWR 이 아니라 equity_us+cash_usd 의 일간 변화. 달러 입출금이 있는
         # 날은 (NAV_t − 입금) / NAV_{t−1} 로 입금을 뺀다 — 안 빼면 9/2 입금일이 +∞% 가 된다.
@@ -1168,7 +1184,7 @@ def returns_calendar(
         "months": [{"month": k, "return": v} for k, v in sorted(months.items())],
         # 하루를 눌렀을 때 "그날 시장은 어땠나" 를 같이 보여주기 위한 참고값.
         # **우리 수익률과 같은 칸에 섞지 않는다** — 지수는 지수고 우리는 우리다.
-        "indices": _index_daily_returns(store, as_of=as_of, lookback=lookback),
+        "indices": _index_daily_returns(store, as_of=as_of, lookback=lookback, market=str(market)),
     }
 
 
