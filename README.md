@@ -323,7 +323,7 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 매매 전반 베타 (9/2) | 종목 하나로 +680% (외움), OOS IC 반토막 | [`docs/protocols/e2e-rl-2026-09.md`](docs/protocols/e2e-rl-2026-09.md) |
 | **시행 L 랭커 (9/3)** | **채택** — 목적을 순위로 바꾸자 fundamental 을 이김 | [`rank-objective-ranker-2026-09.md`](docs/protocols/rank-objective-ranker-2026-09.md) |
 | 배분 4회차 파일럿 (9/4) | ranker 후보로 바꿔도 검증 우위 0 | [`drl-round4-2026-09.md`](docs/protocols/drl-round4-2026-09.md) |
-| 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 영구 종료 | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
+| 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 기본값에서 뺌(재개 조건은 postmortem §10) | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
 
 시도 예산(5회) 중 1회가 남았고, 그것은 **집행 RL**(룰 TWAP 1차 관문 ~10/1 뒤, `docs/protocols/execution-rl-2026-09.md`)에만
 쓴다. 학습 중 과적합 전조는 `tools/watch_overfit.py` 가 본다.
@@ -389,14 +389,14 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | **M1** | 데이터 창고 + 리플레이 엔진 | ✅ 완료 |
 | **M2** | Analyst 9종 + IC 검증 (purged K-fold + embargo) | ✅ 완료 |
 | **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | ✅ 2026-08-28 완료 · 모의계좌 운용 중 |
-| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | ⏹ 배분·매매 전반 RL 종료(9/4) · 집행 RL 1회 남음 — [`rl-postmortem.md`](docs/rl-postmortem.md) |
+| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | ⏸ 배분·매매 전반 RL 은 기본값에서 뺌(9/4) · 집행 RL 다음 · **횟수 상한 없음(9/8 사용자 결정, 사전등록·예산 안)** — [`rl-postmortem.md`](docs/rl-postmortem.md) |
 | **M5** | Auditor + ModelOps + Claude 리뷰 | |
 
 ### 중단 기준
 
 선행 프로젝트가 실패한 결정적 이유 중 하나는 **중단 기준이 없었다는 것**이다.
 
-- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리 — **2026-09-04 발동.** 배분 4회·매매 전반 2회 뒤 룰+감독학습 랭커로 간다([`rl-postmortem.md`](docs/rl-postmortem.md))
+- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리 — **2026-09-04 발동, 2026-09-08 개정.** 배분 4회·매매 전반 2회 뒤 룰+감독학습 랭커가 기본값이고, RL 은 횟수 제한 없이 사전등록·예산 안에서 시도한다([`rl-postmortem.md`](docs/rl-postmortem.md))
 - Analyst가 6개월간 하나도 IC 0.03을 못 넘김 → 피처·타깃 설계 원점 재검토
 - 실전 12개월간 shadow IR이 지속적으로 음수 → 프로젝트 종료 검토
 
