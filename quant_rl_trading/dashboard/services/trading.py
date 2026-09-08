@@ -42,7 +42,7 @@ from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.selector.combine import contributions
-from quant_rl_trading.collectors.market_hours import Market, is_regular_session, is_trading_day
+from quant_rl_trading.collectors.market_hours import SPECS, Market, is_regular_session, is_trading_day
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
 from quant_rl_trading.store import mode as mode_module
@@ -401,7 +401,9 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     reflection = executor_pipeline.action_reflection_rate(store, as_of=as_of)
     floor = float(store.config("allocator.action_reflection_floor", as_of=as_of))
 
-    previous = ledger_module.previous_snapshot(store, as_of=as_of)
+    previous = ledger_module.previous_session_snapshot(
+        store, as_of=as_of, tz=SPECS[Market(str(context.market).upper())].timezone
+    )
     cumulative = None
     if previous is not None:
         # 누적수익률은 지수에서 온다. NAV 비율로 재면 입금이 수익이 된다.

@@ -309,6 +309,27 @@ def principal(store: Store, *, as_of: datetime) -> float:
     return total
 
 
+def previous_session_snapshot(
+    store: Store, *, as_of: datetime, tz: str = "Asia/Seoul"
+) -> dict[str, object] | None:
+    """**as_of 의 세션 날짜보다 앞선** 마지막 스냅샷 — 화면·성과 패널의 "어제".
+
+    `previous_snapshot` 은 `valid_from < as_of` 라 회계(as_of = 그날 16:00)에는 맞지만, 저녁에 as_of=지금으로
+    부르면 그날 16:00 행이 "어제" 로 잡혀 오늘 수익금이 0 이 된다(2026-09-08 실측, 회계를 16:20 으로 당긴 뒤).
+    날짜(현지)로 자르면 아침(그날 행이 아직 없을 때)에도, 저녁에도 전 세션 행이 나온다.
+    """
+    frame = store.get(NAV_DAILY, as_of=as_of, entity=ACCOUNT)
+    if frame.empty:
+        return None
+    zone = ZoneInfo(tz)
+    today = as_of.astimezone(zone).date()
+    days = pd.to_datetime(frame["valid_from"], utc=True).dt.tz_convert(zone).dt.date
+    frame = frame[days < today]
+    if frame.empty:
+        return None
+    return _ordered(frame)[-1]
+
+
 def previous_snapshot(store: Store, *, as_of: datetime) -> dict[str, object] | None:
     """**as_of 보다 앞선** 회계 스냅샷. 없으면 None — 첫날이다.
 
