@@ -178,11 +178,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         known = supervise.cumulative_from_sync(again)
         print(f"  이미종결 되찾기: trades {again.rows_written}행 적재 · 체결 확인 {len(known)}/{len(gone)}건")
+        requested = {p.order_id: float(p.requested_quantity) for p in pending}
         for order_id in gone:
-            if order_id in known:
+            # 0주 "확인" 은 확인이 아니다 — 정정 사슬을 못 따라갔을 때 그렇게 보였다(2026-09-08 KR:081660).
+            if order_id in known and known[order_id] >= requested.get(order_id, float("inf")):
                 terminal.setdefault(order_id, OrderStatus.FILLED.value)
             else:
-                print(f"  이미종결 {order_id} — 체결을 못 찾아 sent 로 둔다(대사가 잡는다)")
+                print(f"  이미종결 {order_id} — 체결 {known.get(order_id, '?')}주 < 요청 {requested.get(order_id, '?')}주, sent 로 둔다(대사가 잡는다)")
     if terminal:
         by_id = {
             f"{session_id}|{r.entity_id}|{r.slice_seq}": r for r in frame.itertuples(index=False)

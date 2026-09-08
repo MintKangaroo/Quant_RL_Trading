@@ -171,7 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     prices = last_prices(store, as_of=now, entities=sorted(positions))
     val = NAV.value(book2, prices=prices, fx_rate=fx)
     print(f"\n적재 {written}행.")
-    print(f"장부 NAV {val.nav:,.0f} · 브로커 순자산 {found.net_asset:,.0f} · 차이 {val.nav - found.net_asset:+,.0f}")
+    gap = val.nav - found.net_asset
+    # t0424 평가금액은 매도비용(수수료+세금)을 뺀 값이라 장부(시장가치)보다 그만큼 낮다 — 화면과 같은 보정(d04fb9f).
+    sell_fee, sell_tax = rates.costs(side=BookSide("sell"), gross=float(found.equity), currency=currency)
+    print(f"장부 NAV {val.nav:,.0f} · 브로커 순자산 {found.net_asset:,.0f} · 차이 {gap:+,.0f}"
+          f" (평가 관행 매도비용 {sell_fee + sell_tax:,.0f} 을 빼면 {gap - sell_fee - sell_tax:+,.0f})")
     # 남은 불일치 확인
     left = 0
     for entity in sorted(set(broker) | set(positions)):
