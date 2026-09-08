@@ -468,7 +468,12 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 시각으로 잰다. 그 둘을 섞으면 차이가 통째로 가짜 초과수익이 된다.
         # 그래서 **따로 담고 화면도 따로 그린다.** nav_daily 에 쓰지 않는다.
         "live_nav": live["nav"],
-        "live_change": live["change"],
+        # 실시간 등락은 **전 세션 종가 NAV** 대비 — 그날 16:00 행이 이미 있으면 live/nav 비율은 0 이다.
+        "live_change": (
+            None if live["nav"] is None
+            else (live["nav"] / float(previous["nav"]) - 1.0) if previous is not None and float(previous["nav"]) > 0
+            else live["change"]
+        ),
         "live_session_open": live.get("session_open"),
         # **장이 끝나면 마지막 체결가가 곧 오늘 종가다.**
         #
@@ -498,7 +503,9 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 규칙이 두 곳에 생기고, 나중에 한쪽만 고쳐진다. 회계 규칙은 서버가
         # 한 번만 정한다.
         "live_today_pnl": (
-            None if live["nav"] is None else live["nav"] - nav
+            None if live["nav"] is None
+            else live["nav"] - (float(previous["nav"]) if previous is not None else nav)
+            - float(context.snapshot.inflow or 0.0)
         ),
         # 장중 낙폭. **킬스위치는 이 값을 안 본다**(위 주석 참고).
         "live_drawdown": live_drawdown,

@@ -172,7 +172,9 @@ def take(
     prices = last_prices(store, as_of=as_of, entities=sorted(book.positions))
     valuation = value(book, prices=prices, fx_rate=rate)
 
-    previous = ledger.previous_snapshot(store, as_of=as_of)
+    # "어제" 는 전 **세션 날짜**의 스냅샷. 16:00 회계 쓰기엔 옛 규칙(valid_from < as_of)과 같고, 라이브(as_of=지금)
+    # 로 재계산할 때 그날 16:00 행이 어제로 잡혀 TWR 0 이 되는 것을 막는다(2026-09-08 실측).
+    previous = ledger.previous_session_snapshot(store, as_of=as_of)
     if previous is None:
         # 첫날. 수익률 0, 지수는 기준값. 없는 어제를 지어내지 않는다.
         return Snapshot(
