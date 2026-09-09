@@ -61,13 +61,14 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
     세션 불문 전부** 대상으로 삼는다. 이미 장부에 든 체결은 sync_fills 의
     ``_recorded_quantities`` 가 중복을 막는다.
     """
-    frame = store.get(ORDERS, as_of=as_of, lookback=14)
+    # unknown은 날짜가 오래됐다는 이유만으로 대사 대상에서 사라지면 안 된다.
+    frame = store.get(ORDERS, as_of=as_of)
     if frame.empty:
         return []
     # 시장을 섞지 않는다 — KR 대사에 US 주문이 들어오면 계좌·조회 경로가 어긋난다.
     # entity_id 접두사(``KR:``/``US:``)로 이 시장 것만 남긴다.
     frame = frame[
-        (frame["status"] == STATUS_SENT)
+        (frame["status"].isin([STATUS_SENT, "cancel_unknown", "modify_unknown"]))
         & frame["entity_id"].astype(str).str.startswith(f"{market}:")
     ]
     out: list[PendingFill] = []

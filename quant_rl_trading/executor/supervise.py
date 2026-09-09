@@ -46,8 +46,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -67,7 +67,11 @@ from quant_rl_trading.executor.lifecycle import (
 if TYPE_CHECKING:
     from quant_rl_trading.broker import Ack, Broker
     from quant_rl_trading.broker.fills import SyncResult
+    from quant_rl_trading.executor.guards import GateResult
     from quant_rl_trading.executor.orders import PlannedOrder
+
+UNRESOLVED = (OrderStatus.CANCEL_UNKNOWN, OrderStatus.MODIFY_UNKNOWN)
+ACTIVE = (OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED)
 
 __all__ = [
     "SupervisionResult",
@@ -98,7 +102,7 @@ class SupervisionResult:
         return tuple(
             item
             for item in self.orders
-            if item.status in (OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED)
+            if item.status in (*ACTIVE, *UNRESOLVED)
         )
 
 
@@ -169,6 +173,7 @@ def step(
     market_prices: Mapping[str, float],
     cumulative_filled: Mapping[str, float],
     params: LifecycleParams,
+    pretrade_check: Callable[[OpenOrder], GateResult],
 ) -> SupervisionResult:
     """한 회차 — 체결을 반영하고, 판단하고, 브로커를 부른다.
 
@@ -186,7 +191,7 @@ def step(
     errors: list[tuple[str, str]] = []
 
     for order in orders:
-        if order.status not in (OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED):
+        if order.status not in (*ACTIVE, *UNRESOLVED):
             updated.append(order)
             continue
 
@@ -207,6 +212,23 @@ def step(
             updated.append(current)
             continue
 
+        if current.status in UNRESOLVED:
+            updated.append(current)
+            skipped.append((current.order_id, "정정/취소 결과 미확정 — 브로커 대사 필요"))
+            continue
+
+        approval = pretrade_check(current)
+        if not approval:
+            proposed = replace(current, status=OrderStatus.CANCELLED, last_action_at=now)
+            action = Action(ActionType.CANCEL, proposed, approval.reason)
+            error = _apply(broker, action)
+            if error is not None:
+                proposed = replace(proposed, status=OrderStatus.CANCEL_UNKNOWN)
+                errors.append((current.order_id, error))
+            updated.append(proposed)
+            actions.append(action)
+            continue
+
         price = market_prices.get(current.entity_id)
         if price is None:
             # 재호가할 가격이 없다. 가격 없이 낼 수 있는 판단은 없다.
@@ -214,6 +236,7 @@ def step(
             skipped.append((current.order_id, "재호가 기준 시세가 없다"))
             continue
 
+        before_action = current
         current, action = decide(
             current, now=now, market_price=price, params=params
         )
@@ -224,6 +247,12 @@ def step(
         error = _apply(broker, action)
         if error is not None:
             errors.append((current.order_id, error))
+            current = replace(
+                current,
+                limit_price=before_action.limit_price,
+                status=(OrderStatus.MODIFY_UNKNOWN if action.type is ActionType.REPRICE
+                        else OrderStatus.CANCEL_UNKNOWN),
+            )
         updated.append(current)
         actions.append(action)
 
@@ -261,6 +290,7 @@ def close(
         error = _apply(broker, action)
         if error is not None:
             errors.append((cancelled.order_id, error))
+            cancelled = replace(cancelled, status=OrderStatus.CANCEL_UNKNOWN)
         updated.append(cancelled)
         actions.append(action)
 
@@ -275,29 +305,28 @@ def close(
 def _apply(broker: Broker, action: Action) -> str | None:
     """판단 하나를 브로커 호출로 옮긴다. 실패하면 사유를 돌려준다.
 
-    **실패해도 상태 전이는 되돌리지 않는다.** ``BrokerError`` 는 "나갔는지
-    모른다" 는 뜻이고(``broker/__init__.py``), 되돌려서 다음 회차에 또 내면
-    같은 정정이 두 번 나갈 수 있다. 되돌리지 않으면 재시도 횟수를 한 번 쓰고
-    타이머가 리셋되므로, 최악의 경우 재호가 한 번을 잃을 뿐이다 — 중복 주문과
-    비교할 수 없는 크기의 손해다.
+    실패·미전송·거부는 확인되지 않은 조치다. 호출자는 unknown 상태로 남기고
+    대사 전에는 같은 조치를 반복하지 않는다.
     """
     order = action.order
     if not order.broker_order_no:
         return "broker_order_no 가 없다 — 정정·취소를 낼 수 없다"
     try:
         if action.type is ActionType.REPRICE:
-            broker.modify(
+            ack = broker.modify(
                 broker_order_no=order.broker_order_no,
                 entity_id=order.entity_id,
                 quantity=order.remaining_quantity,
                 price=order.limit_price,
             )
         else:
-            broker.cancel(
+            ack = broker.cancel(
                 broker_order_no=order.broker_order_no,
                 entity_id=order.entity_id,
                 quantity=order.remaining_quantity,
             )
     except BrokerError as error:
         return str(error)
+    if not ack.accepted or not ack.sent:
+        return ack.rsp_msg or "브로커 조치 미확인 — 거부 또는 미전송"
     return None

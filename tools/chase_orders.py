@@ -38,7 +38,7 @@ from quant_rl_trading.broker import factory as broker_factory  # noqa: E402
 from quant_rl_trading.broker.fills import sync_fills  # noqa: E402
 from quant_rl_trading.dashboard.services.account import _client  # noqa: E402
 from quant_rl_trading.dashboard.services.live_quotes import LiveQuoteCache  # noqa: E402
-from quant_rl_trading.executor import supervise  # noqa: E402
+from quant_rl_trading.executor import guards, supervise  # noqa: E402
 from quant_rl_trading.executor.lifecycle import (  # noqa: E402
     LifecycleParams,
     OpenOrder,
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     # 3) 주문 행 → OpenOrder 재구성. reference_price 는 원 지정가 — 슬리피지
     #    상한은 그 값 대비로 잰다(재호가마다 기준을 옮기면 상한이 무의미해진다).
     frame = store.get(ORDERS, as_of=now, lookback=7)
-    frame = frame[(frame["session_id"] == session_id) & (frame["status"] == STATUS_SENT)]
+    frame = frame[(frame["session_id"] == session_id) & (frame["status"].isin([STATUS_SENT, "cancel_unknown", "modify_unknown"]))]
     open_orders: list[OpenOrder] = []
     for row in frame.itertuples(index=False):
         reason = str(getattr(row, "reason", "") or "")
@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
                 remaining_quantity=quantity,
                 retry_count=0,
                 last_action_at=submitted_at,
-                status=OrderStatus.SUBMITTED,
+                status=(OrderStatus(str(row.status)) if str(row.status) != STATUS_SENT else OrderStatus.SUBMITTED),
                 broker_order_no=reason[len(BROKER_ORDER_NO_PREFIX):],
             )
         )
@@ -148,16 +148,22 @@ def main(argv: list[str] | None = None) -> int:
             market_prices=prices,
             cumulative_filled=cumulative,
             params=params,
+            pretrade_check=lambda order: guards.check_pretrade(
+                store, as_of=clock.now(), market=args.market,
+                entity_id=order.entity_id, side=order.side,
+            ),
         )
 
-    # 종결된 주문은 상태를 revision 으로 되적는다 — 안 적으면 status 가 sent 로
+    # 종결 또는 미확정 상태를 revision으로 되적는다. unknown은 대사 대상으로 남긴다.
+    # 안 적으면 status 가 sent 로
     # 영영 남아, 다음 회차가 이미 끝난 주문에 또 취소를 내고 01433("정정/취소할
     # 수량이 없습니다")을 매번 받는다 (2026-08-31 실측). pipeline 의
     # _record_submit_result(revision=2) 와 같은 관용구, 그 위 revision=3.
     terminal = {
         o.order_id: o.status.value
         for o in outcome.orders
-        if o.status in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.ABANDONED)
+        if o.status in (OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.ABANDONED,
+                        OrderStatus.CANCEL_UNKNOWN, OrderStatus.MODIFY_UNKNOWN)
     }
     # 브로커가 "정정/취소할 수량이 없다"(01433) 고 하면 그 주문은 계좌에서 이미
     # 끝난 것이다 — 체결 조회가 아직 안 따라왔을 뿐이다. 종결로 적지 않으면 다음
@@ -170,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     # 전에는 그냥 FILLED 로 적었는데, 그러면 trades 에 체결이 없는 채로 종결돼 15:45 대사가
     # 브로커 **평균매입단가**로 정정하게 된다(2026-09-07 실측: 6종목 매도대금 +6만 원 과대,
     # 수수료·세금 0). 그래서 그 주문들만 체결을 한 번 더 조회해 실제 체결가로 trades 에
-    # 적고, 체결을 확인한 것만 FILLED 로 적는다. 못 찾으면 sent 로 남겨 대사에 맡긴다.
+    # 적고, 체결을 확인한 것만 FILLED 로 적는다. 못 찾으면 unknown으로 대사에 맡긴다.
     gone = [order_id for order_id, message in outcome.errors if BROKER_ORDER_GONE in message]
     if gone:
         again = sync_fills(
@@ -182,9 +188,9 @@ def main(argv: list[str] | None = None) -> int:
         for order_id in gone:
             # 0주 "확인" 은 확인이 아니다 — 정정 사슬을 못 따라갔을 때 그렇게 보였다(2026-09-08 KR:081660).
             if order_id in known and known[order_id] >= requested.get(order_id, float("inf")):
-                terminal.setdefault(order_id, OrderStatus.FILLED.value)
+                terminal[order_id] = OrderStatus.FILLED.value
             else:
-                print(f"  이미종결 {order_id} — 체결 {known.get(order_id, '?')}주 < 요청 {requested.get(order_id, '?')}주, sent 로 둔다(대사가 잡는다)")
+                print(f"  미확정 {order_id} — 체결 {known.get(order_id, '?')}주 < 요청 {requested.get(order_id, '?')}주, unknown 유지·대사 필요")
     if terminal:
         by_id = {
             f"{session_id}|{r.entity_id}|{r.slice_seq}": r for r in frame.itertuples(index=False)
@@ -221,7 +227,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     # 01433 은 오류가 아니라 "이미 끝났다" 는 사실이라 rc 를 올리지 않는다.
     real_errors = [e for e in outcome.errors if BROKER_ORDER_GONE not in e[1]]
-    return 1 if real_errors else 0
+    unresolved = any(o.status in supervise.UNRESOLVED for o in outcome.orders
+                     if terminal.get(o.order_id) != OrderStatus.FILLED.value)
+    return 1 if real_errors or unresolved else 0
 
 
 if __name__ == "__main__":

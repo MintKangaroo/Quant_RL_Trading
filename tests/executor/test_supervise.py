@@ -21,7 +21,7 @@ from datetime import UTC, datetime, timedelta
 
 from quant_rl_trading.broker import Ack, BrokerError
 from quant_rl_trading.broker.fills import FillOutcome, FillState, SyncResult
-from quant_rl_trading.executor import supervise
+from quant_rl_trading.executor import guards, supervise
 from quant_rl_trading.executor.lifecycle import (
     ActionType,
     LifecycleParams,
@@ -94,6 +94,7 @@ def run(
         market_prices={"KR:005930": price},
         cumulative_filled=filled,
         params=PARAMS,
+        pretrade_check=lambda _: guards.GateResult(True),
     )
 
 
@@ -204,6 +205,7 @@ def test_missing_market_price_is_reported_not_guessed() -> None:
         market_prices={},
         cumulative_filled={"order-1": 0.0},
         params=PARAMS,
+        pretrade_check=lambda _: guards.GateResult(True),
     )
 
     assert result.actions == ()

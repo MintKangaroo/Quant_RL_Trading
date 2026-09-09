@@ -47,12 +47,12 @@
 
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from quant_rl_trading.broker import Ack, BrokerError, RejectedOrder
+from quant_rl_trading.broker.submission import SubmissionGuard
 from quant_rl_trading.collectors.errors import LSAPIError
 from quant_rl_trading.collectors.ls_client import LSClient
 from quant_rl_trading.schemas.order import Side
@@ -227,8 +227,7 @@ class LSUSBroker:
     store: Store
     #: 주문 시장 코드. 호출부가 시세 조회로 **확인해서** 넣는다.
     market_code: str = MKT_NASDAQ
-    _sent: dict[str, Ack] = field(default_factory=dict, repr=False)
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _submission: SubmissionGuard = field(default_factory=SubmissionGuard, repr=False)
 
     def _live(self, *, as_of: datetime) -> bool:
         return bool(self.store.config("execution.live_trading", as_of=as_of))
@@ -266,10 +265,9 @@ class LSUSBroker:
         )
 
     def submit(self, order: PlannedOrder, *, as_of: datetime) -> Ack:
-        with self._lock:
-            cached = self._sent.get(order.order_id)
-        if cached is not None:
-            return cached
+        return self._submission.run(order.order_id, lambda: self._submit_once(order, as_of=as_of))
+
+    def _submit_once(self, order: PlannedOrder, *, as_of: datetime) -> Ack:
 
         planned = order.order
         body = us_order_body(
@@ -280,10 +278,6 @@ class LSUSBroker:
             market_code=self.market_code,
         )
         ack = self._send(order.order_id, TR_NEW, body, as_of=as_of)
-        if ack.sent:
-            # 실제로 나간 것만 캐시한다 (``ls_order.py`` §멱등성).
-            with self._lock:
-                self._sent[order.order_id] = ack
         return ack
 
     def cancel(self, *, broker_order_no: str, entity_id: str, quantity: int) -> Ack:

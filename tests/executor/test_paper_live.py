@@ -76,6 +76,12 @@ def _planned(entity: str, *, slice_seq: int = 0) -> PlannedOrder:
 
 def test_전송된_주문은_브로커_주문번호를_reason_에_남긴다(store) -> None:
     store.seed_config_defaults()
+    store.append("prices", [{
+        "entity_id": "KR:A", "valid_from": NOW, "observed_at": NOW,
+        "source": "test", "market": "KR", "open": 1000., "high": 1000.,
+        "low": 1000., "close": 1000., "volume": 1e6, "value": 1e9,
+        "adj_factor": None,
+    }], ingest_run_id="fresh-price")
     clock = ReplayClock(NOW)
     broker = _Broker()
     acks = pipeline.submit_orders(

@@ -24,7 +24,7 @@ class Order(BaseModel):
     side: Side
     quantity: int = Field(gt=0)
     #: None 이면 시장가.
-    limit_price: float | None = None
+    limit_price: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     #: 왜 이 주문이 나왔는지. Decision Trace 화면이 이걸 읽는다.
     reason: str = ""
 
