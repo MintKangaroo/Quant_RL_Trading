@@ -51,7 +51,7 @@ from quant_rl_trading.accounting import ledger as ledger_module  # noqa: E402
 from quant_rl_trading.accounting import snapshot as snapshot_module  # noqa: E402
 from quant_rl_trading.accounting.rates import Rates  # noqa: E402
 from quant_rl_trading.backtest import loop as loop_module  # noqa: E402
-from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market, is_trading_day, local_time  # noqa: E402
 from quant_rl_trading.replay.clock import ReplayClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 
@@ -89,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
 
     store = Store(root=Path(args.root))
     market = Market(args.market)
+    # 휴장일엔 스냅샷을 안 만든다 — 재부팅 복구가 토요일(2026-09-05)에 돌아 nav_daily 에 휴장일 행이 생겼고
+    # 달력이 그 날을 0.00% 거래일로 그렸다. 창고는 append-only 라 안 만드는 것이 유일한 방어다.
+    if not is_trading_day(market, local_time(market, day).date()):
+        print(f"{args.root} {market.value} {day:%Y-%m-%d} — 휴장일, 건너뜀")
+        return 0
     written, nav = refresh(store, market=market.value, day=day)
     state = "정정본 적재" if written else "변화 없음"
     print(f"{args.root} {market.value} {day:%Y-%m-%d} — {state} · NAV {nav:,.0f}")

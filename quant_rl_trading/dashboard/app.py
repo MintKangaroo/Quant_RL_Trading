@@ -63,6 +63,28 @@ class SafeJSONProvider(DefaultJSONProvider):
         return super().dumps(self._finite(obj), **kwargs)
 
 
+def _warm_calendars() -> None:
+    """거래소 달력을 **지금** 짓는다 — 첫 요청이 7.7초를 기다리지 않게.
+
+    exchange_calendars 는 처음 부를 때 수십 년치 세션을 계산한다(실측 2026-09-07:
+    /api/trading 첫 응답 11.2초 중 7.7초). 앱을 띄울 때 백그라운드에서 한 번 부르면
+    화면을 여는 사람이 그 값을 안 낸다. 잠금은 market_hours._calendar 가 든다.
+    """
+    import threading
+    from datetime import date as _date
+
+    from quant_rl_trading.collectors.market_hours import Market, is_trading_day
+
+    def run() -> None:
+        for mkt in (Market.KR, Market.US):
+            try:
+                is_trading_day(mkt, _date(2025, 1, 2))  # 임의의 고정 날짜 — 짓는 것이 목적
+            except Exception:  # noqa: BLE001 — 예열 실패는 첫 요청이 대신 짓는다
+                pass
+
+    threading.Thread(target=run, name="warm-calendars", daemon=True).start()
+
+
 def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     # API 키를 여기서 읽는다. 안 부르면 화면이 200 을 내면서 해설만 조용히
     # 빠진다 — 그건 고장이 아니라 침묵이라 아무도 눈치채지 못한다.
@@ -80,6 +102,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.config["TEMPLATES_AUTO_RELOAD"] = True
     app.json = SafeJSONProvider(app)
     app.config["QUANT_RL_STORE"] = store if store is not None else Store()
+    _warm_calendars()
     # 미장 paper 는 shadow 장부다. 주 장부가 data/_paper 이면 옆의 data/_shadow 를
     # 두 번째 장부로 연다(?ledger=shadow). 없으면 None — 전환 버튼만 안 뜬다.
     main_root = Path(app.config["QUANT_RL_STORE"].root)
@@ -88,6 +111,11 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
         Store(root=shadow_root) if main_root.name == "_paper" and shadow_root.is_dir() else None
     )
     app.config["QUANT_RL_CLOCK"] = clock if clock is not None else LiveClock()
+    # 실서비스(LiveClock)에서만 — 테스트의 ReplayClock 아래에선 스레드가 as_of 를 흐린다.
+    if isinstance(app.config["QUANT_RL_CLOCK"], LiveClock):
+        from quant_rl_trading.dashboard.services import system as _system_service
+
+        _system_service.start_freshness_refresher(app.config["QUANT_RL_STORE"], app.config["QUANT_RL_CLOCK"])
     # 장중 시세 캐시. **회계와 무관한 참고 값 전용**이다(services/live_quotes 참고).
     # 자격증명이 없거나 장외면 빈 결과를 돌려주므로, 여기서 실패를 따지지 않는다 —
     # 화면이 그 열을 비워 그린다.

@@ -323,7 +323,7 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 매매 전반 베타 (9/2) | 종목 하나로 +680% (외움), OOS IC 반토막 | [`docs/protocols/e2e-rl-2026-09.md`](docs/protocols/e2e-rl-2026-09.md) |
 | **시행 L 랭커 (9/3)** | **채택** — 목적을 순위로 바꾸자 fundamental 을 이김 | [`rank-objective-ranker-2026-09.md`](docs/protocols/rank-objective-ranker-2026-09.md) |
 | 배분 4회차 파일럿 (9/4) | ranker 후보로 바꿔도 검증 우위 0 | [`drl-round4-2026-09.md`](docs/protocols/drl-round4-2026-09.md) |
-| 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 영구 종료 | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
+| 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 기본값에서 뺌(재개 조건은 postmortem §10) | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
 
 시도 예산(5회) 중 1회가 남았고, 그것은 **집행 RL**(룰 TWAP 1차 관문 ~10/1 뒤, `docs/protocols/execution-rl-2026-09.md`)에만
 쓴다. 학습 중 과적합 전조는 `tools/watch_overfit.py` 가 본다.
@@ -338,22 +338,24 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 시각 | 단계 | 하는 일 |
 |---|---|---|
 | 08:20 | 수집 | 국장 뉴스 |
+| 08:32 | 수집 | KRX 전일 시총·지수 아침 보충 (`scripts/refresh_krx_morning.sh`) — 06:00 엔 KRX 가 아직 안 낸다 |
 | **08:40** | **주문** | 모의계좌 세션 — 전날 밤 shadow 가 고른 후보로 주문 생성, 첫 TWAP 조각 전송 (`scripts/run_paper.sh session`) |
 | 09:00~15:00 (30분) | 수집 | 장중 시세 스냅샷 |
 | 09:00~14:40 (20분) | 집행 | TWAP 조각 배포 — 기준점 뒤 1시간마다 한 조각 (`tools/release_slices.py`) |
 | 09:20~15:10 (20분) | 집행 | 미체결 재호가 (`tools/chase_orders.py`) |
 | 15:20 | 집행 | 마감 재호가 — 남은 조각 정리 |
 | 15:40 | 수집 | 국장 뉴스 |
-| **15:45** | **대사** | 계좌 체결 확정(t0425)·잔고 대조(t0424)·스냅샷 (`scripts/run_paper.sh reconcile`) |
+| **15:45** | **대사** | 계좌 체결 확정(t0425)·잔고 대조(t0424)·스냅샷·**정산금액 대조**(D+2, `tools/settlement_check.py`) (`scripts/run_paper.sh reconcile`) |
 | 15:52 | 수집 | LS 일봉 |
 | **15:55** | **수집** | KRX 시세·명단·수급·공매도·재무·기업행위·조정계수·지수·거시·환율 (`scripts/collect_daily.sh KR`) |
 | 16:02 | 수집 | 국장 지수(LS) |
+| 16:20 | 회계 | NAV·TWR·낙폭 갱신 — 그날 종가 기준 (`scripts/refresh_accounting.sh KR`) |
+| 16:30 | 리뷰 | AI 일일 리뷰 — 장 마감 뒤 그날 성과로 (`tools/daily_review.py`) |
 | 17:30 | 수집 | 네이버 컨센서스 |
 | 22:40 | 수집 | 일일 수집 재실행 — 낮에 빠진 것 보충 |
 | **22:55** | **판단** | Analyst 8종 점수(ranker 는 맨 뒤) + 뉴스·SNS 판정 → `signals` (`scripts/run_daily.sh KR`) |
 | **23:05** | **선정** | shadow 세션 — 후보 24 선정(평활·완충 72), 내일 주문 계획 (`scripts/run_shadow.sh KR`) |
-| 23:20 | 회계 | NAV·TWR·낙폭 갱신 (`scripts/refresh_accounting.sh KR`) |
-| 23:35 | 리뷰 | AI 일일 리뷰 (`tools/daily_review.py`) |
+| 23:20 | 회계 | 22:40 재수집 정정본 반영 (`scripts/refresh_accounting.sh KR`) |
 
 ### 미장 (US) — shadow (돈이 오가지 않는 시뮬레이션)
 
@@ -373,11 +375,13 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 시각 | 하는 일 |
 |---|---|
 | 토 10:00 | 미장 상장폐지 갱신 |
+| 토 12:00 | 주간 IC 측정 KR·US `--save` → 학습 탭 랭커 감쇠 경보 (`scripts/measure_ic_weekly.sh`, M5 ①) |
+| 토 11:00 | 미장 한국어 회사명 보충 |
 | 일 18:00 | 유동주식비율(참조, `tools/collect_float_ratio.py`) |
 | 2분마다 | 메모리 감시(`scripts/memory_guard.sh`) |
 | 10분마다 · 재부팅 시 | 장기 작업 감시자·자동 복구(`scripts/job_supervisor.sh`, `scripts/reboot_recover.sh`) |
 
-한 줄로: **15:55 수집 → 22:55 점수 → 23:05 후보·주문 계획 → 다음 날 08:40 주문 → 장중 조각·재호가 → 15:45 대사 → 23:20 회계.**
+한 줄로: **15:55 수집 → 22:55 점수 → 23:05 후보·주문 계획 → 다음 날 08:32 시총 보충 → 08:40 주문 → 장중 조각·재호가 → 15:45 대사·정산 대조 → 16:20 회계 → 16:30 리뷰.**
 미장은 **08:40 수집 → 12:00 점수 → 12:20 주문 → 그날 밤 조각 배포 → 다음 12:20 체결 시뮬.**
 
 ## 마일스톤
@@ -389,14 +393,14 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | **M1** | 데이터 창고 + 리플레이 엔진 | ✅ 완료 |
 | **M2** | Analyst 9종 + IC 검증 (purged K-fold + embargo) | ✅ 완료 |
 | **M3** | Selector + Executor — **여기서 이미 돈을 벌 수 있어야 한다** | ✅ 2026-08-28 완료 · 모의계좌 운용 중 |
-| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | ⏹ 배분·매매 전반 RL 종료(9/4) · 집행 RL 1회 남음 — [`rl-postmortem.md`](docs/rl-postmortem.md) |
+| **M4** | Allocator (RL) 투입 — 액션 반영률 30% 이상 | ⏸ 배분·매매 전반 RL 은 기본값에서 뺌(9/4) · 집행 RL 다음 · **횟수 상한 없음(9/8 사용자 결정, 사전등록·예산 안)** — [`rl-postmortem.md`](docs/rl-postmortem.md) |
 | **M5** | Auditor + ModelOps + Claude 리뷰 | |
 
 ### 중단 기준
 
 선행 프로젝트가 실패한 결정적 이유 중 하나는 **중단 기준이 없었다는 것**이다.
 
-- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리 — **2026-09-04 발동.** 배분 4회·매매 전반 2회 뒤 룰+감독학습 랭커로 간다([`rl-postmortem.md`](docs/rl-postmortem.md))
+- M4에서 RL 재정식화 **3회 실패** → M3 룰 베이스라인 유지, RL은 별도 트랙으로 분리 — **2026-09-04 발동, 2026-09-08 개정.** 배분 4회·매매 전반 2회 뒤 룰+감독학습 랭커가 기본값이고, RL 은 횟수 제한 없이 사전등록·예산 안에서 시도한다([`rl-postmortem.md`](docs/rl-postmortem.md))
 - Analyst가 6개월간 하나도 IC 0.03을 못 넘김 → 피처·타깃 설계 원점 재검토
 - 실전 12개월간 shadow IR이 지속적으로 음수 → 프로젝트 종료 검토
 

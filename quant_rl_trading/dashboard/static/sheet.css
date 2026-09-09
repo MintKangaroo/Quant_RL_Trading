@@ -384,6 +384,8 @@ tbody tr:hover td { background: #0c0c0c; }
      값·라벨만 남기면 열 개가 한 화면 반에 들어온다. 각주는 데스크톱에서 본다. */
   .kpi { padding: 7px 10px 6px; }
   .kpi-note { display: none; }
+  /* 등락률이 곧 내용인 카드(마켓 대표 지수·환율)는 폰에서도 남긴다 (사용자 요청 2026-09-08). */
+  .kpi-note.keep { display: -webkit-box; }
   .kpi-value { font-size: 17px; }
   .kpi-label { font-size: 10px; }
   .kpi-spark { top: 6px; width: 44px; height: 14px; }
@@ -437,4 +439,8 @@ main { grid-template-columns: minmax(0, 1fr); }
 .positions-viz > .positions-pie { width: 100%; min-width: 0; flex: none; height: 260px; }
 .positions-daily { width: 100%; min-width: 0; height: 260px; }
 @media (max-width: 768px) { .positions-viz { grid-template-columns: minmax(0, 1fr); } }
+.positions-viz.single { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 768px) { .positions-daily { height: 180px; } }
+
+/* 라이브 갱신 표지 — 되감기 경고(.rewound)와 달리 조용하다. 초가 바뀌면 자동 갱신이 도는 것이다. */
+#as-of-label.live-tick { color: var(--dim); font-size: 11px; }

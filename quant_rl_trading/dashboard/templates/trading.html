@@ -100,35 +100,29 @@
            가려진다 — 익스포저 KPI 가 말하는 것과 이 파이가 어긋나면 안 된다. #}
         {# 2행: 파이 | 일별 수익률 막대(최근 20세션, TWR). 같은 nav_daily 라 달력·총자산
            곡선과 어긋나지 않는다. 탭 CSS(trading.css)의 flex 규칙과 싸우지 않게 그리드 상자로 감싼다. #}
-        <div class="positions-viz">
+        <div class="positions-viz single">
           <div class="chart positions-pie" id="chart-positions-pie"></div>
-          <div class="chart positions-daily" id="chart-daily-returns"></div>
         </div>
       </div>
     </div>
 
     <div class="panel">
-      <h2>Orders &amp; Executions</h2>
+      <h2>Orders &amp; Executions <span id="orders-head" class="muted mono" style="font-weight:400;font-size:.85em"></span></h2>
       <div id="orders" class="scroll dense"></div>
       <p class="note">
-        최근이 위다. 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
+        마지막 주문일 하루치만 보인다(최근이 위). 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
         "빠르다" 로 읽힌다.
       </p>
     </div>
   </section>
 
-  {# Underwater(낙폭) 패널은 뺐다 (사용자 요청 2026-08-31). 계좌가 갓 시작해
-     낙폭이 사실상 0 이라 선이 0% 에 납작하게 붙어 아무것도 안 보였다. 낙폭
-     자체는 상단 KPI 스트립(현재낙폭)에 이미 있다. 렌더러(renderUnderwater)와
-     서비스(_series 의 benchmark_drawdown)는 /calendar 등에서 재사용 가능해 남겨 둔다. #}
-  <section>
-    {# [표시하기] 로 새 창을 띄우던 축소판이었다. 사람이 그 버튼을 눌러서
-       보던 화면이 원래 보고 싶던 화면이었으므로, 한 번 더 누르게 하지 않고
-       여기서 바로 그린다. 별도 창(/calendar)은 그대로 살아 있다 —
-       같은 렌더러를 쓰므로 두 화면이 어긋날 일이 없다.
-
-       지수 대비는 뺐다. 같은 패널 안에서 **초과수익의 빨강**과 **손실의
-       빨강**이 다른 것을 뜻해 한 색이 두 가지를 말하고 있었다. #}
+  {# 2행: 일별 수익률 막대 | 수익률 캘린더 — 같은 nav_daily(TWR)라 둘이 어긋나지 않는다.
+     달력을 막대 오른쪽에 둔다(사용자 요청 2026-09-07). 모바일에선 세로로 쌓인다. #}
+  <section class="grid-half">
+    <div class="panel">
+      <h2>Daily Returns <span class="right"><span class="sub">TWR · 최근 20세션</span></span></h2>
+      <div class="chart positions-daily" id="chart-daily-returns"></div>
+    </div>
     <div class="panel">
       <h2>
         <span class="seg">
@@ -152,6 +146,11 @@
       <div id="cal-months" class="scroll dense"></div>
     </div>
   </section>
+
+  {# Underwater(낙폭) 패널은 뺐다 (사용자 요청 2026-08-31). 계좌가 갓 시작해
+     낙폭이 사실상 0 이라 선이 0% 에 납작하게 붙어 아무것도 안 보였다. 낙폭
+     자체는 상단 KPI 스트립(현재낙폭)에 이미 있다. 렌더러(renderUnderwater)와
+     서비스(_series 의 benchmark_drawdown)는 /calendar 등에서 재사용 가능해 남겨 둔다. #}
 
   {# 부가 패널은 접어 둔다 — 모바일에서 한 화면에 핵심(KPI·계좌·성과·보유·달력)만 (사용자 요청 2026-08-28). #}
   <details class="fold">

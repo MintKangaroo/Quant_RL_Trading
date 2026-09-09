@@ -263,3 +263,45 @@ def test_open_order_from_market_order_rejected():
     )[0]
     with pytest.raises(ValueError):
         open_order_from_planned(planned, reference_price=10_000.0, now=NOW)
+
+
+def test_재호가_지정가는_호가단위에_맞는다() -> None:
+    """실측 2026-09-07: 시세 25,975원을 그대로 내 LS 가 01403(호가단위)으로 거부했다.
+    매도는 올림(26,000), 매수는 내림(25,950) — 상한을 넘지 않는 방향이다."""
+    from datetime import UTC, datetime, timedelta
+
+    from quant_rl_trading.executor import lifecycle
+    from quant_rl_trading.executor.lifecycle import ActionType, OpenOrder, OrderStatus
+    from quant_rl_trading.schemas.order import Side
+
+    now = datetime(2026, 9, 7, 5, 0, tzinfo=UTC)
+    params = lifecycle.LifecycleParams(retry_after_sec=1, max_retries=3, max_slippage=0.05)
+    for side, expected in ((Side.SELL, 26_000.0), (Side.BUY, 25_950.0)):
+        order = OpenOrder(
+            order_id="KR-2026-09-04|KR:023160|3", entity_id="KR:023160", side=side,
+            reference_price=25_900.0, limit_price=25_900.0, original_quantity=44, remaining_quantity=44,
+            retry_count=0, status=OrderStatus.SUBMITTED, last_action_at=now - timedelta(seconds=10),
+        )
+        repriced, action = lifecycle.decide(order, market_price=25_975.0, now=now, params=params)
+        assert action.type is ActionType.REPRICE
+        assert repriced.limit_price == expected
+
+
+def test_시세가_지정가와_같으면_정정하지_않고_기다린다() -> None:
+    """실측 2026-09-08: 같은 값으로 정정하면 LS 01441 로 거부돼 재시도만 소진된다."""
+    from datetime import UTC, datetime, timedelta
+
+    from quant_rl_trading.executor import lifecycle
+    from quant_rl_trading.executor.lifecycle import ActionType, OpenOrder, OrderStatus
+    from quant_rl_trading.schemas.order import Side
+
+    now = datetime(2026, 9, 8, 1, 0, tzinfo=UTC)
+    params = lifecycle.LifecycleParams(retry_after_sec=1, max_retries=3, max_slippage=0.05)
+    order = OpenOrder(
+        order_id="KR-2026-09-07|KR:005945|3", entity_id="KR:005945", side=Side.SELL,
+        reference_price=60_000.0, limit_price=60_000.0, original_quantity=10, remaining_quantity=10,
+        retry_count=0, status=OrderStatus.SUBMITTED, last_action_at=now - timedelta(seconds=10),
+    )
+    same, action = lifecycle.decide(order, market_price=60_000.0, now=now, params=params)
+    assert action.type is ActionType.WAIT
+    assert same.retry_count == 0 and same.limit_price == 60_000.0

@@ -380,7 +380,8 @@ def daily(
         drawdown = None if pd.isna(last["drawdown"]) else float(last["drawdown"])
 
     session = _kst_date(moment)
-    previous = ledger.previous_snapshot(store, as_of=moment)
+    # "어제" 는 전 **세션 날짜**의 스냅샷 — 라이브(as_of=지금)로 부르면 그날 16:00 행이 어제로 잡혀 0 이 된다.
+    previous = ledger.previous_session_snapshot(store, as_of=moment)
     previous_nav = float(previous["nav"]) if previous is not None else None
     previous_session = _kst_date(previous["valid_from"]) if previous is not None else None
     since = _kst_date(curve["valid_from"].min()) if not curve.empty else session

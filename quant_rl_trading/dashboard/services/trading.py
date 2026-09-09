@@ -42,7 +42,7 @@ from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.selector.combine import contributions
-from quant_rl_trading.collectors.market_hours import Market, is_regular_session
+from quant_rl_trading.collectors.market_hours import SPECS, Market, is_regular_session, is_trading_day
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
 from quant_rl_trading.store import mode as mode_module
@@ -318,7 +318,7 @@ def combined_payload(
                    "benchmark": [None] * len(navs), "benchmark_drawdown": [None] * len(navs),
                    "benchmark_note": "종합 — 벤치마크 없음(두 시장 합산)", "benchmark_label": {"label": "—"}},
         "calendar": {"days": days, "months": [{"month": m, "return": v} for m, v in sorted(months.items())],
-                     "indices": _index_daily_returns(store_kr, as_of=as_of, lookback=lookback)},
+                     "indices": _index_daily_returns(store_kr, as_of=as_of, lookback=lookback, market="KR")},
         "performance": perf,
     }
 
@@ -401,7 +401,9 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     reflection = executor_pipeline.action_reflection_rate(store, as_of=as_of)
     floor = float(store.config("allocator.action_reflection_floor", as_of=as_of))
 
-    previous = ledger_module.previous_snapshot(store, as_of=as_of)
+    previous = ledger_module.previous_session_snapshot(
+        store, as_of=as_of, tz=SPECS[Market(str(context.market).upper())].timezone
+    )
     cumulative = None
     if previous is not None:
         # 누적수익률은 지수에서 온다. NAV 비율로 재면 입금이 수익이 된다.
@@ -430,7 +432,7 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     mdd = None
     peak_nav = None
     if not curve.empty:
-        ordered = curve.sort_values(["valid_from", "observed_at"])
+        ordered = _trading_sessions_only(curve, context.market).sort_values(["valid_from", "observed_at"])
         returns = ordered["twr_return"].astype(float)
         # **승률은 일간이다.** LS_KR 은 종목별 매도 기준이었는데, 우리는 아직
         # 매도 이력이 거의 없다. 없는 것을 재면 표본 두세 건짜리 승률이 나오고
@@ -466,7 +468,12 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 시각으로 잰다. 그 둘을 섞으면 차이가 통째로 가짜 초과수익이 된다.
         # 그래서 **따로 담고 화면도 따로 그린다.** nav_daily 에 쓰지 않는다.
         "live_nav": live["nav"],
-        "live_change": live["change"],
+        # 실시간 등락은 **전 세션 종가 NAV** 대비 — 그날 16:00 행이 이미 있으면 live/nav 비율은 0 이다.
+        "live_change": (
+            None if live["nav"] is None
+            else (live["nav"] / float(previous["nav"]) - 1.0) if previous is not None and float(previous["nav"]) > 0
+            else live["change"]
+        ),
         "live_session_open": live.get("session_open"),
         # **장이 끝나면 마지막 체결가가 곧 오늘 종가다.**
         #
@@ -496,7 +503,9 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         # 규칙이 두 곳에 생기고, 나중에 한쪽만 고쳐진다. 회계 규칙은 서버가
         # 한 번만 정한다.
         "live_today_pnl": (
-            None if live["nav"] is None else live["nav"] - nav
+            None if live["nav"] is None
+            else live["nav"] - (float(previous["nav"]) if previous is not None else nav)
+            - float(context.snapshot.inflow or 0.0)
         ),
         # 장중 낙폭. **킬스위치는 이 값을 안 본다**(위 주석 참고).
         "live_drawdown": live_drawdown,
@@ -888,6 +897,10 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     names = _names(store, as_of=as_of, entities=sorted(set(frame["entity_id"])))
     rows: list[dict[str, Any]] = []
     ordered = frame.sort_values(["valid_from", "observed_at"], ascending=False)
+    # **당일(마지막 주문일) 하루치만.** 열흘치를 쌓아 보이면 오늘 낸 주문이 어디까지인지
+    # 눈으로 갈라야 한다(사용자 요청 2026-09-07). 날짜는 화면이 자르는 ISO 문자열과 같은 기준.
+    days = ordered["valid_from"].map(lambda v: pd.Timestamp(v).date())
+    ordered = ordered[days == days.iloc[0]]
     for row in ordered.head(ORDER_ROWS).to_dict(orient="records"):
         session = str(row["session_id"])
         key = f"{session}|{row['entity_id']}"
@@ -932,6 +945,20 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
 # -- 시계열 --------------------------------------------------------------------
 
 
+def _trading_sessions_only(frame: pd.DataFrame, market: str) -> pd.DataFrame:
+    """nav_daily 에서 **휴장일 행을 뺀다.** 재부팅 복구가 토요일에 회계를 돌려 9/5 행이 생겼고(2026-09-05 15:40),
+    달력이 그 날을 0.00% 거래일로 그렸다. 창고는 append-only 라 지우지 않고 읽는 쪽이 거른다."""
+    if frame.empty:
+        return frame
+    try:
+        mkt = Market(str(market).upper())
+    except ValueError:
+        return frame
+    days = pd.to_datetime(frame["valid_from"]).dt.date
+    keep = [is_trading_day(mkt, d) for d in days]
+    return frame[pd.Series(keep, index=frame.index)]
+
+
 def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, Any]:
     """NAV·누적지수·낙폭 시계열. 회계가 남긴 것을 그대로 읽는다.
 
@@ -955,7 +982,7 @@ def equity_curve(store: Store, context: Context, *, lookback: int) -> dict[str, 
             "benchmark_note": None,
         }
         return empty
-    ordered = frame.sort_values(["valid_from", "observed_at"]).tail(EQUITY_SESSIONS)
+    ordered = _trading_sessions_only(frame, context.market).sort_values(["valid_from", "observed_at"]).tail(EQUITY_SESSIONS)
     benchmark = [
         float(value) if pd.notna(value) else None for value in ordered["benchmark_index"]
     ]
@@ -1056,7 +1083,7 @@ CALENDAR_INDICES: tuple[tuple[str, str], ...] = (
 
 
 def _index_daily_returns(
-    store: Store, *, as_of: datetime, lookback: int
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None
 ) -> dict[str, dict[str, float]]:
     """세션 → {지수 이름: 그날 등락률}.
 
@@ -1067,15 +1094,17 @@ def _index_daily_returns(
 
     없는 날은 **키를 안 만든다.** 0 으로 채우면 휴장이 보합으로 보인다.
     """
+    # 국장 화면엔 코스피·코스닥만(사용자 요청 2026-09-08) — 미장 지수 셋이 한 줄에 서면 어느 시장 얘기인지 흐려진다.
+    wanted = [(e, l) for e, l in CALENDAR_INDICES if market is None or e.startswith(f"{market}:")]
     frame = store.get(
         INDICES, as_of=as_of, lookback=lookback, columns=["close", "valid_from"],
-        entity=[entity for entity, _ in CALENDAR_INDICES],
+        entity=[entity for entity, _ in wanted],
     )
     if frame.empty:
         return {}
 
     out: dict[str, dict[str, float]] = {}
-    for entity, label in CALENDAR_INDICES:
+    for entity, label in wanted:
         rows = frame[frame["entity_id"] == entity].sort_values("valid_from")
         if rows.empty:
             continue
@@ -1084,7 +1113,7 @@ def _index_daily_returns(
         keep = closes > 0.0
         closes = closes[keep]
         sessions = rows.loc[keep.index[keep], "valid_from"]
-        changes = closes.pct_change()
+        changes = closes.pct_change()  # invariant-allow: price-adjust — 지수(KOSPI·S&P) 종가라 분할·증자가 없다
         for stamp, change in zip(sessions, changes, strict=False):
             if pd.isna(change):
                 continue
@@ -1112,7 +1141,7 @@ def returns_calendar(
     )
     if frame.empty:
         return {"days": [], "months": [], "indices": {}}
-    ordered = frame.sort_values(["valid_from", "observed_at"])
+    ordered = _trading_sessions_only(frame, str(market)).sort_values(["valid_from", "observed_at"])
     if str(market).upper() == "US":
         # **달러 슬리브** — 장부 전체 TWR 이 아니라 equity_us+cash_usd 의 일간 변화. 달러 입출금이 있는
         # 날은 (NAV_t − 입금) / NAV_{t−1} 로 입금을 뺀다 — 안 빼면 9/2 입금일이 +∞% 가 된다.
@@ -1164,7 +1193,7 @@ def returns_calendar(
         "months": [{"month": k, "return": v} for k, v in sorted(months.items())],
         # 하루를 눌렀을 때 "그날 시장은 어땠나" 를 같이 보여주기 위한 참고값.
         # **우리 수익률과 같은 칸에 섞지 않는다** — 지수는 지수고 우리는 우리다.
-        "indices": _index_daily_returns(store, as_of=as_of, lookback=lookback),
+        "indices": _index_daily_returns(store, as_of=as_of, lookback=lookback, market=str(market)),
     }
 
 

@@ -404,14 +404,68 @@ def _normalize_ordno(value: str | None) -> str:
     return (value or "").strip().lstrip("0")
 
 
+_ORG_KEYS = ("orgordno", "OrgOrdNo")
+
+
 def _index_by_ordno(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    out: dict[str, dict[str, Any]] = {}
+    """주문번호 → 행. **정정 사슬을 원주문으로 접는다.**
+
+    재호가(정정)를 내면 브로커는 **새 주문번호**를 주고 체결은 그 번호 밑에 쌓인다(t0425:
+    ``ordno`` 새 번호, ``orgordno`` 원번호). 우리 주문 행은 원번호만 안다. 원번호로만 찾으면
+    정정 뒤 체결이 0 으로 보여 "체결 확인(0주)" 이 되고, 그 주문은 trades 없이 FILLED 로 닫혀
+    스냅샷 대사가 뒤늦게 정정한다(2026-09-08 실측 KR:081660 슬라이스 2, 77주).
+
+    그래서 사슬의 모든 행을 원주문으로 모아 **체결 수량은 합, 체결가는 가중평균**으로 한 행을
+    만들고, 사슬의 어느 번호로 찾아도 그 행이 나오게 한다. 취소 행(cheqty 0)은 합에 0 을 더할 뿐이다.
+    """
+    def ordno_of(row: dict[str, Any]) -> str:
+        return _normalize_ordno(str(row.get("ordno") or row.get("OrdNo") or ""))
+
+    def org_of(row: dict[str, Any]) -> str:
+        for key in _ORG_KEYS:
+            value = row.get(key)
+            if value not in (None, "", 0, "0"):
+                return _normalize_ordno(str(value))
+        return ""
+
+    parent = {ordno_of(r): org_of(r) for r in rows if ordno_of(r) and org_of(r)}
+
+    def root(ordno: str) -> str:
+        seen = set()
+        while ordno in parent and ordno not in seen:
+            seen.add(ordno)
+            ordno = parent[ordno]
+        return ordno
+
+    chains: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        ordno = _normalize_ordno(
-            str(row.get("ordno") or row.get("OrdNo") or row.get("orgordno") or "")
-        )
+        ordno = ordno_of(row) or org_of(row)
         if ordno:
-            out[ordno] = row
+            chains.setdefault(root(ordno), []).append(row)
+
+    out: dict[str, dict[str, Any]] = {}
+    for key_root, members in chains.items():
+        merged = dict(members[-1])  # 상태·수량 같은 나머지 필드는 마지막 행의 것
+        for qkeys, pkeys in ((_QUANTITY_KEYS["KR"], _PRICE_KEYS["KR"]), (_QUANTITY_KEYS["US"], _PRICE_KEYS["US"])):
+            qty_key = next((k for k in qkeys if any(k in m for m in members)), None)
+            px_key = next((k for k in pkeys if any(k in m for m in members)), None)
+            if qty_key is None:
+                continue
+            total = 0.0
+            amount = 0.0
+            for m in members:
+                q = _first_numeric(m, (qty_key,)) or 0.0
+                px = (_first_numeric(m, (px_key,)) if px_key else None) or 0.0
+                total += q
+                amount += q * px
+            merged[qty_key] = total
+            if px_key is not None:
+                merged[px_key] = (amount / total) if total > 0 else 0.0
+        for m in members:
+            for candidate in (ordno_of(m), org_of(m)):
+                if candidate:
+                    out[candidate] = merged
+        out[key_root] = merged
     return out
 
 

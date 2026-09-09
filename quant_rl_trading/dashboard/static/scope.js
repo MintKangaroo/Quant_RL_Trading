@@ -162,7 +162,7 @@ function kpi(label, value, note, warn, extra = {}) {
   return `<div class="kpi${warn ? " warn" : ""}${tone}">
     <div class="kpi-label">${label}</div>
     <div class="kpi-value">${value}${unit}</div>
-    <div class="kpi-note" title="${plain}">${note || ""}</div>
+    <div class="kpi-note${extra.keepNote ? " keep" : ""}" title="${plain}">${note || ""}</div>
     ${line}
   </div>`;
 }
@@ -179,10 +179,20 @@ function kpi(label, value, note, warn, extra = {}) {
 function showScope(body) {
   const label = document.getElementById("as-of-label");
   if (body.live) {
-    label.hidden = true;
+    // 라이브는 한 조각만: 마지막 갱신 시각(초)과 자동 갱신 주기. 자동 갱신이 도는지 눈으로
+    // 확인할 유일한 자리다(사용자 질문 2026-09-07) — 초가 바뀌면 돌고 있는 것이다.
+    label.hidden = false;
+    label.classList.remove("rewound");
+    label.classList.add("live-tick");
+    const at = new Date(body.as_of);
+    const hh = String(at.getHours()).padStart(2, "0");
+    const mm = String(at.getMinutes()).padStart(2, "0");
+    const ss = String(at.getSeconds()).padStart(2, "0");
+    label.textContent = params().has("as_of") ? "" : `갱신 ${hh}:${mm}:${ss} · 자동 ${AUTO_REFRESH_MS / 1000}초`;
     return;
   }
   label.hidden = false;
+  label.classList.remove("live-tick");
   label.classList.add("rewound");
   const stamp = String(body.as_of).replace("T", " ").slice(0, 16);
   label.textContent = `${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
@@ -232,6 +242,37 @@ async function runAll(jobs) {
         `<div class="alert">${job.name}: ${error.message}</div>`;
     }
   }
+  scheduleAutoRefresh(jobs);
+}
+
+/* 자동 갱신 (사용자 요청 2026-09-07). **라이브일 때만** — URL 에 as_of 가 있으면 되감기라
+   갱신할 것이 없다. 탭이 안 보이면(폰 백그라운드) 쉬고, 다시 보이면 곧장 한 번 돈다.
+   주기는 60초: 장중 시세 캐시(live_quotes 20초)와 회계·주문은 세션 단위라 그보다 잦을 이유가 없고,
+   더 잦으면 LS 호출과 창고 질의가 화면 수만큼 늘어난다. 실패해도 다음 주기에 다시 한다. */
+const AUTO_REFRESH_MS = 60000;
+let autoRefreshTimer = null;
+let autoRefreshJobs = null;
+function scheduleAutoRefresh(jobs) {
+  if (params().has("as_of")) return;
+  autoRefreshJobs = jobs;
+  if (autoRefreshTimer !== null) return;
+  autoRefreshTimer = setInterval(() => {
+    if (document.visibilityState !== "visible" || !autoRefreshJobs) return;
+    const alerts = document.getElementById("alerts");
+    if (alerts) alerts.innerHTML = "";
+    const jobs = autoRefreshJobs; autoRefreshJobs = null;
+    runAll(jobs);
+  }, AUTO_REFRESH_MS);
+  // 렌더 테스트는 이 파일을 node 로 돌린다 — 살아 있는 타이머가 이벤트 루프를 붙잡아
+  // 프로세스가 안 끝난다(2026-09-07 실측: 트레이딩 렌더 테스트 5건 60초 타임아웃).
+  // 브라우저의 setInterval 은 숫자를 돌려주고 unref 가 없으니 그대로 지나간다.
+  if (autoRefreshTimer && typeof autoRefreshTimer.unref === "function") autoRefreshTimer.unref();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && autoRefreshJobs) {
+      const jobs = autoRefreshJobs; autoRefreshJobs = null;
+      runAll(jobs);
+    }
+  }, { once: false });
 }
 
 window.addEventListener("resize", () => {

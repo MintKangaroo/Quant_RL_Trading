@@ -340,7 +340,7 @@ def test_cost_tracks_month_to_date_against_budget(usage_client) -> None:
     이달 1일을 덮으므로 month_to_date 는 총액과 같아야 한다."""
     data = body(usage_client.get("/api/ai-review/costs"))["data"]
 
-    assert data["budget_usd"] == 50.0  # config/quant_rl_trading.yaml llm.monthly_budget_usd
+    assert data["budget_usd"] == 100.0  # config/quant_rl_trading.yaml llm.monthly_budget_usd (2026-08-30 50 → 100)
     assert data["month_covered"] is True
     assert data["month_to_date_usd"] == pytest.approx(data["cost_usd"])
 
@@ -355,12 +355,12 @@ def test_no_budget_warning_when_under_budget(usage_client) -> None:
 def test_budget_warning_fires_only_when_window_covers_the_whole_month(seeded) -> None:
     """예산 초과라도 창이 이달 1일을 못 덮으면 경고를 내지 않는다 — 그 값은
     실제 이달 누적보다 작을 수 있어서, 경고를 내면 화면이 거짓 안심을 준다."""
-    # opus-5: 10,000,000 input tokens @ $5/1M = $50 그대로, 예산(50)을 살짝 넘긴다.
+    # opus-5: 20,100,000 input tokens @ $5/1M = $100.5, 예산(100)을 살짝 넘긴다.
     seeded.append(
         "llm_usage",
         [usage_row(
             "news-screen", "claude-opus-5", "req-big",
-            input_tokens=10_100_000, output_tokens=0,
+            input_tokens=20_100_000, output_tokens=0,
         )],
         ingest_run_id="usage-overbudget-seed",
     )

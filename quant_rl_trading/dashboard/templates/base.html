@@ -29,6 +29,16 @@
   })();
   </script>
   <title>{% block title %}Quant_RL_Trading{% endblock %}</title>
+  {# 홈 화면 앱 — 아이폰 사파리 "홈 화면에 추가" 는 apple-touch-icon 을 집고, 없으면 화면 스크린샷을
+     아이콘으로 쓴다(2026-09-07 사용자 불만). 아이콘은 tools/make_app_icon.py 가 만든다. standalone 이면
+     주소창 없이 전체 화면으로 뜬다. #}
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='icons/favicon-32.png') }}">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Quant">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#050505">
   {# **바깥 인터넷에 기대지 않는다.** 이 화면은 폰이 Tailscale 로 붙어서 보는
      것이라, 외부 주소가 안 뚫리는 경로가 실제로 있다. 웹폰트는 렌더링을
      막는 자원이라 못 받으면 **화면이 통째로 검게 남는다** — 2026-08-24 에

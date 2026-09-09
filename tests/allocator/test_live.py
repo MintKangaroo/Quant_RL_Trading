@@ -168,7 +168,8 @@ def _seed_paper(store: Store, *, checkpoint: str, moment) -> None:
 
 
 @pytest.mark.parametrize(
-    ("suffix", "driver"), [("data_paper", "rl"), ("data_shadow", "score")]
+    # shadow 경로의 배분은 §7 판정(2026-09-02) 뒤 risk_parity 다 — actor 는 "risk_parity:<경로>".
+    ("suffix", "driver"), [("data_paper", "rl"), ("data_shadow", "risk_parity")]
 )
 def test_세션은_모의계좌_장부에서만_정책을_부른다(tmp_path, suffix, driver) -> None:
     store = seed_warehouse(Store(root=tmp_path / suffix))
@@ -184,7 +185,7 @@ def test_세션은_모의계좌_장부에서만_정책을_부른다(tmp_path, su
     events = store.get("events", as_of=as_of + timedelta(minutes=1), entity="traced")
     allocate = events[events["stage"] == "allocate"]
     assert not allocate.empty
-    assert allocate.iloc[-1]["actor"] == driver
+    assert str(allocate.iloc[-1]["actor"]).split(":")[0] == driver
     exposure = events[events["stage"] == "exposure"]
     if driver == "rl":
         assert exposure.iloc[-1]["actor"] == "rl:policy_cash"

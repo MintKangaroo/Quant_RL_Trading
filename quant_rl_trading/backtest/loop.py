@@ -137,7 +137,10 @@ def snapshot_moment(
     # 다음 날 새벽이라 국장 스냅샷과 valid_from 이 겹치지 않는다.
     if market is not Market.KR:
         policy = publication_policy(store, market, clock=ReplayClock(as_of))
-        settled = replace(policy, clock=ReplayClock(as_of + timedelta(days=3)))
+        # +3일은 보통 주말 하나를 건넜다. 미국 연휴가 낀 긴 주말(금 9/4 → 화 9/8, 2026 노동절)은 4일이라
+        # 워밍업 세션 시각 +3일 < 세션 공표 시각이 되어 NotYetPublished 로 죽었다(2026-09-09 12:20 실측).
+        # 여기의 시계는 "공표 시각을 계산하기 위한" 것이지 관측 게이트가 아니다 — 넉넉히 7일.
+        settled = replace(policy, clock=ReplayClock(as_of + timedelta(days=7)))
         return settled.for_session(day)
 
     try:

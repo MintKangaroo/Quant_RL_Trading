@@ -34,6 +34,10 @@ RC=0
             # 주문대사 rc 를 덮지 않게 rc 는 따로 로그만.
             .venv/bin/python tools/reconcile_snapshot.py --market KR --sandbox "${SANDBOX}" --apply
             echo "snapshot rc=$?"
+            # 정산금액 대조 — 오늘 정산(D+2)된 세션의 체결 합계를 LS 거래내역과 맞춘다.
+            # 불일치는 rc=1 로 로그에 남기되 주문대사 rc 를 덮지 않는다(원인 조사는 사람 몫).
+            .venv/bin/python tools/settlement_check.py --market KR --sandbox "${SANDBOX}"
+            echo "settlement rc=$?"
             ;;
         *)
             echo "모르는 단계: ${STEP} (session|reconcile)"; RC=2

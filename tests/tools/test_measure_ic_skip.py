@@ -53,7 +53,7 @@ def test_이미_적재됐으면_측정을_아예_안_한다(seeded, capsys) -> N
     """**측정 함수가 한 번도 안 불려야 한다.** 돌고 나서 건너뛰면 의미가 없다."""
     with (
         mock.patch.object(measure_ic, "build_store", return_value=seeded),
-        mock.patch.object(measure_ic, "measure") as measured,
+        mock.patch.object(measure_ic, "measure", return_value=(None, None, mock.MagicMock(passed=False))) as measured,
     ):
         code = measure_ic.main(_argv(seeded.root))
 
@@ -66,7 +66,7 @@ def test_건너뛸_때_다음_수를_알려준다(seeded, capsys) -> None:
     """"건너뛴다" 만 찍으면 다시 재고 싶을 때 무엇을 해야 하는지 모른다."""
     with (
         mock.patch.object(measure_ic, "build_store", return_value=seeded),
-        mock.patch.object(measure_ic, "measure"),
+        mock.patch.object(measure_ic, "measure", return_value=(None, None, mock.MagicMock(passed=False))),
     ):
         measure_ic.main(_argv(seeded.root))
 
@@ -84,7 +84,7 @@ def test_적재_이력이_없으면_측정한다(store) -> None:
     store.seed_config_defaults()
     with (
         mock.patch.object(measure_ic, "build_store", return_value=store),
-        mock.patch.object(measure_ic, "measure") as measured,
+        mock.patch.object(measure_ic, "measure", return_value=(None, None, mock.MagicMock(passed=False))) as measured,
         mock.patch.object(measure_ic, "render", return_value=""),
         mock.patch.object(store, "append", return_value=1) as appended,
     ):
@@ -101,7 +101,7 @@ def test_save_없이는_건너뛰지_않는다(seeded) -> None:
     argv = [a for a in _argv(seeded.root) if a != "--save"]
     with (
         mock.patch.object(measure_ic, "build_store", return_value=seeded),
-        mock.patch.object(measure_ic, "measure") as measured,
+        mock.patch.object(measure_ic, "measure", return_value=(None, None, mock.MagicMock(passed=False))) as measured,
         mock.patch.object(measure_ic, "render", return_value=""),
         mock.patch.object(seeded, "append", return_value=1) as appended,
     ):
