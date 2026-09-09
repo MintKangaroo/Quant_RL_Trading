@@ -38,6 +38,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from math import isclose, isfinite
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -177,7 +178,7 @@ def sync_fills(
     for market in sorted({item.market for item in pending}):
         fetched[market] = _fetch_fill_rows(client, market, as_of=as_of)
 
-    recorded_so_far = _recorded_quantities(store, as_of=as_of, pending=pending)
+    recorded_so_far = _recorded_totals(store, as_of=as_of, pending=pending)
 
     observed_at = clock.now()
     rates = Rates.from_store(store, as_of=as_of)
@@ -208,16 +209,35 @@ def sync_fills(
             )
             continue
 
-        already = recorded_so_far.get(item.order_id, 0.0)
+        already, previous_gross = recorded_so_far.get(item.order_id, (0.0, 0.0))
+        cumulative_gross = cumulative * price
+        if (
+            not isfinite(cumulative) or not isfinite(price)
+            or not isfinite(cumulative_gross)
+            or cumulative < already or cumulative > item.requested_quantity
+            or cumulative < 0
+        ):
+            outcomes.append(FillOutcome(
+                item.order_id, FillState.UNKNOWN, cumulative_quantity=cumulative,
+                detail="누적 체결 수량/대금 오류 — 대사 필요",
+            ))
+            continue
         delta = cumulative - already
-        if delta <= 0:
+        if delta == 0 and not isclose(cumulative_gross, previous_gross, abs_tol=1e-6):
+            outcomes.append(FillOutcome(
+                item.order_id, FillState.UNKNOWN, cumulative_quantity=cumulative,
+                detail="수량 증가 없는 누적 체결대금 정정 — 대사 필요",
+            ))
+            continue
+        if delta == 0:
             outcomes.append(
                 FillOutcome(
                     item.order_id, FillState.UNCHANGED, cumulative_quantity=cumulative
                 )
             )
             continue
-        if price <= 0:
+        gross = cumulative_gross - previous_gross
+        if price <= 0 or gross <= 0:
             # 뭔가는 채워졌는데 체결가를 못 읽었다 — 지어낼 수 없으니 모른다.
             outcomes.append(
                 FillOutcome(
@@ -229,8 +249,9 @@ def sync_fills(
             )
             continue
 
+        recorded_so_far[item.order_id] = (cumulative, cumulative_gross)
         currency = currency_of(item.market)
-        gross = delta * price
+        price = gross / delta
         fee, tax = rates.costs(side=BookSide(str(item.side)), gross=gross, currency=currency)
 
         fill = Fill(
@@ -277,6 +298,9 @@ def sync_fills(
         if not store.ingest_run_recorded(TRADES, run_id):
             written = int(store.append(TRADES, rows, ingest_run_id=run_id, source=SOURCE))
 
+    from quant_rl_trading.executor.realization import refresh
+
+    refresh(store, clock, as_of=as_of)
     return SyncResult(tuple(outcomes), written)
 
 
@@ -490,10 +514,10 @@ def _first_numeric(row: dict[str, Any], keys: tuple[str, ...]) -> float | None:
     return None
 
 
-def _recorded_quantities(
+def _recorded_totals(
     store: Store, *, as_of: datetime, pending: list[PendingFill]
-) -> dict[str, float]:
-    """이 주문들에 대해 창고에 이미 적힌 체결 수량 합계.
+) -> dict[str, tuple[float, float]]:
+    """이 주문들에 대해 창고에 이미 적힌 (체결 수량, 체결 대금) 합계.
 
     ``trades.order_id`` 는 ``f"{client_order_id}#{누적수량}"`` 꼴로 적힌다
     (``_trade_order_id``). ``#`` 앞부분으로 원래 주문을 되찾아 이미 적힌
@@ -503,13 +527,16 @@ def _recorded_quantities(
     entities = sorted({item.entity_id for item in pending})
     if not entities:
         return {}
-    frame = store.get(TRADES, as_of=as_of, entity=entities, lookback=ORDER_LOOKBACK_DAYS)
+    frame = store.get(TRADES, as_of=as_of, entity=entities)
     if frame.empty:
         return {}
     wanted = {item.order_id for item in pending}
-    totals: dict[str, float] = {}
-    for raw_order_id, quantity in zip(frame["order_id"], frame["quantity"], strict=True):
+    totals: dict[str, tuple[float, float]] = {}
+    for raw_order_id, quantity, price in zip(
+        frame["order_id"], frame["quantity"], frame["price"], strict=True,
+    ):
         base = str(raw_order_id).split("#", 1)[0]
         if base in wanted:
-            totals[base] = totals.get(base, 0.0) + float(quantity)
+            held, gross = totals.get(base, (0.0, 0.0))
+            totals[base] = (held + float(quantity), gross + float(quantity) * float(price))
     return totals

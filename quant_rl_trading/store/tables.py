@@ -955,6 +955,9 @@ _SPECS: dict[str, TableSpec] = {
             "session_id": pa.string(),
             "target_weight": pa.float64(),
             "realized_weight": pa.float64(),
+            "initial_quantity": pa.float64(),
+            "reference_price": pa.float64(),
+            "reference_equity": pa.float64(),
         },
         natural_key=("entity_id", "valid_from", "session_id"),
         # 집행 결과다. 늦게 오는 쪽(백필·정정본)은 하한 **위**라 안 잘린다.

@@ -35,14 +35,17 @@ class Performance:
     return_over_vol: float
     turnover: float
     fill_rate: float
-    action_reflection: float
+    action_reflection: float | None
 
     def summary(self) -> str:
+        reflection = (
+            f"{self.action_reflection:.2%}" if self.action_reflection is not None else "미측정"
+        )
         return (
             f"{self.days}거래일 · 수익 {self.total_return:+.2%} · "
             f"MDD {self.max_drawdown:.2%} · 변동성 {self.volatility:.2%} · "
             f"회전율 {self.turnover:.2f} · 체결률 {self.fill_rate:.2%} · "
-            f"액션반영 {self.action_reflection:.2%}"
+            f"액션반영 {reflection}"
         )
 
 
@@ -100,7 +103,7 @@ def summarize(
     average_nav: float,
     requested: int,
     filled: int,
-    action_reflection: float,
+    action_reflection: float | None,
 ) -> Performance:
     """구간 성적 한 묶음.
 

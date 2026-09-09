@@ -1,22 +1,49 @@
 # Quant_RL_Trading
 
-**멀티에이전트 AI 사모펀드.** 목표는 시장보다 덜 잃고 시장보다 더 버는 것 — 한 숫자로 말하면 **정보비율(IR)** 이다.
+**AI Quant Research / Portfolio / Execution Mission Control.** 데이터의 관측 시점, 비용 이후 성과, 실제 체결과 장부를 함께 검증하는 운용 시스템이다. 최종 기준은 **OOS risk-adjusted net performance + robustness + operational safety**다.
+
+현재 Champion은 **Supervised Ranking + deterministic portfolio/trading rules**다. rank-gauss 기반 LightGBM ranker → Selector → EMA smoothing / buffer → risk-parity 배분 → deterministic Risk / Executor를 유지한다. 새로운 ML·RL은 Challenger이며, OOS 비용 후 우위 없이 기본값으로 승격하지 않는다.
 
 격자(quant_rl_trading)는 옵션 가격결정의 이항 격자에서 온 말이자, 이 시스템의 다층 에이전트 구조 그 자체다.
 
 ```
-Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
-  수집         분석 9      후보 선정     비중·타이밍     주문
-                                          (RL)
-                    Auditor        ModelOps
-                  성과 귀속       모델 감시
+Collector → Analysts → Ranker → Selector / smoothing / buffer
+    ↓                              ↓
+Store(as_of / provenance)     Portfolio / Risk → Executor → Broker
+    ↑                                                     ↓
+Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 ```
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
-[![tests](https://img.shields.io/badge/tests-844%20passed-2ea44f)](#검증)
+[검증 범위와 미해결 위험](docs/audits/2026-09-09-mission-control.md)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
 [![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
+
+---
+
+## 2026-09-09 Repository Audit와 첫 수정 배치
+
+[Architecture Map / Postmortem Traceability / 연구 기회 / Engineering / UX / Roadmap](docs/audits/2026-09-09-mission-control.md)을 코드·테스트·창고와 대조했다. 실자본 운용 준비 완료 판정은 아니다.
+
+- 주문 직전과 조각 사이의 킬스위치 확인, 같은 날 수동 해제 후 재발동.
+- 누적 체결 **수량과 대금** 대사, 배당락 이전 보유 기준 권리 계산.
+- 공표 기대 세션의 시세 확인, 비유한 가격 배제, 정본 KR 지수 ID 사용.
+- 고가주 기존 보유 청산 허용, 지정가 상한과 비용을 포함한 매수 현금 예약.
+- 체결 기반 실현 비중의 append-only 정정. 기존 계획 기반 반영률은 **미측정**.
+- 과거 계좌 API의 현재 브로커 조회 차단, 시장 간 freshness 대체 방지.
+
+전면 재학습·홀드아웃 개봉·운용 데이터 수정·서비스 재시작은 이 배치에 포함하지 않는다.
+**G1~G6 marginal IC 판정은 기존 사전등록에 따라 2026-10-01 이후**다.
+Execution RL도 rule-based TWAP 관측과 기존 재개 조건을 먼저 충족해야 한다.
+
+아직 필요한 작업: 공통 research/승격 gate, writer 동시성·장애 복구, 저장된 broker
+snapshot과 주문 전 reconciliation gate, 기업행위의 장부 수량 반영, 독립 missing/ghost
+검사, gross/net/cost의 일관된 표시. 현재 잔고의 직접 조회도 저장된 관측으로 이전해야 한다.
+
+검증 명령과 실제 결과, 기존 정적 검사 실패는 [감사 문서](docs/audits/2026-09-09-mission-control.md)에 공개한다.
+새 `execution.circuit_breaker_drop` 설정은 배포 전에 명시적 발효 시각으로 등록해야 한다.
+기존 창고·과거 replay의 설정 유효 구간을 확인해야 하며, 이 커밋만으로 운영 설정을 바꾸지 않는다.
 
 ---
 
@@ -43,7 +70,7 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 | 학습 | 타임머신 |
 |---|---|
 | [![학습](docs/images/learning.png)](docs/images/learning.png) | [![타임머신](docs/images/data-quality-timemachine.png)](docs/images/data-quality-timemachine.png) |
-| 지금은 애널리스트 적중도가 학습을 대신한다 (RL 은 M4) | `?as_of=` 로 되감으면 **그 시점 이후가 안 보인다** |
+| 기존 데모 캡처. 현재 운용 상태는 위 감사와 ModelOps 기록을 따른다 | `?as_of=` 로 되감으면 **그 시점 이후가 안 보인다** |
 
 | AI 리뷰 | 에이전트 상태 |
 |---|---|
@@ -74,7 +101,7 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 ---
 
-## 왜 처음부터 다시 만드는가
+## 선행 프로젝트에서 배운 것
 
 이 프로젝트에는 선행 프로젝트가 둘 있다. `LS_KR`(국장)과 `LS_USA`(미장)다. 강화학습 기반으로 만들었지만 **학습이 되지 않아 사실상 룰 기반으로 동작한 실패 사례**다.
 
@@ -302,7 +329,7 @@ M1 검증기의 교훈이 여기서도 적용된다 — **매매 0건이면 MDD�
 
 ---
 
-### M4 — RL 학습 ⏹ 배분·매매 전반 RL 종료 (2026-09-04) · 집행 RL 로 이월
+### M4 — RL 연구 이력 · 기본값은 감독학습 ranker와 규칙 (2026-09-08 개정)
 
 RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카나리, 배분 RL 1~4회차, 매매 전반 RL 2회, 그리고 그 사이의
 감독학습 랭커. 판마다 한 일·실패한 이유·배운 것은 **[`docs/rl-postmortem.md`](docs/rl-postmortem.md)** 한 문서에 있다.
@@ -325,8 +352,11 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 배분 4회차 파일럿 (9/4) | ranker 후보로 바꿔도 검증 우위 0 | [`drl-round4-2026-09.md`](docs/protocols/drl-round4-2026-09.md) |
 | 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 기본값에서 뺌(재개 조건은 postmortem §10) | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
 
-시도 예산(5회) 중 1회가 남았고, 그것은 **집행 RL**(룰 TWAP 1차 관문 ~10/1 뒤, `docs/protocols/execution-rl-2026-09.md`)에만
-쓴다. 학습 중 과적합 전조는 `tools/watch_overfit.py` 가 본다.
+2026-09-08 개정으로 **실험 횟수 상한은 없다**. 사전등록·분기 예산·OOS 순성과
+기준과 재개 조건은 유지한다. 배분 5회차 final까지의 결과와 판정은
+[`docs/rl-postmortem.md`](docs/rl-postmortem.md)가 정본이다. 새 정보원의 marginal IC나
+독립적인 실행 문제의 근거 없이 배분 RL을 자동 재개하지 않는다. Execution RL의
+대조군은 rule-based TWAP이며, 1차 관문은 20세션 관측 후다.
 
 ## 하루 운영 순서 — 전부 크론이 돌린다
 

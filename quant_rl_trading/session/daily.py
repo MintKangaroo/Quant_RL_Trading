@@ -165,6 +165,7 @@ def run(
     board: str = "KOSPI",
     wall_clock: Clock | None = None,
     broker: Broker | None = None,
+    execution_clock: Clock | None = None,
 ) -> DailySession:
     """하루치 결정. 주문을 만들고 기록한다.
 
@@ -428,6 +429,7 @@ def run(
         board=board,
         broker=broker,
         fx_rate=fx_rate,
+        execution_clock=execution_clock,
     )
     result.orders = execution.planned
     result.notes.extend(execution.notes)

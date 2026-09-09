@@ -233,8 +233,9 @@ function renderKpis(body) {
           ? `현재 ${pct(k.live_drawdown)} · ${risk.band_message} · 킬스위치는 ${closeBadge}`
           : `현재 ${pct(k.drawdown)} · ${risk.band_message} · ${closeBadge}`,
         risk.band !== "free", { spark: ddLine, tone: "down" }),
-    kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
-        k.action_reflection < k.action_reflection_floor),
+    kpi("액션 반영률", k.action_reflection == null ? "미측정" : pct(k.action_reflection, 0),
+        `체결 기준 · 하한 ${pct(k.action_reflection_floor, 0)}`,
+        k.action_reflection != null && k.action_reflection < k.action_reflection_floor),
     kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",
         s ? s.engine : "—"),
     kpi("주문 거부", risk.orders_rejected + " / " + risk.orders_total,
@@ -442,6 +443,12 @@ function renderRisk(body) {
 
   const rows = limits
     .map(([label, value, limit, kind]) => {
+      if (value === null || value === undefined) {
+        return `<div class="risk-row">
+          <span class="name">${label}</span><span class="val">미측정</span>
+          <span class="track"></span><span class="verdict info">UNKNOWN</span>
+        </div>`;
+      }
       const magnitude = Math.abs(value === null || value === undefined ? 0 : value);
       const ratio = limit ? Math.min(100, (magnitude / Math.abs(limit)) * 100) : 0;
       let level = "info";

@@ -227,7 +227,9 @@ def last_turnover(store: Store, *, as_of: datetime, nav: float) -> float:
 
 def last_reflection(store: Store, *, as_of: datetime) -> float:
     """직전 세션의 액션 반영률. 없으면 1.0 — 환경의 초기값과 같다."""
-    frame = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=10)
+    from quant_rl_trading.executor.realization import measured
+
+    frame = measured(store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=10))
     if frame.empty:
         return 1.0
     frame = frame[frame["valid_from"] <= pd.Timestamp(as_of)]

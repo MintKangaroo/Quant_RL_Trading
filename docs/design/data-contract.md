@@ -471,3 +471,21 @@ ReplayClock(as_of)     # 지정된 과거 시각
 | **정정공시** | 정정 전/후 시점 조회가 서로 다른 값을 주는지 |
 
 네 개 모두 `tests/invariants/` 에 두고 커밋 전 필수 통과로 만든다.
+
+## 2026-09-09 감사 보강: 실현 비중 관측
+
+`realized_weights`는 `initial_quantity`, `reference_price`, `reference_equity`를
+nullable 열로 추가한다. 기존 parquet는 NULL로 읽으며 수정하지 않는다.
+`source=executor-fills-v1`만 체결 기준 측정이다. 제출 시점에는 실제 기존 보유를
+적고, broker/replay 체결 적재 뒤 같은 세션 주문의 체결 수량을 더해 revision을
+추가한다. 결정의 `valid_from`은 보존하고 새 관측의 `observed_at`은 주입 Clock이다.
+
+비중은 결정 당시 가격·자본으로 정규화한다. 가격 움직임을 주문 실현으로 계산하지
+않기 위해서다. 이 값은 목표 포트폴리오와의 일치도이며 주문 수량 체결률, 정책이
+규칙을 바꾼 비율과는 다르다. 미체결 상태도 현재까지 관측한 수량만 반영한다.
+기존 `source=executor`의 계획 비중은 증거가 없어 미측정이다. 과거 성능표를 새
+숫자로 소급 덮어쓰지 않는다. 기업행위·수동 장부 정정과 세션을 이월한 주문의
+귀속은 별도 대사 계약이 필요하다.
+
+가격 read_prices는 valid_from <= as_of이며 명시적 until의 기존 배타적 상한도 지킨다. 미리 관측되었더라도 아직 발효하지
+않은 미래 가격은 feature·주문·NAV에 쓰지 않는다. Store의 예정 이벤트 계약은 유지한다.

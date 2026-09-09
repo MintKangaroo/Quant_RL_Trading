@@ -131,15 +131,15 @@ def size_orders(
             # 유동성을 모르면 상한을 계산할 수 없다. 0 으로 치면 상한이 사라진다.
             skipped.append(Skipped(target.entity_id, target.weight, "거래대금 관측 없음"))
             continue
-        if equity > 0 and target.price > equity * params.max_price_ratio:
-            skipped.append(Skipped(target.entity_id, target.weight, "고가주 — 1주가 자본 상한 초과"))
-            continue
 
         desired_value = equity * target.weight
         # 내림. 넘치는 쪽으로 틀리면 현금 부족 → 거부 → 재시도 → 슬리피지다.
         desired_quantity = _floor_lot(desired_value / target.price, target.lot_size)
         held = holdings.get(target.entity_id, 0)
         delta = desired_quantity - held
+        if delta > 0 and equity > 0 and target.price > equity * params.max_price_ratio:
+            skipped.append(Skipped(target.entity_id, target.weight, "고가주 — 1주가 자본 상한 초과"))
+            continue
         if delta == 0:
             if desired_quantity == 0 and target.weight > 0:
                 # **목표는 있는데 1주도 못 산 경우.** 소액 구간에서 흔하다.

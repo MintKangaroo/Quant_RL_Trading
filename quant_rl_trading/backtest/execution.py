@@ -196,6 +196,9 @@ def run(
                 result.notes.insert(
                     0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows)
                 )
+    from quant_rl_trading.executor.realization import refresh
+
+    refresh(store, clock, as_of=as_of)
     return result
 
 

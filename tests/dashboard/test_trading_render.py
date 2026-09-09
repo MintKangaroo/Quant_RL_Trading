@@ -152,6 +152,21 @@ def test_트레이딩_렌더러가_실제_응답으로_끝까지_돈다(tmp_path
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_unmeasured_reflection_is_not_a_critical_zero(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    trading["data"]["kpis"]["action_reflection"] = None
+    dump = _render(tmp_path, trading, chart)
+    import re
+
+    rows = re.findall(r'<div class="risk-row">(.*?)</div>', "".join(dump.values()), re.S)
+    reflection = next(row for row in rows if "액션 반영률" in row)
+    assert "미측정" in reflection and "UNKNOWN" in reflection
+    assert "CRITICAL" not in reflection
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
 def test_장_마감_후에는_오늘_수익을_종가로_잡는다(tmp_path: Path) -> None:
     """**0.00% 는 "안 움직였다" 가 아니라 "아직 모른다" 였다.**
 
@@ -239,4 +254,3 @@ def test_매매가_없던_날은_0건이_아니라_없었다고_적는다(tmp_pa
     dump = _render(tmp_path, trading, chart)
     assert "체결된 매매가 없다" in dump["perf-fills"]
     assert "0건" not in dump["perf-fills"]
-

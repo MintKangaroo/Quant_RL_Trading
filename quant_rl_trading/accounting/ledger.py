@@ -41,7 +41,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from bisect import bisect_left
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -49,7 +50,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting.book import KRW, USD, Book, Side, Trade
 from quant_rl_trading.accounting.rates import Rates
-from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.market_hours import Market, local_time, trading_days
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -105,6 +106,12 @@ def build_book(
         flows = flows[flows["valid_from"] <= pd.Timestamp(as_of)]
     trades = store.get(TRADES, as_of=as_of, lookback=lookback)
     dividends = store.get(DIVIDENDS, as_of=as_of, lookback=lookback)
+    if not trades.empty:
+        trades = trades[trades["valid_from"] <= pd.Timestamp(as_of)]
+    if not dividends.empty:
+        dividends = dividends[dividends["valid_from"] <= pd.Timestamp(as_of)]
+    # 배당락 직전 누적 수량. 평가일의 매매가 과거 권리를 바꾸면 안 된다.
+    holding_history: dict[str, tuple[list[date], list[float]]] = {}
 
     # 입출금이 먼저다. 돈이 들어오기 전에 체결이 있을 수는 없다.
     for row in _ordered(flows):
@@ -132,6 +139,12 @@ def build_book(
             fee=float(row["fee"]),
             tax=float(row["tax"]),
         )
+        days, quantities = holding_history.setdefault(trade.entity_id, ([], []))
+        days.append(local_time(
+            Market(str(row["market"])), pd.Timestamp(row["valid_from"]).to_pydatetime()
+        ).date())
+        signed = trade.quantity if trade.side is Side.BUY else -trade.quantity
+        quantities.append((quantities[-1] if quantities else 0.0) + signed)
         before = book.realized_pnl.get(USD, 0.0)
         book = book.with_trade(trade)
 
@@ -157,12 +170,19 @@ def build_book(
             book = book.with_tax_provision(delta)
 
     for row in _ordered(dividends):
+        # 배당락은 세션 날짜, 체결은 실제 시각이다. US 밤 체결의 UTC 날짜를
+        # 그대로 비교하면 배당락 전날 체결이 당일 매수로 잘못 분류된다.
+        ex_session = pd.Timestamp(row["valid_from"]).date()
+        if local_time(Market(str(row["market"])), as_of).date() < ex_session:
+            continue
         currency = str(row["currency"])
-        held = book.positions.get(str(row["entity_id"]))
-        if held is None or held.quantity <= 0:
+        days, quantities = holding_history.get(str(row["entity_id"]), ([], []))
+        before_ex = bisect_left(days, ex_session)
+        quantity = quantities[before_ex - 1] if before_ex else 0.0
+        if quantity <= 0:
             # 배당락일에 안 갖고 있었으면 받을 것이 없다.
             continue
-        gross = held.quantity * float(row["per_share"])
+        gross = quantity * float(row["per_share"])
         net = rates.dividend_net(gross=gross, currency=currency)
         book = book.with_dividend(currency=currency, net_amount=net)
 

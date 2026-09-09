@@ -104,6 +104,13 @@ def broker_account() -> Any:
     없다. 느리므로(외부 호출) 화면이 KPI 와 따로 늦게 불러 그린다.
     """
     current = scope()
+    if not current.live:
+        return envelope(current, {
+            "available": False, "mode": "historical", "market": _market(),
+            "net_asset": None, "cash": None, "equity": None, "cost": None,
+            "unrealized": None, "positions": None, "gap": None,
+            "reason": "이 시점에 저장된 브로커 잔고 관측이 없어 미측정",
+        })
     return envelope(
         current,
         account_service.broker_account(

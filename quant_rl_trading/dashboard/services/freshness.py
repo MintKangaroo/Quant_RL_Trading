@@ -38,19 +38,8 @@ def _latest_session(store: Store, table: str, *, as_of: datetime, market: str | 
     try:
         frame = store.get(table, **kwargs)
     except Exception:
-        # entity 필터가 안 맞는 테이블(fx 의 entity 이름 등)은 필터 없이 다시 본다.
-        kwargs.pop("entity", None)
-        try:
-            frame = store.get(table, **kwargs)
-        except Exception:
-            return None
-    if frame.empty and entity:
-        # entity 이름이 다른 테이블(fx 등) — 필터 없이 한 번 더.
-        kwargs.pop("entity", None)
-        try:
-            frame = store.get(table, **kwargs)
-        except Exception:
-            return None
+        # 다른 종목/시장 데이터로 결측 또는 읽기 실패를 정상화하지 않는다.
+        return None
     if frame.empty:
         return None
     return frame["valid_from"].max().date()
@@ -73,6 +62,7 @@ def summary(store: Store, *, as_of: datetime) -> dict[str, Any]:
             "expected": expected.isoformat() if expected else None,
             "observed": observed.isoformat() if observed else None,
             "lag_sessions": lag,
-            "status": "ok" if lag == 0 else ("stale" if lag else "unknown"),
+            "status": ("unexpected" if observed and expected and observed > expected
+                       else "ok" if lag == 0 else ("stale" if lag else "unknown")),
         })
     return {"as_of": as_of.isoformat(), "items": items, "stale": [i["key"] for i in items if i["status"] == "stale"]}

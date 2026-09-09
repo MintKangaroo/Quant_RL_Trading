@@ -33,12 +33,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from quant_rl_trading.accounting.book import KRW, USD
+from quant_rl_trading.accounting.book import Side as BookSide
+from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.broker import Ack, BrokerError, PaperBroker, RejectedOrder
-from quant_rl_trading.executor import guards
+from quant_rl_trading.executor import guards, realization
 from quant_rl_trading.executor import orders as orders_module
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams
 from quant_rl_trading.executor.sizing import (
-    Sized,
     SizingParams,
     Skipped,
     Target,
@@ -98,6 +100,7 @@ def run(
     liquidation_only: bool = False,
     broker: Broker | None = None,
     fx_rate: float = 1.0,
+    execution_clock: Clock | None = None,
 ) -> ExecutionResult:
     """한 세션의 집행. 주문을 만들고, 창고에 적고, 전송한다.
 
@@ -182,7 +185,10 @@ def run(
         )
 
     # 3. 서킷 브레이커
-    breaker = guards.check_circuit_breaker(store, as_of=as_of, board=board)
+    breaker = (
+        guards.check_circuit_breaker(store, as_of=as_of, board=board)
+        if market == "KR" else guards.GateResult(passed=True)
+    )
     if not breaker:
         # 급락일에도 청산은 허용한다. 못 빠져나오게 막는 안전장치는 위험하다.
         liquidation_only = True
@@ -202,12 +208,20 @@ def run(
     sizing_params = SizingParams.from_store(store, as_of=as_of, fx_rate=fx_rate)
     # ``cash`` 는 주문가능금액이다. NAV 로 대신하면 미결제 대금까지 쓸 수 있게
     # 되고, 그 길로 이 저장소는 레버리지 2.83배까지 갔다 (accounting.md §1).
+    slice_params = SliceParams.from_store(store, as_of=as_of)
+    cash_budget = cash
+    if cash is not None:
+        rates = Rates.from_store(store, as_of=as_of)
+        fee, tax = rates.costs(
+            side=BookSide.BUY, gross=1.0, currency=USD if market == "US" else KRW
+        )
+        cash_budget = cash / ((1.0 + slice_params.max_slippage) * (1.0 + fee + tax))
     sized, skipped = size_orders(
         targets=targets,
         holdings=holdings,
         equity=equity,
         params=sizing_params,
-        cash=cash,
+        cash=cash_budget,
     )
     if liquidation_only:
         held_back = [item for item in sized if item.side is Side.BUY]
@@ -217,7 +231,6 @@ def run(
     result.skipped = tuple(skipped)
 
     # 7. 분할 집행
-    slice_params = SliceParams.from_store(store, as_of=as_of)
     planned: list[PlannedOrder] = []
     for item in sized:
         planned.extend(
@@ -238,7 +251,7 @@ def run(
         )
     result.planned = tuple(planned)
 
-    record_orders(store, clock, planned=planned, as_of=as_of, market=market)
+    record_orders(store, execution_clock or clock, planned=planned, as_of=as_of, market=market)
     # **조각을 한꺼번에 내보내지 않는다.** 기록은 전부 남기고(위 record_orders),
     # 전송은 지금 시각에 해당하는 조각만 한다 — 나머지는 ``planned`` 로 남아
     # ``tools/release_slices.py`` 가 시간이 되면 낸다. 세션 시각의 elapsed 는 0
@@ -250,12 +263,17 @@ def run(
         )
     result.acks = tuple(
         submit_orders(
-            store, clock, active_broker, planned=now_due, as_of=as_of, market=market
+            store, execution_clock or clock, active_broker,
+            planned=now_due, as_of=as_of, market=market
         )
+    )
+    result.notes.extend(
+        ack.rsp_msg or "브로커 주문 거부" for ack in result.acks if not ack.accepted
     )
     # 8. **절대 생략 금지.**
     record_realized_weights(
-        store, clock, sized=sized, targets=targets, as_of=as_of,
+        store, execution_clock or clock, holdings=holdings, equity=equity,
+        targets=targets, as_of=as_of,
         market=market, session=session,
     )
     return result
@@ -348,6 +366,15 @@ def submit_orders(
             # 이미 이 주문에 전송을 시도한 기록이 있다 — 다시 보내지 않는다.
             continue
 
+        # 결정 이후 또는 조각 사이에도 latch가 걸릴 수 있다. 매도는 계속 허용한다.
+        execution_at = clock.now()
+        switch = guards.check_killswitch(store, as_of=execution_at)
+        if item.order.side is Side.BUY and not switch:
+            acks.append(Ack(
+                order_id=item.order_id, accepted=False, sent=False, rsp_msg=switch.reason,
+            ))
+            continue
+
         # 1. 적는다 — 전송 시도 전에 먼저. revision 을 올려 record_orders 의
         #    "planned" 행보다 항상 나중 상태로 읽히게 한다("적고 나서
         #    보낸다"의 기록 자체는 시각이 아니라 이 순서로 지킨다 — Clock 은
@@ -363,7 +390,7 @@ def submit_orders(
 
         # 2. 보낸다.
         try:
-            ack = broker.submit(item, as_of=as_of)
+            ack = broker.submit(item, as_of=execution_at)
         except RejectedOrder as error:
             acks.append(
                 Ack(order_id=item.order_id, accepted=False, sent=False, rsp_msg=str(error))
@@ -379,7 +406,9 @@ def submit_orders(
         acks.append(ack)
         _record_submit_result(
             store, clock, item, as_of=as_of, market=market,
-            status=STATUS_SENT if ack.sent else STATUS_PAPER,
+            status=(
+                STATUS_REJECTED if not ack.accepted else STATUS_SENT if ack.sent else STATUS_PAPER
+            ),
             broker_order_no=ack.broker_order_no if ack.sent else None,
         )
     return acks
@@ -414,7 +443,8 @@ def record_realized_weights(
     store: Store,
     clock: Clock,
     *,
-    sized: list[Sized],
+    holdings: dict[str, int],
+    equity: float,
     targets: list[Target],
     as_of: datetime,
     market: str,
@@ -425,7 +455,6 @@ def record_realized_weights(
     주문을 못 낸 종목도 남긴다 — 목표 5% 였는데 라운딩으로 0주가 된 사실이
     기록에 없으면, Allocator 는 자기가 5% 를 샀다고 믿는다.
     """
-    realized = {item.entity_id: item.realized_weight for item in sized}
     run_id = f"realized-{session}"
     if store.ingest_run_recorded(REALIZED_WEIGHTS, run_id):
         return 0
@@ -435,32 +464,41 @@ def record_realized_weights(
             "entity_id": target.entity_id,
             "valid_from": as_of,
             "observed_at": observed_at,
-            "source": SOURCE,
+            "source": realization.SOURCE,
             "market": market,
             "session_id": session,
             "target_weight": target.weight,
-            "realized_weight": realized.get(target.entity_id, 0.0),
+            "initial_quantity": float(holdings.get(target.entity_id, 0)),
+            "reference_price": target.price,
+            "reference_equity": equity,
+            "realized_weight": (
+                holdings.get(target.entity_id, 0) * target.price / equity
+                if target.price > 0 and equity > 0 else None
+            ),
         }
         for target in targets
     ]
     if not rows:
         return 0
-    return store.append(REALIZED_WEIGHTS, rows, ingest_run_id=run_id, source=SOURCE)
+    return store.append(REALIZED_WEIGHTS, rows, ingest_run_id=run_id, source=realization.SOURCE)
 
 
-def action_reflection_rate(store: Store, *, as_of: datetime, lookback: int = 30) -> float:
-    """**액션 반영률** — RL 이 낸 결정 중 실제로 집행된 비율.
+def action_reflection_rate(store: Store, *, as_of: datetime, lookback: int = 30) -> float | None:
+    """**액션 반영률** — 목표와 체결로 확인한 비중의 일치도.
+
+    주문 수량 체결률이나 RL의 한계 기여와는 다른 지표다. 체결 대기 중에는
+    현재까지의 수량만 반영한다. 구버전 계획 기록·가격 결측은 미측정(None)이다.
 
     선행 프로젝트가 룰로 전락한 유력 원인은 안전장치가 RL 출력을 덮어쓴
     것이다. **30% 미만이면 그건 RL 이 아니라 룰 시스템이다** (CLAUDE.md).
     M4 전에도 계산해 둔다 — 룰 베이스라인에서도 같은 방식으로 덮이기 때문이다.
     """
-    frame = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=lookback)
-    if frame.empty:
-        return 0.0
+    frame = realization.measured(store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=lookback))
+    if frame.empty or frame["realized_weight"].isna().any():
+        return None
     target = frame["target_weight"].abs().sum()
     if target <= 0:
-        return 0.0
+        return None
     matched = (
         1.0 - (frame["target_weight"] - frame["realized_weight"]).abs().sum() / target
     )

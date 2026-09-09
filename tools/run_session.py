@@ -218,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
         # 신호는 일일 실행기가 실전 창고에 이미 쌓았다. 여기서 또 만들지 않는다.
         produce_signals=False,
         broker=broker,
+        execution_clock=LiveClock() if broker is not None else None,
     )
     for note in result.notes:
         print(f"  ⚠️  {note}")

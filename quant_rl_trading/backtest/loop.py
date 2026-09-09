@@ -217,6 +217,7 @@ def run(
     produce_signals: bool = True,
     on_day: DayCallback | None = None,
     broker: Broker | None = None,
+    execution_clock: Clock | None = None,
 ) -> BacktestResult:
     """구간 백테스트.
 
@@ -354,6 +355,7 @@ def run(
             # 같이 굴리기 때문에(그렇게 안 하면 D+1 체결이 아예 안 돈다), 이
             # 한 줄이 없으면 실전 세션마다 전날 주문이 한 벌씩 더 나간다.
             broker=None if day in warmup_set else broker,
+            execution_clock=clock if day in warmup_set else execution_clock,
         )
         elapsed["결정"] = perf_counter() - mark
         # 최대 RSS(MB). **메모리는 조용히 는다** — 2026-08-14 실행이 5.3GB 에서

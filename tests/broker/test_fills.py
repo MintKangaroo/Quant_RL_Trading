@@ -75,6 +75,62 @@ def funded_store(store):  # type: ignore[no-untyped-def]
 # -- 부분체결: 누적치의 차이만 적힌다 ----------------------------------------
 
 
+def test_changing_cumulative_average_reconciles_notional(funded_store, ts):
+    responses = iter([(5, 100), (10, 110), (10, 110)])
+
+    def handler(request):
+        quantity, average = next(responses)
+        return t0425_response([{"ordno": "700001", "cheqty": quantity, "cheprice": average}])
+
+    client = make_client(handler, ts)
+    now = ts(2026, 8, 14, 10)
+    try:
+        for _ in range(3):
+            sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[pending()])
+    finally:
+        client.close()
+    trades = funded_store.get("trades", as_of=now)
+    assert trades["quantity"].sum() == 10
+    assert (trades["quantity"] * trades["price"]).sum() == pytest.approx(1100)
+    assert sorted(trades["price"].tolist()) == [100., 120.]
+
+
+@pytest.mark.parametrize("quantity,price", [(101, 100), (float("inf"), 100), (5, float("inf"))])
+def test_impossible_fill_is_unknown(funded_store, ts, quantity, price):
+    # 문자열도 브로커 필드 계약의 일부다. JSON은 비유한 숫자를 허용하지 않는다.
+    client = make_client(lambda _: t0425_response([
+        {"ordno": "700001", "cheqty": str(quantity), "cheprice": str(price)},
+    ]), ts)
+    now = ts(2026, 8, 14, 10)
+    try:
+        result = sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[pending()])
+    finally:
+        client.close()
+    assert result.rows_written == 0
+    assert len(result.unknown) == 1
+
+
+@pytest.mark.parametrize("quantity,average", [(4, 100), (5, 99), (10, 40)])
+def test_regressing_cumulative_fill_requires_reconciliation(funded_store, ts, quantity, average):
+    responses = iter([(5, 100), (quantity, average)])
+
+    def handler(request):
+        quantity, price = next(responses)
+        return t0425_response([{"ordno": "700001", "cheqty": quantity, "cheprice": price}])
+
+    client = make_client(handler, ts)
+    now = ts(2026, 8, 14, 10)
+    try:
+        first = sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[pending()])
+        second = sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[pending()])
+    finally:
+        client.close()
+    assert first.rows_written == 1
+    assert second.rows_written == 0 and len(second.unknown) == 1
+    trades = funded_store.get("trades", as_of=now)
+    assert (trades["quantity"] * trades["price"]).sum() == 500
+
+
 def test_partial_fill_records_only_the_delta(funded_store, ts) -> None:  # type: ignore[no-untyped-def]
     calls: list[httpx.Request] = []
 

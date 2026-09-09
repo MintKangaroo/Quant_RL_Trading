@@ -20,8 +20,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from math import isfinite
 from typing import TYPE_CHECKING
 
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.reporting.sessions import expected_session
 from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
@@ -66,8 +69,8 @@ def killswitch_state(store: Store, *, as_of: datetime) -> tuple[KillswitchState,
 def engage(
     store: Store, *, as_of: datetime, observed_at: datetime, reason: str, by: str
 ) -> int:
-    """킬스위치를 건다. 같은 이유로 두 번 걸어도 한 번만 기록된다."""
-    run_id = f"ks-engage-{as_of.date().isoformat()}-{by}"
+    """킬스위치를 건다. 같은 발동 이벤트의 재호출만 멱등이다. 해제 후 재발동은 새 이벤트다."""
+    run_id = f"ks-engage-{as_of.isoformat()}-{by}"
     if store.ingest_run_recorded(KILLSWITCH, run_id):
         return 0
     return store.append(
@@ -160,18 +163,21 @@ def check_data_quality(
     # 휴장일 행에는 종가 0 이 들어 있다. 그대로 세면 "시세가 있다" 로 통과한
     # 뒤 0 원짜리 가격으로 주문 수량을 만들게 된다 — 행이 있다는 것과 가격이
     # 있다는 것은 다르다.
-    prices = read_prices(store, as_of=as_of, entity=entities, lookback=5, market=market)
+    expected = expected_session(store, Market(market), as_of=as_of)
+    if expected is None:
+        return GateResult(passed=False, reason="공표된 기대 세션을 확인할 수 없다")
+    # 긴 연휴에도 기대 세션이 조회 창 밖으로 밀리지 않게 한다.
+    lookback = max(5, (as_of.date() - expected).days + 1)
+    prices = read_prices(store, as_of=as_of, entity=entities, lookback=lookback, market=market)
     if prices.empty:
-        return GateResult(passed=False, reason="시세가 없다")
-
-    latest_session = prices["valid_from"].max()
-    covered = set(prices[prices["valid_from"] == latest_session]["entity_id"])
+        return GateResult(passed=False, reason=f"기대 세션 {expected} 시세가 없다")
+    covered = set(prices[prices["valid_from"].dt.date == expected]["entity_id"])
     missing = [entity for entity in entities if entity not in covered]
     threshold = float(store.config("data_quality.missing_warn", as_of=as_of))
     if len(missing) / len(entities) > threshold:
         return GateResult(
             passed=False,
-            reason=f"최근 세션 시세 결측 {len(missing)}/{len(entities)}종목",
+            reason=f"기대 세션 {expected} 시세 결측 {len(missing)}/{len(entities)}종목",
         )
     return GateResult(passed=True)
 
@@ -180,9 +186,7 @@ def check_data_quality(
 
 #: 한국거래소 1단계 서킷브레이커. 지수가 전일 대비 이만큼 빠지면 발동한다.
 #: **KOSPI·KOSDAQ 을 따로 본다** — 한쪽만 걸리는 날이 실제로 있다.
-CIRCUIT_BREAKER_DROP = 0.08
-
-BOARD_INDEX = {"KOSPI": "IDX:KOSPI", "KOSDAQ": "IDX:KOSDAQ"}
+BOARD_INDEX = {"KOSPI": "KR:IDX:KOSPI", "KOSDAQ": "KR:IDX:KOSDAQ"}
 
 
 def check_circuit_breaker(store: Store, *, as_of: datetime, board: str) -> GateResult:
@@ -202,8 +206,11 @@ def check_circuit_breaker(store: Store, *, as_of: datetime, board: str) -> GateR
 
     ordered = frame.sort_values("valid_from")
     closes = ordered["close"].astype(float).tolist()
-    change = closes[-1] / closes[-2] - 1.0 if closes[-2] else 0.0
-    if change <= -CIRCUIT_BREAKER_DROP:
+    if any(not isfinite(value) or value <= 0 for value in closes[-2:]):
+        return GateResult(passed=False, reason=f"{board}: 지수 가격 결함")
+    change = closes[-1] / closes[-2] - 1.0
+    threshold = float(store.config("execution.circuit_breaker_drop", as_of=as_of))
+    if change <= -threshold:
         return GateResult(passed=False, reason=f"{board} 서킷브레이커 — 지수 {change:.1%}")
     return GateResult(passed=True)
 

@@ -112,6 +112,7 @@ universe:
   exclude_flags: [관리종목, 거래정지, 정리매매]
 
 execution:
+  circuit_breaker_drop: 0.08 # KR 지수 신규매수 차단, 기존 임계값의 SSOT 이동
   # **주문을 실제로 내보낼지.** 기본은 false — 켤 때만 나간다.
   # ~~LS 모의투자 appkey 로는 주문 TR(CSPAT*) 자체가 막혀 있다~~ — **틀렸다.**
   # 2026-08-15 실측: 모의 appkey 로도 t0424(잔고)가 정상 응답했다. 모의투자는
