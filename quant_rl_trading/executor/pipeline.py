@@ -38,7 +38,6 @@ from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import orders as orders_module
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams
 from quant_rl_trading.executor.sizing import (
-    Sized,
     SizingParams,
     Skipped,
     Target,
@@ -259,7 +258,7 @@ def run(
     )
     # 8. **절대 생략 금지.**
     record_realized_weights(
-        store, send_clock, sized=sized, targets=targets, as_of=as_of,
+        store, send_clock, holdings=holdings, equity=equity, targets=targets, as_of=as_of,
         market=market, session=session,
     )
     return result
@@ -444,7 +443,8 @@ def record_realized_weights(
     store: Store,
     clock: Clock,
     *,
-    sized: list[Sized],
+    holdings: dict[str, int],
+    equity: float,
     targets: list[Target],
     as_of: datetime,
     market: str,
@@ -455,7 +455,6 @@ def record_realized_weights(
     주문을 못 낸 종목도 남긴다 — 목표 5% 였는데 라운딩으로 0주가 된 사실이
     기록에 없으면, Allocator 는 자기가 5% 를 샀다고 믿는다.
     """
-    realized = {item.entity_id: item.realized_weight for item in sized}
     run_id = f"realized-{session}"
     if store.ingest_run_recorded(REALIZED_WEIGHTS, run_id):
         return 0
@@ -465,11 +464,15 @@ def record_realized_weights(
             "entity_id": target.entity_id,
             "valid_from": as_of,
             "observed_at": observed_at,
-            "source": SOURCE,
+            "source": "executor_holdings_v2",
             "market": market,
             "session_id": session,
             "target_weight": target.weight,
-            "realized_weight": realized.get(target.entity_id, 0.0),
+            "realized_weight": (
+                0.0 if holdings.get(target.entity_id, 0) == 0 else
+                holdings[target.entity_id] * target.price / equity
+                if equity > 0 and target.price > 0 else None
+            ),
         }
         for target in targets
     ]
@@ -488,6 +491,8 @@ def action_reflection_rate(store: Store, *, as_of: datetime, lookback: int = 30)
     frame = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=lookback)
     if frame.empty:
         return 0.0
+    if frame["realized_weight"].isna().any():
+        return 0.0  # 미측정을 반영률 성공으로 승인하지 않는다.
     target = frame["target_weight"].abs().sum()
     if target <= 0:
         return 0.0

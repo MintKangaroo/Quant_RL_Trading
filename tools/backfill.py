@@ -468,12 +468,12 @@ def run_us_universe_backfill(
         print(f"\n완료 — {report.render()}")
         return 0
 
-    dead = up.delisting_rows(last_seen, session_days, market=market)
+    dead = up.delisting_rows(last_seen, session_days, inferred_at=clock.now(), market=market)
     if dead and not dry_run:
         run_id = up.delisting_run_id(market, session_days[-1])
         if not store.ingest_run_recorded(UNIVERSE, run_id):
             report.delisted = store.append(
-                UNIVERSE, dead, ingest_run_id=run_id, source=up.SOURCE
+                UNIVERSE, dead, ingest_run_id=run_id, source=up.INACTIVE_SOURCE
             )
     elif dead:
         report.delisted = len(dead)

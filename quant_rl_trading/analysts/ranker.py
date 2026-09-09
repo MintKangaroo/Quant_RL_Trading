@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 SIGNALS = "signals"
 VERSION = "ranker-v0.1.0"
+FEATURE_CONTRACT = "pit-crosssection-before-label-v2"
 
 #: 입력 Analyst → 피처 열. 두 시장의 수급이 한 열(`flow`)로 겹치는 이유는 모델을
 #: 국장+미장 합쳐 학습하기 때문이다 — 시행 L 의 GBM-POOL. `volume` 은 뺐다(시행 L
@@ -192,6 +193,10 @@ class RankerAnalyst(Analyst):
         self._as_of = as_of
         if self._model is None:
             return pd.DataFrame()
+        return self.input_features(as_of)
+
+    def input_features(self, as_of: datetime) -> pd.DataFrame:
+        """모델·미래 라벨과 무관한 당시 입력. 학습과 운용이 같은 함수를 쓴다."""
         frame = self.store.get(
             SIGNALS,
             as_of=as_of,
@@ -217,7 +222,7 @@ class RankerAnalyst(Analyst):
             return pd.DataFrame()
         frame = frame[frame["valid_from"] == latest_session]
         # **매매 가능 종목만.** flow_us 는 명단 밖 2만 종목에도 점수를 내는데, 그 종목들은 다른
-        # 열이 전부 결측(=0)이라 횡단면을 가짜로 넓힌다. 학습 행은 라벨(시세)이 있는 종목뿐이었다.
+        # 열이 전부 결측(=0)이라 횡단면을 가짜로 넓힌다. 학습도 동일한 당시 명단을 사용한다.
         tradable = self.tradable_entities(as_of, lookback=UNIVERSE_LOOKBACK_DAYS)
         if tradable is not None:
             frame = frame[frame["entity_id"].astype(str).isin(tradable)]
@@ -231,6 +236,7 @@ class RankerAnalyst(Analyst):
                 wide[column] = np.nan
         wide = rank_gauss(wide, SCORE_FEATURES)
         wide["is_us"] = 1.0 if self.market == Market.US else 0.0
+        wide.columns.name = None
         return wide.loc[:, list(FEATURES)].astype(float)
 
     def evidence_for(self, features: pd.DataFrame, entity_id: str):  # type: ignore[override]

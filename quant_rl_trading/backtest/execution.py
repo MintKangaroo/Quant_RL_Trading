@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.accounting import weights as weights_module
 from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
@@ -196,6 +197,7 @@ def run(
                 result.notes.insert(
                     0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows)
                 )
+    weights_module.refresh(store, clock, as_of=as_of, sessions={session_id})
     return result
 
 

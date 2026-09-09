@@ -394,11 +394,8 @@ _SPECS: dict[str, TableSpec] = {
             "shares_outstanding": pa.float64(),   # 발행주식수
             "float_ratio": pa.float64(),          # 유동주식비율 (0~1)
         },
-        # 참조 속성 — 유동주식비율은 준정적이고 예측 정보가 아니다. 대용지수의 −12%p/년 오차가
-        # **유동주식 가중**(KOSPI200 은 free-float 가중, 우리는 전액시총)이었다(2026-09-04,
-        # benchmark-aligned-construction-2b). 소스 = 네이버 종목분석(WiseReport) 기업개요.
-        # 매주 한 번 받는다. 바뀌면 새 행, 옛 행은 그대로(append-only).
-        reference_data=True,
+        # 비중·benchmark 계산에 쓰이는 투자 입력이다. 준정적이어도 관측 전에는 못 쓴다.
+        reference_data=False,
         natural_key=("entity_id", "valid_from", "source"),
         observation_lag_days=3,
         doc="유동주식비율 참조 관측. 시총가중 대용지수·시총가중 구성 변형이 free-float 조정에 쓴다.",
@@ -409,10 +406,8 @@ _SPECS: dict[str, TableSpec] = {
             "market": pa.string(),
             "sector": pa.string(),
         },
-        # 참조 속성 — 게이트가 valid_from 을 본다 (data-contract.md §3). DART 업종을
-        # 2026-08-15 에 처음 받아 그 전 시점 백테스트가 섹터 0개였고, 포트폴리오
-        # 구성 §7 검증이 그 자리에서 막혔다(2026-08-23). 업종은 예측 정보가 아니다.
-        reference_data=True,
+        # 업종은 포트폴리오 제약·위험 모형을 바꾼다. 관측시각 예외를 허용하지 않는다.
+        reference_data=False,
         # 일별매매(KRX Open API)에만 있다. LS 유니버스(t8436)에는 섹터가 없다
         # (krx_openapi.TRADE_FIELDS 의 SECT_TP_NM). 종목이 업종을 옮기면 그날
         # 부터 새 관측이 새 행으로 쌓인다 — 옛 행을 고치지 않는다(append-only).

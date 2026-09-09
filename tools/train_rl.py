@@ -45,7 +45,11 @@ if str(REPO_ROOT) not in sys.path:
 from quant_rl_trading.allocator import train as train_module  # noqa: E402
 from quant_rl_trading.allocator.env import EnvParams  # noqa: E402
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig  # noqa: E402
-from quant_rl_trading.allocator.reward import ReturnNormalizer  # noqa: E402
+from quant_rl_trading.allocator.reward import (  # noqa: E402
+    REWARD_CONTRACT,
+    ReturnNormalizer,
+    require_reward_contract,
+)
 from quant_rl_trading.modelops.canary_vec import VecLatticeEnv  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 
@@ -218,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     start_index = 1
     if args.resume:
         state = torch.load(args.resume, map_location=device, weights_only=False)
+        require_reward_contract(state)
         policy.load_state_dict(state["policy"])
         optimizer.load_state_dict(state["optimizer"])
         start_index = int(state["update"]) + 1
@@ -237,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         temporary = checkpoint_path.with_suffix(".pt.tmp")
         torch.save(
             {
+                "reward_contract": REWARD_CONTRACT,
                 "policy": policy.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "update": update,

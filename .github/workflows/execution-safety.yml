@@ -19,3 +19,7 @@ jobs:
       - run: uv sync --frozen --all-groups
       - name: Order, broker and durable-claim regressions
         run: uv run pytest tests/executor/ tests/broker/ tests/store/test_concurrent_append.py
+      - name: Point-in-time research regressions
+        run: uv run pytest tests/analysts/test_ranker_feature_contract.py tests/collectors/test_us_universe_panel.py tests/invariants/test_reference_data.py
+      - name: Financial calculation regressions
+        run: uv run pytest tests/accounting/ tests/backtest/test_stats.py tests/backtest/test_evaluation_boundary.py tests/rl/test_reward.py tests/rl/test_reward_net_contract.py

@@ -26,10 +26,21 @@ import pandas as pd  # noqa: E402
 
 from quant_rl_trading.analysts import ic  # noqa: E402
 from quant_rl_trading.analysts.ranker import (  # noqa: E402
-    BASE_ANALYSTS, FEATURES, GBM_PARAMS, GBM_ROUNDS, SCORE_FEATURES, VERSION, model_dir, rank_gauss,
+    BASE_ANALYSTS,
+    FEATURE_CONTRACT,
+    FEATURES,
+    GBM_PARAMS,
+    GBM_ROUNDS,
+    SCORE_FEATURES,
+    VERSION,
+    RankerAnalyst,
+    model_dir,
+    rank_gauss,
 )
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.replay.clock import ReplayClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store.quality import require_causal_universe  # noqa: E402
 
 KST = ZoneInfo("Asia/Seoul")
 HOLDOUT = date(2026, 7, 1)
@@ -45,9 +56,14 @@ def _moment(day: date) -> datetime:
 
 
 def load_signals(store: Store, *, as_of: datetime, market: Market) -> pd.DataFrame:
-    """(entity_id, session, chart…risk) — as_of 시점에 알던 기초 Analyst 점수."""
+    """과거 각 결정 시점에 실제 조회 가능했던, 운용과 동일하게 변환된 X.
+
+    학습 종료 시각의 정정본으로 과거 X를 소급하지 않는다. 종료 시각 조회는
+    세션 목록 발견에만 쓰고, feature 계산은 각 세션 as_of로 다시 조회한다.
+    """
+    require_causal_universe(store, as_of=as_of, market=str(market))
     prefix = f"{market}:"
-    parts: list[pd.DataFrame] = []
+    moments: set[datetime] = set()
     floor = as_of - timedelta(days=HISTORY_DAYS)
     start = floor
     while start < as_of:
@@ -62,19 +78,22 @@ def load_signals(store: Store, *, as_of: datetime, market: Market) -> pd.DataFra
                 & chunk["analyst"].astype(str).isin(BASE_ANALYSTS)
             ]
         if not chunk.empty:
-            chunk = chunk.sort_values("observed_at").groupby(["entity_id", "valid_from", "analyst"], as_index=False).tail(1)
-            chunk["session"] = chunk["valid_from"].dt.date
-            chunk["feature"] = chunk["analyst"].map(BASE_ANALYSTS)
-            parts.append(chunk.loc[:, ["entity_id", "session", "feature", "score"]])
+            moments.update(moment.to_pydatetime() for moment in chunk["valid_from"].unique())
         start = end
+    parts: list[pd.DataFrame] = []
+    analyst = RankerAnalyst(store, ReplayClock(as_of), market=market, models_root=store.root)
+    for moment in sorted(moments):
+        features = analyst.input_features(moment)
+        if features.empty:
+            continue
+        features = features.reset_index()
+        features["session"] = moment.date()
+        parts.append(features.loc[:, ["entity_id", "session", *SCORE_FEATURES]])
     if not parts:
         return pd.DataFrame(columns=["entity_id", "session", *SCORE_FEATURES])
-    stacked = pd.concat(parts, ignore_index=True).drop_duplicates(subset=["entity_id", "session", "feature"], keep="last")
-    wide = stacked.pivot_table(index=["entity_id", "session"], columns="feature", values="score", aggfunc="last").reset_index()
-    for column in SCORE_FEATURES:
-        if column not in wide.columns:
-            wide[column] = np.nan
-    return wide.loc[:, ["entity_id", "session", *SCORE_FEATURES]]
+    return pd.concat(parts, ignore_index=True).drop_duplicates(
+        subset=["entity_id", "session"], keep="last",
+    )
 
 
 def build_frame(store: Store, *, through: date) -> pd.DataFrame:
@@ -93,7 +112,8 @@ def build_frame(store: Store, *, through: date) -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     frame = pd.concat(frames, ignore_index=True)
-    frame = rank_gauss(frame, [*SCORE_FEATURES, "target"], by=["market", "session"])
+    # X는 당시 전체 적격 유니버스에서 이미 확정했다. y 존재 여부로 다시 변환하지 않는다.
+    frame = rank_gauss(frame, ["target"], by=["market", "session"])
     frame["is_us"] = (frame["market"] == "US").astype(float)
     return frame
 
@@ -119,6 +139,7 @@ def train_one(store: Store, *, through: date, threads: int) -> Path:
     total = sum(gain.values()) or 1.0
     meta = {
         "version": VERSION, "trained_through": through.isoformat(),
+        "feature_contract": FEATURE_CONTRACT,
         "usable_from": (through + timedelta(days=1)).isoformat(),
         "features": list(FEATURES), "rows": int(len(frame)),
         "sessions": {m: int(frame.loc[frame["market"] == m, "session"].nunique()) for m in ("KR", "US")},

@@ -41,6 +41,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from quant_rl_trading.accounting import weights as weights_module
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest.execution import currency_of
@@ -277,6 +278,11 @@ def sync_fills(
         if not store.ingest_run_recorded(TRADES, run_id):
             written = int(store.append(TRADES, rows, ingest_run_id=run_id, source=SOURCE))
 
+    sessions = {
+        outcome.order_id.split("|")[0] for outcome in outcomes
+        if outcome.state is not FillState.UNKNOWN
+    }
+    weights_module.refresh(store, clock, as_of=as_of, sessions=sessions)
     return SyncResult(tuple(outcomes), written)
 
 

@@ -218,3 +218,16 @@ def test_reprice_requires_current_risk_approval():
     )
     assert len(broker.cancelled) == 1
     assert result.orders[0].status.value == "cancel_unknown"
+
+
+def test_unfilled_order_does_not_change_realized_weight(store):
+    store.seed_config_defaults()
+    seed_price(store, NOW)
+    pipeline.run(
+        store, ReplayClock(NOW), as_of=NOW, market="KR",
+        targets=[pipeline.Target("KR:A", weight=.1, price=1000, adv_value=1e9)],
+        holdings={}, equity=1e6, cash=1e6,
+    )
+    weights = store.get("realized_weights", as_of=NOW)
+    assert weights.iloc[0]["realized_weight"] == 0.
+    assert pipeline.action_reflection_rate(store, as_of=NOW) == 0.
