@@ -109,13 +109,15 @@ Gross Alpha → Turnover → Commission → Spread → Slippage → Tax → Net 
 | H8 High | research purpose/금고·예산 공통 차단은 설계, Store 미구현. promote_policy가 gate를 직접 강제하지 않음 | 연구/승격 별도 변경: 자동 승격 금지 상태 유지, 공통 평가 증거 스키마·해시·seed/OOS gate 필요 |
 | H9 High | writer manifest 작성 전 중단·동시 append의 원자성 공백(코드 확인, 장애 주입 전) | 단일 writer 운영 의존을 명시. 장애 주입·recovery·동시 제출 검증 필요 |
 | H10 High | 대사 실패가 다음 주문을 강제 차단하지 않음. corporate action 가격 조정과 ledger 수량 조정은 별개 | 관측된 broker snapshot·reconciliation 상태·효력 기한의 공통 계약 필요 |
+| H11 High (후속 발견) | 기존 셸 테스트의 경로 치환이 worktree에서 0회여도 실제 운영 복구를 실행 | 유일한 cd 명령을 임시 경로로 치환, 0/복수 명령이면 실행 전 실패. 아래 영향 기록·회귀 검증 참조 |
 | M1 Medium | purged_folds가 거래세션 horizon을 달력일로 빼고, evaluate는 train fold를 사용하지 않음 | 고정 과거신호 IC 기술통계와 fitted OOS를 구분; session-index purge 회귀 |
 | M2 Medium | 학습 화면 WF 성적/학습 임계치 일부 상수. ranker hash 저장하지만 로드시 검증 없음 | 측정 artifact·hash·model age·missing 상태를 명시 |
 | M3 Medium | freshness의 entity 조회 실패 시 전체 표 재조회 | 다른 지수/시장으로 신선도 PASS를 만들지 않도록 정확한 entity 유지 |
 | M4 Medium | LS HTTP·UI 계좌/시세 경로에서 resource cleanup·예외 내용·live/as_of 경계 확인 필요 | 예외를 알 수 없음으로 드러내고 고객/계좌 비밀은 로그에서 제외 |
 | L1 Low | README의 RL 중심 그림·844 passed 배지와 과거 미배선 서술 | 현재 Champion·실행한 검증 범위·남은 위험으로 갱신 |
 
-H8~H10은 별도 계약·장애 시험이 필요한 후속 배치다. 임계치 완화나 숫자 보정으로 완료 처리하지 않는다.
+H8~H10은 별도 계약·장애 시험이 필요한 후속 배치다. H8의 구형 활성화 경로는
+아래 후속 배치에서 차단했지만 공통 증거 gate는 미완료다. 임계치 완화나 숫자 보정으로 완료 처리하지 않는다.
 
 ## E. UX Issues
 
@@ -264,3 +266,75 @@ Ruff는 파일·규칙·해당 소스 행, mypy는 파일·진단 메시지 기�
 기업행위 skip 사유도 재확인했다: `test_corporate_actions.py -rs`는
 **18 passed, 3 skipped**다. 2개는 `adj_factor` 자료 미수집, 1개는 격리 창고의
 `KR:150840` 자료 부재다. 해당 데이터 gate를 낮추지 않았다.
+
+## 후속 배치 — 데이터 대기 중 가능한 H8 안전 조치
+
+기준 커밋 `8db7ac6`. 같은 격리 브랜치에서 작업했다. 아래 테스트 격리 사고로
+원래 작업 폴더의 서비스 재기동과 shadow NAV 정정이 발생했다. 의도한 배포/운영 변경은 아니며,
+영향을 없었던 것으로 처리하지 않는다.
+설계 §13을 먼저 갱신한 뒤 임시 Store와 스텁으로 실패를 재현했다.
+
+| Hypothesis | Evidence | Change | Regression / Before → After |
+|---|---|---|---|
+| 구형 도구가 충분한 증거 없이 승격을 허용한다 | `generalizes`와 반영률만 확인. `--window valid`도 rc=0; 실제 checkpoint 해시·Champion 순성과·seed 안정성 증거 없음 | 구형 gate는 명시적 "승격 미지원"과 rc=2. 새 평가 실행이나 저장된 OOS 조회 없음 | 좋은 기존 `oos`/`valid` 기록 모두 rc **0 → 2**. 이는 수익성 재평가가 아님 |
+| CLI를 건너뛰면 설정을 바꿀 수 있다 | `write_config`를 직접 호출하면 평가 없이 paper/shadow/live 활성화 | 비어 있지 않은 checkpoint는 CLI와 쓰기 함수 양쪽에서 거부 | 4개 모드 조합에서 활성화 **허용 → 거부**, config 변화 없음 |
+| 차단 때문에 비상 해제나 읽기 전용 점검도 잃을 수 있다 | 기존 `--off`·`--dry-run` 경로 대조 | 해제의 append-only 정정과 dry-run 유지, 서로 충돌하는 옵션은 오류 | 과거 as_of 정책 보존, 현재 해제 확인; dry-run에서 설정 쓰기 없음 |
+| 재부팅/로그 유실이 종료한 실험을 재개시킨다 | supervisor가 완료 표식 부재를 근거로 8/30 외부 체인과 r7을 다시 띄움 | 3개 구형 체인은 작업 전에 rc=2; supervisor의 3회차 재시작 제거 | 격리 셸 실행에서 로그·작업 생성 없음; 완료 표식 유무 양쪽에서 재시작 0회 |
+
+첫 회귀 실행(구현 전):
+
+```text
+python -m pytest tests/tools/test_policy_promotion_safety.py --tb=short --disable-warnings
+8 failed, 3 passed, 1 warning in 6.43s
+```
+
+구현 후 같은 11개: **11 passed, 1 warning in 6.15s**. 이후 셸 경계 시험을 추가했다.
+아래 명령은 앞 절과 같은 Python 3.12, `PYTHONPATH=.` 및 thread 제한으로 실행했다.
+
+```text
+python -m pytest tests/tools/test_policy_promotion_safety.py tests/invariants \
+  tests/tools/test_run_session_exit.py tests/allocator/test_live.py \
+  tests/store/test_config.py --disable-warnings --tb=short
+147 passed, 4 warnings in 64.74s
+```
+
+**남은 위험:** 이 조치는 기존의 불충분한 승인 경로를 닫은 것이다. 공통 연구 접근 통제,
+새 증거 스키마·파일 해시 연결·여러 seed·Champion 대비 비용 후 성과·사람 승인 연결은
+아직 구현되지 않았다. 원시 config 작성 권한이나 다른 연구 도구의 직접 실행을 통제하지
+않으며, 이미 실행 중인 정책/작업을 소급해 해제하지 않는다. 기존 Champion이나 연구
+평가일을 변경하지 않았다. G1~G6는 10/1 이후, TWAP은 유효 20거래일 관측 이후 판정한다.
+
+### 검증 중 발견한 High: 셸 테스트가 worktree를 벗어남
+
+`test_reboot_recover_script.py`와 `test_collect_daily_script.py`는 현재 checkout 경로의
+문자열 치환으로 `cd`를 격리했다. 실제 스크립트에는 원래 저장소 절대경로가 하드코딩돼
+있어서 격리 worktree에서는 치환이 0회여도 실제 셸을 실행했다.
+
+추가 검증 중 복구 테스트가 이 경로를 호출했다. 해당 pytest와 그 자식 프로세스만
+중단했다. 테스트 고정 시각 이름의 로그에서 대시보드 재기동 호출 3회와 회계 완료 2회를
+확인했고, 회계 로그에는 shadow NAV 정정 1회와 나머지 변화 없음이 기록됐다.
+복구 계획은 수집·세션 모두 OK였고 추가 수집/주문 세션은 호출하지 않았다.
+테스트의 curl은 스텁이어서 워밍업 API는 호출하지 않았다. 중단 뒤 비어 있던 표준
+paper 대시보드 포트 5059는 기존 작업 폴더의 기존 실행 방식으로 복구했다.
+append-only NAV 정정과 사고 로그는 삭제하거나 숨기지 않았다.
+
+수정 계약: 테스트가 checkout 이름을 추측하지 않고 유일한 `cd` 명령을 임시 경로로
+치환한다. 명령이 없거나 여러 개면 **셸 실행 전에 실패**해야 한다. 스텁 이외의 실제
+복구·수집 도구를 실행하지 않은 호출 기록을 검증한다. 운영 셸 자체의 경로는 변경하지 않는다.
+
+수정 후 수집·복구 셸 및 승격 시험 **28 passed, 1 warning in 8.32s**.
+경로 모호성 4개 회귀를 추가한 최종 실행:
+
+```text
+python -m pytest tests/tools/test_policy_promotion_safety.py \
+  tests/tools/test_reboot_recover_script.py tests/tools/test_collect_daily_script.py \
+  tests/invariants --disable-warnings --tb=short
+143 passed, 1 warning in 26.72s
+```
+
+변경한 Python 5개 파일 `ruff check`: **All checks passed!**.
+변경한 셸 4개 `bash -n` 및 `git diff --check`: **rc=0**.
+대시보드 복구 확인은 `GET /trading` HTML **HTTP 200**으로 했으며, 금융 API는 호출하지 않았다.
+저장된 shadow NAV는 `Store.get(..., as_of=LiveClock().now())`로 당일 정정의
+`source=accounting`, `revision=1`을 확인했다. 포트 복구와 NAV 기록의 존재 확인은
+해당 정정의 경제적 정확성을 새로 인증한 것이 아니다.

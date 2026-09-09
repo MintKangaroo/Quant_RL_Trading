@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 보존된 과거 실험이다. 현재 재개 조건·검증 계약 없이 학습/홀드아웃/투입하지 않는다.
+echo "보관된 실험 체인 — 실행 중단. docs/design/rl-training.md §13과 docs/rl-postmortem.md §10 참조" >&2
+exit 2
+
 # 4회차 체인 — docs/protocols/drl-round4-2026-09.md 의 순서 0~6. 끝난 단계는 로그 표식으로 건너뛴다.
 # 기동: setsid nohup bash scripts/chain_drl_r4.sh > /dev/null 2>&1 &
 set -uo pipefail

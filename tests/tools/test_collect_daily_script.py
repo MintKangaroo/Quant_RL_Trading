@@ -18,8 +18,11 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "collect_daily.sh"
@@ -43,8 +46,11 @@ def _run(tmp_path: Path, market: str, *, fail_on: str = "") -> list[str]:
 
     record = tmp_path / "calls.txt"
     script = tmp_path / "collect_daily.sh"
+    source = SCRIPT.read_text(encoding="utf-8")
+    directory_commands = [line for line in source.splitlines() if line.startswith("cd ")]
+    assert len(directory_commands) == 1, "Refuse to run an unisolated shell script"
     script.write_text(
-        SCRIPT.read_text(encoding="utf-8").replace(str(REPO), str(tmp_path)),
+        source.replace(directory_commands[0], f"cd {shlex.quote(str(tmp_path))} || exit 1"),
         encoding="utf-8",
     )
 
@@ -107,3 +113,19 @@ def test_국장에서_한번_낡았던_것들이_전부_들어있다(tmp_path: P
 def test_미장은_공시를_안_부른다(tmp_path: Path) -> None:
     """DART 는 국내 공시다. ``--market US`` 로 부르면 빈 응답만 받는다."""
     assert "documents-dart" not in _tables(_run(tmp_path, "US"))
+
+
+@pytest.mark.parametrize("commands", ["", "cd /first || exit 1\ncd /second || exit 1"])
+def test_격리할_경로가_불명확하면_셸을_실행하지_않는다(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, commands: str,
+) -> None:
+    source = tmp_path / "source.sh"
+    source.write_text("#!/bin/bash\n" + commands)
+    monkeypatch.setattr(__import__(__name__), "SCRIPT", source)
+
+    def unexpected(*args: object, **kwargs: object) -> None:
+        pytest.fail("Must validate isolation before starting a process")
+
+    monkeypatch.setattr(subprocess, "run", unexpected)
+    with pytest.raises(AssertionError, match="unisolated"):
+        _run(tmp_path / "sandbox", "KR")
