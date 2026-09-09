@@ -16,7 +16,7 @@ Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
-[현재 인수인계·디자인 미착수 범위·다음 작업](START-HERE.md) ·
+[현재 인수인계·디자인 반영 범위·다음 작업](START-HERE.md) ·
 [검증 범위와 미해결 위험](docs/audits/2026-09-09-mission-control.md)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
 [![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
@@ -47,7 +47,7 @@ Champion 대비 비용 후 성과·seed 안정성·artifact 동일성의 검증 
 
 아직 필요한 작업: 공통 research/승격 gate, writer 동시성·장애 복구, 저장된 broker
 snapshot과 주문 전 reconciliation gate, 기업행위의 장부 수량 반영, 독립 missing/ghost
-검사, gross/net/cost의 일관된 표시. 현재 잔고의 직접 조회도 저장된 관측으로 이전해야 한다.
+검사, spread/slippage를 포함한 총비용 분해. 현재 잔고의 직접 조회도 저장된 관측으로 이전해야 한다.
 
 검증 명령과 실제 결과, 기존 정적 검사 실패는 [감사 문서](docs/audits/2026-09-09-mission-control.md)에 공개한다.
 후속 셸 테스트에서 기존 경로 격리 결함으로 대시보드 재기동과 shadow NAV 정정이
@@ -62,7 +62,22 @@ snapshot과 주문 전 reconciliation gate, 기업행위의 장부 수량 반영
 
 ---
 
+## 2026-09-09 관제 화면 개편
+
+트레이딩은 주문·데이터·모델·대사 상태와 리스크 예산을 먼저 보여준다. 정지 버튼을 상단에
+배치하고 Gross / 명시 비용 / Net을 분리했다. 모델 검증 페이지는 Champion의 관측 IC와
+Challenger의 검증 근거를 구분하며, 없는 지표는 미측정이다. 과거 RL 진단은 펼칠 때 조회한다.
+기존 검은 시트·토큰·폰트·숫자 정렬을 유지했다.
+
+KR/US Ranker 관측의 덮어쓰기, 근거 없는 UI 위험 한도, 과거 조회 링크 범위도 수정했다.
+**대시보드·회계·불변식 370개 통과**, 데스크톱/모바일 Chromium 검수에서 가로 넘침·
+JavaScript 오류 0건. [변경 근거·재현 명령·미측정 범위](docs/audits/2026-09-09-dashboard.md).
+운영 배포와 병행 안전 코드 통합은 아직이다. 다음 작업은 사용자 승인 후 진행한다.
+
 ## 화면
+
+아래 이미지는 **이번 개편 전** 캡처다. 최신 배치는 위 디자인 감사와
+`tools/review_control_ui.py`의 격리 검수로 확인한다.
 
 아래는 전부 **데모 창고(`data/_demo`)** 로 찍은 것이다. 이 저장소는 공개라
 실계좌 화면을 올리면 보유종목·주문번호가 영구히 남는다 — 가리는 것이 아니라

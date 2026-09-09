@@ -167,6 +167,43 @@ def test_unmeasured_reflection_is_not_a_critical_zero(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_control_does_not_certify_safety_or_fabricate_gross_pnl(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    trading["data"]["risk"]["killswitch"]["engaged"] = False
+    trading["data"]["performance"]["pnl"] = 1_234.0
+    trading["data"]["performance"]["execution_costs"] = {
+        "explicit_complete": True,
+        "by_currency": [{"currency": "KRW", "commission": 30.0, "tax": 20.0}],
+    }
+    dump = _render(tmp_path, trading, chart)
+    assert "미측정" in dump["control-overview"]
+    assert "OPERATIONAL" not in dump["risk"]
+    assert "disabled" in dump["emergency-control"]
+    assert "1,234" in dump["execution-cost"]  # 비용 50을 다시 차감하지 않는다.
+    assert "50 KRW" in dump["execution-cost"]
+    assert 'Gross PnL</span><strong class="cost-unknown">미측정' in dump["execution-cost"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_risk_has_no_invented_position_limit_and_unknown_reject_rate(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    trading["data"]["kpis"]["positions"] = 24
+    trading["data"]["risk"]["reject_rate"] = None
+    dump = _render(tmp_path, trading, chart)
+    import re
+
+    rows = re.findall(r'<div class="risk-row">(.*?)</div>', dump["risk"], re.S)
+    holdings = next(row for row in rows if "보유 종목" in row)
+    rejected = next(row for row in rows if "주문 거부율" in row)
+    assert "24종목" in holdings and "CRITICAL" not in holdings
+    assert "UNKNOWN" in rejected and "미측정" in rejected
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
 def test_장_마감_후에는_오늘_수익을_종가로_잡는다(tmp_path: Path) -> None:
     """**0.00% 는 "안 움직였다" 가 아니라 "아직 모른다" 였다.**
 

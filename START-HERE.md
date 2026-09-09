@@ -12,10 +12,12 @@ Quant_RL_Trading의 현재 인수인계와 초기 개발 순서. 기존 시스�
 - 이번 변경의 격리 worktree: `/home/mintkangaroo/Project/Quant_RL_Trading_mission_control`.
   브랜치: `fix/mission-control-safety-audit`.
 - 구현 커밋 `9275273`, 통합 검증 기록 `8db7ac6`, 구형 승격 차단·셸 테스트 격리
-  `69f6713`까지 GitHub 푸시를 확인했다. 이 세션에서 main 병합이나 변경 코드의
+  `69f6713`, 인수인계 `36c255d`까지 GitHub 푸시를 확인했다.
+  후속 디자인 변경은 아래 UI 상태와 전용 감사 문서에 기록했다. 이 세션에서 main 병합이나 변경 코드의
   계획된 배포를 수행하지 않았다. 아래 테스트 사고에 따른 운영 영향은 별도로 발생했다.
 - 원래 작업 폴더 `Quant_RL_Trading`에는 병행 변경이 있다. 인수인계 작성 시
-  `docs/quant-platform-audit-20260909`, HEAD `4c2fc54` 및 추가 미커밋 변경을 확인했다.
+  `docs/quant-platform-audit-20260909`, HEAD `1470fa0` 및 주문 이벤트/action journal 등의
+  추가 미커밋 변경을 확인했다.
   그 변경은 이번 브랜치에 통합·검증하지 않았다. 다음 작업 전에 두 브랜치의 최신 상태와
   겹치는 수정부터 비교하고, 다른 작업의 미커밋 파일을 덮어쓰거나 되돌리지 않는다.
 
@@ -47,22 +49,28 @@ Challenger의 승격 판단은 OOS 위험조정 순성과·견고성·운영 안
 구형 RL 활성화 경로 차단은 **공통 승격 gate의 완성이 아니다**. 원시 config 쓰기 권한,
 다른 연구 도구의 직접 실행, 이미 활성화된 정책을 통제하는 장치는 아직 아니다.
 
-### 디자인 / UI 상태 — 본격 개편 미착수
+### 디자인 / UI 상태 — 두 화면 개편 완료, 운영 배포 전
 
-사용자가 디자인 수정 여부를 물었고, **디자인 자체는 아직 본격적으로 손보지 않았다**고
-설명했다. UI 변경은 미측정 값을 정상이나 0으로 오독하게 하던 표시와 시점 경계의 정정이다.
-새 레이아웃·정보 구조 개편이나 전 기기 시각 검수를 완료했다고 보고하지 않는다.
+승인된 트레이딩·학습 화면 개편을 구현했다. [디자인 감사와 검증](docs/audits/2026-09-09-dashboard.md)을
+먼저 읽는다. 새 화면의 대사·총비용·Challenger 검증 자료 부재를 완료 상태로 오인하지 않는다.
 
-다음 UI 작업은 데이터 축적을 기다리지 않고 진행할 수 있다. 첫 화면에서 손익·비용·위험·
-주문 가능 여부·데이터 이상·주문/장부 불일치를 빠르게 확인하도록 배치를 정리한다.
-Gross PnL / Trading Cost / Net PnL을 분리하고, 대사·model·data 상태의 근거가 없으면
-미측정으로 표시한다. 관련 API의 실제 필드를 먼저 확인하며 가짜 지표를 채우지 않는다.
+- 운용 관제: 독립 상태 4개, 리스크 예산 요약과 정지 버튼을 상단 배치. 리스크 패널 상시 표시.
+- 손익: Gross / 명시 비용 / Net 분리. fee/tax는 통화별 전수 관측일 때만 표시하며,
+  체결 목록이 잘리면 미측정. Net에서 비용을 다시 빼지 않는다.
+- 모델 검증: Champion 기준과 관측 IC·가중치·측정 시점을 먼저 표시. Challenger의 없는
+  검증 자료는 미측정. 과거 RL 진단·AI 해설·후보 차트는 필요할 때 펼친다.
+- learning API의 KR/US 덮어쓰기와 IC 이력 혼합을 수정. 과거 조회와 장부 범위를 링크에
+  유지하고, 과거/종합 화면에서는 킬스위치 조작을 비활성화한다.
+- 1440×1000 / 390×844 Chromium 검수: 가로 넘침·JavaScript 오류·쓰기 요청 0.
+  실제 paper 관측도 쓰기 금지 Store로 조회했다. 실제 계좌 캡처는 GitHub에 올리지 않는다.
 
-[dashboard 설계](docs/design/dashboard.md)와
-[app.css의 :root](quant_rl_trading/dashboard/static/app.css)를 따른다.
-배경 `#050505`, profit `#22C55E`, loss `#EF4444`, system OK `#3FB950`, accent `#4C6EF5`,
-Pretendard / IBM Plex Mono, 1px divider, 높은 정보 밀도와 숫자 정렬을 보존한다.
-값을 새 화면에 중복 하드코딩하지 않는다. 이미지·장식 asset은 현재 필요하지 않다.
+[dashboard 설계](docs/design/dashboard.md)와 [app.css의 :root](quant_rl_trading/dashboard/static/app.css)를
+유지했다. 배경·손익·상태 색, Pretendard / IBM Plex Mono, 1px divider, 숫자 정렬을 보존했다.
+이미지나 가짜 금융 지표를 새 UI에 넣지 않았다.
+
+**진행 방식:** 이번 승인 범위는 디자인 개편까지다. 사용자가 “다음 작업을 추천하고,
+승인하면 진행”하도록 요청했다. 다음 추천은 병행 안전 코드와의 계약 대조·통합 검증 및
+대사 상태 연결이다. 승인 전 해당 작업이나 운영 배포를 시작하지 않는다.
 
 ### 기다릴 연구와 지금 가능한 작업
 
@@ -71,7 +79,7 @@ Pretendard / IBM Plex Mono, 1px divider, 높은 정보 밀도와 숫자 정렬�
 | G1~G6 연구 판정 대기 | [사전등록](docs/protocols/ranker-sources-round6-2026-09.md)에 따라 **2026-10-01 이후**. 그 전에 평가창 수치·marginal IC를 열지 않는다. 사전 점검은 등록된 coverage 범위로 제한 |
 | TWAP 관측 대기 | [집행 연구 등록](docs/protocols/execution-rl-2026-09.md)의 **유효 20거래일** 필요. 9/1·9/2는 제외하며 달력상 날짜 도래만으로 PASS하지 않는다. 룰 1차 관문 전 Execution RL에 착수하지 않는다 |
 | 지금 가능한 correctness / safety | 병행 구현과 대조한 뒤 남은 주문 전 reconciliation 계약, 미결 주문 예약금, 기업행위 수량, writer 장애·동시성 경계 검증 |
-| 지금 가능한 data / observability | 독립 missing/ghost gate, 저장된 broker snapshot, gross/net/cost 표시와 첫 화면 정보 배치 |
+| 지금 가능한 data / observability | 독립 missing/ghost gate, 저장된 broker snapshot, 총비용 분해와 대사 증거 연결(화면 배치는 완료) |
 | 공통 연구·승격 gate | 사전등록·예산·구간·Champion 순성과·seed 분산·artifact 동일성·사람 승인 연결이 남음. 새 평가 없이 계약·회귀를 먼저 준비 가능 |
 
 연구 판정을 기다리는 동안에도 수집 실패·데이터 오염·장부 불일치 점검은 계속한다.
@@ -81,13 +89,19 @@ Pretendard / IBM Plex Mono, 1px divider, 높은 정보 밀도와 숫자 정렬�
 
 ### 검증 근거와 주의할 운영 기록
 
+- 디자인 배치: dashboard 전체 + performance + invariants **370개 통과**.
+  후속 실패 표시 수정 뒤 관련 렌더/API/회계/불변식 **174 passed, 1 warning in 19.39s**.
+  마지막 시장 표시 수정 뒤 관련 API/렌더/불변식 **152 passed, 7 warnings in 22.26s**.
+  재현 가능한 Chromium 검수 도구 `tools/review_control_ui.py`를 추가했다.
+  변경 Python 파일의 Ruff 추가 진단은 0건이며 기존 32건은 남아 있다.
+
 - 첫 배치의 폭넓은 경계 검증: **459 passed, 3 skipped**. 통합 검증: **183 passed**.
   범위가 다른 실행이며 통과 건수를 합산하지 않는다. 명령·warning·skip 사유는 감사 문서에 있다.
 - `69f6713`의 최종 승격/셸/불변식 검증은 아래 명령으로 **143 passed, 1 warning in 26.72s**.
   변경 Python 파일 Ruff, 셸 `bash -n`, `git diff --check`도 통과했다.
 - 저장소 전체 Ruff/mypy는 기존 실패가 남아 있다. 전체 정적 검사를 PASS로 표시하지 않는다.
   당시 동일 기준선 대비 Ruff 1,632개, mypy 430개였으며 상세 비교는 감사 문서를 따른다.
-- 이번 인수인계 문서 갱신에서는 `python -m pytest tests/invariants --disable-warnings --tb=short`:
+- 앞선 `36c255d` 인수인계 문서 갱신에서는 `python -m pytest tests/invariants --disable-warnings --tb=short`:
   **111 passed, 1 warning in 16.42s**. 로컬 문서 링크 11개와 `git diff --check`도 확인했다.
 
 ```bash

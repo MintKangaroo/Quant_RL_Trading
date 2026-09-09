@@ -117,12 +117,14 @@ def m4_status(
     }
 
 
-def analyst_gate(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+def analyst_gate(
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None,
+) -> dict[str, Any]:
     """지금 실제로 학습(선택)을 대신하고 있는 것 — Analyst IC 게이트.
 
     M4 상태 인코더가 조합할 입력이 바로 이 가중치다.
     """
-    roster = agent_health.roster(store, as_of=as_of, lookback=lookback)
+    roster = agent_health.roster(store, as_of=as_of, lookback=lookback, market=market)
     measured = [item for item in roster if item["measured"]]
     active = [item for item in roster if float(item["weight"]) > 0]
     return {
@@ -132,7 +134,10 @@ def analyst_gate(store: Store, *, as_of: datetime, lookback: int) -> dict[str, A
         "measured_count": len(measured),
         "total": len(roster),
         "active_weight": sum(float(item["weight"]) for item in roster),
-        "alerts": ranker_decay_alerts(store, as_of=as_of, lookback=lookback),
+        "alerts": [
+            alert for alert in ranker_decay_alerts(store, as_of=as_of, lookback=lookback)
+            if market in (None, "ALL") or alert["market"] == market
+        ],
     }
 
 
@@ -319,12 +324,14 @@ def run_progress(rows: pd.DataFrame, *, as_of: datetime, total_updates: int) -> 
     }
 
 
-def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+def ic_history(
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None,
+) -> dict[str, Any]:
     """Analyst 별 IC 측정 이력 + 합격선.
 
     합격선은 코드에 적지 않고 매 요청 ``store.config`` 에서 읽는다 (불변식 10).
     """
-    history = agent_health.ic_history(store, as_of=as_of, lookback=lookback)
+    history = agent_health.ic_history(store, as_of=as_of, lookback=lookback, market=market)
     history["threshold"] = float(store.config("analyst.ic_threshold", as_of=as_of))
     return history
 

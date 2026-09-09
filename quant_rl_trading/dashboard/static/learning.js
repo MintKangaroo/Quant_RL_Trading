@@ -1,4 +1,4 @@
-/* 학습 탭 — RL(M4)은 아직 없다.
+/* 모델 검증 탭 — Ranker 관측을 먼저, 과거 RL 진단은 펼쳤을 때 읽는다.
  *
  * 공통 규약은 scope.js 에 있다. 이 화면 고유의 표현만 만든다.
  *
@@ -74,13 +74,13 @@ async function renderM4Placeholders() {
       continue;
     }
     if (runs.has_data && !RUN_SERIES[widget.key] && evals && !evals.has_data) {
-      target.innerHTML = "<strong>학습은 완주했지만 평가를 아직 안 돌렸다.</strong>"
-        + "<br>tools/evaluate_policy.py --save 가 rl_evaluations 를 채운다.";
+      target.innerHTML = "<strong>저장된 평가 기록이 없다.</strong>"
+        + "<br>재개 조건과 사전등록을 확인한 뒤 평가한다.";
       continue;
     }
     const why = RUN_SERIES[widget.key]
-      ? "학습 기록이 0행이다 — 표는 있다(rl_updates). PPO 를 돌리면 채워진다."
-      : "학습을 완주해야 나온다.";
+      ? "저장된 학습 기록이 없다."
+      : "저장된 검증 기록이 없다.";
     target.innerHTML = `<strong>${why}</strong>${
       widget.detail ? `<br>${widget.detail}` : ""
     }`;
@@ -192,21 +192,21 @@ function drawRunChart(target, key, runs) {
 }
 
 async function renderGate() {
-  const body = await fetchJson("learning/gate");
+  const body = await fetchModelGate();
   const data = body.data;
   showScope(body);
 
   const rows = data.roster.map((item) => {
     const state = !item.measured
       ? `<span class="tag dim">미측정</span>`
-      : item.passed
+      : item.passed && item.weight > 0
         ? `<span class="tag pass">매매에 쓰임</span>`
         : `<span class="tag observe">관찰</span>`;
     const icCell = item.ic === null
       ? "—"
       : `<span class="${item.passed ? "good" : "weak"}">${dec(item.ic)}</span>`;
     return `<tr>
-      <td><strong>${item.analyst}</strong><div class="kpi-note">${item.note}</div></td>
+      <td><strong>${item.analyst}</strong> <span class="sub">${item.market || ''}</span><div class="kpi-note">${item.note}</div></td>
       <td>${state}</td>
       <td class="num">${icCell}</td>
       <td class="num">${dec(item.weight, 1)}</td>
@@ -228,29 +228,57 @@ async function renderKpis() {
   // gate·status 를 여기서 따로 부른다. runAll 은 각 job 을 독립적으로
   // 실패시키므로(agent_health.js 와 같은 관례), renderGate 의 side effect에
   // 기대지 않는다 — 그쪽이 실패해도 KPI 줄은 뜬다.
-  const [gateBody, statusBody] = await Promise.all([
-    fetchJson("learning/gate"),
-    fetchJson("learning/status"),
-  ]);
+  const gateBody = await fetchModelGate();
   const g = gateBody.data;
-  const s = statusBody.data;
+  showScope(gateBody);
+  const market = (params().get("market") || "KR").toUpperCase();
+  const rankers = g.roster.filter((row) => row.analyst === "ranker" && row.market === market);
+  const ranker = rankers.length === 1 ? rankers[0] : null;
+  const measured = ranker?.measured && Number.isFinite(ranker.ic);
+  const ic = measured ? dec(ranker.ic, 3) : "미측정";
 
   document.getElementById("kpis").innerHTML = [
-    kpi("RL 학습(M4)", s.label ?? (s.active ? "가동" : "미착수"),
-        s.run ? `${s.run.run_id}` : s.milestone),
+    kpi("Ranker IC", ic, `${market} · 관측값`, measured && !ranker.passed),
     kpi("매매에 쓰이는 애널리스트", num(g.active_count), `잰 것 ${num(g.measured_count)}/${num(g.total)}`,
       g.active_count === 0),
     kpi("가중치 합", dec(g.active_weight, 1), "0 이면 아무도 매매에 못 쓴다", g.active_weight === 0),
     kpi("적중도를 잰 애널리스트", num(g.measured_count), `전체 ${num(g.total)}명`),
   ].join("");
 
+  const safe = (value) => String(value ?? "미측정").replace(/[&<>"']/g,
+    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+  document.getElementById("champion-evidence").innerHTML = `<dl class="model-evidence">
+    <div><dt>Ranker IC · ${safe(market)}</dt><dd>${ic}</dd></div>
+    <div><dt>합성 가중치</dt><dd>${ranker ? dec(ranker.weight, 2) : '미측정'}</dd></div>
+    <div><dt>측정 세션 수</dt><dd>${ranker?.sample_days != null ? num(ranker.sample_days) : '미측정'}</dd></div></dl>
+    <p class="cost-detail">버전 ${safe(ranker?.version)} · 측정 ${safe(ranker?.measured_at)}<br>재학습 시각 · feature drift: 미측정</p>`;
+  document.getElementById("model-comparison").innerHTML = `<table><thead><tr>
+    <th>구분</th><th>현재 증거</th><th class="num">IC</th><th class="num">Marginal IC</th>
+    <th class="num">순IR</th><th class="num">회전율</th><th class="num">총비용</th><th class="num">Seed 분산</th>
+    </tr></thead><tbody><tr><td>Champion 기준</td><td>${ranker?.weight > 0 ? 'Ranker 합성 참여' : '관측 확인 필요'}</td>
+    <td class="num">${ic}</td>${'<td class="num">미측정</td>'.repeat(5)}</tr>
+    <tr><td>Challenger</td><td>승격 근거 없음</td>${'<td class="num">미측정</td>'.repeat(6)}</tr></tbody></table>`;
+
   const warnings = [];
   if (g.active_count === 0) warnings.push("합격선을 넘은 애널리스트가 없다 — 아무도 매매에 못 쓴다");
   showAlerts(warnings);
 }
 
+async function fetchModelGate() {
+  try { return await fetchJson("learning/gate"); } catch (error) {
+    for (const id of ["kpis", "champion-evidence", "model-comparison", "gate"]) {
+      document.getElementById(id).innerHTML = '<p class="empty">모델 상태 조회 실패 · 미측정</p>';
+    }
+    throw error;
+  }
+}
+
 async function renderIcHistory() {
-  const { data } = await fetchJson("learning/ic-history");
+  let data;
+  try { ({ data } = await fetchJson("learning/ic-history")); } catch (error) {
+    charts["chart-ic"]?.clear();
+    throw error;
+  }
   const instance = chart("chart-ic");
 
   if (!data.series.length) {
@@ -258,7 +286,7 @@ async function renderIcHistory() {
     instance.setOption({
       ...BASE,
       title: {
-        text: "측정 이력 없음 — tools/measure_ic.py --save 로 기록된다",
+        text: "해당 시장의 저장된 IC 이력 없음",
         left: "center", top: "middle",
         textStyle: { color: COLOR.dim, fontSize: 12, fontWeight: "normal" },
       },
@@ -398,8 +426,7 @@ async function renderResearchLedger() {
   let dsrCell;
   if (data.dsr) {
     const pct = (data.dsr.dsr * 100).toFixed(1);
-    const cls = data.dsr.dsr >= 0.95 ? "good" : "weak";
-    dsrCell = `<span class="${cls}">${pct}%</span>
+    dsrCell = `<span>${pct}% · 관측값</span>
       <span class="kpi-note">일별 샤프 ${data.dsr.sharpe.toFixed(3)} vs 시행 ${data.cumulative_trials}회 운의 상한 ${data.dsr.expected_max.toFixed(3)} · 표본 ${data.dsr.sample_days}일</span>`;
   } else {
     dsrCell = `<span class="kpi-note">표본 부족 — NAV ${data.nav_sample_days}일 (30일 필요). 시간이 유일한 진짜 신규 데이터다</span>`;
@@ -409,7 +436,7 @@ async function renderResearchLedger() {
     ? data.holdout_openings
         .map((o) => `${o.opened_at.slice(0, 10)} · ${o.reason} · ${o.window}`)
         .join("<br>")
-    : `<span class="kpi-note">개봉 이력 없음 — 정상 상태다. 금고 시작 ${data.holdout_start}</span>`;
+    : `<span class="kpi-note">저장된 개봉 이력 없음 · 금고 시작 ${data.holdout_start}</span>`;
 
   target.innerHTML = `<table>
     <tbody>
@@ -428,7 +455,19 @@ async function renderResearchLedger() {
     </tbody></table>`;
 }
 
-runAll([renderKpis, renderM4Placeholders, renderGate, renderIcHistory, renderWalkForward, renderResearchLedger]);
+runAll([renderKpis, renderGate, renderIcHistory, renderResearchLedger, renderOpenDiagnostics]);
+
+const diagnostics = document.getElementById("rl-diagnostics");
+async function renderOpenDiagnostics() {
+  if (!document.getElementById("rl-diagnostics")?.open) return;
+  await renderM4Placeholders();
+  await renderResearchJobs();
+}
+if (diagnostics) diagnostics.addEventListener("toggle", async () => {
+  try { await renderOpenDiagnostics(); } catch (_) {
+    document.getElementById("training-live").textContent = "진단 조회 실패 · 재조회하려면 접었다 펼친다.";
+  }
+});
 
 
 const VERDICT_LABEL = {
@@ -561,7 +600,4 @@ async function renderResearchJobs() {
     <table class="dense"><thead><tr><th>PID</th><th>스크립트</th><th class="num">CPU</th><th class="num">RSS</th><th class="num">가동</th></tr></thead><tbody>${runRows}</tbody></table>
     <h3>최근 로그</h3>
     <table class="dense"><thead><tr><th>로그</th><th>수정</th><th>마지막 줄</th></tr></thead><tbody>${logRows || '<tr><td colspan="3" class="empty">없음</td></tr>'}</tbody></table>`;
-}
-if (typeof document !== "undefined" && document.getElementById("research-jobs")) {
-  renderResearchJobs().catch(() => {});
 }
