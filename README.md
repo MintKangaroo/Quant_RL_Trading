@@ -50,6 +50,10 @@ Collector → Analyst / GBM ranker → Selector → Portfolio / Allocator
 
 회계·주문·PIT·불변식 선택 테스트 **386개**, 새 격리 환경 금융 테스트 **100개**가 통과했다(중복 포함). 별도 평가 경계 **3개**는 실제 Store·회계·backtest loop에서 첫날 손실을 확인한다. 기존 데이터 복구·모델 재학습·새 OOS 성과 측정은 실행하지 않았으며, 기존 모델을 새 계약 통과 모델로 승격하지 않았다.
 
+세 번째 패치는 포트폴리오 최종 제약을 재검사한다. 충족할 수 없는 RC·베타 상한, 결측 위험 입력, 잘못된 공분산을 거절하고 세션에 차단 사유를 남긴다. 제약·배분·세션 선택 테스트 **31개 통과**를 확인했다. score fallback·계좌 전체 예약 예산은 별도 후속 범위다.
+
+최종 불변식·포트폴리오·allocator·세션 검사 **266개 통과**, RL 패키지가 없는 격리 환경에서도 불변식 **112개 통과**를 확인했다. 검증 명령과 실행별 범위는 follow-up 문서에 기록했다.
+
 ## 실행 및 검증
 
 Python 3.12와 `uv`를 사용한다. `.env.example`이 환경변수 목록이며 실제 키는 커밋하지 않는다. 기존 환경에서 주문을 보내지 않는 확인 명령은 다음과 같다.
@@ -61,7 +65,11 @@ Python 3.12와 `uv`를 사용한다. `.env.example`이 환경변수 목록이며
 uv lock --check --offline
 ```
 
-**새 환경의 재현성은 아직 보완이 필요하다.** 현재 `.venv`에는 `torch`·`gymnasium`이 설치돼 있지만 `pyproject.toml`·`uv.lock`에는 선언되지 않았다. RL 전체 실행 환경은 `uv sync`만으로 재현되지 않는다. 감사 당시 Ruff와 mypy도 오류를 보고했다. 기본 CI 외에 `execution-safety`가 주문·브로커·PIT·금융 계산 회귀 테스트를 실행하며, 전체 저장소 검사 통과를 의미하지 않는다.
+룰 세션은 RL 패키지 없이 실행한다. 기본 설치는 `uv sync --frozen --all-groups`, RL 실행 환경은 `uv sync --frozen --all-groups --extra rl`로 구분했다. 선택 의존성은 기존 로컬 검증 버전인 torch 2.13·gymnasium 1.3으로 고정했다. 전체 GPU 환경을 새로 설치·검증한 것은 아니다.
+
+감사 당시 전역 Ruff와 mypy는 오류를 보고했다. 기본 CI 외에 `execution-safety`가 주문·브로커·PIT·금융 계산·제약·룰 세션 회귀 테스트를 실행하며, 전체 저장소 검사 통과를 의미하지 않는다.
+
+`warehouse` 표시가 있는 호가 실데이터 검사 3개는 로컬 시세 파일이 필요하다. 일반 CI는 `-m 'not warehouse'`로 해당 검사를 분리한다. 실제 창고가 있는 환경에서는 `.venv/bin/python -m pytest tests/executor/test_ticks.py -m warehouse`로 실행하며, 데이터가 없을 때 통과로 처리하지 않는다. 나머지 호가 구간·반올림 회귀 검사는 일반 CI에 포함된다.
 
 ---
 

@@ -16,17 +16,17 @@
 
 ## 리스크 기여 상한은 비선형이라 반복한다
 
-RC_i = w_i·(Σw)_i / σ_p². 한 종목의 비중을 줄이면 **모든** 종목의 RC 가
+RC_i = w_i·(Σw)_i / portfolio_variance. 한 종목의 비중을 줄이면 **모든** 종목의 RC 가
 바뀐다. 그래서 닫힌 해가 없다 — 위반한 것을 감쇠해서 줄이고 다시 재는 것을
 수렴할 때까지 반복한다(water-filling). 비중을 줄이면 그 RC 는 1차보다 빠르게
 주므로 √ 로 감쇠해 넘치지 않게 한다.
 
 ## 하방 베타는 이분 탐색으로 민다
 
-가중평균 하방 베타가 상한을 넘으면 exp(−λ·베타) 로 비중을 눌러 저베타 쪽으로
+가중평균 하방 베타가 상한을 넘으면 exp(-λ·베타) 로 비중을 눌러 저베타 쪽으로
 옮긴다. λ 를 키울수록 저베타로 쏠리므로, 상한을 만족하는 최소 λ 를 이분
-탐색한다. 모든 후보가 상한 위 베타면 만족할 수 없고 — 그때는 최선을 다한
-뒤 남는 위험은 현금이 흡수한다(현금 하한과 같은 방향).
+탐색한다. 최종 ``project``는 모든 제약을 다시 확인한다. 충족하지 못한
+근사값을 승인하지 않으며, 분수 RC·투자 비중 내 베타는 현금으로 희석되지 않는다.
 """
 
 from __future__ import annotations
@@ -48,6 +48,10 @@ RC_TOLERANCE = 1e-4
 #: 하방 베타 이분 탐색의 최대 λ 와 반복.
 MAX_LAMBDA = 50.0
 BISECT_ITERATIONS = 60
+
+
+class ProjectionError(ValueError):
+    """Risk inputs or final allocation cannot certify the configured constraints."""
 
 
 def _renormalize(weights: pd.Series) -> pd.Series:
@@ -92,9 +96,7 @@ def cap_risk_contributions(
     return w
 
 
-def cap_downside_beta(
-    weights: pd.Series, downside_beta: pd.Series, *, cap: float
-) -> pd.Series:
+def cap_downside_beta(weights: pd.Series, downside_beta: pd.Series, *, cap: float) -> pd.Series:
     """가중평균 하방 베타를 상한 이하로 민다. 합은 1 로 유지한다.
 
     ``downside_beta`` 는 종목별 하방 베타(대개 그 종목 섹터의 값). NaN 인
@@ -144,25 +146,65 @@ def project(
     downside_beta_cap: float,
     cash_floor: float,
 ) -> pd.Series:
-    """네 제약을 모두 건 최종 목표 비중. 합은 ``1 − cash_floor`` 이하.
+    """네 제약을 모두 건 최종 목표 비중. 합은 ``1 - cash_floor`` 이하.
 
-    **상한은 실현 가능해야 한다.** RC 합은 언제나 1 이라, 종목 상한이 ``c`` 면
-    종목이 ``1/c`` 개 이상, 섹터 상한이 ``s`` 면 섹터가 ``1/s`` 개 이상이라야
-    만족할 수 있다(0.15 → 7종목, 0.35 → 3섹터). 실전 후보는 24종목이라
-    넉넉하지만, 후보가 그보다 적으면 이 투영은 상한에 **최대한 가깝게** 줄일
-    뿐 넘길 수밖에 없다 — 없는 종목으로 위험을 나눌 수는 없다.
+    입력이 잘못됐거나 최종 제약이 남으면 ``ProjectionError``다. 보조 함수는
+    근사 단계이므로 한 제약을 맞춘 뒤 다른 제약을 다시 어길 수 있다.
 
     순서: 하방 베타 → RC 상한 → 현금 하한. 하방 베타 틸트가 비중을 옮기므로
     RC 상한을 그 뒤에 다시 걸어, 저베타로 쏠리며 생긴 집중을 잡는다. 현금
     하한은 마지막에 전체를 스케일 다운한다 — RC 는 분수라 스케일에 안 변하니
     현금을 마지막에 빼도 상한은 유지된다.
     """
-    if weights.empty:
-        return weights
-    w = _renormalize(weights.copy())
+    caps = np.asarray([name_rc_cap, sector_rc_cap, downside_beta_cap, cash_floor])
+    if (
+        not np.isfinite(caps).all()
+        or not 0 < name_rc_cap <= 1
+        or not 0 < sector_rc_cap <= 1
+        or downside_beta_cap < 0
+        or not 0 <= cash_floor <= 1
+    ):
+        raise ProjectionError("Invalid risk limits")
+    if not weights.index.is_unique or not np.isfinite(weights).all() or (weights < 0).any():
+        raise ProjectionError("Weights must be finite, unique and long-only")
+    if weights.empty or weights.sum() == 0 or cash_floor == 1:
+        return weights * 0.0
+    active = weights[weights > 0]
+    beta = downside_beta.reindex(active.index)
+    sigma = cov.reindex(index=active.index, columns=active.index).to_numpy(dtype=float)
+    if not np.isfinite(beta).all() or not np.isfinite(sigma).all():
+        raise ProjectionError("Missing or nonfinite covariance/downside beta")
+    if any(not sectors.get(entity) for entity in active.index):
+        raise ProjectionError("Missing sector classification")
+    scale = max(float(np.max(np.abs(sigma))), 1e-15)
+    if (
+        not np.allclose(sigma, sigma.T, rtol=1e-8, atol=scale * 1e-10)
+        or np.linalg.eigvalsh(sigma).min() < -scale * 1e-10
+    ):
+        raise ProjectionError("Covariance must be symmetric positive semidefinite")
+    if (
+        len(active) * name_rc_cap < 1 - RC_TOLERANCE
+        or len({sectors[e] for e in active.index}) * sector_rc_cap < 1 - RC_TOLERANCE
+    ):
+        raise ProjectionError("Insufficient names/sectors for risk contribution limits")
+    if float(beta.min()) > downside_beta_cap + RC_TOLERANCE:
+        raise ProjectionError("All candidates exceed downside beta limit")
+    w = _renormalize(active.copy())
     w = cap_downside_beta(w, downside_beta, cap=downside_beta_cap)
-    w = cap_risk_contributions(
-        w, cov, sectors, name_cap=name_rc_cap, sector_cap=sector_rc_cap
-    )
-    invested = max(0.0, 1.0 - cash_floor)
-    return w * invested
+    w = cap_risk_contributions(w, cov, sectors, name_cap=name_rc_cap, sector_cap=sector_rc_cap)
+    variance = float(w.to_numpy() @ sigma @ w.to_numpy())
+    if not np.isfinite(w).all() or variance <= 0:
+        raise ProjectionError("Portfolio risk cannot be measured")
+    rc = risk_contributions(w, cov)
+    sector_rc = sector_risk_contributions(rc, sectors)
+    avg_beta = float((w * beta).sum())
+    violations = []
+    if rc.max() > name_rc_cap + RC_TOLERANCE:
+        violations.append("name risk contribution")
+    if sector_rc.max() > sector_rc_cap + RC_TOLERANCE:
+        violations.append("sector risk contribution")
+    if avg_beta > downside_beta_cap + RC_TOLERANCE:
+        violations.append("downside beta")
+    if violations:
+        raise ProjectionError("Projection did not satisfy: " + ", ".join(violations))
+    return (w * (1.0 - cash_floor)).reindex(weights.index, fill_value=0.0)

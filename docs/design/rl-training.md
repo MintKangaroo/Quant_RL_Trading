@@ -701,3 +701,8 @@ ranker(시행 L) 실가중 후보 + 보상 기준선 후보 균등가중 + 학�
 설계(`docs/protocols/e2e-drl-final-2026-09.md`). 장치는 작동했으나(유효종목 26, IC 유지) 대조(EMA5·3N ranker)보다 −41%p/년,
 NW t −2.96, 5블록 중 4블록 열세. 학습창 IR 자체가 0 근처 → 배울 신호 없음. 남은 시도 1회는 집행 RL 2차 전용.
 
+## 2026-09-09 선택적 RL 실행 경계
+
+RL 활성 설정(`allocator.activation.LiveParams`)은 torch/gymnasium을 import하지 않는다. 세션은 현재 모드에 RL checkpoint가 활성인 경우에만 정책·환경을 로드한다. 룰 전략과 공통 금융 계산·백테스트는 RL 패키지 없이 실행되어야 한다. 기존 `allocator.live.LiveParams` import 경로는 재노출해 유지한다. 활성 RL의 필수 패키지가 없을 때 룰로 조용히 대체하지 않는다.
+
+기본 설치는 `uv sync --frozen --all-groups`, RL 실행 설치는 `uv sync --frozen --all-groups --extra rl`이다. 기존 로컬 검증 환경의 torch 2.13·gymnasium 1.3을 선택 의존성으로 선언했다. 로컬 검증은 torch CPU 빌드이며 lockfile의 전체 GPU 배포 환경을 새로 설치·검증했다는 뜻은 아니다.

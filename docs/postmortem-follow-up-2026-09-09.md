@@ -15,6 +15,7 @@
 | 첫 평가일 손실 누락 | 평가 구간 첫 종가를 기초값으로 사용, 첫 수익 무조건 제거 | `backtest/loop.py`, `backtest/stats.py` | 회계와 같은 직전 스냅샷을 기초값으로 사용 | `tests/backtest/test_evaluation_boundary.py` | 실제 Store→회계→loop 검증 포함 |
 | PPO 보상에서 실비 두 번 차감 | 비용 후 NAV 수익에서 cost를 다시 차감 | `allocator/reward.py`, `allocator/env.py` | `net-cost-once-v2`: cost는 별도 기록. 기존 계약 checkpoint 재개 차단 | `tests/rl/test_reward.py`, `tests/rl/test_reward_net_contract.py` | 구현; 별도 DRL 시뮬레이터 성과 설명 아님 |
 | 체결 0건에서 액션 반영 100% | 사이징 계획을 실제 비중으로 기록 | `executor/pipeline.py`, `accounting/weights.py` | 장부 보유만 평가. 부분체결 대사 후 revision. 같은 상태 재대사 멱등 | `tests/accounting/test_realized_weights.py`, `tests/executor/test_safety_regressions.py` | 구현; 계좌 대사 완료 여부를 대신하지 않음 |
+| 불가능한 위험 제약을 정상 비중으로 반환 | 근사 투영 후 모든 제약을 재검사하지 않음 | `portfolio/constraints.py`, `session/daily.py` | 입력·최종 RC/베타 검사. 실패 시 리밸런싱 중단, 기존 보유를 청산 목표로 만들지 않음 | `tests/portfolio/test_projection_safety.py`, `tests/session/test_daily.py` | 구현; 기존 score fallback은 RC 인증 아님 |
 
 실제 비중 갱신은 백테스트 체결 및 브로커 체결 대사 양쪽에서 회계 모듈을 사용한다. 평가에 필요한 가격·환율이 없으면 성공한 수치로 위장하지 않는다. 기록된 체결만 알려진 포지션이며, UNKNOWN 주문의 브로커 잔고 확정을 뜻하지 않는다.
 
@@ -33,12 +34,19 @@
 - 새 격리 환경의 금융 CI 대상: 100개 통과(25.04초). 평가 loop 통합 사례 추가 전 실행이다.
 - 평가 경계 테스트 3개 통과(6.28초): 첫 평가일 -10% 보유 손실이 loop의 Total Return과 MDD에 모두 포함된다.
 - 기존 backtest loop 10개 통과(160.32초), 최종 커밋 전 불변식 112개 통과(10.42초).
+- 포트폴리오 실패 사례 8개는 수정 전 모두 실패. 수정 후 제약·배분·세션 선택 테스트 31개 통과(51.85초).
+- RL 선택 의존성을 분리한 새 격리 환경: 룰 세션·회계·평가 경계·포트폴리오 100개 통과(81.41초).
+- 수정한 일반 CI의 주문·PIT 대상: 격리 환경 176개 통과, 실데이터 검사 3개 명시적 제외(35.84초). 실데이터 검사는 로컬에서 별도로 3개 통과(1.83초).
+- 최종 격리 환경 불변식 112개 통과(22.01초). RL 패키지를 설치하지 않은 환경이다.
+- 기존 RL 운용 연결을 포함한 불변식·포트폴리오·allocator·세션 검사 266개 통과(440.30초). 로컬 torch CPU 환경에서 수행했다.
+
+최초 두 GitHub `execution-safety` 실행은 로컬 실제 시세 파일을 찾는 호가 검사 3개 때문에 실패했다. 로컬 격리 Python 환경은 같은 머신의 `data/`를 볼 수 있었으므로 이 의존성을 드러내지 못했다. 이 3개를 `warehouse` 대상으로 명시하고 일반 CI에서는 제외했다. 데이터가 있는 로컬 실데이터 검사는 유지하며, 호가 경계·방향성·반올림 검사는 계속 CI에서 실행한다. 원격 CI 결과는 마지막 push 이후 별도로 확인한다.
 
 실행별 테스트는 중복되므로 합산하지 않는다. 전체 저장소 lint/type/test 통과 또는 투자성과 증거가 아니다. 과거 전역 Ruff·mypy 오류는 별도 부채다. 추가 검증 결과는 해당 커밋 README에 기록한다.
 
 ## 남은 개선 순서
 
-1. 불가능한 포트폴리오 제약을 성공으로 반환하는 경로, 계좌 전체 예약 현금·노출 한도, 장중 조치의 영속 상태 전이를 보강한다.
+1. 계좌 전체 예약 현금·노출 한도, 장중 조치의 영속 상태 전이, 위험 데이터가 없을 때의 score fallback 정책을 보강한다. 제약 투영이 실패한 값을 정상 배분으로 반환하는 경로는 차단했다.
 2. 새 계약 데이터에서 공통 baseline·비용/지연 stress·WF/OOS를 실행할 재현 가능한 연구·평가 계약을 만든다. 이미 사용한 홀드아웃을 미사용 OOS로 부르지 않는다.
 3. Champion 대비 net return·Sharpe·MDD·turnover·안정성·cost sensitivity를 모두 확인하는 승격 게이트를 연결한다. 기존 `promotion_gate.py`의 reward 중심 판정만으로 Production 자격을 부여하지 않는다.
 4. 실제 연구 산출물로 Research/Models UI를 확장하고, clean environment와 측정된 병목을 개선한다.
