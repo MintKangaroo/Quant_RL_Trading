@@ -157,9 +157,11 @@ def cumulative_from_sync(result: SyncResult) -> dict[str, float]:
     "모른다" 로 보고 이번 회차에서 건너뛴다. 0 으로 채우면 "안 채워졌다" 가
     되어 재호가·취소가 사실이 아닌 근거로 나간다.
     """
+    from quant_rl_trading.broker.fills import FillState
+
     out: dict[str, float] = {}
     for outcome in result.outcomes:
-        if outcome.cumulative_quantity is None:
+        if outcome.state is FillState.UNKNOWN or outcome.cumulative_quantity is None:
             continue
         out[outcome.order_id] = float(outcome.cumulative_quantity)
     return out

@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
@@ -50,6 +50,7 @@ from quant_rl_trading.broker.ls_order_us import PATH_ACCNO_US
 from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials
 from quant_rl_trading.collectors.ls_client import PATH_ACCNO
 from quant_rl_trading.schemas.order import Side
+from quant_rl_trading.store.locking import account_lock
 
 if TYPE_CHECKING:
     from quant_rl_trading.collectors.ls_client import LSClient
@@ -125,6 +126,7 @@ class PendingFill:
     market: str
     broker_order_no: str
     requested_quantity: float
+    observed_day: date | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,19 @@ def sync_fills(
     as_of: datetime,
     pending: list[PendingFill],
 ) -> SyncResult:
+    store = store.execution_view()
+    with account_lock(store.root):
+        return _sync_fills_locked(store, client, clock, as_of=as_of, pending=pending)
+
+
+def _sync_fills_locked(
+    store: Store,
+    client: LSClient,
+    clock: Clock,
+    *,
+    as_of: datetime,
+    pending: list[PendingFill],
+) -> SyncResult:
     """대기 중인 주문들의 체결을 확인해 ``trades`` 에 적는다.
 
     조회 TR 은 ``PendingFill.market`` 이 정한다 — 국장 ``t0425``, 미장
@@ -187,6 +202,13 @@ def sync_fills(
     rows: list[dict[str, object]] = []
 
     for item in pending:
+        venue = NEW_YORK if item.market == "US" else ZoneInfo("Asia/Seoul")
+        if item.observed_day is not None and item.observed_day != as_of.astimezone(venue).date():
+            outcomes.append(FillOutcome(
+                item.order_id, FillState.UNKNOWN,
+                detail="historical order needs dated reconciliation; order number alone is insufficient",
+            ))
+            continue
         found = fetched.get(item.market)
         if isinstance(found, str):
             # 조회 자체가 실패했다 — 모른다. 0건으로 적으면 "안 샀다" 로
@@ -509,7 +531,7 @@ def _recorded_quantities(
     entities = sorted({item.entity_id for item in pending})
     if not entities:
         return {}
-    frame = store.get(TRADES, as_of=as_of, entity=entities, lookback=ORDER_LOOKBACK_DAYS)
+    frame = store.get(TRADES, as_of=as_of, entity=entities)
     if frame.empty:
         return {}
     wanted = {item.order_id for item in pending}

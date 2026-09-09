@@ -83,7 +83,14 @@ def main(argv: list[str] | None = None) -> int:
     source = build_store(None)
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
-    now = LiveClock().now()
+    from quant_rl_trading.store.locking import account_lock
+
+    with account_lock(store.root):
+        return _reconcile(args, store, LiveClock())
+
+
+def _reconcile(args, store: Store, clock) -> int:
+    now = clock.now()
     market = args.market
     prefix = f"{market}:"
 

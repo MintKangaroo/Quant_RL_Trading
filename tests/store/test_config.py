@@ -49,7 +49,7 @@ def test_config_version_is_readable(seeded, ts) -> None:  # type: ignore[no-unty
 
     섹션에 속하지 않는 최상위 값이라 섹션 조회와 헷갈리기 쉽다.
     """
-    assert seeded.config("config_version", as_of=ts(2026, 1, 1)) == 1
+    assert seeded.config("config_version", as_of=ts(2026, 1, 1)) == 2
 
 
 def test_unknown_section_is_an_error_not_an_empty_dict(seeded, ts) -> None:  # type: ignore[no-untyped-def]

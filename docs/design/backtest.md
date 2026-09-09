@@ -254,9 +254,14 @@ LS 국내주식은 장이 끝난 뒤 낸 정규 주문을 받지 않는다. 23:0
 
 `execution.run` 은 직전 세션의 주문을 오늘 봉으로 체결시킨다. 실브로커로 나간
 주문(`orders.status = sent`)에 그걸 하면 **실제 체결 위에 가짜 체결이 한 벌 더
-얹힌다.** 그래서 `execution.pending` 은 `planned`·`paper` 만 고른다:
+얹힌다.** 그래서 `execution.pending`은 PaperBroker용으로 예산 승인된 `reserved(reason=simulation_only)`·`paper`만 새로 체결한다.
+`simulated`는 같은 세션의 결정론적 재실행만 지원한다. `planned`는 승인이 아니다:
 
-    paper       → 시뮬레이션 (백테스트·shadow)
+    reserved    → simulation_only일 때만 D+1 시뮬레이션 대상
+    paper       → 승인 후 PaperBroker 접수, D+1 시뮬레이션 대상
+    simulated   → D+1 시도 완료·예약 해제, 같은 실행 재현 가능
+    planned     → 미승인, 체결 금지
+    withdrawn   → 미전송 철회, 체결 금지
     sent        → 시뮬레이션 안 함. 15:45 `tools/reconcile_fills.py` 가 t0425 로 체결을 읽어 trades 에 적는다
     submitting  → 나갔는지 모른다. 지어내지 않는다 (pipeline.submit_orders 의 규약)
     rejected    → 없다

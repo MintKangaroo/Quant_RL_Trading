@@ -398,7 +398,7 @@ def run(
         result.days.append(entry)
         if day not in warmup_set:
             if not index_values:
-                prior = ledger_module.previous_snapshot(store, as_of=as_of)
+                prior = ledger_module.previous_session_snapshot(store, as_of=as_of)
                 if prior is not None:
                     initial_index = float(prior["index_value"])
             index_values.append(snapshot.index_value)

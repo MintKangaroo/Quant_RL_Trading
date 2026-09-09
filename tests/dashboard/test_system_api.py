@@ -223,7 +223,7 @@ def test_killswitch_state_is_read_from_the_warehouse(seeded) -> None:
 
     assert data["killswitch_engaged"] is True
     assert data["killswitch_reason"] == "낙폭 30% 초과"
-    assert data["config_version"] == 1
+    assert data["config_version"] == 2
 
 
 def test_summary_warns_when_killswitch_is_engaged(seeded) -> None:

@@ -46,9 +46,64 @@
 
 ## 남은 개선 순서
 
-1. 계좌 전체 예약 현금·노출 한도, 장중 조치의 영속 상태 전이, 위험 데이터가 없을 때의 score fallback 정책을 보강한다. 제약 투영이 실패한 값을 정상 배분으로 반환하는 경로는 차단했다.
+1. 장중 조치의 영속 상태 전이·최종 취소/과거 주문일 대사, 위험 데이터가 없을 때의 score fallback 정책을 보강한다. 계좌 예약 현금·노출 한도는 아래 후속 패치로 구현했다. 제약 투영이 실패한 값을 정상 배분으로 반환하는 경로는 차단했다.
 2. 새 계약 데이터에서 공통 baseline·비용/지연 stress·WF/OOS를 실행할 재현 가능한 연구·평가 계약을 만든다. 이미 사용한 홀드아웃을 미사용 OOS로 부르지 않는다.
 3. Champion 대비 net return·Sharpe·MDD·turnover·안정성·cost sensitivity를 모두 확인하는 승격 게이트를 연결한다. 기존 `promotion_gate.py`의 reward 중심 판정만으로 Production 자격을 부여하지 않는다.
 4. 실제 연구 산출물로 Research/Models UI를 확장하고, clean environment와 측정된 병목을 개선한다.
 
-비용·spread·slippage의 완전한 분해, realistic intrabar fill, 주문 예약 예산, 모든 리스크 항목, 전체 baseline 성과 비교, feature ablation, 새 OOS·paper·live shadow·limited capital 검증은 아직 완료되지 않았다. 이 패치는 과거 결함의 재발 조건을 줄인 것이며 수익성 개선 주장이 아니다.
+비용·spread·slippage의 완전한 분해, realistic intrabar fill, 다중 호스트 계좌 예산, 모든 리스크 항목, 전체 baseline 성과 비교, feature ablation, 새 OOS·paper·live shadow·limited capital 검증은 아직 완료되지 않았다. 이 패치는 과거 결함의 재발 조건을 줄인 것이며 수익성 개선 주장이 아니다.
+
+
+## 계좌 예산 후속 패치
+
+| Failure | Root cause | Code location | Constraint / fix | Regression test | Priority |
+|---|---|---|---|---|---|
+| 다른 주문이 같은 현금을 사용 | 주문 ID별 중복 검사만 존재, 미체결 금액 미예약 | `risk/account.py`, `risk/budget.py`, `executor/pipeline.py` | 통화별 현금에서 수수료·재호가 상한 포함 잔량 예약, 계좌 잠금 | `tests/risk/test_account_budget.py` 동시 스레드·프로세스·재시작 사례 | Critical |
+| 보유량 초과 매도, 예약된 매도대금 재사용 | 목표/현재 주문만 검사 | `risk/budget.py` | 실제 수량에서 기존 매도 잔량 차감; 예상 매도는 매수 여력으로 계산 금지 | `tests/risk/test_budget.py` | Critical |
+| 오래된 미확정 주문을 완료로 표시 | 경과 일수를 취소 증거로 사용 | `tools/reconcile_fills.py`, `broker/fills.py` | 자동 expired 제거, 주문번호 미확정·미확인 잔량 실패 보고, 과거 주문은 날짜별 대사 필요 | `tests/risk/test_account_budget.py`, `tests/broker/test_fills.py` | Critical |
+| 과거 부분체결을 다시 계산할 위험 | 주문 조회 창으로 장부 체결 이력까지 제한 | `broker/fills.py` | 누적 체결 차감에 전체 PIT 체결 이력 사용; 대사·전송·재호가 같은 계좌 잠금 | `test_old_partial_fill_is_not_forgotten_by_polling_window` | High |
+| 미승인 주문을 백테스트에서 체결 | planned를 paper와 같은 승인 상태로 취급 | `backtest/execution.py`, `executor/pipeline.py` | planned → reserved → 전송; PaperBroker용 승인 조각만 D+1 시도, simulated로 잔량 해제 | `test_simulator_consumes_authorized_slices_and_releases_after_attempt` | High |
+| UTC 자정에 미국 매도대금을 조기 해제 | 결제일 경계와 체결일 시간대 불일치 | `accounting/ledger.py` | 시장 현지 날짜·거래일 캘린더, 기존 settlement_days 적용 | `tests/accounting/test_settlement_timezone.py` | High |
+| 장중 snapshot 이후 평가 시작 지수 불일치 | loop와 일일 TWR의 전일 선택 기준 차이 | `backtest/loop.py` | `previous_session_snapshot` 공유 | `tests/backtest/test_evaluation_boundary.py` 장중 snapshot 유무 사례 | High |
+
+예약은 주문 저널에서 재구축한다. 별도 메모리 잔액이나 새로운 NAV 계산을 만들지 않았다.
+`reserved/paper/submitting/sent/cancel_unknown/modify_unknown` 잔량과 브로커 번호가 있는
+미검증 종결 행은 체결 장부가 입증한 수량만 차감한다. 미전송 조각 철회는 전송 claim이
+없을 때만 허용한다. partial fill과 예약 해제를 같은 계좌 잠금 안에서 처리하며,
+중간 장애는 예약을 과하게 유지할 수 있어도 확인 없이 예산을 풀지는 않는다.
+
+새 설정은 config 판번호 2이며 신규 연구 창고의 기본 가정이다. 기존 운영 창고의 값과
+계좌는 수정하지 않았다. 기존 창고에 도입할 때는 `Store.seed_config_defaults`에 명시적
+`effective_at`을 제공해 변경값을 먼저 검토해야 한다. 과거 설정·모델 결과를 새 위험계층을
+통과한 결과로 재표시하지 않는다. RL 캐시 설정 지문에도 risk 키를 포함한다.
+
+같은 Store 루트의 FUND만 직렬화한다. 다른 루트·호스트·외부 수동 주문, 입출금과
+브로커 최종 취소 확정까지 원자적으로 보장하는 계좌 원장은 아직 없다. 기존
+`reconcile_snapshot`의 추정 단가 정정도 실제 체결 증거를 대체하지 않으며, 이번에는
+경합을 막는 잠금만 연결했다. 모든 라이브 주문의 완전한 대사를 주장하지 않는다.
+
+예약 승인 과정에서 종목별 중복 Store 조회를 일괄 조회로 줄였다. 별도 성능 벤치마크나
+전략 수익성 개선을 측정했다는 의미는 아니다. 전체 baseline·비용/지연 stress·WF/OOS는
+다음 연구 단계로 남아 있다.
+
+모의체결 권한은 예약 승인과 별개다. `simulation_only` 표시가 있는 PaperBroker용
+예약만 봉으로 체결하며, 해당 예약의 실브로커 전송도 차단한다. 기존 미승인 planned
+행을 승인된 과거 주문으로 소급 변경하지 않았다. 비교 연구는 새 버전·새 저널에서
+재실행해야 한다. 실제 broker용 reserved를 모의체결하지 않는 회귀 테스트를 포함했다.
+
+
+### 계좌 예산 검증 기록
+
+수정 전 새 실패 사례 6개(다른 주문/동시 주문의 중복 현금 사용, 수수료 예산,
+상한 없는 시장가 매수, 계좌 평가 누락, 보유량 초과 매도)가 모두 실패했다.
+
+- 계좌·브로커·집행·회계·평가 경계·설정·시스템 API·불변식: **417 passed**, 로컬 시세가 필요한 3개 제외, 129.29초. 모의체결 권한 분리 전 실행이다.
+- 최종 모의/실제 브로커 예약 분리 후 계좌·집행·브로커·불변식·룰 세션: **325 passed**, 실데이터 3개 제외, 112.98초.
+- 설정 지문·config·커밋 전 불변식: **128 passed**, 24.28초.
+- 대사·추격·대시보드 CLI의 `--help` 진입점을 확인했다. 실제 주문 전송이나 운영 계좌 설정 변경은 실행하지 않았다.
+- 신규 risk 코드·pipeline·계좌 잠금·신규 재무 테스트의 Ruff 검사와 `git diff --check`가 통과했다. 기존 전체 저장소 lint 부채의 해소를 주장하지 않는다.
+
+위 실행은 서로 중복되므로 테스트 수를 합산하지 않는다. 실현 수익·Sharpe·alpha 개선
+검증이 아니라 장부·집행 계약 검증이다. 최종 재생 검사는 아래에 별도로 기록한다.
+
+- 모의체결 권한 분리 후 `tests/backtest/test_loop.py`·`tests/session/test_shadow_execution.py`: **12 passed**, 245.75초. 동일 세션 재실행·중복 체결 방지와 하루씩 나눈 shadow 연결을 검증했다.

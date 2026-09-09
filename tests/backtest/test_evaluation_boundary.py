@@ -36,7 +36,8 @@ def test_single_scored_day_can_lose_money():
     assert report.max_drawdown == pytest.approx(-0.2)
 
 
-def test_loop_includes_loss_against_previous_accounting_snapshot(store):
+@pytest.mark.parametrize("intraday_snapshot", [False, True])
+def test_loop_includes_loss_against_previous_accounting_snapshot(store, intraday_snapshot):
     from datetime import UTC, date, datetime, timedelta
 
     from quant_rl_trading.accounting import snapshot
@@ -98,6 +99,15 @@ def test_loop_includes_loss_against_previous_accounting_snapshot(store):
     )
     opening = snapshot.take(store, clock, as_of=prior)
     snapshot.write(store, clock, snapshot=opening)
+
+    if intraday_snapshot:
+        at = current - timedelta(hours=2)
+        store.append("prices", [{
+            "entity_id": "KR:A", "valid_from": at, "observed_at": at,
+            "source": "test", "market": "KR", "close": 950.0,
+        }], ingest_run_id="intraday-price")
+        clock = ReplayClock(at)
+        snapshot.write(store, clock, snapshot=snapshot.take(store, clock, as_of=at))
 
     report = loop.run(
         store,

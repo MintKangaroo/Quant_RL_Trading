@@ -11,6 +11,7 @@ from quant_rl_trading.executor.orders import PlannedOrder
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.schemas.order import Order, Side
 from quant_rl_trading.store.memo import MemoStore
+from tests.account_fixture import fund_account
 
 NOW = datetime(2026, 9, 9, 1, tzinfo=UTC)
 
@@ -66,6 +67,7 @@ def seed_price(store, moment):
 
 
 def test_kill_switch_blocks_released_slices_at_execution_time(store):
+    fund_account(store, NOW, holdings={"KR:A": 10})
     store.seed_config_defaults()
     old = NOW - timedelta(days=1)
     seed_price(store, old)
@@ -134,6 +136,7 @@ def test_us_utc_session_label_is_not_shifted_to_previous_day(store):
 
 
 def test_pipeline_execution_clock_is_separate_from_signal_clock(store):
+    fund_account(store, NOW - timedelta(days=1))
     store.seed_config_defaults()
     old = NOW - timedelta(days=1)
     seed_price(store, old)

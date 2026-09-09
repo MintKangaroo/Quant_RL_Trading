@@ -43,11 +43,14 @@ def test_sent_주문은_봉으로_체결시키지_않는다(store) -> None:
             _order_row("KR:C", "submitting"),
             _order_row("KR:D", "rejected"),
             _order_row("KR:E", "planned"),
+            _order_row("KR:F", "reserved", reason="simulation_only"),
+            _order_row("KR:G", "risk_blocked"),
+            _order_row("KR:H", "reserved"),
         ],
         ingest_run_id="orders-test",
     )
     frame = execution.pending(store, as_of=NOW, session_id=SESSION)
-    assert sorted(frame["entity_id"]) == ["KR:A", "KR:E"]
+    assert sorted(frame["entity_id"]) == ["KR:A", "KR:F"]
 
 
 @dataclass
@@ -75,6 +78,9 @@ def _planned(entity: str, *, slice_seq: int = 0) -> PlannedOrder:
 
 
 def test_전송된_주문은_브로커_주문번호를_reason_에_남긴다(store) -> None:
+    from tests.account_fixture import fund_account
+
+    fund_account(store, NOW)
     store.seed_config_defaults()
     store.append("prices", [{
         "entity_id": "KR:A", "valid_from": NOW, "observed_at": NOW,

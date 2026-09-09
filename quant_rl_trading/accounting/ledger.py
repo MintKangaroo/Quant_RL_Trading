@@ -49,7 +49,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting.book import KRW, USD, Book, Side, Trade
 from quant_rl_trading.accounting.rates import Rates
-from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.market_hours import Market, local_time, trading_days
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -209,8 +209,10 @@ def available_cash(
     # 결제가 끝난 경계. **거래일로 센다** — 달력일로 세면 금요일 매도가
     # 화요일이 아니라 월요일에 풀려 실제보다 이르게 쓸 수 있게 된다.
     span = timedelta(days=settlement_days * 4 + 14)
-    sessions = trading_days(Market(market), (as_of - span).date(), as_of.date())
-    recent = [day for day in sessions if day <= as_of.date()][-settlement_days:]
+    venue = Market(market)
+    today = local_time(venue, as_of).date()
+    sessions = trading_days(venue, today - span, today)
+    recent = sessions[-settlement_days:]
     if not recent:
         return max(0.0, cash)
     cutoff = min(recent)
@@ -230,7 +232,7 @@ def available_cash(
             continue
         if Side(str(row["side"])) is not Side.SELL:
             continue
-        session = pd.Timestamp(row["valid_from"]).tz_convert(SEOUL).date()
+        session = local_time(venue, pd.Timestamp(row["valid_from"]).to_pydatetime()).date()
         if session < cutoff:
             continue
         # 손에 들어오는 돈은 세금·수수료를 뺀 뒤다.

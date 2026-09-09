@@ -32,26 +32,30 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import pandas as pd  # noqa: E402
+import pandas as pd
 
-from quant_rl_trading.broker import factory as broker_factory  # noqa: E402
-from quant_rl_trading.broker.fills import sync_fills  # noqa: E402
-from quant_rl_trading.dashboard.services.account import _client  # noqa: E402
-from quant_rl_trading.dashboard.services.live_quotes import LiveQuoteCache  # noqa: E402
-from quant_rl_trading.executor import guards, supervise  # noqa: E402
-from quant_rl_trading.executor.lifecycle import (  # noqa: E402
+from quant_rl_trading.broker import factory as broker_factory
+from quant_rl_trading.broker.fills import sync_fills
+from quant_rl_trading.collectors.market_hours import Market
+from quant_rl_trading.dashboard.services.account import _client
+from quant_rl_trading.dashboard.services.live_quotes import LiveQuoteCache
+from quant_rl_trading.executor import guards, supervise
+from quant_rl_trading.executor.lifecycle import (
     LifecycleParams,
     OpenOrder,
     OrderStatus,
 )
-from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
-from quant_rl_trading.schemas.order import Side  # noqa: E402
-from quant_rl_trading.settings import load_env  # noqa: E402
-from quant_rl_trading.store import Store, overlay  # noqa: E402
-from tools.reconcile_fills import BROKER_ORDER_NO_PREFIX, pending_from_orders  # noqa: E402
-from tools.run_backtest import JOURNAL  # noqa: E402
-from tools.run_session import build_store, last_settled_day  # noqa: E402
-from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.executor.pipeline import withdraw_unsent
+from quant_rl_trading.replay.clock import LiveClock
+from quant_rl_trading.risk import account as account_risk
+from quant_rl_trading.risk.budget import Reservation
+from quant_rl_trading.schemas.order import Side
+from quant_rl_trading.settings import load_env
+from quant_rl_trading.store import Store, overlay
+from quant_rl_trading.store.locking import account_lock
+from tools.reconcile_fills import BROKER_ORDER_NO_PREFIX, pending_from_orders
+from tools.run_backtest import JOURNAL
+from tools.run_session import build_store, last_settled_day
 
 ORDERS = "orders"
 STATUS_SENT = "sent"
@@ -69,16 +73,46 @@ def main(argv: list[str] | None = None) -> int:
 
     load_env()
     clock = LiveClock()
-    now = clock.now()
     source = build_store(None)
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
+    with account_lock(store.root):
+        return _chase(args, store, clock)
+
+
+def check_account(store, clock, *, order: OpenOrder, market: str):
+    now = clock.now()
+    gate = guards.check_pretrade(
+        store, as_of=now, market=market, entity_id=order.entity_id, side=order.side
+    )
+    if not gate:
+        return gate
+    try:
+        budget = account_risk.read(store, clock, as_of=now)
+        slip = float(store.config("execution.max_slippage", as_of=now))
+        price = (
+            order.reference_price * (1.0 + slip) if order.side == Side.BUY else order.limit_price
+        )
+        decision = budget.check(Reservation(
+            order.order_id, order.entity_id, str(order.side), order.remaining_quantity,
+            price, "USD" if market == "US" else "KRW",
+        ))
+        return guards.GateResult(bool(decision), decision.reason)
+    except (LookupError, ValueError) as exc:
+        return guards.GateResult(False, f"risk: account unavailable ({exc})")
+
+
+def _chase(args, store: Store, clock) -> int:
+    now = clock.now()
 
     day = last_settled_day(store, Market(args.market), now)
     if day is None:
         print("거래일을 찾지 못했다.", file=sys.stderr)
         return 2
     session_id = f"{args.market}-{day.isoformat()}"
+    if args.close:
+        released = withdraw_unsent(store, clock, session=session_id, market=args.market)
+        print(f"  미전송 조각 철회 {released}건")
 
     # 1) 오늘 세션의 sent 주문만 추격한다 — 지난 세션 주문은 브로커에서 이미
     #    만료돼 정정·취소를 낼 대상이 아니다(대사가 UNKNOWN 으로 확인해 준다).
@@ -148,9 +182,8 @@ def main(argv: list[str] | None = None) -> int:
             market_prices=prices,
             cumulative_filled=cumulative,
             params=params,
-            pretrade_check=lambda order: guards.check_pretrade(
-                store, as_of=clock.now(), market=args.market,
-                entity_id=order.entity_id, side=order.side,
+            pretrade_check=lambda order: check_account(
+                store, clock, order=order, market=args.market
             ),
         )
 
