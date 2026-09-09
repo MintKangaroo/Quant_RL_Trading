@@ -164,7 +164,8 @@ def test_retries_run_out_and_the_cancel_is_sent() -> None:
 
     assert [action.type for action in result.actions] == [ActionType.CANCEL]
     assert broker.cancelled == [("700001", 100)]
-    assert result.open == ()
+    assert result.orders[0].status is OrderStatus.CANCEL_UNKNOWN
+    assert result.open == result.orders
 
 
 def test_slippage_cap_abandons_instead_of_chasing() -> None:
@@ -243,7 +244,8 @@ def test_close_session_cancels_everything_left() -> None:
     result = supervise.close(orders, broker, now=NOW + timedelta(hours=6))
 
     assert sorted(broker.cancelled) == [("700001", 100), ("700002", 40)]
-    assert {item.order_id for item in result.open} == set()
+    assert {item.order_id for item in result.open} == {"order-1", "order-2"}
+    assert all(item.status is OrderStatus.CANCEL_UNKNOWN for item in result.open)
     statuses = {item.order_id: item.status for item in result.orders}
     assert statuses["order-3"] is OrderStatus.FILLED
 

@@ -597,6 +597,13 @@ def _submit_orders_locked(
             continue
 
         acks.append(ack)
+        from quant_rl_trading.executor.action_journal import bind_submission
+
+        credentials = getattr(getattr(broker, "client", None), "credentials", None)
+        bind_submission(
+            store, clock, item, ack, submitted_at=execution_time,
+            fingerprint=str(getattr(credentials, "fingerprint", "") or ""),
+        )
         if not ack.accepted and budget is not None and reservation is not None:
             budget.reservations.pop(reservation.key, None)
         _record_submit_result(

@@ -14,9 +14,9 @@
 ``--close`` 는 마감 직전용이다: 판단 없이 남은 미체결을 전부 취소한다
 (미체결 이월 없음 — lifecycle.close_session 과 같은 규칙).
 
-한계: 이 도구는 회차마다 새로 떠서 ``retry_count`` 를 0 부터 센다. 그래서
-max_retries 는 **한 회차 안**의 상한이고, 회차 간 상한은 크론 간격과 슬리피지
-상한이 맡는다. 타이머(retry_after_sec)는 주문 행의 observed_at 에서 잰다.
+조치 intent를 전송 전에 영구 기록하고, 재시작 시 재시도 횟수·타이머·확인된
+정정 주문번호를 복원한다. ACK만 받은 조치는 UNKNOWN으로 유지한다.
+``watch_order_events.py``가 인증된 KR 확인 이벤트를 받아야 후속 조치를 허용한다.
 
     20,40 9 · */20 10-14 · 평일   chase_orders.py --market KR   # 장중 재호가
     # **09:00 에는 안 돈다** — 시가 단일가가 막 체결되는 순간이라 주문 상태가
@@ -40,6 +40,7 @@ from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.dashboard.services.account import _client
 from quant_rl_trading.dashboard.services.live_quotes import LiveQuoteCache
 from quant_rl_trading.executor import guards, supervise
+from quant_rl_trading.executor.action_journal import ActionJournal, refresh_order_states
 from quant_rl_trading.executor.lifecycle import (
     LifecycleParams,
     OpenOrder,
@@ -103,6 +104,7 @@ def check_account(store, clock, *, order: OpenOrder, market: str):
 
 
 def _chase(args, store: Store, clock) -> int:
+    refresh_order_states(store, clock)
     now = clock.now()
 
     day = last_settled_day(store, Market(args.market), now)
@@ -114,8 +116,7 @@ def _chase(args, store: Store, clock) -> int:
         released = withdraw_unsent(store, clock, session=session_id, market=args.market)
         print(f"  미전송 조각 철회 {released}건")
 
-    # 1) 오늘 세션의 sent 주문만 추격한다 — 지난 세션 주문은 브로커에서 이미
-    #    만료돼 정정·취소를 낼 대상이 아니다(대사가 UNKNOWN 으로 확인해 준다).
+    # 오늘 세션만 추격한다. 과거 주문은 날짜 지정 대사 전까지 미확정으로 남긴다.
     pending = [
         item
         for item in pending_from_orders(store, as_of=now, market=args.market, session_id=session_id)
@@ -134,7 +135,7 @@ def _chase(args, store: Store, clock) -> int:
 
     # 3) 주문 행 → OpenOrder 재구성. reference_price 는 원 지정가 — 슬리피지
     #    상한은 그 값 대비로 잰다(재호가마다 기준을 옮기면 상한이 무의미해진다).
-    frame = store.get(ORDERS, as_of=now, lookback=7)
+    frame = store.get(ORDERS, as_of=clock.now(), lookback=7)
     frame = frame[(frame["session_id"] == session_id) & (frame["status"].isin([STATUS_SENT, "cancel_unknown", "modify_unknown"]))]
     open_orders: list[OpenOrder] = []
     for row in frame.itertuples(index=False):
@@ -168,9 +169,11 @@ def _chase(args, store: Store, clock) -> int:
     # 4) 브로커 — factory 가 모드·지문·live_trading 게이트를 전부 지킨다.
     broker, why = broker_factory.build_broker(store, market=args.market, as_of=now)
     print(f"  브로커: {why}")
+    journal = ActionJournal(store, clock, broker)
+    open_orders = [journal.restore(order) for order in open_orders]
 
     if args.close:
-        outcome = supervise.close(open_orders, broker, now=now)
+        outcome = supervise.close(open_orders, broker, now=now, dispatch=journal.dispatch)
     else:
         quotes = LiveQuoteCache(lambda: client).get([o.entity_id for o in open_orders])
         prices = {eid: q.price for eid, q in quotes.items() if q.price > 0}
@@ -182,6 +185,7 @@ def _chase(args, store: Store, clock) -> int:
             market_prices=prices,
             cumulative_filled=cumulative,
             params=params,
+            dispatch=journal.dispatch,
             pretrade_check=lambda order: check_account(
                 store, clock, order=order, market=args.market
             ),

@@ -107,3 +107,79 @@
 검증이 아니라 장부·집행 계약 검증이다. 최종 재생 검사는 아래에 별도로 기록한다.
 
 - 모의체결 권한 분리 후 `tests/backtest/test_loop.py`·`tests/session/test_shadow_execution.py`: **12 passed**, 245.75초. 동일 세션 재실행·중복 체결 방지와 하루씩 나눈 shadow 연결을 검증했다.
+
+## 취소·정정 확인과 부분체결 대사 후속 패치
+
+| Failure | Root Cause | Code Location | Proposed Fix / 적용한 제약 | Regression Test | Priority |
+|---|---|---|---|---|---|
+| 접수 응답을 취소 완료·가격 변경으로 오인 | API ACK와 거래소 확인을 같은 상태로 취급 | `executor/supervise.py`, `broker/order_confirmations.py` | ACK는 UNKNOWN, 인증된 SC2/SC3와 전송·조치 기록을 대조한 뒤 확정 | `test_receipt_keeps_reservation_and_confirmed_cancellation_releases_it` | Critical |
+| API 호출 뒤 프로세스 중단 시 같은 조치 재전송 | 응답 이후에만 상태 적재 | `executor/action_journal.py`, `tools/chase_orders.py` | 계좌 잠금 아래 intent → API → receipt; intent 존재 시 재전송 금지 | `test_crash_never_resends_durable_intent`, `test_separate_processes_share_one_action_claim` | Critical |
+| 재시작마다 retry가 0, 정정 번호·가격 유실 | 원 orders 행만으로 상태 재구성 | `executor/action_journal.py` | 확인된 정정 번호, 원 기준가, 재시도 횟수·시각 복원 | `test_reprice_confirmation_restores_child_number_timer_and_retry_budget` | High |
+| 부분 취소로 예약 전액 해제 | 잔량 0/취소 접수만으로 종결 | `risk/account.py`, `broker/order_confirmations.py` | SC3 취소 확인 수량만 차감; 체결+취소가 원수량을 채울 때만 종결 | `test_partial_cancel_preserves_unrecorded_fill_reservation` | Critical |
+| 마감 취소에서 이미 체결된 수량까지 취소 요청 | 최초 수량으로 복원한 뒤 close 경로가 누적 체결을 생략 | `executor/action_journal.py`, `tools/chase_orders.py` | 첫 조치 전에도 실제 체결 장부로 잔량 복원 | `test_chase_cli_restarts_without_repeating_cancel_and_uses_actual_remainder` | High |
+| 다른 계좌·주문일의 같은 번호를 대사할 위험 | 주문번호에 계좌·거래일 증거가 연결되지 않음 | `executor/pipeline.py`, `broker/fills.py`, `tools/reconcile_fills.py` | 새 전송의 지문·현지 주문일 기록, 수정된 orders 관측일로 원 주문일 대체 금지 | `test_original_order_date_survives_later_status_revision`, `test_fill_reconciliation_cannot_use_another_account_or_overfill_cancelled_remainder` | Critical |
+| 누적 평균가가 바뀌면 현금·손익 왜곡 | 신규 체결 수량에 누적 평균가를 그대로 곱함 | `broker/fills.py` | 누적 거래대금에서 기록된 거래대금 차감, human/hash 주문 ID를 같은 장부로 연결 | `test_partial_fill_cash_uses_change_in_cumulative_notional` | High |
+| 수량 초과·역행·비정수 응답을 정상 체결로 처리 | 수량 보존 검사 없이 장부 적재/잔량 클램프 | `broker/fills.py`, `executor/supervise.py` | 원수량 = 실제 체결 + 확인 취소 + 예약 잔량; 모순이면 UNKNOWN/조치 차단 | `test_invalid_broker_quantity_never_enters_book` | Critical |
+| 확인 파서가 있어도 운영 경로에서 사용되지 않을 위험 | 수신 도구·상태 복구 호출 누락 | `collectors/order_events.py`, `tools/watch_order_events.py` | 인증 구독 → 확인 대조 → append-only 증거 → 상태 투영, chase/대사에서 복구 | `tests/collectors/test_order_events.py`, chase CLI 회귀 | High |
+
+새 계좌 수신기는 **KR에 한정**한다. 공식 LS 계좌 실시간 필드와 예제를 확인해
+SC2 정정 확인 수량·가격, SC3 `canccnfqty`를 사용했다. 실제 계좌에 접속해 검증한
+결과는 아니다. 공식 링크와 수신 계약은 [execution safety](design/execution-safety.md#취소정정-조치-저널과-확인-증거)에 기록했다.
+
+`execution_events`는 신규 append-only 테이블이며 paper/backtest overlay의 독립
+저널에 포함된다. 토큰·계좌번호·원본 계좌 잔고는 저장하지 않는다. 이벤트의 원 식별자와
+관측시각을 보존하며, 접수 ACK나 주문 조회 누락을 취소 증거로 소급 변환하지 않는다.
+증거 적재와 orders 상태 투영 사이의 중단은 다음 수신·chase·체결 대사에서 복원한다.
+
+수신 도구를 주문 추격 **전에** 실행해야 한다. 운영 배포·자동 기동은 이번 작업에서
+실행하지 않았다. 수신 설정 확인용 `--help`는 계좌에 접속하지 않는다.
+
+```bash
+.venv/bin/python tools/watch_order_events.py --help
+# 계좌 모드와 지문이 Store에 고정된 환경에서 운용할 때의 수신 명령:
+.venv/bin/python tools/watch_order_events.py --sandbox data/_paper --seconds 21600
+```
+
+연결이 끊기거나 확인 이벤트를 놓치면 계속 예약한다. 완전하지 않은 정정 확인,
+미기록 체결이 남은 부분 취소, 지문·주문일 증거 없는 기존 주문은 자동 재시도하지 않는다.
+SC3의 `unercqty=0`이 원주문 전체 취소를 뜻한다고 가정하지 않는다. 과거 날짜를 지정한
+REST 대사, 놓친 이벤트 복구, US 취소 확인과 외부 수동 주문의 전체 계좌 대사는 남아 있다.
+
+금융 오류 재현: 30주를 100에 먼저 기록하고 총 100주의 누적 평균가가 107이면,
+추가 70주의 단가는 110, 총 대금은 10,700이어야 한다. 수정 전 코드는 70주를 107에
+기록해 총 대금을 10,490으로 만들었다. 새 테스트가 수정 전에 실패하는 것을 확인했다.
+누적 가격의 반올림·정밀도와 설정 수수료/세금 모델은 그대로 사용한다. 브로커 개별
+체결 ID와 실제 비용 명세의 완전한 대사를 구현했다고 주장하지 않는다.
+
+### 검증 기록
+
+- 최초 ACK 경계 테스트 2개와 새 금융 계산·수량 검사 4개가 수정 전 실패했다.
+- 주문·리스크·브로커·수신·동시 적재 검사: **234 passed**, 실데이터 의존 3개 제외, 94.59초. 이후 CLI·별도 프로세스·추가 계좌 대사 사례를 보강했다.
+- 회계·평가 경계·불변식: **190 passed**, 52.08초.
+- overlay·일일 shadow 연결: **8 passed**, 24.67초.
+- 별도 프로세스 경쟁과 CLI 재시작을 포함한 조치 저널 검사: **25 passed**, 15.63초. 추가 계좌/취소 잔량 대사 검사 1개도 통과했다.
+- 신규 저널·확인·수신 모듈과 새 테스트의 Ruff, `uv lock --check --offline`, 수신 CLI `--help`를 확인했다.
+
+각 실행은 중복되며 합산하지 않는다.
+
+최종 통합 검사: **429 passed, 3 deselected**, 106.75초. 제외 3개는 기존 실데이터 호가 검사다.
+
+```bash
+.venv/bin/pytest tests/risk/ tests/executor/ tests/broker/ \
+  tests/collectors/test_order_events.py tests/store/test_concurrent_append.py \
+  tests/invariants/ tests/accounting/ tests/backtest/test_stats.py \
+  tests/backtest/test_evaluation_boundary.py -m 'not warehouse' -q -o addopts=''
+```
+
+기존 `trades`의 잘못된 과거 단가를 소급 수정하지 않았다. 기존 전체 Ruff/mypy 부채도
+이번 패치에서 해소한 것은 아니다. `execution-safety` CI에 계좌 알림 수신 검사를 추가했다.
+
+### 다음 개선 순서
+
+1. 검증 이력이 고정된 데이터·전략 명세와 공통 baseline 평가 경로를 만든다. 비용 1/1.5/2/3배와 진입 1/2 bar 지연은 같은 portfolio/risk/execution 경로에서 비교한다.
+2. Walk-forward와 사용 이력을 기록한 OOS를 평가한다. 기존에 열어본 holdout은 독립 OOS로 부르지 않는다.
+3. reward 중심 `promotion_gate.py`와 별도 승격 도구를 artifact hash·net KPI·cost sensitivity·seed 안정성·단계별 증거로 연결한다. 현재 도구의 통과를 Production 자격으로 해석하지 않는다.
+4. 검증 산출물에 연결된 Research/Models UI를 개선한다.
+
+이 실행 안전성 변경만으로 전체 baseline 비교·새 OOS·paper/live shadow·limited capital
+검증이 완료된 것은 아니다. RL 비활성 상태와 보수적인 아키텍처 판단을 유지한다.

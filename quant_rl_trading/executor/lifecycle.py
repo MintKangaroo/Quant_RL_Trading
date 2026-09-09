@@ -143,6 +143,7 @@ class OpenOrder:
     last_action_at: datetime
     status: OrderStatus
     broker_order_no: str | None = None
+    cancelled_quantity: int = 0
 
 
 @dataclass(frozen=True)
@@ -208,7 +209,7 @@ def apply_fill(order: OpenOrder, *, filled_quantity: int, now: datetime) -> Open
     if filled_quantity > order.remaining_quantity:
         raise ValueError("체결 수량이 잔량을 초과했다")
     remaining = order.remaining_quantity - filled_quantity
-    status = OrderStatus.FILLED if remaining == 0 else (
+    status = (OrderStatus.CANCELLED if order.cancelled_quantity else OrderStatus.FILLED) if remaining == 0 else (
         order.status if order.status in (OrderStatus.CANCEL_UNKNOWN, OrderStatus.MODIFY_UNKNOWN)
         else OrderStatus.PARTIALLY_FILLED
     )

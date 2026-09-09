@@ -9,6 +9,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting import ledger, snapshot
 from quant_rl_trading.accounting.rates import Rates
+from quant_rl_trading.executor.action_journal import cancelled_quantities
 from quant_rl_trading.executor.orders import PlannedOrder, client_order_id
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.risk.budget import Budget, Limits, Reservation
@@ -97,6 +98,7 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
     if orders.empty:
         return budget
     filled = filled_quantities(store, as_of=as_of)
+    cancelled = cancelled_quantities(store, as_of=as_of)
     slip = float(store.config("execution.max_slippage", as_of=as_of))
     for record in orders.to_dict(orient="records"):
         status = str(record["status"])
@@ -110,8 +112,11 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
         )
         logical = key(session, entity, seq)
         hashed = client_order_id(session=session, entity_id=entity, slice_seq=seq)
-        quantity = float(record["quantity"]) - filled.get(logical, 0.0) - filled.get(hashed, 0.0)
-        if quantity <= 0:
+        quantity = (float(record["quantity"]) - filled.get(logical, 0.0)
+                    - filled.get(hashed, 0.0) - cancelled.get(logical, 0.0))
+        if not math.isfinite(quantity) or quantity < 0:
+            raise ValueError("fill/cancellation quantity exceeds original order")
+        if quantity == 0:
             continue
         original_slip = float(
             store.config(

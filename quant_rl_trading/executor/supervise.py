@@ -1,47 +1,9 @@
-"""낸 주문을 **끝까지 지켜보는 루프**. ``lifecycle.py`` 의 판단을 실제로
-브로커 호출로 옮기는 자리다.
+"""Pure supervision decisions wired to broker actions by tools/chase_orders.py.
 
-## ⚠️ 2026-08-15 — 이 모듈은 아직 아무도 안 부른다
-
-``register``·``step``·``cumulative_from_sync`` 를 부르는 프로덕션 코드가
-**0건**이다. ``executor/__init__.py`` 의 재수출뿐이라 죽은 코드 탐지
-(``find_dead_code.py``)도 재수출을 참조로 세서 못 잡았다. 아래 "왜 이 파일이
-필요했나" 절이 과거형("~했다")으로 적힌 문제들은 **여전히 현재형이다** —
-이 파일이 생겼다고 저절로 배선되지 않는다.
-
-지금은 무해하다: 백테스트·shadow 둘 다 ``PaperBroker`` 를 쓰는데 ``register()``
-는 ``broker_order_no`` 가 없는 주문(paper)을 자동으로 걸러 아무것도 등록하지
-않는다(``tests/executor/test_supervise.py::test_register_skips_paper_acks``).
-하지만 ``LSBroker``(실전 appkey)가 붙는 순간부터는 **이 배선 없이는 재호가·
-취소가 실제로 안 나간다.** 배선 계획은 `docs/milestones.md` M3 절 6번,
-검증 절차는 `docs/live-order-checklist.md` 를 본다.
-
-## 왜 이 파일이 필요했나
-
-``lifecycle.py`` 는 "지금 무엇을 해야 하는가" 를 순수하게 판단한다 — 재호가
-타이머, 최대 재시도, 부분체결 잔량, 슬리피지 상한, 세션 종료. 그런데 그
-판단을 **부르는 코드가 어디에도 없었다.** ``pipeline.submit_orders`` 는 세션에
-한 번 주문을 내보내고 끝나고, 체결 조회(``broker/fills.py``)는 검증 도구
-하나만 부른다. 그래서 다음이 전부 코드로만 존재했다(**위 경고 참고 — 지금도
-그렇다**):
-
-- 미체결 N 분 후 재호가 → 아무도 재호가하지 않았다
-- 최대 재시도 후 취소 → 아무도 취소하지 않았다
-- 부분체결 잔량 재호가 → 잔량은 세션이 끝날 때까지 그대로 남았다
-
-이 모듈은 그 판단을 브로커 호출로 옮기는 **배선 부품**이다 — 이 모듈
-자체가 자동으로 실행되는 배선은 아니다. 그 차이가 이 경고의 핵심이다.
-여전히 ``datetime.now()`` 를 부르지 않고(불변식 2), ``Broker`` 프로토콜만
-알기 때문에 언젠가 배선되면 paper·shadow·실전이 같은 코드를 탄다(불변식 5).
-**AI 는 없다** (불변식 6).
-
-## 모르는 것은 건드리지 않는다
-
-체결 조회가 :class:`~quant_rl_trading.broker.fills.FillState.UNKNOWN` 을 내면
-그 주문은 이번 회차에서 **아무 조치도 하지 않는다.** 얼마나 채워졌는지 모르는
-채로 정정을 내면 이미 체결된 수량까지 다시 사는 꼴이 되고, 그건 되돌릴 수
-없다. "모른다" 를 "0 체결" 로 읽는 순간 장부와 주문이 같이 틀어진다
-(``broker/fills.py`` 와 같은 원칙).
+Production uses ActionJournal.dispatch for durable intent-before-send and restart
+recovery. A receipt is not a confirmed price change or cancellation. Unknown fill
+or action outcomes block follow-up actions until authenticated reconciliation.
+The optional direct adapter keeps the same receipt semantics for isolated callers.
 """
 
 from __future__ import annotations
@@ -49,9 +11,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
+import math
 from typing import TYPE_CHECKING
 
-from quant_rl_trading.broker import BrokerError
+from quant_rl_trading.broker import BrokerError, RejectedOrder
 from quant_rl_trading.executor.lifecycle import (
     Action,
     ActionType,
@@ -176,6 +139,7 @@ def step(
     cumulative_filled: Mapping[str, float],
     params: LifecycleParams,
     pretrade_check: Callable[[OpenOrder], GateResult],
+    dispatch: Callable[[Action, OpenOrder], tuple[OpenOrder, str | None]] | None = None,
 ) -> SupervisionResult:
     """한 회차 — 체결을 반영하고, 판단하고, 브로커를 부른다.
 
@@ -205,12 +169,16 @@ def step(
             continue
 
         current = order
-        already = order.original_quantity - order.remaining_quantity
+        already = order.original_quantity - order.remaining_quantity - order.cancelled_quantity
+        if (not math.isfinite(cumulative) or not float(cumulative).is_integer()
+                or cumulative < already or cumulative > order.original_quantity - order.cancelled_quantity):
+            updated.append(order)
+            skipped.append((order.order_id, "체결 수량 불일치 — 대사 필요"))
+            continue
         delta = int(cumulative) - already
         if delta > 0:
-            delta = min(delta, current.remaining_quantity)
             current = apply_fill(current, filled_quantity=delta, now=now)
-        if current.status is OrderStatus.FILLED:
+        if current.status in (OrderStatus.FILLED, OrderStatus.CANCELLED):
             updated.append(current)
             continue
 
@@ -223,9 +191,8 @@ def step(
         if not approval:
             proposed = replace(current, status=OrderStatus.CANCELLED, last_action_at=now)
             action = Action(ActionType.CANCEL, proposed, approval.reason)
-            error = _apply(broker, action)
+            proposed, error = dispatch(action, current) if dispatch else _apply(broker, action, current)
             if error is not None:
-                proposed = replace(proposed, status=OrderStatus.CANCEL_UNKNOWN)
                 errors.append((current.order_id, error))
             updated.append(proposed)
             actions.append(action)
@@ -246,15 +213,9 @@ def step(
             updated.append(current)
             continue
 
-        error = _apply(broker, action)
+        current, error = dispatch(action, before_action) if dispatch else _apply(broker, action, before_action)
         if error is not None:
             errors.append((current.order_id, error))
-            current = replace(
-                current,
-                limit_price=before_action.limit_price,
-                status=(OrderStatus.MODIFY_UNKNOWN if action.type is ActionType.REPRICE
-                        else OrderStatus.CANCEL_UNKNOWN),
-            )
         updated.append(current)
         actions.append(action)
 
@@ -267,7 +228,8 @@ def step(
 
 
 def close(
-    orders: Iterable[OpenOrder], broker: Broker, *, now: datetime
+    orders: Iterable[OpenOrder], broker: Broker, *, now: datetime,
+    dispatch: Callable[[Action, OpenOrder], tuple[OpenOrder, str | None]] | None = None,
 ) -> SupervisionResult:
     """세션 종료 — 남은 미체결을 전부 취소한다. **이월하지 않는다.**
 
@@ -289,10 +251,9 @@ def close(
             updated.append(order)
             continue
         cancelled, action = entry
-        error = _apply(broker, action)
+        cancelled, error = dispatch(action, order) if dispatch else _apply(broker, action, order)
         if error is not None:
             errors.append((cancelled.order_id, error))
-            cancelled = replace(cancelled, status=OrderStatus.CANCEL_UNKNOWN)
         updated.append(cancelled)
         actions.append(action)
 
@@ -304,15 +265,18 @@ def close(
 # -- 내부 -----------------------------------------------------------------------
 
 
-def _apply(broker: Broker, action: Action) -> str | None:
+def _apply(broker: Broker, action: Action, before: OpenOrder) -> tuple[OpenOrder, str | None]:
     """판단 하나를 브로커 호출로 옮긴다. 실패하면 사유를 돌려준다.
 
     실패·미전송·거부는 확인되지 않은 조치다. 호출자는 unknown 상태로 남기고
     대사 전에는 같은 조치를 반복하지 않는다.
     """
     order = action.order
+    pending = replace(order, limit_price=before.limit_price,
+                      status=(OrderStatus.MODIFY_UNKNOWN if action.type is ActionType.REPRICE
+                              else OrderStatus.CANCEL_UNKNOWN))
     if not order.broker_order_no:
-        return "broker_order_no 가 없다 — 정정·취소를 낼 수 없다"
+        return pending, "broker_order_no 가 없다 — 정정·취소를 낼 수 없다"
     try:
         if action.type is ActionType.REPRICE:
             ack = broker.modify(
@@ -327,8 +291,10 @@ def _apply(broker: Broker, action: Action) -> str | None:
                 entity_id=order.entity_id,
                 quantity=order.remaining_quantity,
             )
+    except RejectedOrder as error:
+        return replace(before, retry_count=order.retry_count, last_action_at=order.last_action_at), str(error)
     except BrokerError as error:
-        return str(error)
+        return pending, str(error)
     if not ack.accepted or not ack.sent:
-        return ack.rsp_msg or "브로커 조치 미확인 — 거부 또는 미전송"
-    return None
+        return pending, ack.rsp_msg or "브로커 조치 미확인 — 거부 또는 미전송"
+    return pending, None

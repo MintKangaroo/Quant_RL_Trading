@@ -906,6 +906,18 @@ _SPECS: dict[str, TableSpec] = {
         ),
     ),
     # -- 실행 (M3) ------------------------------------------------------------
+    "execution_events": TableSpec(
+        name="execution_events",
+        columns={
+            "market": pa.string(),
+            "order_id": pa.string(),
+            "event_id": pa.string(),
+            "kind": pa.string(),
+            "payload_json": pa.string(),
+        },
+        natural_key=("entity_id", "event_id"),
+        doc="Broker submission bindings, durable action intents, receipts and confirmations.",
+    ),
     "orders": TableSpec(
         name="orders",
         columns={

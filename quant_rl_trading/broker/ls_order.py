@@ -128,8 +128,10 @@ def _ord_no(data: dict[str, Any]) -> str | None:
     아니라 모름이다" — 거래소는 이미 받았을 수 있다. 호출부가 ``Ack`` 의
     ``broker_order_no is None`` 을 보고 체결 조회로 재확인해야 한다.
     """
-    out2 = data.get("CSPAT00601OutBlock2") or data.get("CSPAT00701OutBlock2") or {}
-    out1 = data.get("CSPAT00601OutBlock1") or data.get("CSPAT00701OutBlock1") or {}
+    out2 = (data.get("CSPAT00601OutBlock2") or data.get("CSPAT00701OutBlock2")
+            or data.get("CSPAT00801OutBlock2") or {})
+    out1 = (data.get("CSPAT00601OutBlock1") or data.get("CSPAT00701OutBlock1")
+            or data.get("CSPAT00801OutBlock1") or {})
     no = out2.get("OrdNo") or out1.get("OrdNo")
     return str(no) if no else None
 
@@ -243,7 +245,7 @@ class LSBroker:
         return Ack(
             order_id=broker_order_no,
             accepted=True,
-            broker_order_no=broker_order_no,
+            broker_order_no=_ord_no(data),
             rsp_cd=data.get("rsp_cd"),
             rsp_msg=data.get("rsp_msg"),
             sent=True,

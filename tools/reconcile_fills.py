@@ -33,6 +33,8 @@ from quant_rl_trading.broker.fills import FillState, PendingFill, sync_fills  # 
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.executor.orders import client_order_id  # noqa: E402
+from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_bindings  # noqa: E402
+from quant_rl_trading.executor.action_journal import refresh_order_states  # noqa: E402
 from quant_rl_trading.executor.pipeline import BROKER_ORDER_NO_PREFIX  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.risk.account import UNVERIFIED_TERMINAL, filled_quantities, key  # noqa: E402
@@ -71,6 +73,8 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
         & frame["entity_id"].astype(str).str.startswith(f"{market}:")
     ]
     filled = filled_quantities(store, as_of=as_of)
+    cancelled = cancelled_quantities(store, as_of=as_of)
+    bindings = submission_bindings(store, as_of=as_of)
     out: list[PendingFill] = []
     for row in frame.itertuples(index=False):
         reason = str(getattr(row, "reason", "") or "")
@@ -81,7 +85,10 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
         hashed = client_order_id(
             session=row_session, entity_id=str(row.entity_id), slice_seq=int(row.slice_seq)
         )
-        if filled.get(logical, 0.0) + filled.get(hashed, 0.0) >= float(row.quantity):
+        accounted = filled.get(logical, 0.0) + filled.get(hashed, 0.0) + cancelled.get(logical, 0.0)
+        if accounted > float(row.quantity):
+            raise ValueError("fill/cancellation ledger exceeds original order")
+        if accounted == float(row.quantity):
             continue
         if not reason.startswith(BROKER_ORDER_NO_PREFIX):
             print(f"  ⚠️  {row.entity_id} slice {row.slice_seq}: sent 인데 주문번호가 없다 — 대사 불가", file=sys.stderr)
@@ -94,9 +101,10 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
                 market=market,
                 broker_order_no=reason[len(BROKER_ORDER_NO_PREFIX):],
                 requested_quantity=float(row.quantity),
-                observed_day=row.observed_at.tz_convert(
+                observed_day=(date.fromisoformat(bindings[logical]["order_day"]) if logical in bindings
+                              else row.observed_at.tz_convert(
                     ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
-                ).date(),
+                ).date()),
             )
         )
     return out
@@ -116,6 +124,7 @@ def unverified_remainders(store: Store, *, as_of: datetime, market: str) -> int:
         return 0
     frame = frame[frame["status"].isin(UNVERIFIED_TERMINAL | {"cancel_unknown", "modify_unknown"})]
     filled = filled_quantities(store, as_of=as_of)
+    cancelled = cancelled_quantities(store, as_of=as_of)
     count = 0
     for row in frame.itertuples(index=False):
         if not str(row.reason).startswith(BROKER_ORDER_NO_PREFIX):
@@ -124,7 +133,10 @@ def unverified_remainders(store: Store, *, as_of: datetime, market: str) -> int:
         hashed = client_order_id(
             session=str(row.session_id), entity_id=str(row.entity_id), slice_seq=int(row.slice_seq)
         )
-        count += filled.get(logical, 0.0) + filled.get(hashed, 0.0) < float(row.quantity)
+        accounted = filled.get(logical, 0.0) + filled.get(hashed, 0.0) + cancelled.get(logical, 0.0)
+        if accounted > float(row.quantity):
+            raise ValueError("fill/cancellation ledger exceeds original order")
+        count += accounted < float(row.quantity)
     return int(count)
 
 
@@ -140,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     source = build_store(None)
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
+    refresh_order_states(store, clock)
     market = Market(args.market)
     day = date.fromisoformat(args.day) if args.day else last_settled_day(store, market, clock.now())
     if day is None:
