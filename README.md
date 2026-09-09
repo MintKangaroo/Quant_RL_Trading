@@ -1,34 +1,59 @@
 # Quant_RL_Trading
 
-**멀티에이전트 AI 사모펀드.** 목표는 시장보다 덜 잃고 시장보다 더 버는 것 — 한 숫자로 말하면 **정보비율(IR)** 이다.
+**퀀트 리서치·백테스트·모의운용 플랫폼.** 검증 가능한 알파, 비용 후 위험조정수익, 재현성과 실거래 가능성을 우선한다. 현재 기본 경로는 **감독학습 GBM 랭커 + 평활·완충 규칙 + 리스크 패리티 배분**이며, RL 정책은 비활성 상태다.
 
 격자(quant_rl_trading)는 옵션 가격결정의 이항 격자에서 온 말이자, 이 시스템의 다층 에이전트 구조 그 자체다.
 
 ```
-Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
-  수집         분석 9      후보 선정     비중·타이밍     주문
-                                          (RL)
-                    Auditor        ModelOps
-                  성과 귀속       모델 감시
+Collector → Analyst / GBM ranker → Selector → Portfolio / Allocator
+                                               ↓ 목표 비중
+                              Executor guards → Execution → Broker
+                                      ↓
+                             Accounting / ModelOps → Dashboard
 ```
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
-[![tests](https://img.shields.io/badge/tests-844%20passed-2ea44f)](#검증)
-[![python](https://img.shields.io/badge/python-3.12-3776ab)](#요구사항)
-[![invariants](https://img.shields.io/badge/불변식%20위반-0건-2ea44f)](#불변식--이-프로젝트의-헌법)
+[![ci](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml/badge.svg)](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml)
+[![python](https://img.shields.io/badge/python-3.12-3776ab)](pyproject.toml)
+
+## 현재 상태 — 2026-09-09 감사
+
+[`docs/rl-postmortem.md`](docs/rl-postmortem.md) 전체와 현재 코드를 대조한 **[감사 보고서](docs/quant-platform-audit-2026-09-09.md)** 에 실패 원인, 코드 위치, 재현 결과, 제약, 회귀 테스트와 개선 순서를 정리했다. 이번 변경은 분석과 문서화이며, 아래 결함을 수정했다는 뜻은 아니다.
+
+| 항목 | 확인된 상태 |
+|---|---|
+| 기본 전략 | `risk_parity`, ranker EMA5, 보유 완충 순위 72 |
+| RL | `allocator.rl.checkpoint` 비어 있음 — 운용 비활성 |
+| 브로커 설정 | `execution.live_trading=true`, `account_mode=paper` — 모의계좌 주문 전송 활성. 실전 승인과 다르다 |
+| 검증 판단 | **Production 승격 근거 불충분.** 기존 IC·백테스트 수치는 해당 실험의 기록이며 현재 전략의 실거래 수익성을 증명하지 않는다 |
+| 최우선 수정 | 분할 주문 전송 시 킬스위치 재검사, 미장 상폐 추정의 시간 누수, 실제 체결 비중 기록, 보상 비용 중복, 평가 시작점 |
+| 추가 검증 | 전체 baseline 비교, 비용 1/1.5/2/3배, 1/2봉 지연, seed·국면·파라미터 안정성, 독립 OOS |
+
+현재 코드의 안전장치는 일부 경로에서만 적용된다. 감사에서는 **킬스위치 발동 후 후속 매수 전송**, **체결 0건에서 액션 반영률 100%**, **48시간 전 시세의 품질 게이트 통과**를 임시 창고·가짜 브로커로 재현했다. 실제 계좌에 테스트 주문을 보내지는 않았다. 자세한 조건과 영향 범위는 보고서에 있다.
+
+개선 순서는 **실행 안전성 → 데이터 시점·회계·비용 계약 → 공통 baseline 검증 → 승격 게이트 → Research/Model UI → 성능 최적화**다. 기존 계층과 테스트를 유지하면서 수정한다. 이미 평가에 사용한 2026-07-01~08-22 구간을 새 미사용 홀드아웃으로 부르지 않는다.
+
+## 실행 및 검증
+
+Python 3.12와 `uv`를 사용한다. `.env.example`이 환경변수 목록이며 실제 키는 커밋하지 않는다. 기존 환경에서 주문을 보내지 않는 확인 명령은 다음과 같다.
+
+```bash
+.venv/bin/python tools/dashboard.py --help
+.venv/bin/python -m pytest tests/invariants/
+.venv/bin/python -m pytest tests/accounting/ tests/executor/ tests/backtest/
+uv lock --check --offline
+```
+
+**새 환경의 재현성은 아직 보완이 필요하다.** 현재 `.venv`에는 `torch`·`gymnasium`이 설치돼 있지만 `pyproject.toml`·`uv.lock`에는 선언되지 않았다. 룰 세션도 `allocator.live`를 import하므로 `uv sync`만으로 운용 환경을 재현할 수 있다고 보장하지 않는다. 감사 당시 Ruff와 mypy도 오류를 보고했다. CI는 현재 불변식 테스트만 실행하며 전체 금융·집행 테스트의 통과를 의미하지 않는다.
 
 ---
 
 ## 화면
 
-아래는 전부 **데모 창고(`data/_demo`)** 로 찍은 것이다. 이 저장소는 공개라
-실계좌 화면을 올리면 보유종목·주문번호가 영구히 남는다 — 가리는 것이 아니라
-애초에 다른 창고를 찍는다. 마스킹은 한 군데만 빠뜨려도 그게 그대로 공개된다.
+아래 이미지는 **과거 UI 참고 화면**이다. 화면의 시점·모드와 현재 운용 상태를 구분해야 하며, 이미지의 숫자는 검증된 투자성과가 아니다. 기존 `trading.png`에는 PAPER 표시가 있어 모든 이미지를 DEMO로 설명하던 문구를 정정했다. 이번 감사에서는 새로운 계좌 화면을 공개하지 않았다.
 
-데모 창고는 **"우리가 무엇을 샀나"(trades·orders·nav)만 지어내고** 시세·유니버스는
-실전과 같은 공개 시장 데이터를 읽는다. 그래서 화면 구성·색·배치는 실물과 같고
-계좌만 가짜다. 헤더의 `DEMO` 배지가 그 사실을 말한다.
+데모 창고(`data/_demo`)의 합성 계좌 값은 UI 검증 용도다. 연구 결과·승격 심사에는 실제 실행 기록을 사용하며, 차트·손익·주문·리스크 수치는 코드에서 렌더링한다.
 
 | 트레이딩 | 마켓 |
 |---|---|
@@ -74,7 +99,7 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 
 ---
 
-## 왜 처음부터 다시 만드는가
+## 선행 프로젝트에서 가져온 교훈
 
 이 프로젝트에는 선행 프로젝트가 둘 있다. `LS_KR`(국장)과 `LS_USA`(미장)다. 강화학습 기반으로 만들었지만 **학습이 되지 않아 사실상 룰 기반으로 동작한 실패 사례**다.
 
@@ -110,6 +135,8 @@ Collector  →  Analyst  →  Selector  →  Allocator  →  Executor
 9. 모든 대시보드 API는 `as_of` 파라미터를 받는다
 10. 임계치는 `store.config` 에서 읽는다. 하드코딩 금지
 
+이 목록은 지켜야 할 계약이다. **현재 구현 전체가 준수한다는 인증은 아니다.** 2026-09-09 감사에서 참조 데이터의 관측시각 예외, 실제 체결 비중 기록, 후속 주문의 안전장치 우회 등을 확인했다. 기존 불변식 테스트가 통과하더라도 이 경계 결함은 별도로 검증해야 한다.
+
 가장 중요한 구분은 **이중시간**이다.
 
 ```
@@ -121,7 +148,9 @@ observed_at   내가 그것을 알 수 있었던 시점
 
 ---
 
-## 지금까지 확인된 것
+## 과거 검증 기록
+
+아래 M1~M4 기록과 화면 설명은 각 작성 시점의 결과다. 현재 완료 여부는 위 감사 상태를 우선하며, 과거 PASS를 Production 승인으로 해석하지 않는다.
 
 ### M1 — 데이터 창고 + 리플레이 엔진 ⚠️ (2026-08-15 재판정)
 
@@ -302,7 +331,7 @@ M1 검증기의 교훈이 여기서도 적용된다 — **매매 0건이면 MDD�
 
 ---
 
-### M4 — RL 학습 ⏹ 배분·매매 전반 RL 종료 (2026-09-04) · 집행 RL 로 이월
+### M4 — RL은 기본 운용에서 제외, 재개 조건은 사전등록으로 판단
 
 RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카나리, 배분 RL 1~4회차, 매매 전반 RL 2회, 그리고 그 사이의
 감독학습 랭커. 판마다 한 일·실패한 이유·배운 것은 **[`docs/rl-postmortem.md`](docs/rl-postmortem.md)** 한 문서에 있다.
@@ -325,8 +354,7 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 배분 4회차 파일럿 (9/4) | ranker 후보로 바꿔도 검증 우위 0 | [`drl-round4-2026-09.md`](docs/protocols/drl-round4-2026-09.md) |
 | 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 기본값에서 뺌(재개 조건은 postmortem §10) | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
 
-시도 예산(5회) 중 1회가 남았고, 그것은 **집행 RL**(룰 TWAP 1차 관문 ~10/1 뒤, `docs/protocols/execution-rl-2026-09.md`)에만
-쓴다. 학습 중 과적합 전조는 `tools/watch_overfit.py` 가 본다.
+**2026-09-08 개정:** RL 시도 횟수 상한은 없어졌다. 매회 사전등록·분기 연구 예산·홀드아웃·카나리·반영률·shadow/모의 단계를 지킨다. 새 정보의 한계기여 또는 집행 개선 근거가 생겼을 때 재개를 검토하며, 현재는 룰과 감독학습 랭커가 기본값이다([postmortem §10](docs/rl-postmortem.md#10-남은-자리-2026-09-08-개정--횟수-상한-없음)). 집행 RL도 룰 TWAP 비교 검증 전에는 운용에 투입하지 않는다.
 
 ## 하루 운영 순서 — 전부 크론이 돌린다
 
@@ -384,9 +412,11 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 한 줄로: **15:55 수집 → 22:55 점수 → 23:05 후보·주문 계획 → 다음 날 08:32 시총 보충 → 08:40 주문 → 장중 조각·재호가 → 15:45 대사·정산 대조 → 16:20 회계 → 16:30 리뷰.**
 미장은 **08:40 수집 → 12:00 점수 → 12:20 주문 → 그날 밤 조각 배포 → 다음 12:20 체결 시뮬.**
 
-## 마일스톤
+## 기존 마일스톤과 재검증
 
 원칙: **M3까지는 RL 없이 돌아가야 한다.** RL이 없으면 아무것도 안 되는 구조로 만들지 않는다.
+
+아래 완료 표시는 과거 구현 단계의 판정이다. 현재 실전 승격 여부는 [감사 보고서의 수정·재검증 게이트](docs/quant-platform-audit-2026-09-09.md#개선-roadmap)를 따른다.
 
 | | 내용 | 상태 |
 |---|---|---|
@@ -410,6 +440,8 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 
 | 문서 | 내용 |
 |---|---|
+| [`docs/quant-platform-audit-2026-09-09.md`](docs/quant-platform-audit-2026-09-09.md) | 현재 감사: 실패 매핑, 재현, 우선순위, baseline·아키텍처·회귀 테스트 계획 |
+| [`docs/rl-postmortem.md`](docs/rl-postmortem.md) | RL 실험 전체와 2026-09-08 재개 조건 |
 | [`CLAUDE.md`](CLAUDE.md) | 불변식 10개. 이 프로젝트의 헌법 |
 | [`START-HERE.md`](START-HERE.md) | 전체 실행 순서, 부트스트랩 프롬프트 |
 | [`docs/glossary.md`](docs/glossary.md) | 에이전트 용어, 패키지 구조 |
