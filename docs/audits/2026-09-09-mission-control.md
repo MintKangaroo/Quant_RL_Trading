@@ -250,3 +250,17 @@ Ruff는 파일·규칙·해당 소스 행, mypy는 파일·진단 메시지 기�
   버전별 설정을 별도로 준비해야 한다. 코드에 숨은 fallback을 넣거나 운영 창고를 소급 수정하지 않았다.
 - 이번 배치는 새 알파, OOS 개선, 거래비용 감소, 학습/백테스트 속도 향상을 실증한 작업이 아니다.
   다음 연구는 등록된 날짜·예산 안에서 marginal IC와 비용 후 성과로 판정한다.
+
+### 최종 반복 검증
+
+커밋 준비 중 별도로 반복한 같은 통합 명령(`--durations=8`, thread 제한 포함)도
+**183 passed, 229 warnings in 946.10s**로 종료했다. 두 달 replay를 반복하는
+`test_cash_never_goes_negative` 181.09s, `test_leverage_never_exceeds_one` 201.42s,
+`test_the_run_actually_traded` 202.45s가 검증 시간의 약 62%를 차지했다.
+이는 테스트 소요 시간 측정이며 production 성능 최적화 결과가 아니다.
+중복으로 시작한 별도의 경계/레버리지 후속 실행은 전체 통합 통과를 확인한 뒤
+중단했으며 통과 건수에 포함하지 않았다.
+
+기업행위 skip 사유도 재확인했다: `test_corporate_actions.py -rs`는
+**18 passed, 3 skipped**다. 2개는 `adj_factor` 자료 미수집, 1개는 격리 창고의
+`KR:150840` 자료 부재다. 해당 데이터 gate를 낮추지 않았다.
