@@ -74,6 +74,10 @@ class Store:
 
     # -- 조회 -----------------------------------------------------------------
 
+    def execution_view(self) -> Store:
+        """주문 직전의 안전 상태 조회. 세션 캐시 래퍼는 이 경계에서 벗어난다."""
+        return self
+
     def get(
         self,
         table: str,

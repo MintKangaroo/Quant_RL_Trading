@@ -39,12 +39,14 @@ def _tradable_kr_closes() -> list[float]:
     return [float(row[0]) for row in con.execute(query).fetchall()]
 
 
+@pytest.mark.warehouse
 def test_warehouse_has_kr_closes_to_check() -> None:
     """오라클 자체가 비어 있으면 통과가 아니라 거짓 안심이다."""
     assert len(_tradable_kr_closes()) > 1000
 
 
 @pytest.mark.parametrize("side", [Side.BUY, Side.SELL])
+@pytest.mark.warehouse
 def test_real_closes_are_already_on_a_valid_tick(side: Side) -> None:
     """전수 검증: 실제 체결 가능 종목의 종가는 반올림해도 그대로다."""
     closes = _tradable_kr_closes()

@@ -37,7 +37,7 @@ from tools.backfill import build_store  # noqa: E402
 #: 운용 기록. **shadow 는 여기까지만 쓴다.**
 JOURNAL = frozenset(
     {"orders", "trades", "realized_weights", "nav_daily", "capital_flows",
-     "dividends", "events", "killswitch"}
+     "dividends", "events", "killswitch", "execution_events"}
 )
 
 #: 백테스트는 신호도 자기가 만든다. 과거 신호가 창고에 없기 때문이다.

@@ -304,3 +304,66 @@ def test_fee_and_tax_come_from_config_not_broker_response(funded_store, ts) -> N
     fill = result.recorded[0].fill
     assert fill.fee == pytest.approx(expected_fee)
     assert fill.tax == pytest.approx(expected_tax)
+
+
+def test_old_partial_fill_is_not_forgotten_by_polling_window(funded_store, ts):
+    from quant_rl_trading.broker.fills import _recorded_quantities
+
+    old = ts(2026, 8, 1)
+    funded_store.append("trades", [{
+        "entity_id": "KR:005930", "valid_from": old, "observed_at": old,
+        "source": "test", "market": "KR", "currency": "KRW", "side": "buy",
+        "quantity": 30.0, "price": 1000.0, "fee": 0.0, "tax": 0.0,
+        "order_id": "order-1#30",
+    }], ingest_run_id="old-fill")
+    quantities = _recorded_quantities(funded_store, as_of=ts(2026, 8, 14), pending=[pending()])
+    assert quantities == {"order-1": 30}
+
+
+def test_old_order_number_is_not_matched_to_current_day_response(funded_store, ts):
+    from dataclasses import replace
+
+    client = make_client(lambda _: t0425_response([
+        {"ordno": "0700001", "cheqty": "100", "cheprice": "50000"},
+    ]), ts)
+    now = ts(2026, 8, 14, 10)
+    historical = replace(pending(), observed_day=ts(2026, 8, 1).date())
+    result = sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[historical])
+    assert result.rows_written == 0 and len(result.unknown) == 1
+    assert funded_store.get("trades", as_of=now).empty
+
+
+def test_unknown_with_quantity_does_not_authorize_repricing():
+    from quant_rl_trading.broker.fills import FillOutcome, SyncResult
+    from quant_rl_trading.executor.supervise import cumulative_from_sync
+
+    outcome = FillOutcome("x", FillState.UNKNOWN, cumulative_quantity=30, detail="missing price")
+    result = SyncResult((outcome,), 0)
+    assert cumulative_from_sync(result) == {}
+
+
+def test_partial_fill_cash_uses_change_in_cumulative_notional(funded_store, ts):
+    """30 @ 100 then 70 @ 110 -> cumulative 100 @ 107, not another 70 @ 107."""
+    state = {"quantity": 30, "price": 100}
+    client = make_client(lambda _: t0425_response([
+        {"ordno": "700001", "cheqty": str(state["quantity"]), "cheprice": str(state["price"])}
+    ]), ts)
+    now = ts(2026, 8, 14, 10)
+    clock = ReplayClock(now)
+    sync_fills(funded_store, client, clock, as_of=now, pending=[pending()])
+    state.update(quantity=100, price=107)
+    result = sync_fills(funded_store, client, clock, as_of=now, pending=[pending()])
+    assert result.recorded[0].fill.price == pytest.approx(110)
+    trades = funded_store.get("trades", as_of=now)
+    assert (trades["quantity"] * trades["price"]).sum() == pytest.approx(10_700)
+
+
+@pytest.mark.parametrize("quantity", [101, -1, 3.5])
+def test_invalid_broker_quantity_never_enters_book(funded_store, ts, quantity):
+    client = make_client(lambda _: t0425_response([
+        {"ordno": "700001", "cheqty": str(quantity), "cheprice": "70000"}
+    ]), ts)
+    now = ts(2026, 8, 14, 10)
+    result = sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[pending()])
+    assert result.outcomes[0].state is FillState.UNKNOWN
+    assert result.rows_written == 0

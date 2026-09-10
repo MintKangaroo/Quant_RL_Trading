@@ -22,6 +22,9 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from quant_rl_trading.collectors import market_hours
+from quant_rl_trading.collectors.publication import CONFIG_LAG_KEYS
+from quant_rl_trading.schemas.order import Side
 from quant_rl_trading.store.prices import read_prices
 
 if TYPE_CHECKING:
@@ -160,11 +163,32 @@ def check_data_quality(
     # 휴장일 행에는 종가 0 이 들어 있다. 그대로 세면 "시세가 있다" 로 통과한
     # 뒤 0 원짜리 가격으로 주문 수량을 만들게 된다 — 행이 있다는 것과 가격이
     # 있다는 것은 다르다.
-    prices = read_prices(store, as_of=as_of, entity=entities, lookback=5, market=market)
+    venue = market_hours.Market(market)
+    here = market_hours.local_time(venue, as_of)
+    lag = float(store.config(CONFIG_LAG_KEYS[venue], as_of=as_of))
+    available = datetime.combine(
+        here.date(), market_hours.SPECS[venue].regular_close, tzinfo=here.tzinfo
+    ) + timedelta(seconds=lag)
+    if market_hours.is_trading_day(venue, here.date()) and here >= available:
+        expected = here.date()
+    else:
+        days = market_hours.trading_days(venue, here.date() - timedelta(days=30), here.date())
+        previous = [day for day in days if day < here.date()]
+        if not previous:
+            return GateResult(False, "기대 거래 세션을 확인할 수 없다")
+        expected = previous[-1]
+    # 긴 연휴에도 직전 세션은 유효하다. 고정 5일 창으로 자르지 않는다.
+    lookback = (here.date() - expected).days + 2
+    prices = read_prices(store, as_of=as_of, entity=entities, lookback=lookback, market=market)
     if prices.empty:
         return GateResult(passed=False, reason="시세가 없다")
 
     latest_session = prices["valid_from"].max()
+    # prices.valid_from is a session LABEL at UTC midnight, including US rows.
+    # Converting it to New York time would incorrectly move it back one session.
+    latest_day = latest_session.date()
+    if latest_day < expected:
+        return GateResult(False, f"시세 지연 — 기대 세션 {expected}, 최신 {latest_day}")
     covered = set(prices[prices["valid_from"] == latest_session]["entity_id"])
     missing = [entity for entity in entities if entity not in covered]
     threshold = float(store.config("data_quality.missing_warn", as_of=as_of))
@@ -174,6 +198,28 @@ def check_data_quality(
             reason=f"최근 세션 시세 결측 {len(missing)}/{len(entities)}종목",
         )
     return GateResult(passed=True)
+
+
+def check_pretrade(
+    store: Store, *, as_of: datetime, market: str, entity_id: str, side: Side,
+) -> GateResult:
+    """매 전송 직전 호출한다. 계획의 캐시 대신 현재 실행 시각의 상태를 본다."""
+    store = store.execution_view()
+    if side is Side.SELL:
+        return GateResult(True)  # 기존 정책: 위험 축소를 위한 청산은 허용한다.
+    switch = check_killswitch(store, as_of=as_of)
+    if not switch:
+        return switch
+    quality = check_data_quality(store, as_of=as_of, market=market, entities=[entity_id])
+    if not quality:
+        return quality
+    if market == "KR":
+        # 종목의 board가 누락돼도 한 시장의 급락을 놓치지 않는 보수적 승인.
+        for board in BOARD_INDEX:
+            breaker = check_circuit_breaker(store, as_of=as_of, board=board)
+            if not breaker:
+                return breaker
+    return GateResult(True)
 
 
 # -- 3. 서킷 브레이커 ---------------------------------------------------------------

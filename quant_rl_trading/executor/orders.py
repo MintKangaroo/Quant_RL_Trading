@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 #: 증권사 주문번호 길이 제한을 넉넉히 밑돈다.
 ORDER_ID_LENGTH = 24
+SIMULATION_ONLY = "simulation_only"
 
 
 def session_id(*, as_of: datetime, market: str) -> str:

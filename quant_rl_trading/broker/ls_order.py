@@ -63,12 +63,12 @@ port(spec only, 코드는 새로 짬): Invest_KOREA_Stock_Project/ls_kr_rl_trade
 
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from quant_rl_trading.broker import Ack, BrokerError, RejectedOrder
+from quant_rl_trading.broker.submission import SubmissionGuard
 from quant_rl_trading.collectors.errors import LSAPIError
 from quant_rl_trading.collectors.ls_client import PATH_ORDER, LSClient, isu_code
 from quant_rl_trading.schemas.order import Side
@@ -128,8 +128,10 @@ def _ord_no(data: dict[str, Any]) -> str | None:
     아니라 모름이다" — 거래소는 이미 받았을 수 있다. 호출부가 ``Ack`` 의
     ``broker_order_no is None`` 을 보고 체결 조회로 재확인해야 한다.
     """
-    out2 = data.get("CSPAT00601OutBlock2") or data.get("CSPAT00701OutBlock2") or {}
-    out1 = data.get("CSPAT00601OutBlock1") or data.get("CSPAT00701OutBlock1") or {}
+    out2 = (data.get("CSPAT00601OutBlock2") or data.get("CSPAT00701OutBlock2")
+            or data.get("CSPAT00801OutBlock2") or {})
+    out1 = (data.get("CSPAT00601OutBlock1") or data.get("CSPAT00701OutBlock1")
+            or data.get("CSPAT00801OutBlock1") or {})
     no = out2.get("OrdNo") or out1.get("OrdNo")
     return str(no) if no else None
 
@@ -142,8 +144,7 @@ class LSBroker:
     store: Store
     #: 성공 전송한 order_id → Ack 캐시. 재시작하면 비지만, 한 프로세스가
     #: 살아있는 동안의 중복 호출은 여기서 막는다 (모듈 docstring 참고).
-    _sent: dict[str, Ack] = field(default_factory=dict, repr=False)
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _submission: SubmissionGuard = field(default_factory=SubmissionGuard, repr=False)
 
     def _live(self, *, as_of: datetime) -> bool:
         return bool(self.store.config("execution.live_trading", as_of=as_of))
@@ -158,11 +159,9 @@ class LSBroker:
         return BrokerError(str(error))
 
     def submit(self, order: PlannedOrder, *, as_of: datetime) -> Ack:
-        with self._lock:
-            cached = self._sent.get(order.order_id)
-        if cached is not None:
-            # 같은 order_id 재호출 — 다시 내보내지 않고 이전 결과를 그대로 돌려준다.
-            return cached
+        return self._submission.run(order.order_id, lambda: self._submit_once(order, as_of=as_of))
+
+    def _submit_once(self, order: PlannedOrder, *, as_of: datetime) -> Ack:
 
         if not self._live(as_of=as_of):
             ack = Ack(
@@ -206,10 +205,6 @@ class LSBroker:
             sent=True,
             raw=data,
         )
-        with self._lock:
-            # 실제로 나간 것만 캐시한다 — paper 응답을 캐시하면 store 설정이
-            # 나중에 켜져도 이전 paper 결과가 재사용되어 영원히 안 나간다.
-            self._sent[order.order_id] = ack
         return ack
 
     def cancel(self, *, broker_order_no: str, entity_id: str, quantity: int) -> Ack:
@@ -250,7 +245,7 @@ class LSBroker:
         return Ack(
             order_id=broker_order_no,
             accepted=True,
-            broker_order_no=broker_order_no,
+            broker_order_no=_ord_no(data),
             rsp_cd=data.get("rsp_cd"),
             rsp_msg=data.get("rsp_msg"),
             sent=True,

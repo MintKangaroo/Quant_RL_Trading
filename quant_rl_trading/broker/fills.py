@@ -35,12 +35,14 @@ LS 는 그 결과를 즉시 알려주지 않는다 — 신규 주문(CSPAT00601)
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from quant_rl_trading.accounting import weights as weights_module
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest.execution import currency_of
@@ -49,6 +51,7 @@ from quant_rl_trading.broker.ls_order_us import PATH_ACCNO_US
 from quant_rl_trading.collectors.errors import LSAPIError, MissingCredentials
 from quant_rl_trading.collectors.ls_client import PATH_ACCNO
 from quant_rl_trading.schemas.order import Side
+from quant_rl_trading.store.locking import account_lock
 
 if TYPE_CHECKING:
     from quant_rl_trading.collectors.ls_client import LSClient
@@ -124,6 +127,7 @@ class PendingFill:
     market: str
     broker_order_no: str
     requested_quantity: float
+    observed_day: date | None = None
 
 
 @dataclass(frozen=True)
@@ -162,6 +166,19 @@ def sync_fills(
     as_of: datetime,
     pending: list[PendingFill],
 ) -> SyncResult:
+    store = store.execution_view()
+    with account_lock(store.root):
+        return _sync_fills_locked(store, client, clock, as_of=as_of, pending=pending)
+
+
+def _sync_fills_locked(
+    store: Store,
+    client: LSClient,
+    clock: Clock,
+    *,
+    as_of: datetime,
+    pending: list[PendingFill],
+) -> SyncResult:
     """대기 중인 주문들의 체결을 확인해 ``trades`` 에 적는다.
 
     조회 TR 은 ``PendingFill.market`` 이 정한다 — 국장 ``t0425``, 미장
@@ -177,7 +194,11 @@ def sync_fills(
     for market in sorted({item.market for item in pending}):
         fetched[market] = _fetch_fill_rows(client, market, as_of=as_of)
 
-    recorded_so_far = _recorded_quantities(store, as_of=as_of, pending=pending)
+    recorded_so_far, recorded_notional = _recorded_totals(store, as_of=as_of, pending=pending)
+    from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_bindings
+
+    cancelled = cancelled_quantities(store, as_of=as_of)
+    bindings = submission_bindings(store, as_of=as_of)
 
     observed_at = clock.now()
     rates = Rates.from_store(store, as_of=as_of)
@@ -186,6 +207,21 @@ def sync_fills(
     rows: list[dict[str, object]] = []
 
     for item in pending:
+        venue = NEW_YORK if item.market == "US" else ZoneInfo("Asia/Seoul")
+        binding = bindings.get(item.order_id)
+        if binding is not None:
+            fingerprint = getattr(getattr(client, "credentials", None), "fingerprint", "")
+            if (not binding["fingerprint"] or fingerprint != binding["fingerprint"]
+                    or binding["order_day"] != as_of.astimezone(venue).date().isoformat()):
+                outcomes.append(FillOutcome(item.order_id, FillState.UNKNOWN,
+                                            detail="submission account/date does not match fill query"))
+                continue
+        if item.observed_day is not None and item.observed_day != as_of.astimezone(venue).date():
+            outcomes.append(FillOutcome(
+                item.order_id, FillState.UNKNOWN,
+                detail="historical order needs dated reconciliation; order number alone is insufficient",
+            ))
+            continue
         found = fetched.get(item.market)
         if isinstance(found, str):
             # 조회 자체가 실패했다 — 모른다. 0건으로 적으면 "안 샀다" 로
@@ -209,6 +245,12 @@ def sync_fills(
             continue
 
         already = recorded_so_far.get(item.order_id, 0.0)
+        if (not math.isfinite(cumulative) or not cumulative.is_integer() or cumulative < already
+                or cumulative < 0
+                or cumulative + cancelled.get(item.order_id, 0.0) > item.requested_quantity):
+            outcomes.append(FillOutcome(item.order_id, FillState.UNKNOWN,
+                                        detail="invalid/regressing cumulative fill quantity"))
+            continue
         delta = cumulative - already
         if delta <= 0:
             outcomes.append(
@@ -217,7 +259,7 @@ def sync_fills(
                 )
             )
             continue
-        if price <= 0:
+        if not math.isfinite(price) or price <= 0:
             # 뭔가는 채워졌는데 체결가를 못 읽었다 — 지어낼 수 없으니 모른다.
             outcomes.append(
                 FillOutcome(
@@ -230,7 +272,12 @@ def sync_fills(
             continue
 
         currency = currency_of(item.market)
-        gross = delta * price
+        gross = cumulative * price - recorded_notional.get(item.order_id, 0.0)
+        if not math.isfinite(gross) or gross <= 0:
+            outcomes.append(FillOutcome(item.order_id, FillState.UNKNOWN,
+                                        detail="cumulative fill notional requires reconciliation"))
+            continue
+        price = gross / delta
         fee, tax = rates.costs(side=BookSide(str(item.side)), gross=gross, currency=currency)
 
         fill = Fill(
@@ -277,6 +324,14 @@ def sync_fills(
         if not store.ingest_run_recorded(TRADES, run_id):
             written = int(store.append(TRADES, rows, ingest_run_id=run_id, source=SOURCE))
 
+    sessions = {
+        outcome.order_id.split("|")[0] for outcome in outcomes
+        if outcome.state is not FillState.UNKNOWN
+    }
+    weights_module.refresh(store, clock, as_of=as_of, sessions=sessions)
+    from quant_rl_trading.executor.action_journal import refresh_order_states
+
+    refresh_order_states(store, clock, order_ids={item.order_id for item in pending})
     return SyncResult(tuple(outcomes), written)
 
 
@@ -500,16 +555,31 @@ def _recorded_quantities(
     조각들을 더한다 — 장부와 같은 원칙이다: 캐시를 믿지 않고 기록에서
     다시 접는다(``accounting/ledger.py``).
     """
+    return _recorded_totals(store, as_of=as_of, pending=pending)[0]
+
+
+def _recorded_totals(
+    store: Store, *, as_of: datetime, pending: list[PendingFill]
+) -> tuple[dict[str, float], dict[str, float]]:
+    from quant_rl_trading.executor.orders import client_order_id
+
     entities = sorted({item.entity_id for item in pending})
     if not entities:
-        return {}
-    frame = store.get(TRADES, as_of=as_of, entity=entities, lookback=ORDER_LOOKBACK_DAYS)
+        return {}, {}
+    frame = store.get(TRADES, as_of=as_of, entity=entities)
     if frame.empty:
-        return {}
-    wanted = {item.order_id for item in pending}
+        return {}, {}
+    aliases = {item.order_id: item.order_id for item in pending}
+    for item in pending:
+        if "|" in item.order_id:
+            session, entity, seq = item.order_id.split("|")
+            aliases[client_order_id(session=session, entity_id=entity, slice_seq=int(seq))] = item.order_id
     totals: dict[str, float] = {}
-    for raw_order_id, quantity in zip(frame["order_id"], frame["quantity"], strict=True):
+    notional: dict[str, float] = {}
+    for raw_order_id, quantity, price in zip(frame["order_id"], frame["quantity"], frame["price"], strict=True):
         base = str(raw_order_id).split("#", 1)[0]
-        if base in wanted:
-            totals[base] = totals.get(base, 0.0) + float(quantity)
-    return totals
+        if base in aliases:
+            key = aliases[base]
+            totals[key] = totals.get(key, 0.0) + float(quantity)
+            notional[key] = notional.get(key, 0.0) + float(quantity) * float(price)
+    return totals, notional

@@ -14,12 +14,14 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from pathlib import Path
+from tempfile import mkdtemp
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from quant_rl_trading.store import paths
 from quant_rl_trading.store.errors import DuplicateIngestRun, SchemaViolation, StoreError
+from quant_rl_trading.store.locking import ingest_lock
 from quant_rl_trading.store.schema import TableSpec, ValidatedBatch, validate_batch
 from quant_rl_trading.store.tables import get_spec
 
@@ -55,6 +57,25 @@ def append(
     ingest_run_id: str,
     source: str | None = None,
 ) -> int:
+    """동일 적재 ID의 검사·파일 쓰기·manifest를 프로세스간 직렬화한다."""
+    with ingest_lock(root, table, ingest_run_id):
+        return _append_locked(
+            root,
+            table,
+            records,
+            ingest_run_id=ingest_run_id,
+            source=source,
+        )
+
+
+def _append_locked(
+    root: Path,
+    table: str,
+    records: Sequence[Mapping[str, object]],
+    *,
+    ingest_run_id: str,
+    source: str | None = None,
+) -> int:
     """검증 → 스테이징 → 원자적 이동 → 매니페스트 순으로 적재한다.
 
     검증이 전부 끝난 뒤에야 첫 바이트를 쓴다. 절반만 들어간 배치는
@@ -73,10 +94,8 @@ def append(
         return 0
 
     partitions = _partitioned(batch)
-    staging = paths.staging_dir(root) / ingest_run_id
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True)
+    paths.staging_dir(root).mkdir(parents=True, exist_ok=True)
+    staging = Path(mkdtemp(dir=paths.staging_dir(root)))
 
     written: list[str] = []
     try:
@@ -100,18 +119,21 @@ def append(
 
     manifest = _manifest(root, table, ingest_run_id)
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(
-        json.dumps(
-            {
-                "table": table,
-                "ingest_run_id": ingest_run_id,
-                "rows": len(batch.rows),
-                "files": written,
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ),
-        encoding="utf-8",
+    payload = json.dumps(
+        {
+            "table": table,
+            "ingest_run_id": ingest_run_id,
+            "rows": len(batch.rows),
+            "files": written,
+        },
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
     )
+    temporary_manifest = manifest.with_suffix(".pending")
+    with temporary_manifest.open("w", encoding="utf-8") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary_manifest, manifest)
     return len(batch.rows)

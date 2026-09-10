@@ -52,6 +52,7 @@ import numpy as np
 import pandas as pd
 
 from quant_rl_trading.accounting.book import Book
+from quant_rl_trading.allocator.activation import LiveParams
 from quant_rl_trading.allocator.env import (
     FEATURE_REALIZED_WEIGHT,
     N_ASSET_FEATURES,
@@ -61,7 +62,6 @@ from quant_rl_trading.allocator.env import (
 )
 from quant_rl_trading.allocator.policy import AllocatorPolicy, PolicyConfig
 from quant_rl_trading.store import Store
-from quant_rl_trading.store.errors import ConfigNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -69,36 +69,6 @@ TRADES = "trades"
 REALIZED_WEIGHTS = "realized_weights"
 #: 관측 창을 앞뒤로 펼칠 달력 여유. 에피소드 250거래일 ≈ 365일 × 1.6.
 _CALENDAR_STRETCH = 1.6
-
-
-@dataclass(frozen=True)
-class LiveParams:
-    """`allocator.rl.*` — 어느 장부에서 정책이 결정하나.
-
-    ``checkpoint`` 가 비면 어디서도 안 쓴다. ``modes`` 는 `store/mode.py` 의
-    코드(소문자)다 — 모의계좌(paper)만 켜고 shadow 는 룰로 두면 둘이 같은 날
-    같은 후보로 병주해 RL 과 룰을 나란히 볼 수 있다 (rl-training.md §13).
-    """
-
-    checkpoint: str
-    modes: tuple[str, ...]
-
-    @classmethod
-    def from_store(cls, store: Store, *, as_of: datetime) -> LiveParams:
-        try:
-            checkpoint = str(store.config("allocator.rl.checkpoint", as_of=as_of) or "")
-            raw = store.config("allocator.rl.modes", as_of=as_of)
-        except ConfigNotFound:
-            # 설정이 창고에 아직 안 심긴 시점(과거 as_of)이다. 그때는 RL 이 없었다.
-            return cls(checkpoint="", modes=())
-        modes = raw if isinstance(raw, list | tuple) else str(raw).split(",")
-        return cls(
-            checkpoint=checkpoint.strip(),
-            modes=tuple(str(m).strip().lower() for m in modes if str(m).strip()),
-        )
-
-    def active_for(self, mode_code: str) -> bool:
-        return bool(self.checkpoint) and mode_code.lower() in self.modes
 
 
 @dataclass(frozen=True)

@@ -32,10 +32,12 @@ LS 는 상장폐지 종목의 시세를 주지 않는다. 시세에 없으니 �
 찍으면 **유동성 낮은 종목이 매일 상폐와 재상장을 반복한다** — 그리고 그
 종목은 매 세션 명단에서 빠졌다 들어왔다 하며 횡단면을 흔든다.
 
-그래서 상폐는 하나의 조건으로만 찍는다: **마지막 봉이 패널 끝에서
+그래서 비활성 여부를 추정하는 조건은: **마지막 봉이 패널 끝에서
 ``DEAD_SESSIONS`` 이상 떨어진 종목.** 그 사이 결측일에는 행을 만들지 않는다.
 행이 없는 것은 "그날은 알 수 없었다" 이고, 그건 사실이다 — 없는 것을
 '거래 가능' 으로 채우지 않는다 (``flows`` 테이블과 같은 원칙).
+추정 행은 마지막 봉으로 소급하지 않고, 추정 시각부터만 거래 불가로 기록한다.
+확정 상장폐지가 아니므로 ``delisted_on``은 채우지 않는다.
 """
 
 from __future__ import annotations
@@ -54,6 +56,7 @@ DEAD_SESSIONS = 10
 
 UNIVERSE = "universe"
 SOURCE = "ls_us_derived"
+INACTIVE_SOURCE = "ls_us_inactive_inferred_v2"
 
 
 def run_id_for(market: Market, day: date) -> str:
@@ -62,7 +65,7 @@ def run_id_for(market: Market, day: date) -> str:
 
 
 def delisting_run_id(market: Market, day: date) -> str:
-    return f"{market}-universe-delisted-{day.isoformat()}"
+    return f"{market}-universe-inactive-v2-{day.isoformat()}"
 
 
 def _ticker(entity_id: str) -> str:
@@ -114,34 +117,46 @@ def delisting_rows(
     last_seen: Mapping[str, tuple[date, Any, Any]],
     sessions: list[date],
     *,
+    inferred_at: datetime,
     market: Market = Market.US,
     dead_sessions: int = DEAD_SESSIONS,
 ) -> list[dict[str, Any]]:
-    """마지막 봉 이후 소식이 끊긴 종목의 상폐 행.
+    """마지막 봉 이후 소식이 끊긴 종목의 비활성 추정. 확정 상폐가 아니다.
 
     ``last_seen`` 은 ``entity_id → (마지막 세션, valid_from, observed_at)``.
-    상폐 행의 시각은 **마지막으로 본 세션** 것을 쓴다. 오늘 시각으로 찍으면
-    "오늘 상폐됐다" 가 되어 과거 리플레이가 그날의 사실과 어긋난다.
+    추정 시각 이전에는 거래 부재를 알지 못했다. 마지막 봉으로 소급하면
+    그 뒤의 10세션 정보를 과거로 전달한다. 데이터셋 끝만으로 관측시각을
+    추측하지 않고 호출자가 전달한 현재 관측 시각을 사용한다.
     """
+    if inferred_at.tzinfo is None or inferred_at.utcoffset() is None:
+        raise ValueError("inferred_at must be timezone-aware")
+    if dead_sessions < 1:
+        raise ValueError("dead_sessions must be positive")
+    if sessions != sorted(set(sessions)):
+        raise ValueError("sessions must be sorted and unique")
+    if sessions and inferred_at.date() <= sessions[-1]:
+        raise ValueError("inference requires a fully observed panel ending before inferred_at")
     if len(sessions) <= dead_sessions:
         return []
     cutoff = sessions[-(dead_sessions + 1)]
 
     rows: list[dict[str, Any]] = []
-    for entity, (day, valid_from, observed_at) in sorted(last_seen.items()):
+    for entity, (day, _valid_from, observed_at) in sorted(last_seen.items()):
         if day > cutoff:
             continue
+        if observed_at > inferred_at:
+            raise ValueError("last observation is later than inference")
         rows.append(
             {
                 "entity_id": entity,
-                "valid_from": valid_from,
-                "observed_at": observed_at,
-                "source": SOURCE,
+                "valid_from": inferred_at,
+                "observed_at": inferred_at,
+                "source": INACTIVE_SOURCE,
                 "market": str(market),
                 "name": _ticker(entity),
-                "is_listed": False,
+                "is_listed": True,  # 마지막으로 확인된 상장 상태; 상폐를 지어내지 않는다.
                 "is_tradable": False,
-                "delisted_on": valid_from,
+                "delisted_on": None,
             }
         )
     return rows
@@ -158,7 +173,7 @@ class BuildReport:
     def render(self) -> str:
         return (
             f"세션 {self.sessions}개 · 명단 {self.rows:,}행 · "
-            f"종목 {len(self.entities):,}개 · 상폐 {self.delisted}행 "
+            f"종목 {len(self.entities):,}개 · 비활성 추정 {self.delisted}행 "
             f"(건너뜀 {self.skipped})"
         )
 

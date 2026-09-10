@@ -21,6 +21,7 @@ from quant_rl_trading.broker import Ack, BrokerError, PaperBroker, RejectedOrder
 from quant_rl_trading.executor import Target, engage, pipeline
 from quant_rl_trading.executor.orders import PlannedOrder, client_order_id, session_id
 from quant_rl_trading.replay.clock import ReplayClock
+from tests.account_fixture import fund_account
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)   # 한국시간 10:00
 
@@ -51,6 +52,7 @@ class FakeBroker:
 @pytest.fixture
 def seeded(store):  # type: ignore[no-untyped-def]
     store.seed_config_defaults()
+    fund_account(store, NOW)
     # **조각을 한꺼번에 내보내는 모드로 고정한다.** 이 파일의 시험 대상은
     # 멱등성과 거부 격리이고, 그 둘은 "여러 조각이 같은 회차에 나간다" 를
     # 전제로만 검증된다. 시간 분할(slice_interval_sec>0)이 켜지면 세션에서

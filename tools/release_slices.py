@@ -7,7 +7,7 @@
 호가가 가장 얇은 순간이고, 우리 주문은 종목당 일거래대금의 0.9~2.4% 라 무시할
 크기가 아니다 — 자본이 커지면 선형으로 나빠진다.
 
-이 도구가 그 시간축이다. 세션은 0번 조각만 내보내고 나머지는 ``planned`` 로 남는데,
+이 도구가 그 시간축이다. 세션은 0번 조각만 내보내고 나머지는 ``reserved`` 로 남는데,
 여기서 **시간이 된 것만** 골라 낸다. 안전은 ``submit_orders`` 의 ``submit-<order_id>``
 멱등 가드가 지킨다 — 같은 조각을 두 번 내보내지 않는다.
 
@@ -46,7 +46,7 @@ STATUS_PLANNED = "planned"
 
 
 def _planned_rows(store: Store, *, as_of: datetime, session_id: str, market: str) -> pd.DataFrame:
-    """아직 안 나간 조각. **최신 revision 이 planned 인 것만.**
+    """아직 안 나간 조각. reserved 및 기존 planned는 전송 직전 다시 검사한다.
 
     같은 조각이 planned → submitting → sent 로 revision 을 올려 가며 쌓이므로,
     행 하나만 보고 "planned 다" 라고 하면 이미 나간 주문을 다시 낸다.
@@ -63,7 +63,7 @@ def _planned_rows(store: Store, *, as_of: datetime, session_id: str, market: str
     frame = frame.sort_values("revision").drop_duplicates(
         subset=["entity_id", "slice_seq"], keep="last"
     )
-    return frame[frame["status"] == STATUS_PLANNED]
+    return frame[frame["status"].isin({STATUS_PLANNED, "reserved"})]
 
 
 def release_anchor(market: Market, *, recorded_at: datetime, now: datetime) -> datetime:

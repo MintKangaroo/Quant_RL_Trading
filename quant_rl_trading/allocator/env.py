@@ -65,7 +65,7 @@ from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.ledger import FX_USDKRW
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.allocator import cache as cache_module
-from quant_rl_trading.allocator.reward import RewardEngine, RewardParams
+from quant_rl_trading.allocator.reward import REWARD_CONTRACT, RewardEngine, RewardParams
 from quant_rl_trading.backtest import loop as loop_module
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.executor import sizing as sizing_module
@@ -589,11 +589,11 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
         )
         benchmark_return = self._benchmark_return()
 
-        # 5. 보상. 비용은 **시뮬레이터가 실제로 뺀 값**을 넘긴다 — 여기서 다시
-        #    추정하면 장부에서 나간 돈과 배우는 벌점이 갈라진다.
+        # 5. 보상. NAV 수익은 이미 실비 차감 후다. cost는 분해 기록에만 쓰고
+        #    RewardEngine에서 다시 차감하지 않는다(net-cost-once-v2).
         cost = cost_krw / previous_nav if previous_nav > 0 else 0.0
-        if self.curriculum_c1:
-            cost = 0.0   # C1: 비용 0 — 행동하면 감점이라는 도망 유인을 치운다
+        # C1에서도 실비 기록은 지우지 않는다. 비용이 없는 실험은 fill 모델의
+        # 요율 자체를 0으로 설정해야 하며 로그만 0으로 바꿔서는 안 된다.
         # §8 — 후보 균등가중 일간수익률 r̄ 과 어제의 주식 비중. 미래를 안 본다:
         # 둘 다 어제 관측(가격·평가)에서 나오고, 오늘 가격은 방금 advance 로
         # 열린 그날 종가다(체결 평가와 같은 시점).
@@ -649,6 +649,8 @@ class LatticeEnv(gym.Env[Obs, dict[str, Any]]):
             "target_weights": targets,
             "action_reflection_rate": reflection,
             "cost": cost,
+            "reward_contract": REWARD_CONTRACT,
+            "net_return": portfolio_return,
             # §8 분해 — 학습 로그가 "선택을 배우나, 노출만 만지나" 를 가른다.
             "selection_return": breakdown.selection_return,
             "exposure_return": breakdown.exposure_return,

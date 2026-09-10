@@ -26,7 +26,8 @@ def _fallback() -> AllocatorParams:
 
 def _rp_params() -> rpb.RiskParityParams:
     return rpb.RiskParityParams(
-        score_tilt=1.0, name_rc_cap=0.15, sector_rc_cap=0.35,
+        # Small orchestration fixtures: numeric infeasibility is tested separately.
+        score_tilt=1.0, name_rc_cap=1.0, sector_rc_cap=1.0,
         downside_beta_cap=1.0, window=250,
     )
 

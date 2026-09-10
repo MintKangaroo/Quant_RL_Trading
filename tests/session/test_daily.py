@@ -97,6 +97,23 @@ def test_후보에서_주문까지_이어진다(fund) -> None:
     assert max(result.weights.values()) <= 0.15 + 1e-9
 
 
+def test_projection_failure_does_not_generate_liquidation_targets(fund, monkeypatch):
+    from quant_rl_trading.allocator import risk_parity_baseline
+    from quant_rl_trading.portfolio.constraints import ProjectionError
+
+    def reject(*args, **kwargs):
+        raise ProjectionError("downside beta")
+
+    monkeypatch.setattr(risk_parity_baseline, "allocate_risk_parity", reject)
+    result = daily.run(
+        fund, ReplayClock(NOW), as_of=NOW, market="KR", holdings={ENTITIES[0]: 10},
+    )
+    assert result.fault == "portfolio_constraints"
+    assert result.blocked_by == "downside beta"
+    assert not result.orders
+    assert fund.get("orders", as_of=NOW).empty
+
+
 def test_같은_as_of_는_같은_주문을_낸다(fund, tmp_path) -> None:
     """**결정론.** 안 지켜지면 백테스트가 거짓말이 된다.
 

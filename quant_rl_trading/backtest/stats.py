@@ -101,17 +101,23 @@ def summarize(
     requested: int,
     filled: int,
     action_reflection: float,
+    initial_index: float | None = None,
 ) -> Performance:
     """구간 성적 한 묶음.
 
     회전율은 **체결 금액 / 평균 NAV** 다. 매수와 매도를 모두 세므로 왕복이면
     2 가 된다 — 진화 적합도의 페널티 항이 이 정의를 쓴다 (selector.md §3).
     """
-    total = index_values[-1] / index_values[0] - 1.0 if len(index_values) >= 2 else 0.0
+    curve = list(index_values)
+    if initial_index is not None:
+        if not math.isfinite(initial_index) or initial_index <= 0:
+            raise ValueError("initial_index must be finite and positive")
+        curve.insert(0, initial_index)
+    total = curve[-1] / curve[0] - 1.0 if len(curve) >= 2 else 0.0
     return Performance(
         days=len(index_values),
         total_return=total,
-        max_drawdown=max_drawdown(index_values),
+        max_drawdown=max_drawdown(curve),
         volatility=volatility(returns),
         return_over_vol=annualized_return_over_vol(returns),
         turnover=traded_value / average_nav if average_nav > 0 else 0.0,

@@ -73,6 +73,10 @@ class MemoStore:
 
     # -- 조회 -----------------------------------------------------------------
 
+    def execution_view(self) -> Store:
+        """외부에서 바뀐 kill latch를 고정된 세션 캐시로 가리지 않는다."""
+        return self._inner.execution_view()
+
     def get(
         self,
         table: str,

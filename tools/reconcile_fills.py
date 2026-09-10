@@ -9,24 +9,21 @@
 말해 준다. ``execution.pending`` 은 ``sent`` 를 봉으로 체결시키지 않으므로, 이
 도구가 안 돌면 그 주문은 장부에 영원히 없다. 그래서 종료코드가 말한다:
 
-    0  전부 확인(체결·미체결·취소·만료 중 하나로 확정)
+    0  조회 대상의 체결량 확인, 미확정 전송·종결 상태 없음
     1  하나라도 "모른다"(조회 실패) — 다음 실행이 다시 본다
     2  대사할 주문이 없다 (오늘 세션이 안 돌았거나 sent 가 0건)
 
-STALE_DAYS 를 넘긴 "모른다" 는 ``expired`` 로 확정한다 — 브로커가 며칠 지난 주문을
-안 돌려주므로 영원히 모름으로 남아 매일 rc=1 을 만들기 때문이다. 체결을 0 으로 적는
-것이 아니라 주문만 종결시키며, 포지션 진실은 ``reconcile_snapshot`` 이 계좌 잔고와
-대조해 따로 맞춘다.
+오래된 미확정 주문도 자동 만료시키지 않는다. 날짜 경과는 취소·미체결 증거가 아니다.
+주문번호 없는 전송 시도도 실패로 보고하며 예약은 장부에서 유지한다.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-
-import pandas as pd
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -35,8 +32,12 @@ if str(REPO_ROOT) not in sys.path:
 from quant_rl_trading.broker.fills import FillState, PendingFill, sync_fills  # noqa: E402
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.executor.orders import client_order_id  # noqa: E402
+from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_bindings  # noqa: E402
+from quant_rl_trading.executor.action_journal import refresh_order_states  # noqa: E402
 from quant_rl_trading.executor.pipeline import BROKER_ORDER_NO_PREFIX  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
+from quant_rl_trading.risk.account import UNVERIFIED_TERMINAL, filled_quantities, key  # noqa: E402
 from quant_rl_trading.schemas.order import Side  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store, overlay  # noqa: E402
@@ -47,7 +48,7 @@ from tools.verify_live_order import resolve_profile  # noqa: E402
 
 ORDERS = "orders"
 STATUS_SENT = "sent"
-SOURCE_EXPIRE = "reconcile_expire"
+UNRESOLVED_STATUSES = frozenset({STATUS_SENT, "submitting", "cancel_unknown", "modify_unknown"})
 
 
 def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_id: str) -> list[PendingFill]:
@@ -61,21 +62,34 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
     세션 불문 전부** 대상으로 삼는다. 이미 장부에 든 체결은 sync_fills 의
     ``_recorded_quantities`` 가 중복을 막는다.
     """
-    frame = store.get(ORDERS, as_of=as_of, lookback=14)
+    # unknown은 날짜가 오래됐다는 이유만으로 대사 대상에서 사라지면 안 된다.
+    frame = store.get(ORDERS, as_of=as_of)
     if frame.empty:
         return []
     # 시장을 섞지 않는다 — KR 대사에 US 주문이 들어오면 계좌·조회 경로가 어긋난다.
     # entity_id 접두사(``KR:``/``US:``)로 이 시장 것만 남긴다.
     frame = frame[
-        (frame["status"] == STATUS_SENT)
+        (frame["status"].isin(UNRESOLVED_STATUSES | UNVERIFIED_TERMINAL))
         & frame["entity_id"].astype(str).str.startswith(f"{market}:")
     ]
+    filled = filled_quantities(store, as_of=as_of)
+    cancelled = cancelled_quantities(store, as_of=as_of)
+    bindings = submission_bindings(store, as_of=as_of)
     out: list[PendingFill] = []
     for row in frame.itertuples(index=False):
         reason = str(getattr(row, "reason", "") or "")
         # 행이 자기 세션을 들고 있으면 그걸 쓴다(옛 세션 고아도 정확히 식별). 없으면
         # 넘겨받은 현재 세션으로 메운다.
         row_session = str(getattr(row, "session_id", "") or session_id)
+        logical = key(row_session, str(row.entity_id), int(row.slice_seq))
+        hashed = client_order_id(
+            session=row_session, entity_id=str(row.entity_id), slice_seq=int(row.slice_seq)
+        )
+        accounted = filled.get(logical, 0.0) + filled.get(hashed, 0.0) + cancelled.get(logical, 0.0)
+        if accounted > float(row.quantity):
+            raise ValueError("fill/cancellation ledger exceeds original order")
+        if accounted == float(row.quantity):
+            continue
         if not reason.startswith(BROKER_ORDER_NO_PREFIX):
             print(f"  ⚠️  {row.entity_id} slice {row.slice_seq}: sent 인데 주문번호가 없다 — 대사 불가", file=sys.stderr)
             continue
@@ -87,48 +101,43 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
                 market=market,
                 broker_order_no=reason[len(BROKER_ORDER_NO_PREFIX):],
                 requested_quantity=float(row.quantity),
+                observed_day=(date.fromisoformat(bindings[logical]["order_day"]) if logical in bindings
+                              else row.observed_at.tz_convert(
+                    ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
+                ).date()),
             )
         )
     return out
 
 
-
-#: 이 일수를 넘긴 sent 주문이 계속 "모른다" 면 만료로 확정한다. 브로커의 체결
-#: 조회 창(며칠)보다 넉넉히 잡되, 늦게 오는 체결을 놓치지 않을 만큼은 기다린다.
-STALE_DAYS = 3
-
-
-def _expire_stale(
-    store: Store, clock, *, now: datetime, market: str, result
-) -> int:
-    """오래된 UNKNOWN 주문을 ``expired`` revision 으로 되적는다. 적은 건수를 돌려준다."""
-    unknown_ids = {
-        o.order_id for o in result.outcomes if o.state is FillState.UNKNOWN
-    }
-    if not unknown_ids:
+def missing_broker_ids(store: Store, *, as_of: datetime, market: str) -> int:
+    frame = store.get(ORDERS, as_of=as_of, market=market)
+    if frame.empty:
         return 0
-    frame = store.get(ORDERS, as_of=now, lookback=30)
-    frame = frame[frame["status"] == STATUS_SENT]
-    cutoff = pd.Timestamp(now) - pd.Timedelta(days=STALE_DAYS)
-    rows = []
+    return int((frame["status"].isin(UNRESOLVED_STATUSES)
+                & ~frame["reason"].fillna("").str.startswith(BROKER_ORDER_NO_PREFIX)).sum())
+
+
+def unverified_remainders(store: Store, *, as_of: datetime, market: str) -> int:
+    frame = store.get(ORDERS, as_of=as_of, market=market)
+    if frame.empty:
+        return 0
+    frame = frame[frame["status"].isin(UNVERIFIED_TERMINAL | {"cancel_unknown", "modify_unknown"})]
+    filled = filled_quantities(store, as_of=as_of)
+    cancelled = cancelled_quantities(store, as_of=as_of)
+    count = 0
     for row in frame.itertuples(index=False):
-        oid = f"{getattr(row, 'session_id', '')}|{row.entity_id}|{row.slice_seq}"
-        if oid not in unknown_ids:
+        if not str(row.reason).startswith(BROKER_ORDER_NO_PREFIX):
             continue
-        if pd.Timestamp(row.observed_at) > cutoff:
-            continue  # 아직 늦게 올 수 있다
-        record = {c: getattr(row, c) for c in frame.columns}
-        record["status"] = "expired"
-        record["revision"] = int(getattr(row, "revision", 2) or 2) + 1
-        record["observed_at"] = now
-        rows.append(record)
-    if not rows:
-        return 0
-    run_id = f"expire-stale-{market}-{now:%Y%m%dT%H%M%S}"
-    if store.ingest_run_recorded(ORDERS, run_id):
-        return 0
-    store.append(ORDERS, rows, ingest_run_id=run_id, source=SOURCE_EXPIRE)
-    return len(rows)
+        logical = key(str(row.session_id), str(row.entity_id), int(row.slice_seq))
+        hashed = client_order_id(
+            session=str(row.session_id), entity_id=str(row.entity_id), slice_seq=int(row.slice_seq)
+        )
+        accounted = filled.get(logical, 0.0) + filled.get(hashed, 0.0) + cancelled.get(logical, 0.0)
+        if accounted > float(row.quantity):
+            raise ValueError("fill/cancellation ledger exceeds original order")
+        count += accounted < float(row.quantity)
+    return int(count)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,6 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     source = build_store(None)
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
+    refresh_order_states(store, clock)
     market = Market(args.market)
     day = date.fromisoformat(args.day) if args.day else last_settled_day(store, market, clock.now())
     if day is None:
@@ -152,14 +162,19 @@ def main(argv: list[str] | None = None) -> int:
     now = clock.now()
     pending = pending_from_orders(store, as_of=now, market=args.market, session_id=session_id)
     print(f"{args.market} 세션 {session_id} · 창고 {store.root} · sent {len(pending)}건")
+    missing = missing_broker_ids(store, as_of=now, market=args.market)
+    if missing:
+        print(f"주문번호 미확정 {missing}건 — 자동 재전송·예약 해제 금지", file=sys.stderr)
     if not pending:
+        if missing:
+            return 1
         # TWAP 전환(2026-09-02) 뒤로는 조각 배포·재호가가 장중에 체결·포기를 다 확정하므로 15:45 에
         # `sent` 가 남지 않는 것이 정상이다. 그 세션의 주문이 창고에 있으면 "이미 끝났다"(0), 주문
         # 자체가 없으면 "세션이 안 돌았다"(2) — 둘을 같은 rc 로 내보내면 크론이 매일 경보를 낸다.
         frame = store.get("orders", as_of=now, lookback=7, market=args.market)
         n = int((frame["session_id"] == session_id).sum()) if not frame.empty else 0
         if n:
-            print(f"대사할 주문이 없다 — 세션 주문 {n}건은 장중에 이미 종결됐다(TWAP·재호가).")
+            print(f"세션 기록 {n}건 중 현재 브로커 체결 대사 대상이 없다.")
             return 0
         print("대사할 주문이 없다 — 이 세션의 주문이 창고에 없다.")
         return 2
@@ -184,20 +199,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  {mark:<4} {outcome.order_id} · {qty if qty is not None else '-'}주{price} {outcome.detail}")
     print(f"trades {result.rows_written}행 적재 · 모름 {unknown}건")
 
-    # **오래된 '모름' 은 만료로 확정한다.** 브로커는 며칠 지난 주문의 체결을 안
-    # 돌려주므로(4일이면 "주문 없음"), 그 주문들은 영원히 UNKNOWN 으로 남아 매
-    # 대사마다 조회되고 rc=1 을 만든다 — 2026-08-27 주문 70건이 그랬다. 정상
-    # 상태를 매일 실패로 보고하면 감시가 무뎌진다.
-    #
-    # **0 체결로 적는 것이 아니다** — trades 는 손대지 않는다. 주문만 종결로
-    # 옮겨 더 쫓지 않게 한다. 그 사이 실제로 체결됐더라도 포지션 진실은
-    # `reconcile_snapshot` 이 계좌 잔고와 대조해 따로 맞춘다. 그 안전망이 있어야
-    # 이 만료 처리가 안전하다.
-    stale = _expire_stale(store, clock, now=now, market=args.market, result=result)
-    if stale:
-        print(f"만료 확정 {stale}건 — {STALE_DAYS}일 넘게 브로커가 모른다고 답한 주문")
-        unknown -= stale
-    return 1 if unknown else 0
+    unverified = unverified_remainders(store, as_of=now, market=args.market)
+    if unverified:
+        print(f"잔량 최종 상태 미확정 {unverified}건 — 체결량 확인은 취소 확정이 아니다")
+    return 1 if unknown or missing or unverified else 0
+
 
 
 if __name__ == "__main__":

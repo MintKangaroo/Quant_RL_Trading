@@ -37,6 +37,7 @@ from quant_rl_trading.replay.events import payload_hash
 from quant_rl_trading.session import daily as daily_module
 from quant_rl_trading.session import signals as signals_module
 from quant_rl_trading.store import DuplicateIngestRun
+from quant_rl_trading.store.quality import require_causal_universe
 
 if TYPE_CHECKING:
     from quant_rl_trading.replay.clock import Clock
@@ -217,6 +218,7 @@ def run(
     produce_signals: bool = True,
     on_day: DayCallback | None = None,
     broker: Broker | None = None,
+    execution_clock: Clock | None = None,
 ) -> BacktestResult:
     """구간 백테스트.
 
@@ -257,6 +259,13 @@ def run(
         result.notes.append(f"{start}~{end} 구간에 {market} 거래일이 없다")
         return result
 
+    if market_enum is Market.US:
+        last_probe = datetime.combine(scored[-1], DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL)
+        require_causal_universe(
+            store, market=market,
+            as_of=snapshot_moment(store, scored[-1], as_of=last_probe, market=market_enum),
+        )
+
     # 설정을 읽으려면 시점이 필요한데, 그 시점을 벽시계에서 가져오면 불변식 2 를
     # 어긴다. 첫 거래일의 기본 스냅샷 시각을 탐침으로 쓴다 — 설정은 이중시간이라
     # 그날 유효한 값이 나온다.
@@ -270,6 +279,7 @@ def run(
 
     warmup_set = set(warmup)
     index_values: list[float] = []
+    initial_index: float | None = None
     returns: list[float] = []
     navs: list[float] = []
     traded_value = 0.0
@@ -354,6 +364,7 @@ def run(
             # 같이 굴리기 때문에(그렇게 안 하면 D+1 체결이 아예 안 돈다), 이
             # 한 줄이 없으면 실전 세션마다 전날 주문이 한 벌씩 더 나간다.
             broker=None if day in warmup_set else broker,
+            execution_clock=execution_clock,
         )
         elapsed["결정"] = perf_counter() - mark
         # 최대 RSS(MB). **메모리는 조용히 는다** — 2026-08-14 실행이 5.3GB 에서
@@ -386,8 +397,13 @@ def run(
         )
         result.days.append(entry)
         if day not in warmup_set:
+            if not index_values:
+                prior = ledger_module.previous_session_snapshot(store, as_of=as_of)
+                if prior is not None:
+                    initial_index = float(prior["index_value"])
             index_values.append(snapshot.index_value)
-            returns.append(snapshot.twr_return)
+            if initial_index is not None or len(index_values) > 1:
+                returns.append(snapshot.twr_return)
             navs.append(snapshot.valuation.nav)
         if on_day is not None:
             on_day(entry)
@@ -395,9 +411,9 @@ def run(
     last = result.days[-1].as_of
     result.performance = stats_module.summarize(
         index_values=index_values,
-        # 첫날 수익률은 0 이다(비교할 어제가 없다). 표본에 넣으면 변동성이
-        # 인위적으로 낮아진다.
-        returns=returns[1:],
+        initial_index=initial_index,
+        # 실제 직전 회계가 있는 첫 평가일은 포함한다. 최초 무관측 0만 제외한다.
+        returns=returns,
         traded_value=traded_value,
         average_nav=sum(navs) / len(navs) if navs else 0.0,
         requested=requested,

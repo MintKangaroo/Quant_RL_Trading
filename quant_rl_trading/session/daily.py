@@ -27,9 +27,10 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.accounting import ledger as ledger_module
-from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting import snapshot as snapshot_module
+from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting.rates import Rates
+from quant_rl_trading.allocator.activation import LiveParams
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
 from quant_rl_trading.analysts.regime import RegimeAnalyst
 from quant_rl_trading.broker import Broker
@@ -44,6 +45,7 @@ from quant_rl_trading.store import mode as store_mode
 from quant_rl_trading.store.prices import adjust, read_prices
 
 if TYPE_CHECKING:
+    from quant_rl_trading.allocator.live import PolicyDecision
     from quant_rl_trading.replay.clock import Clock
     from quant_rl_trading.store import Store
 
@@ -165,6 +167,7 @@ def run(
     board: str = "KOSPI",
     wall_clock: Clock | None = None,
     broker: Broker | None = None,
+    execution_clock: Clock | None = None,
 ) -> DailySession:
     """하루치 결정. 주문을 만들고 기록한다.
 
@@ -274,13 +277,11 @@ def run(
     )
     scores = {item.entity_id: item.score for item in selection.candidates}
     allocate_driver = str(params.baseline)
-    # **지연 import 다.** allocator.live → env → cache → 이 모듈로 도는 고리가
-    # 있다. risk_parity 와 같은 이유로 함수 안에서 문다.
-    from quant_rl_trading.allocator import live as live_rl
-
-    rl_params = live_rl.LiveParams.from_store(store, as_of=as_of)
-    policy_decision: live_rl.PolicyDecision | None = None
+    rl_params = LiveParams.from_store(store, as_of=as_of)
+    policy_decision: PolicyDecision | None = None
     if rl_params.active_for(store_mode.of(store.root).code):
+        from quant_rl_trading.allocator import live as live_rl
+
         # **정책이 목표 비중을 낸다** (M4 → 모의계좌). 룰 베이스라인 자리에
         # 그대로 끼운다 — 사이징·집행·실현 비중 기록은 아래 같은 길이다.
         # 어느 장부에서 켜는지는 `allocator.rl.modes` 가 정한다: 모의계좌만
@@ -311,22 +312,31 @@ def run(
             RiskParityParams,
             allocate_risk_parity,
         )
+        from quant_rl_trading.portfolio.constraints import ProjectionError
 
         rp_params = RiskParityParams.from_store(store, as_of=as_of)
-        weights, path = allocate_risk_parity(
-            store,
-            as_of=as_of,
-            market=str(market),
-            scores=scores,
-            entities=entities,
-            params=rp_params,
-            fallback=AllocatorParams(
-                baseline=Baseline.SCORE,
-                max_position_weight=params.max_position_weight,
-                cash_buffer=params.cash_buffer,
-            ),
-            volatility=volatility,
-        )
+        try:
+            weights, path = allocate_risk_parity(
+                store,
+                as_of=as_of,
+                market=str(market),
+                scores=scores,
+                entities=entities,
+                params=rp_params,
+                fallback=AllocatorParams(
+                    baseline=Baseline.SCORE,
+                    max_position_weight=params.max_position_weight,
+                    cash_buffer=params.cash_buffer,
+                ),
+                volatility=volatility,
+            )
+        except ProjectionError as exc:
+            result.fault = "portfolio_constraints"
+            result.blocked_by = str(exc)
+            result.notes.append(f"포트폴리오 위험 제약 미충족 — {exc}")
+            log.record("block", "portfolio_constraints", {"reason": str(exc)})
+            log.flush()
+            return result
         # path 는 이미 자기서술적이다: "risk_parity:crisis" / "risk_parity:fallback".
         allocate_driver = path
     else:
@@ -428,6 +438,7 @@ def run(
         board=board,
         broker=broker,
         fx_rate=fx_rate,
+        execution_clock=execution_clock,
     )
     result.orders = execution.planned
     result.notes.extend(execution.notes)

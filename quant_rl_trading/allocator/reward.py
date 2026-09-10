@@ -1,6 +1,6 @@
 """보상 함수 — `docs/design/reward-and-risk.md §2` 를 그대로 옮긴 것.
 
-    r_t = (r_port,t - r_bench,t) - w(d_t)·Δd_t - cost_t
+    r_t = (r_port_net,t - r_bench,t) - w(d_t)·Δd_t
 
 ## 왜 allocator 안인가
 
@@ -34,6 +34,7 @@ NAV 를 계산하는 곳은 레포에 한 곳뿐이다(불변식, `accounting.md
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -49,6 +50,13 @@ if TYPE_CHECKING:
 BASELINE_BENCHMARK = "benchmark"
 BASELINE_CANDIDATES = "candidates"
 BASELINES = frozenset({BASELINE_BENCHMARK, BASELINE_CANDIDATES})
+REWARD_CONTRACT = "net-cost-once-v2"
+
+
+def require_reward_contract(checkpoint: Mapping[str, Any]) -> None:
+    """다른 보상 단위의 optimizer/normalizer를 새 학습에 그대로 재개하지 않는다."""
+    if checkpoint.get("reward_contract") != REWARD_CONTRACT:
+        raise ValueError("Checkpoint reward contract differs; register a fresh training run")
 
 
 @dataclass(frozen=True)
@@ -199,7 +207,8 @@ class RewardEngine:
     ) -> RewardBreakdown:
         """``portfolio_return`` 은 `accounting.nav.twr_return` 이 낸 세전 TWR 이다.
 
-        ``cost`` 는 **양수로 넘긴다**(0.003 = 30bp). 보상에서는 빼는 항이다.
+        ``cost`` 는 **양수로 넘긴다**(0.003 = 30bp). 이미 TWR에 포함된 실비의
+        감사 기록이다. 보상에서 다시 차감하지 않는다.
 
         ``candidate_mean_return`` 은 그날 후보의 **균등가중 일간수익률**,
         ``invested_share`` 는 어제 기준 주식 비중이다. 둘 다 오면 excess 를
@@ -230,7 +239,7 @@ class RewardEngine:
         # "아무 일도 없었다" 가 되어 낙폭 벌점·비용만 남는다.
         core = selection if (self.baseline == BASELINE_CANDIDATES and candidate_mean_return is not None
                              and invested_share is not None) else excess
-        reward = core - penalty - cost
+        reward = core - penalty
 
         terminated = depth >= params.drawdown_hard
         if terminated:

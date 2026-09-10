@@ -17,13 +17,16 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.accounting import weights as weights_module
 from quant_rl_trading.accounting.book import KRW, USD
 from quant_rl_trading.accounting.book import Side as BookSide
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.backtest import market as market_module
+from quant_rl_trading.executor.orders import SIMULATION_ONLY
 from quant_rl_trading.replay.fills import Fill, FillParams, FillStatus, simulate_fill
 from quant_rl_trading.schemas.order import Order, Side
 from quant_rl_trading.store import DuplicateIngestRun
+from quant_rl_trading.store.locking import account_lock
 
 if TYPE_CHECKING:
     from quant_rl_trading.replay.clock import Clock
@@ -70,12 +73,14 @@ def pending(store: Store, *, as_of: datetime, session_id: str) -> pd.DataFrame:
     # 그 체결은 계좌가 말해 주고 `reconcile_fills` 가 trades 에 적는다 — 여기서
     # 봉으로 또 체결시키면 실제 체결 위에 가짜가 한 벌 더 얹힌다. `submitting`
     # 은 나갔는지 모르는 것이라 지어내지 않고, `rejected` 는 없는 주문이다.
-    return frame[frame["status"].isin(SIMULATED_STATUSES)]
+    return frame[
+        frame["status"].isin(SIMULATED_STATUSES)
+        | ((frame["status"] == "reserved") & (frame["reason"] == SIMULATION_ONLY))
+    ]
 
 
-#: 봉으로 체결시키는 상태. `paper` 는 PaperBroker 가 받은 것, `planned` 는
-#: 전송 단계 전에 죽어 상태가 안 붙은 것 — 둘 다 밖으로 안 나갔다.
-SIMULATED_STATUSES = frozenset({"planned", "paper"})
+#: 승인된 조각만 체결한다. simulated는 같은 세션의 결정론적 재실행용이다.
+SIMULATED_STATUSES = frozenset({"paper", "simulated"})
 
 
 def _aggregate(orders: pd.DataFrame) -> list[tuple[Order, str]]:
@@ -114,6 +119,19 @@ def _aggregate(orders: pd.DataFrame) -> list[tuple[Order, str]]:
 
 
 def run(
+    store: Store,
+    clock: Clock,
+    *,
+    as_of: datetime,
+    market: str,
+    session_id: str,
+    day: date | None = None,
+) -> ExecutionDay:
+    with account_lock(store.root):
+        return _run_locked(store, clock, as_of=as_of, market=market, session_id=session_id, day=day)
+
+
+def _run_locked(
     store: Store,
     clock: Clock,
     *,
@@ -196,6 +214,18 @@ def run(
                 result.notes.insert(
                     0, _stale_note(store, as_of=as_of, run_id=run_id, rows=rows)
                 )
+    # D+1 시도 후 잔량은 이월하지 않는다. 체결 기록보다 먼저 예약을 해제하지 않는다.
+    completed = []
+    for row in orders.to_dict(orient="records"):
+        if row["status"] == "simulated":
+            continue
+        row.update(status="simulated", observed_at=observed_at, revision=int(row["revision"]) + 1)
+        completed.append(row)
+    if completed:
+        store.append(
+            ORDERS, completed, ingest_run_id=f"simulated-{session_id}", source=SOURCE
+        )
+    weights_module.refresh(store, clock, as_of=as_of, sessions={session_id})
     return result
 
 

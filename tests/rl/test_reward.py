@@ -149,10 +149,10 @@ def test_벽에_닿기_전까지는_종료하지_않는다() -> None:
     assert breakdown.terminated is False
 
 
-def test_비용은_그대로_차감된다() -> None:
+def test_순수익에_포함된_비용은_다시_차감하지_않는다() -> None:
     """국장 왕복 0.2~0.35%. **실비이지 튜닝 대상이 아니다**(§5).
 
-    비용 모델 자체는 시뮬레이터가 갖고, 보상은 그 값을 받아 뺄 뿐이다.
+    비용 모델 자체는 시뮬레이터가 갖고, 보상에는 이미 순수익이 들어온다.
     보상이 비용을 따로 추정하면 시뮬레이터가 뺀 돈과 에이전트가 배우는 벌점이
     갈라진다.
     """
@@ -162,7 +162,8 @@ def test_비용은_그대로_차감된다() -> None:
             portfolio_return=0.01, benchmark_return=0.004, cost=cost
         )
         assert breakdown.excess_return == pytest.approx(0.006)
-        assert breakdown.reward == pytest.approx(0.006 - cost)
+        assert breakdown.reward == pytest.approx(0.006)
+        assert breakdown.cost == pytest.approx(cost)
 
 
 def test_낙폭은_누적지수로_잰다_입금이_지우지_못한다(
@@ -285,7 +286,7 @@ def test_선택점수는_노출_결정에_무감각하다() -> None:
 
 
 def test_candidates_baseline_rewards_selection_only() -> None:
-    """4회차 — 기준선이 후보 균등가중이면 보상 = 선택 항 − 벌점 − 비용. 후보 수익이 없으면 벤치마크로."""
+    """4회차 — 기준선이 후보 균등가중이면 보상 = 순 선택 항 − 벌점. 후보 수익이 없으면 벤치마크로."""
     from quant_rl_trading.allocator.reward import BASELINE_CANDIDATES, RewardEngine, RewardParams
 
     params = RewardParams(
@@ -296,7 +297,7 @@ def test_candidates_baseline_rewards_selection_only() -> None:
     out = engine.step(portfolio_return=0.010, benchmark_return=0.002, cost=0.001,
                       candidate_mean_return=0.006, invested_share=0.9)
     assert out.selection_return == pytest.approx(0.010 - 0.9 * 0.006)
-    assert out.reward == pytest.approx(out.selection_return - 0.001)
+    assert out.reward == pytest.approx(out.selection_return)
     fallback = engine.step(portfolio_return=0.010, benchmark_return=0.002, cost=0.0)
     assert fallback.reward == pytest.approx(0.010 - 0.002)
     with pytest.raises(ValueError):

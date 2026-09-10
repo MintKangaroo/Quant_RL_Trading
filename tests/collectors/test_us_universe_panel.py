@@ -6,13 +6,14 @@
    먼저 관측된 것이 되고, 그 순간 미래를 보게 된다
 2. **봉이 빠진 날은 상폐가 아니다.** 미장에는 거래소 명단 스냅샷이 없어서
    결측과 상폐가 같은 모습을 하고 있다
-3. 상폐 행의 시각은 **마지막으로 본 세션**의 것이다. 오늘로 찍으면 과거
-   리플레이가 그날의 사실과 어긋난다
+3. 비활성 추정은 그 추정 시각부터만 보인다. 거래 부재만으로 확정 상폐를 지어내지 않는다
 """
 
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
+
+import pytest
 
 from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.collectors.us_universe_panel import (
@@ -20,6 +21,8 @@ from quant_rl_trading.collectors.us_universe_panel import (
     delisting_rows,
     session_rows,
 )
+
+INFERRED = datetime(2026, 4, 1, tzinfo=UTC)
 
 
 def bar(ticker: str, day: date, hour: int = 5) -> dict[str, object]:
@@ -64,26 +67,26 @@ def test_봉이_빠진_날은_상폐가_아니다() -> None:
     # 마지막 봉이 패널 끝이다 — 중간에 아무리 빠져도 살아 있다.
     last_seen = {"US:THIN": (sessions[-1], object(), object())}
 
-    assert delisting_rows(last_seen, sessions) == []
+    assert delisting_rows(last_seen, sessions, inferred_at=INFERRED) == []
 
 
-def test_소식이_끊기면_상폐로_찍는다() -> None:
+def test_소식이_끊기면_현재_시점의_비활성_추정으로_찍는다() -> None:
     sessions = [date(2026, 3, day) for day in range(1, 30)]
     last_day = sessions[-(DEAD_SESSIONS + 1)]
     valid_from = datetime(2026, 3, last_day.day, tzinfo=UTC)
     observed_at = datetime(2026, 3, last_day.day, 5, tzinfo=UTC)
     last_seen = {"US:GONE": (last_day, valid_from, observed_at)}
 
-    rows = delisting_rows(last_seen, sessions)
+    rows = delisting_rows(last_seen, sessions, inferred_at=INFERRED)
 
     assert len(rows) == 1
     row = rows[0]
-    assert row["is_listed"] is False
+    assert row["is_listed"] is True
     assert row["is_tradable"] is False
-    # 시각은 오늘이 아니라 마지막으로 본 세션의 것이다.
-    assert row["valid_from"] == valid_from
-    assert row["observed_at"] == observed_at
-    assert row["delisted_on"] == valid_from
+    # 과거 마지막 봉을 덮지 않고 현재 비활성 추정으로 남긴다.
+    assert row["valid_from"] == INFERRED
+    assert row["observed_at"] == INFERRED
+    assert row["delisted_on"] is None
 
 
 def test_패널이_짧으면_아무도_상폐가_아니다() -> None:
@@ -94,4 +97,39 @@ def test_패널이_짧으면_아무도_상폐가_아니다() -> None:
     sessions = [date(2026, 3, day) for day in range(1, DEAD_SESSIONS + 1)]
     last_seen = {"US:NEW": (sessions[0], object(), object())}
 
-    assert delisting_rows(last_seen, sessions) == []
+    assert delisting_rows(last_seen, sessions, inferred_at=INFERRED) == []
+
+
+def test_delisting_not_visible_before_inference(store):
+    sessions = [date(2026, 3, day) for day in range(1, 30)]
+    original = bar("GONE", sessions[0])
+    store.append("universe", session_rows([original]), ingest_run_id="last-observation")
+    rows = delisting_rows(
+        {"US:GONE": (sessions[0], original["valid_from"], original["observed_at"])},
+        sessions, inferred_at=INFERRED,
+    )
+    store.append("universe", rows, ingest_run_id="inference")
+    before = store.get("universe", as_of=datetime(2026, 3, 2, tzinfo=UTC))
+    assert len(before) == 1
+    assert bool(before.iloc[0]["is_tradable"])
+    after = store.get("universe", as_of=INFERRED).sort_values("valid_from")
+    assert not bool(after.iloc[-1]["is_tradable"])
+    assert bool(after.iloc[-1]["is_listed"])
+    assert after.iloc[-1]["source"] == "ls_us_inactive_inferred_v2"
+
+
+def test_inference_rejects_future_panel():
+    with pytest.raises(ValueError, match="fully observed"):
+        delisting_rows({}, [date(2026, 4, 2)], inferred_at=INFERRED)
+
+
+def test_legacy_backdated_universe_cannot_support_new_research(store):
+    from quant_rl_trading.store.quality import require_causal_universe
+
+    original = bar("GONE", date(2026, 3, 1))
+    row = session_rows([original])[0]
+    row.update(is_listed=False, is_tradable=False, delisted_on=row["valid_from"])
+    store.append("universe", [row], ingest_run_id="legacy-backdated")
+    with pytest.raises(ValueError, match="Legacy US inferred delistings"):
+        require_causal_universe(store, as_of=INFERRED, market="US")
+    require_causal_universe(store, as_of=INFERRED, market="KR")

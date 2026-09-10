@@ -38,14 +38,16 @@ from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import orders as orders_module
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams
 from quant_rl_trading.executor.sizing import (
-    Sized,
     SizingParams,
     Skipped,
     Target,
     replace_weight,
     size_orders,
 )
+from quant_rl_trading.risk import account as account_risk
 from quant_rl_trading.schemas.order import Side
+from quant_rl_trading.store.errors import DuplicateIngestRun
+from quant_rl_trading.store.locking import account_lock
 
 if TYPE_CHECKING:
     from quant_rl_trading.broker import Broker
@@ -62,6 +64,7 @@ STATUS_SUBMITTING = "submitting"
 STATUS_SENT = "sent"
 STATUS_PAPER = "paper"
 STATUS_REJECTED = "rejected"
+STATUS_RISK_BLOCKED = "risk_blocked"
 
 
 @dataclass
@@ -98,6 +101,7 @@ def run(
     liquidation_only: bool = False,
     broker: Broker | None = None,
     fx_rate: float = 1.0,
+    execution_clock: Clock | None = None,
 ) -> ExecutionResult:
     """한 세션의 집행. 주문을 만들고, 창고에 적고, 전송한다.
 
@@ -120,9 +124,7 @@ def run(
         scope = "전 포지션 청산" if switch.force_liquidation else "신규매수만 차단"
         result.notes.append(f"{switch.reason} — {scope}")
         if switch.force_liquidation:
-            targets = [
-                replace_weight(target, 0.0) for target in targets
-            ] + [
+            targets = [replace_weight(target, 0.0) for target in targets] + [
                 Target(entity_id=entity, weight=0.0, price=0.0, adv_value=0.0)
                 for entity in holdings
                 if entity not in {item.entity_id for item in targets}
@@ -148,9 +150,7 @@ def run(
     #
     # 결측 종목이 **후보 중에** 있으면 여전히 걸린다 — 그게 이 게이트의 일이다.
     buyable = [target.entity_id for target in targets if target.weight > 0.0]
-    quality = guards.check_data_quality(
-        store, as_of=as_of, market=market, entities=buyable
-    )
+    quality = guards.check_data_quality(store, as_of=as_of, market=market, entities=buyable)
     if not quality:
         # **매도는 막지 않는다.** 킬스위치·서킷브레이커와 같은 이유다 — 청산까지
         # 막는 안전장치는 빠져나올 길을 막는 것이라 안전장치가 아니다. 여기만
@@ -238,25 +238,41 @@ def run(
         )
     result.planned = tuple(planned)
 
-    record_orders(store, clock, planned=planned, as_of=as_of, market=market)
+    send_clock = execution_clock if execution_clock is not None else clock
+    record_orders(store, send_clock, planned=planned, as_of=as_of, market=market)
+    approved, risk_notes = reserve_orders(
+        store,
+        send_clock,
+        planned=planned,
+        as_of=as_of,
+        market=market,
+        simulation_only=isinstance(active_broker, PaperBroker),
+    )
+    result.notes.extend(risk_notes)
+    if planned and not approved and risk_notes:
+        result.blocked_by = risk_notes[0]
     # **조각을 한꺼번에 내보내지 않는다.** 기록은 전부 남기고(위 record_orders),
-    # 전송은 지금 시각에 해당하는 조각만 한다 — 나머지는 ``planned`` 로 남아
+    # 전송은 지금 시각에 해당하는 조각만 한다 — 나머지는 ``reserved`` 로 남아
     # ``tools/release_slices.py`` 가 시간이 되면 낸다. 세션 시각의 elapsed 는 0
     # 이므로 여기서는 0번 조각만 나간다(slice_interval_sec<=0 이면 전부).
-    now_due = orders_module.due_slices(planned, params=slice_params, elapsed_sec=0.0)
-    if len(now_due) != len(planned):
+    now_due = orders_module.due_slices(approved, params=slice_params, elapsed_sec=0.0)
+    if len(now_due) != len(approved):
         result.notes.append(
-            f"조각 분할 전송 — 지금 {len(now_due)}건 · 나중에 {len(planned) - len(now_due)}건"
+            f"조각 분할 전송 — 지금 {len(now_due)}건 · 나중에 {len(approved) - len(now_due)}건"
         )
     result.acks = tuple(
-        submit_orders(
-            store, clock, active_broker, planned=now_due, as_of=as_of, market=market
-        )
+        submit_orders(store, send_clock, active_broker, planned=now_due, as_of=as_of, market=market)
     )
     # 8. **절대 생략 금지.**
     record_realized_weights(
-        store, clock, sized=sized, targets=targets, as_of=as_of,
-        market=market, session=session,
+        store,
+        send_clock,
+        holdings=holdings,
+        equity=equity,
+        targets=targets,
+        as_of=as_of,
+        market=market,
+        session=session,
     )
     return result
 
@@ -295,7 +311,142 @@ def record_orders(
 BROKER_ORDER_NO_PREFIX = "broker_order_no="
 
 
+def _current_order(store: Store, item: PlannedOrder, as_of: datetime) -> dict | None:
+    frame = store.get(ORDERS, as_of=as_of, entity=item.order.entity_id)
+    if frame.empty:
+        return None
+    frame = frame[(frame["session_id"] == item.session_id) & (frame["slice_seq"] == item.slice_seq)]
+    return None if frame.empty else frame.iloc[-1].to_dict()
+
+
+def _next_revision(store: Store, item: PlannedOrder, as_of: datetime) -> int:
+    current = _current_order(store, item, as_of)
+    return 0 if current is None else int(current["revision"]) + 1
+
+
+def reserve_orders(
+    store: Store,
+    clock: Clock,
+    *,
+    planned: list[PlannedOrder],
+    as_of: datetime,
+    market: str,
+    simulation_only: bool = False,
+) -> tuple[list[PlannedOrder], list[str]]:
+    """Reserve all slices before any broker submission; planned is not approval."""
+    if not planned:
+        return [], []
+    store = store.execution_view()
+    with account_lock(store.root):
+        now = clock.now()
+        try:
+            budget = account_risk.read(store, clock, as_of=now)
+            slippage = float(store.config("execution.max_slippage", as_of=now))
+            failure = ""
+        except (LookupError, ValueError) as exc:
+            budget, slippage, failure = None, 0.0, f"risk: account unavailable ({exc})"
+        current_rows = {
+            account_risk.key(str(r["session_id"]), str(r["entity_id"]), int(r["slice_seq"])): r
+            for r in store.get(ORDERS, as_of=now).to_dict(orient="records")
+        }
+        approved, notes, rows = [], [], []
+        for item in planned:
+            logical = account_risk.key(item.session_id, item.order.entity_id, item.slice_seq)
+            current = current_rows.get(logical)
+            if current and current["status"] != "planned":
+                if current["status"] == "reserved":
+                    approved.append(item)
+                continue
+            reason = failure
+            if budget is not None:
+                try:
+                    reservation = account_risk.for_order(item, market=market, slippage=slippage)
+                    decision = budget.check(reservation)
+                    reason = decision.reason
+                    if decision:
+                        budget.reservations[reservation.key] = reservation
+                except ValueError as exc:
+                    reason = str(exc)
+            row = item.row(
+                as_of=as_of,
+                observed_at=now,
+                market=market,
+                status=STATUS_RISK_BLOCKED if reason else "reserved",
+            )
+            row["revision"] = int(current["revision"]) + 1 if current else 0
+            if reason:
+                row["reason"] = reason
+                notes.append(f"{item.order.entity_id}: {reason}")
+            else:
+                if simulation_only:
+                    row["reason"] = orders_module.SIMULATION_ONLY
+                approved.append(item)
+            rows.append(row)
+            current_rows[logical] = row
+        if rows:
+            from quant_rl_trading.replay.events import payload_hash
+
+            identities = [
+                [r["session_id"], r["entity_id"], r["slice_seq"], r["revision"], r["status"]]
+                for r in rows
+            ]
+            store.append(
+                ORDERS, rows, ingest_run_id=f"reserve-{payload_hash(identities)}", source=SOURCE
+            )
+        return approved, notes
+
+
+def withdraw_unsent(store: Store, clock: Clock, *, session: str, market: str) -> int:
+    """Close only orders proven not to have reached the submission boundary."""
+    store = store.execution_view()
+    with account_lock(store.root):
+        now = clock.now()
+        frame = store.get(ORDERS, as_of=now, market=market)
+        if frame.empty:
+            return 0
+        frame = frame[
+            (frame["session_id"] == session) & frame["status"].isin({"planned", "reserved"})
+        ]
+        rows = []
+        for row in frame.to_dict(orient="records"):
+            order_id = orders_module.client_order_id(
+                session=session, entity_id=str(row["entity_id"]), slice_seq=int(row["slice_seq"])
+            )
+            if store.ingest_run_recorded(ORDERS, f"submit-{order_id}") or str(
+                row["reason"]
+            ).startswith(BROKER_ORDER_NO_PREFIX):
+                continue
+            row.update(
+                status="withdrawn",
+                reason="session closed before submission",
+                observed_at=now,
+                revision=int(row["revision"]) + 1,
+            )
+            rows.append(row)
+        if not rows:
+            return 0
+        return int(
+            store.append(ORDERS, rows, ingest_run_id=f"withdraw-unsent-{session}", source=SOURCE)
+        )
+
+
 def submit_orders(
+    store: Store,
+    clock: Clock,
+    broker: Broker,
+    *,
+    planned: list[PlannedOrder],
+    as_of: datetime,
+    market: str,
+) -> list[Ack]:
+    store = store.execution_view()
+    with account_lock(store.root):
+        return _submit_orders_locked(
+            store, clock, broker, planned=planned, as_of=as_of, market=market
+        )
+
+
+def _submit_orders_locked(
     store: Store,
     clock: Clock,
     broker: Broker,
@@ -341,11 +492,20 @@ def submit_orders(
     if not planned:
         return []
 
+    try:
+        budget = account_risk.read(store, clock, as_of=clock.now())
+        budget_error = ""
+    except (LookupError, ValueError) as exc:
+        budget, budget_error = None, f"risk: account unavailable ({exc})"
     acks: list[Ack] = []
     for item in planned:
         submit_run_id = f"submit-{item.order_id}"
         if store.ingest_run_recorded(ORDERS, submit_run_id):
             # 이미 이 주문에 전송을 시도한 기록이 있다 — 다시 보내지 않는다.
+            continue
+
+        current = _current_order(store, item, clock.now())
+        if current and current["status"] not in {"planned", "reserved"}:
             continue
 
         # 1. 적는다 — 전송 시도 전에 먼저. revision 을 올려 record_orders 의
@@ -356,30 +516,105 @@ def submit_orders(
         submitting_row = item.row(
             as_of=as_of, observed_at=clock.now(), market=market, status=STATUS_SUBMITTING
         )
-        submitting_row["revision"] = 1
-        store.append(
-            ORDERS, [submitting_row], ingest_run_id=submit_run_id, source=SOURCE
-        )
-
-        # 2. 보낸다.
+        submitting_row["revision"] = int(current["revision"]) + 1 if current else 0
         try:
-            ack = broker.submit(item, as_of=as_of)
-        except RejectedOrder as error:
-            acks.append(
-                Ack(order_id=item.order_id, accepted=False, sent=False, rsp_msg=str(error))
+            store.append(ORDERS, [submitting_row], ingest_run_id=submit_run_id, source=SOURCE)
+        except DuplicateIngestRun:
+            continue  # 다른 프로세스가 전송 claim을 먼저 적었다.
+
+        # 2. claim을 얻은 뒤, 네트워크 전송 직전의 현재 상태를 검사한다.
+        execution_time = clock.now()
+        approval = guards.check_pretrade(
+            store,
+            as_of=execution_time,
+            market=market,
+            entity_id=item.order.entity_id,
+            side=item.order.side,
+        )
+        if (
+            current
+            and current["reason"] == orders_module.SIMULATION_ONLY
+            and not isinstance(broker, PaperBroker)
+        ):
+            approval = guards.GateResult(
+                False, "risk: simulation reservation cannot reach a live broker"
             )
+        reservation = None
+        if approval:
+            if budget is None:
+                approval = guards.GateResult(False, budget_error)
+            else:
+                try:
+                    slip = float(store.config("execution.max_slippage", as_of=execution_time))
+                    reservation = account_risk.for_order(item, market=market, slippage=slip)
+                    approval = budget.check(reservation)
+                except ValueError as exc:
+                    approval = guards.GateResult(False, str(exc))
+        if not approval:
+            _record_submit_result(
+                store,
+                clock,
+                item,
+                as_of=as_of,
+                market=market,
+                status=STATUS_RISK_BLOCKED,
+                reason=approval.reason,
+            )
+            acks.append(
+                Ack(
+                    order_id=item.order_id,
+                    accepted=False,
+                    sent=False,
+                    rsp_msg=approval.reason,
+                )
+            )
+            if budget is not None:
+                budget.reservations.pop(
+                    account_risk.key(item.session_id, item.order.entity_id, item.slice_seq), None
+                )
+            continue
+        if budget is not None and reservation is not None:
+            budget.reservations[reservation.key] = reservation
+        try:
+            ack = broker.submit(item, as_of=execution_time)
+        except RejectedOrder as error:
+            acks.append(Ack(order_id=item.order_id, accepted=False, sent=False, rsp_msg=str(error)))
             _record_submit_result(
                 store, clock, item, as_of=as_of, market=market, status=STATUS_REJECTED
             )
+            if budget is not None and reservation is not None:
+                budget.reservations.pop(reservation.key, None)
             continue
         except BrokerError:
             # 나갔는지 모른다 — 재전송 금지. "submitting" 을 최종 상태로 둔다.
+            guards.engage(
+                store,
+                as_of=clock.now(),
+                observed_at=clock.now(),
+                reason=f"주문 전송 결과 미확정: {item.order_id} — 대사 필요",
+                by="submission-unknown",
+            )
             continue
 
         acks.append(ack)
+        from quant_rl_trading.executor.action_journal import bind_submission
+
+        credentials = getattr(getattr(broker, "client", None), "credentials", None)
+        bind_submission(
+            store, clock, item, ack, submitted_at=execution_time,
+            fingerprint=str(getattr(credentials, "fingerprint", "") or ""),
+        )
+        if not ack.accepted and budget is not None and reservation is not None:
+            budget.reservations.pop(reservation.key, None)
         _record_submit_result(
-            store, clock, item, as_of=as_of, market=market,
-            status=STATUS_SENT if ack.sent else STATUS_PAPER,
+            store,
+            clock,
+            item,
+            as_of=as_of,
+            market=market,
+            status=(
+                STATUS_REJECTED if not ack.accepted else STATUS_SENT if ack.sent else STATUS_PAPER
+            ),
             broker_order_no=ack.broker_order_no if ack.sent else None,
         )
     return acks
@@ -394,6 +629,7 @@ def _record_submit_result(
     market: str,
     status: str,
     broker_order_no: str | None = None,
+    reason: str = "",
 ) -> None:
     """전송 결과를 "submitting" 위 revision 으로 남긴다. 이 기록의 존재
     여부는 재전송 판단에 쓰지 않는다 — 그건 이미 ``submit_run_id`` 로
@@ -402,7 +638,9 @@ def _record_submit_result(
     if store.ingest_run_recorded(ORDERS, run_id):
         return
     row = item.row(as_of=as_of, observed_at=clock.now(), market=market, status=status)
-    row["revision"] = 2
+    row["revision"] = _next_revision(store, item, clock.now())
+    if reason:
+        row["reason"] = reason
     if broker_order_no:
         # 대사(reconcile_fills)가 t0425 에서 이 주문을 찾을 열쇠. 컬럼을 늘리지
         # 않고 reason 에 적는다 — 기존 파티션과 스키마가 갈리면 읽기가 깨진다.
@@ -414,7 +652,8 @@ def record_realized_weights(
     store: Store,
     clock: Clock,
     *,
-    sized: list[Sized],
+    holdings: dict[str, int],
+    equity: float,
     targets: list[Target],
     as_of: datetime,
     market: str,
@@ -425,7 +664,6 @@ def record_realized_weights(
     주문을 못 낸 종목도 남긴다 — 목표 5% 였는데 라운딩으로 0주가 된 사실이
     기록에 없으면, Allocator 는 자기가 5% 를 샀다고 믿는다.
     """
-    realized = {item.entity_id: item.realized_weight for item in sized}
     run_id = f"realized-{session}"
     if store.ingest_run_recorded(REALIZED_WEIGHTS, run_id):
         return 0
@@ -435,11 +673,17 @@ def record_realized_weights(
             "entity_id": target.entity_id,
             "valid_from": as_of,
             "observed_at": observed_at,
-            "source": SOURCE,
+            "source": "executor_holdings_v2",
             "market": market,
             "session_id": session,
             "target_weight": target.weight,
-            "realized_weight": realized.get(target.entity_id, 0.0),
+            "realized_weight": (
+                0.0
+                if holdings.get(target.entity_id, 0) == 0
+                else holdings[target.entity_id] * target.price / equity
+                if equity > 0 and target.price > 0
+                else None
+            ),
         }
         for target in targets
     ]
@@ -458,10 +702,10 @@ def action_reflection_rate(store: Store, *, as_of: datetime, lookback: int = 30)
     frame = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=lookback)
     if frame.empty:
         return 0.0
+    if frame["realized_weight"].isna().any():
+        return 0.0  # 미측정을 반영률 성공으로 승인하지 않는다.
     target = frame["target_weight"].abs().sum()
     if target <= 0:
         return 0.0
-    matched = (
-        1.0 - (frame["target_weight"] - frame["realized_weight"]).abs().sum() / target
-    )
+    matched = 1.0 - (frame["target_weight"] - frame["realized_weight"]).abs().sum() / target
     return max(0.0, min(1.0, float(matched)))

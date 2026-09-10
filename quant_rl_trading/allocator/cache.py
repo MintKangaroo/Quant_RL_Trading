@@ -620,6 +620,7 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     "execution.slice_interval_sec",
     "exposure",
     "killswitch.drawdown_trigger",
+    "risk",
     "killswitch.liquidate_on_trigger",
     "reward",
     "selector.corr_penalty",
