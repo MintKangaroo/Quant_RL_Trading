@@ -113,12 +113,24 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
     return out
 
 
-def missing_broker_ids(store: Store, *, as_of: datetime, market: str) -> int:
+def missing_broker_ids(
+    store: Store, *, as_of: datetime, market: str, venue_day: date | None = None
+) -> int:
+    """전송했다는데 주문번호가 없는 행 수 — 자동 재전송·예약 해제를 막는 신호다.
+
+    ``venue_day`` 를 주면 그 거래소 날짜의 것만 센다. 2026-08-28 의 ``submitting``
+    한 건처럼 옛 고아는 매일 세어도 오늘 할 일이 없다 — rc 를 영영 1 로 만들어
+    오늘의 진짜 신호를 덮는다. 옛 건은 주문일 지정 대사로 따로 치운다.
+    """
     frame = store.get(ORDERS, as_of=as_of, market=market)
     if frame.empty:
         return 0
-    return int((frame["status"].isin(UNRESOLVED_STATUSES)
-                & ~frame["reason"].fillna("").str.startswith(BROKER_ORDER_NO_PREFIX)).sum())
+    frame = frame[frame["status"].isin(UNRESOLVED_STATUSES)
+                  & ~frame["reason"].fillna("").str.startswith(BROKER_ORDER_NO_PREFIX)]
+    if venue_day is not None and not frame.empty:
+        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
+        frame = frame[frame["observed_at"].dt.tz_convert(zone).dt.date == venue_day]
+    return len(frame)
 
 
 def unverified_remainders(
@@ -177,9 +189,14 @@ def main(argv: list[str] | None = None) -> int:
     now = clock.now()
     pending = pending_from_orders(store, as_of=now, market=args.market, session_id=session_id)
     print(f"{args.market} 세션 {session_id} · 창고 {store.root} · sent {len(pending)}건")
-    missing = missing_broker_ids(store, as_of=now, market=args.market)
+    venue = ZoneInfo("America/New_York" if args.market == "US" else "Asia/Seoul")
+    today = now.astimezone(venue).date()
+    missing = missing_broker_ids(store, as_of=now, market=args.market, venue_day=today)
+    missing_old = missing_broker_ids(store, as_of=now, market=args.market) - missing
     if missing:
         print(f"주문번호 미확정 {missing}건 — 자동 재전송·예약 해제 금지", file=sys.stderr)
+    if missing_old:
+        print(f"지난 거래일 주문번호 미확정 {missing_old}건 — 주문일 지정 대사 대상", file=sys.stderr)
     if not pending:
         if missing:
             return 1
@@ -202,8 +219,6 @@ def main(argv: list[str] | None = None) -> int:
     result = sync_fills(store, client, clock, as_of=now, pending=pending)
     # **지난 거래일 주문은 t0425 로 답할 수 없다** — 그 TR 은 당일 주문만 준다. 이것을
     # 오늘의 실패와 같은 rc 로 내보내면 매일 1 이라 경보가 죽는다. 밀린 건수는 따로 센다.
-    venue = ZoneInfo("America/New_York" if args.market == "US" else "Asia/Seoul")
-    today = now.astimezone(venue).date()
     backlog = {
         p.order_id for p in pending if p.observed_day is not None and p.observed_day != today
     }

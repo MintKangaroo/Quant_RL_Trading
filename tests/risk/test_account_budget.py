@@ -517,3 +517,16 @@ def test_expiry_uses_submission_time_not_rewritten_observed_at(fund):
         payload={"broker_order_no": "77", "order_day": "2026-09-10"},
     )
     assert account.read(fund, ReplayClock(next_day), as_of=next_day).reservations == {}
+
+
+def test_previous_day_missing_broker_id_is_backlog(fund):
+    """옛 'submitting' 고아(2026-08-28)는 매일 세어도 오늘 할 일이 없다 — rc 를 덮지 않는다."""
+    from tools.reconcile_fills import missing_broker_ids
+
+    old = NOW - timedelta(days=3)
+    row = intent().row(as_of=old, observed_at=old, market="KR", status="submitting")
+    row["reason"] = ""
+    fund.append("orders", [row], ingest_run_id="orphan-submitting")
+    seoul_today = NOW.astimezone(ZoneInfo("Asia/Seoul")).date()
+    assert missing_broker_ids(fund, as_of=NOW, market="KR") == 1
+    assert missing_broker_ids(fund, as_of=NOW, market="KR", venue_day=seoul_today) == 0
