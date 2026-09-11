@@ -158,7 +158,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     sent = sum(1 for a in acks if getattr(a, "sent", False))
     print(f"전송 {sent}건 / 시도 {len(due)}건")
-    return 0
+    for ack in acks:
+        if not ack.accepted:
+            print(f"  차단: {ack.rsp_msg}", file=sys.stderr)
+    return 1 if any(not ack.accepted for ack in acks) else 0
 
 
 if __name__ == "__main__":

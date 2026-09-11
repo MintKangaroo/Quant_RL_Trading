@@ -4,9 +4,8 @@
    상태 바(모드·창고·엔진)는 트레이딩 탭에서만 채운다. 빈 자리는 다른
    화면에서 숨는다.
 
-   EMERGENCY STOP 은 여기 없다. KPI 줄 오른쪽 끝에 있다 (trading.js) —
-   정지 버튼은 숫자와 같은 눈높이에 있어야 한다. 헤더의 도구 줄에 끼워 두면
-   조회 버튼 옆의 또 다른 버튼이 된다. #}
+   EMERGENCY STOP 은 트레이딩 화면 제목 옆에 있다 (trading.js).
+   과거 조회·종합 화면에서는 조작을 비활성화한다. #}
 <header>
   {# 공식 명칭 하나만 쓴다 (PRODUCT.md). 구호("AI Auto-Trading Terminal")와 배지로
      같은 이름을 두 번 적던 것을 걷었다 — 관제 화면의 머리는 이름과 상태면 된다. #}
@@ -21,7 +20,7 @@
     <a href="/headlines" class="{{ 'on' if active == 'headlines' }}">중요 시황</a>
     <a href="/briefing" class="{{ 'on' if active == 'briefing' }}">뉴스 · 일정</a>
     <span class="sep"></span>
-    <a href="/learning" class="{{ 'on' if active == 'learning' }}">학습</a>
+    <a href="/learning" class="{{ 'on' if active == 'learning' }}">모델 검증</a>
     <a href="/ai-review" class="{{ 'on' if active == 'ai-review' }}">AI 리뷰</a>
     <span class="sep"></span>
     <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">데이터 품질</a>

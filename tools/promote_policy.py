@@ -1,7 +1,4 @@
-"""정책을 장부에 끼우거나 뺀다 — `allocator.rl.checkpoint` · `allocator.rl.modes` 정정본.
-
-    # OOS 판정을 통과한 체크포인트를 모의계좌(paper)에 끼운다
-    .venv/bin/python tools/promote_policy.py --checkpoint data/rl_checkpoints/<run>.pt
+"""정책을 해제하거나 설정 변경 없이 점검한다. 구형 활성화 경로는 닫혀 있다.
 
     # 실제 장부로 오늘의 결정을 미리 본다 (설정은 안 바꾼다)
     .venv/bin/python tools/promote_policy.py --checkpoint ... --dry-run --store data/_paper
@@ -16,6 +13,7 @@ shadow(`data/_shadow`)는 config 를 링크로 그 표를 본다 — 어느 장�
 
 정정본은 지금부터 발효한다(`effective_at` = 벽시계). 과거 as_of 에서는 정책이
 없었던 그대로다 — 백테스트·캐시 지문이 소급해서 바뀌지 않는다.
+새 정책 활성화는 docs/design/rl-training.md §13의 증거 계약 구현 전까지 거부한다.
 """
 from __future__ import annotations
 
@@ -34,6 +32,7 @@ from quant_rl_trading.settings import load_env  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from quant_rl_trading.store.tables import CONFIG_TABLE  # noqa: E402
 from tools.backfill import build_store  # noqa: E402
+from tools.promotion_gate import BLOCK_REASON  # noqa: E402
 
 CHECKPOINT_KEY = "allocator.rl.checkpoint"
 MODES_KEY = "allocator.rl.modes"
@@ -46,6 +45,9 @@ def _next_revision(store: Store, name: str, now: datetime) -> int:
 
 
 def write_config(store: Store, *, checkpoint: str, modes: list[str], now: datetime) -> None:
+    """해제 정정만 허용한다. CLI를 건너뛴 직접 호출도 활성화할 수 없다."""
+    if checkpoint:
+        raise ValueError(BLOCK_REASON)
     rows = []
     for name, value in ((CHECKPOINT_KEY, checkpoint), (MODES_KEY, modes)):
         rows.append({
@@ -120,11 +122,17 @@ def main() -> int:
     parser.add_argument("--market", default="KR")
     args = parser.parse_args()
 
+    if args.off and (args.dry_run or args.checkpoint):
+        parser.error("--off는 --dry-run 또는 --checkpoint와 함께 쓸 수 없다")
+    if not args.off and not args.checkpoint:
+        parser.error("--checkpoint 나 --off 중 하나는 있어야 한다")
+    if not args.off and not args.dry_run:
+        print(BLOCK_REASON, file=sys.stderr)
+        return 2
+
     load_env()
     now = LiveClock().now()
     if not args.off:
-        if not args.checkpoint:
-            parser.error("--checkpoint 나 --off 중 하나는 있어야 한다")
         path = Path(args.checkpoint)
         if not path.exists():
             parser.error(f"체크포인트가 없다: {path}")
@@ -142,13 +150,8 @@ def main() -> int:
 
     store = build_store(Path(args.data_root) if args.data_root else None)
     modes = [m.strip().lower() for m in args.modes.split(",") if m.strip()]
-    checkpoint = "" if args.off else str(Path(args.checkpoint))
-    write_config(store, checkpoint=checkpoint, modes=modes, now=now)
-    state = (
-        "뺐다 — 다음 세션부터 룰" if args.off
-        else f"끼웠다 — 모드 {modes} 의 다음 세션부터 정책"
-    )
-    print(f"{store.root} config 정정 ({now:%Y-%m-%d %H:%M}) · {state}")
+    write_config(store, checkpoint="", modes=modes, now=now)
+    print(f"{store.root} config 정정 ({now:%Y-%m-%d %H:%M}) · 뺐다 — 다음 세션부터 룰")
     return 0
 
 

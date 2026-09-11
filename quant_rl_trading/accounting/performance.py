@@ -28,6 +28,7 @@ NAV 도 TWR 도 여기서 다시 계산하지 않는다.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
@@ -183,7 +184,25 @@ class Performance:
             "buy_count": self.buy_count,
             "sell_count": self.sell_count,
             "note": self.note,
+            "execution_costs": self.execution_costs(),
         }
+
+    def execution_costs(self) -> dict[str, Any]:
+        """관측된 명시 비용만 통화별 집계한다. 미관측 spread/slippage는 포함하지 않는다."""
+        complete = (
+            self.measured and self.fills_omitted == 0 and len(self.fills) == self.fill_count
+            and all(math.isfinite(f.fee) and math.isfinite(f.tax) for f in self.fills)
+        )
+        if not complete:
+            return {"explicit_complete": False, "by_currency": []}
+        amounts: dict[str, dict[str, Any]] = {}
+        for fill in self.fills:
+            row = amounts.setdefault(fill.currency, {
+                "currency": fill.currency, "commission": 0.0, "tax": 0.0,
+            })
+            row["commission"] += fill.fee
+            row["tax"] += fill.tax
+        return {"explicit_complete": True, "by_currency": list(amounts.values())}
 
 
 def _kst_date(value: Any) -> date | None:

@@ -11,12 +11,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint
+from flask import Blueprint, request
+from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.dashboard.api.common import envelope, scope, store
 from quant_rl_trading.dashboard.services import learning as service
 
 bp = Blueprint("learning_api", __name__, url_prefix="/api/learning")
+
+
+def _market() -> str:
+    value = request.args.get("market", "KR").upper()
+    if value not in ("KR", "US", "ALL"):
+        raise BadRequest("market은 KR, US, ALL 중 하나여야 한다")
+    return value
 
 
 @bp.get("/status")
@@ -33,7 +41,9 @@ def gate() -> Any:
     current = scope()
     return envelope(
         current,
-        service.analyst_gate(store(), as_of=current.as_of, lookback=current.lookback),
+        service.analyst_gate(
+            store(), as_of=current.as_of, lookback=current.lookback, market=_market(),
+        ),
     )
 
 
@@ -42,7 +52,9 @@ def ic_history() -> Any:
     current = scope()
     return envelope(
         current,
-        service.ic_history(store(), as_of=current.as_of, lookback=current.lookback),
+        service.ic_history(
+            store(), as_of=current.as_of, lookback=current.lookback, market=_market(),
+        ),
     )
 
 

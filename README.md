@@ -2,18 +2,22 @@
 
 **퀀트 리서치·백테스트·모의운용 플랫폼.** 검증 가능한 알파, 비용 후 위험조정수익, 재현성과 실거래 가능성을 우선한다. 현재 기본 경로는 **감독학습 GBM 랭커 + 평활·완충 규칙 + 리스크 패리티 배분**이며, RL 정책은 비활성 상태다.
 
+현재 Champion은 **Supervised Ranking + deterministic portfolio/trading rules**다. rank-gauss 기반 LightGBM ranker → Selector → EMA smoothing / buffer → risk-parity 배분 → deterministic Risk / Executor를 유지한다. 새로운 ML·RL은 Challenger이며, OOS 비용 후 우위 없이 기본값으로 승격하지 않는다.
+
 격자(quant_rl_trading)는 옵션 가격결정의 이항 격자에서 온 말이자, 이 시스템의 다층 에이전트 구조 그 자체다.
 
 ```
-Collector → Analyst / GBM ranker → Selector → Portfolio / Allocator
-                                               ↓ 목표 비중
-                              Executor guards → Execution → Broker
-                                      ↓
-                             Accounting / ModelOps → Dashboard
+Collector → Analysts → Ranker → Selector / smoothing / buffer
+    ↓                              ↓
+Store(as_of / provenance)     Portfolio / Risk → Executor → Broker
+    ↑                                                     ↓
+Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 ```
 
 > Analysts score, the Selector nominates, the Allocator sizes, the Executor acts.
 
+[현재 인수인계·디자인 반영 범위·다음 작업](START-HERE.md) ·
+[검증 범위와 미해결 위험](docs/audits/2026-09-09-mission-control.md)
 [![ci](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml/badge.svg)](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](pyproject.toml)
 
@@ -95,9 +99,65 @@ uv lock --check --offline
 
 ---
 
+## 2026-09-09 Repository Audit와 첫 수정 배치
+
+[Architecture Map / Postmortem Traceability / 연구 기회 / Engineering / UX / Roadmap](docs/audits/2026-09-09-mission-control.md)을 코드·테스트·창고와 대조했다. 실자본 운용 준비 완료 판정은 아니다.
+
+- 주문 직전과 조각 사이의 킬스위치 확인, 같은 날 수동 해제 후 재발동.
+- 누적 체결 **수량과 대금** 대사, 배당락 이전 보유 기준 권리 계산.
+- 공표 기대 세션의 시세 확인, 비유한 가격 배제, 정본 KR 지수 ID 사용.
+- 고가주 기존 보유 청산 허용, 지정가 상한과 비용을 포함한 매수 현금 예약.
+- 체결 기반 실현 비중의 append-only 정정. 기존 계획 기반 반영률은 **미측정**.
+- 과거 계좌 API의 현재 브로커 조회 차단, 시장 간 freshness 대체 방지.
+- 후속 안전 조치: **구형 RL 승격 경로 차단**. 좋은 reward/균등가중 기록만으로
+  정책을 활성화할 수 없다. CLI·설정 함수의 신규 활성화를 거부하고 `--off`와
+  설정 변경 없는 `--dry-run`을 유지한다. 보관된 RL 체인의 자동 재시작도 제거했다.
+
+전면 재학습·홀드아웃 개봉·운용 데이터 수정·서비스 재시작은 이 배치에 포함하지 않는다.
+**G1~G6 marginal IC 판정은 기존 사전등록에 따라 2026-10-01 이후**다.
+Execution RL도 rule-based TWAP 관측과 기존 재개 조건을 먼저 충족해야 한다.
+
+구형 경로 차단은 공통 승격 gate의 완성과 다르다. 새 활성화 경로는 사전등록·예산·
+Champion 대비 비용 후 성과·seed 안정성·artifact 동일성의 검증 계약이 필요하다.
+[현재 적용 규칙](docs/design/rl-training.md#13-승격)을 따른다.
+
+아직 필요한 작업: 공통 research/승격 gate, writer 동시성·장애 복구, 저장된 broker
+snapshot과 주문 전 reconciliation gate, 기업행위의 장부 수량 반영, 독립 missing/ghost
+검사, spread/slippage를 포함한 총비용 분해. 현재 잔고의 직접 조회도 저장된 관측으로 이전해야 한다.
+
+검증 명령과 실제 결과, 기존 정적 검사 실패는 [감사 문서](docs/audits/2026-09-09-mission-control.md)에 공개한다.
+후속 셸 테스트에서 기존 경로 격리 결함으로 대시보드 재기동과 shadow NAV 정정이
+발생했다. 테스트를 중단하고 격리를 수정했으며 대시보드 포트를 복구했다.
+영향과 남겨 둔 기록도 같은 감사 문서에 명시했다.
+새 `execution.circuit_breaker_drop` 설정은 배포 전에 명시적 발효 시각으로 등록해야 한다.
+기존 창고·과거 replay의 설정 유효 구간을 확인해야 하며, 이 커밋만으로 운영 설정을 바꾸지 않는다.
+
+**지금은 연구 판정을 기다리는 단계다.** G1~G6는 단순히 데이터가 더 쌓이는 것뿐 아니라
+사전등록된 평가일(10/1 이후)을 지켜야 한다. TWAP은 달력 20일이 아닌 **유효 거래일
+20개**가 필요하다. 그 전에도 수집 실패·데이터 오염·주문/장부 불일치 점검은 계속한다.
+
+---
+
+## 2026-09-09 관제 화면 개편
+
+트레이딩은 주문·데이터·모델·대사 상태와 리스크 예산을 먼저 보여준다. 정지 버튼을 상단에
+배치하고 Gross / 명시 비용 / Net을 분리했다. 모델 검증 페이지는 Champion의 관측 IC와
+Challenger의 검증 근거를 구분하며, 없는 지표는 미측정이다. 과거 RL 진단은 펼칠 때 조회한다.
+기존 검은 시트·토큰·폰트·숫자 정렬을 유지했다.
+
+KR/US Ranker 관측의 덮어쓰기, 근거 없는 UI 위험 한도, 과거 조회 링크 범위도 수정했다.
+**대시보드·회계·불변식 370개 통과**, 데스크톱/모바일 Chromium 검수에서 가로 넘침·
+JavaScript 오류 0건. [변경 근거·재현 명령·미측정 범위](docs/audits/2026-09-09-dashboard.md).
+운영 배포와 병행 안전 코드 통합은 아직이다. 다음 작업은 사용자 승인 후 진행한다.
+
 ## 화면
 
-아래 이미지는 **과거 UI 참고 화면**이다. 화면의 시점·모드와 현재 운용 상태를 구분해야 하며, 이미지의 숫자는 검증된 투자성과가 아니다. 기존 `trading.png`에는 PAPER 표시가 있어 모든 이미지를 DEMO로 설명하던 문구를 정정했다. 이번 감사에서는 새로운 계좌 화면을 공개하지 않았다.
+아래 이미지는 **이번 개편 전** 캡처다. 최신 배치는 위 디자인 감사와
+`tools/review_control_ui.py`의 격리 검수로 확인한다.
+
+아래는 전부 **데모 창고(`data/_demo`)** 로 찍은 것이다. 이 저장소는 공개라
+실계좌 화면을 올리면 보유종목·주문번호가 영구히 남는다 — 가리는 것이 아니라
+애초에 다른 창고를 찍는다. 마스킹은 한 군데만 빠뜨려도 그게 그대로 공개된다.
 
 데모 창고(`data/_demo`)의 합성 계좌 값은 UI 검증 용도다. 연구 결과·승격 심사에는 실제 실행 기록을 사용하며, 차트·손익·주문·리스크 수치는 코드에서 렌더링한다.
 
@@ -114,7 +174,7 @@ uv lock --check --offline
 | 학습 | 타임머신 |
 |---|---|
 | [![학습](docs/images/learning.png)](docs/images/learning.png) | [![타임머신](docs/images/data-quality-timemachine.png)](docs/images/data-quality-timemachine.png) |
-| 지금은 애널리스트 적중도가 학습을 대신한다 (RL 은 M4) | `?as_of=` 로 되감으면 **그 시점 이후가 안 보인다** |
+| 기존 데모 캡처. 현재 운용 상태는 위 감사와 ModelOps 기록을 따른다 | `?as_of=` 로 되감으면 **그 시점 이후가 안 보인다** |
 
 | AI 리뷰 | 에이전트 상태 |
 |---|---|
@@ -145,7 +205,7 @@ uv lock --check --offline
 
 ---
 
-## 선행 프로젝트에서 가져온 교훈
+## 선행 프로젝트에서 배운 것
 
 이 프로젝트에는 선행 프로젝트가 둘 있다. `LS_KR`(국장)과 `LS_USA`(미장)다. 강화학습 기반으로 만들었지만 **학습이 되지 않아 사실상 룰 기반으로 동작한 실패 사례**다.
 
@@ -377,7 +437,7 @@ M1 검증기의 교훈이 여기서도 적용된다 — **매매 0건이면 MDD�
 
 ---
 
-### M4 — RL은 기본 운용에서 제외, 재개 조건은 사전등록으로 판단
+### M4 — RL 연구 이력 · 기본값은 감독학습 ranker와 규칙 (2026-09-08 개정)
 
 RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카나리, 배분 RL 1~4회차, 매매 전반 RL 2회, 그리고 그 사이의
 감독학습 랭커. 판마다 한 일·실패한 이유·배운 것은 **[`docs/rl-postmortem.md`](docs/rl-postmortem.md)** 한 문서에 있다.
@@ -400,7 +460,11 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 배분 4회차 파일럿 (9/4) | ranker 후보로 바꿔도 검증 우위 0 | [`drl-round4-2026-09.md`](docs/protocols/drl-round4-2026-09.md) |
 | 매매 전반 마지막 (9/4) | 장치 여섯 전부 작동 · 학습창 IR 0 근처 → 기본값에서 뺌(재개 조건은 postmortem §10) | [`e2e-drl-final-2026-09.md`](docs/protocols/e2e-drl-final-2026-09.md) |
 
-**2026-09-08 개정:** RL 시도 횟수 상한은 없어졌다. 매회 사전등록·분기 연구 예산·홀드아웃·카나리·반영률·shadow/모의 단계를 지킨다. 새 정보의 한계기여 또는 집행 개선 근거가 생겼을 때 재개를 검토하며, 현재는 룰과 감독학습 랭커가 기본값이다([postmortem §10](docs/rl-postmortem.md#10-남은-자리-2026-09-08-개정--횟수-상한-없음)). 집행 RL도 룰 TWAP 비교 검증 전에는 운용에 투입하지 않는다.
+2026-09-08 개정으로 **실험 횟수 상한은 없다**. 사전등록·분기 예산·OOS 순성과
+기준과 재개 조건은 유지한다. 배분 5회차 final까지의 결과와 판정은
+[`docs/rl-postmortem.md`](docs/rl-postmortem.md)가 정본이다. 새 정보원의 marginal IC나
+독립적인 실행 문제의 근거 없이 배분 RL을 자동 재개하지 않는다. Execution RL의
+대조군은 rule-based TWAP이며, 1차 관문은 20세션 관측 후다.
 
 ## 하루 운영 순서 — 전부 크론이 돌린다
 

@@ -88,6 +88,12 @@ class MemoStore:
         columns: Sequence[str] | None = None,
         market: str | None = None,
     ) -> pd.DataFrame:
+        # 다른 프로세스가 건 latch도 같은 시각의 다음 전송에서 보여야 한다.
+        if table == "killswitch":
+            return self._inner.get(
+                table, as_of=as_of, entity=entity, lookback=lookback,
+                until=until, columns=columns, market=market,
+            )
         key = _key(table, as_of, entity, lookback, until, columns, market)
         cached = self._frames.get(key)
         if cached is None:

@@ -70,7 +70,9 @@ def engage(
     store: Store, *, as_of: datetime, observed_at: datetime, reason: str, by: str
 ) -> int:
     """킬스위치를 건다. 같은 이유로 두 번 걸어도 한 번만 기록된다."""
-    run_id = f"ks-engage-{as_of.date().isoformat()}-{by}"
+    # 같은 **발동 이벤트**(as_of·by)의 재호출만 멱등이다. 날짜 단위로 잠그면
+    # 같은 날 수동 해제 뒤 재발동이 조용히 무시된다(B 감사 발견).
+    run_id = f"ks-engage-{as_of.isoformat()}-{by}"
     if store.ingest_run_recorded(KILLSWITCH, run_id):
         return 0
     return store.append(
@@ -224,11 +226,15 @@ def check_pretrade(
 
 # -- 3. 서킷 브레이커 ---------------------------------------------------------------
 
-#: 한국거래소 1단계 서킷브레이커. 지수가 전일 대비 이만큼 빠지면 발동한다.
-#: **KOSPI·KOSDAQ 을 따로 본다** — 한쪽만 걸리는 날이 실제로 있다.
-CIRCUIT_BREAKER_DROP = 0.08
+#: 한국거래소 1단계 서킷브레이커 임계치의 설정 키. 지수가 전일 대비 이만큼
+#: 빠지면 발동한다. **KOSPI·KOSDAQ 을 따로 본다** — 한쪽만 걸리는 날이 실제로
+#: 있다. 값은 `store.config` 에서 읽는다(불변식 10) — 기본 0.08.
+CIRCUIT_BREAKER_KEY = "execution.circuit_breaker_drop"
 
-BOARD_INDEX = {"KOSPI": "IDX:KOSPI", "KOSDAQ": "IDX:KOSDAQ"}
+# 창고의 지수 ID 는 시장 접두어가 붙는다(`KR:IDX:KOSPI`). 접두어 없는 ID 로는
+# 조회가 항상 비어 "관측 부족 — 통과" 가 되어 브레이커가 한 번도 발동할 수 없었다
+# (2026-09-11 실창고 대조, B 감사가 발견).
+BOARD_INDEX = {"KOSPI": "KR:IDX:KOSPI", "KOSDAQ": "KR:IDX:KOSDAQ"}
 
 
 def check_circuit_breaker(store: Store, *, as_of: datetime, board: str) -> GateResult:
@@ -249,7 +255,8 @@ def check_circuit_breaker(store: Store, *, as_of: datetime, board: str) -> GateR
     ordered = frame.sort_values("valid_from")
     closes = ordered["close"].astype(float).tolist()
     change = closes[-1] / closes[-2] - 1.0 if closes[-2] else 0.0
-    if change <= -CIRCUIT_BREAKER_DROP:
+    threshold = float(store.config(CIRCUIT_BREAKER_KEY, as_of=as_of))
+    if change <= -threshold:
         return GateResult(passed=False, reason=f"{board} 서킷브레이커 — 지수 {change:.1%}")
     return GateResult(passed=True)
 

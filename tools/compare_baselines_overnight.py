@@ -181,10 +181,14 @@ def _report(results: dict[str, object], *, start: date, end: date,
             lines.append(f"| {baseline} | — 백테스트 실패 — |")
             continue
         n = trades.get(baseline, 0)
+        reflection = perf.action_reflection
         lines.append(
             f"| {baseline} | {n} | {perf.total_return:+.2%} | {perf.max_drawdown:.2%} | "
             f"{perf.volatility:.2%} | {perf.return_over_vol:.2f} | {perf.turnover:.2f} | "
-            f"{perf.action_reflection:.2%} |"
+            + (
+                f"{reflection:.2%} |"
+                if reflection is not None else "미측정 |"
+            )
         )
     if any(trades.get(b, 0) == 0 for b in BASELINES):
         lines += ["", "> **매매 0건인 팔이 있다 — 이 표를 성적으로 읽지 마라.** "
