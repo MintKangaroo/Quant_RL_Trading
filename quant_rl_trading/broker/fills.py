@@ -427,6 +427,11 @@ def _fetch_fill_rows(
             return f"조회 실패: {error}"
         except MissingCredentials as error:
             return f"조회 실패: {error}"
+        except Exception as error:
+            # **조회 실패는 '체결 0건' 이 아니다.** 이 자리에서 터뜨리면 대사 전체가
+            # 트레이스백으로 죽어 나머지 주문의 상태도 못 적는다(2026-09-11 16:0x
+            # httpx.ConnectTimeout 실측). 아래 호출부가 이 문자열을 UNKNOWN 으로 읽는다.
+            return f"조회 실패: {type(error).__name__}: {error}"
 
         if data.get("paper"):
             # live_trading 이 꺼져 있으면 체결조회 TR 도 paper 응답으로 막힌다

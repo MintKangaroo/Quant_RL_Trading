@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-import json
-
 import httpx
 import pytest
 
@@ -367,3 +365,21 @@ def test_invalid_broker_quantity_never_enters_book(funded_store, ts, quantity):
     result = sync_fills(funded_store, client, ReplayClock(now), as_of=now, pending=[pending()])
     assert result.outcomes[0].state is FillState.UNKNOWN
     assert result.rows_written == 0
+
+
+def test_transport_failure_is_unknown_not_a_crash(tmp_path):
+    """조회가 네트워크로 죽으면 '체결 0건' 이 아니라 '모른다' 다 — 대사 전체를 죽이지 않는다."""
+    import httpx
+
+    from quant_rl_trading.broker import fills as fills_module
+
+    class Dead:
+        credentials = None
+
+        def request_tr(self, *args, **kwargs):
+            raise httpx.ConnectTimeout("timed out")
+
+    from datetime import UTC, datetime
+
+    result = fills_module._fetch_fill_rows(Dead(), market="KR", as_of=datetime.now(UTC))
+    assert isinstance(result, str) and "ConnectTimeout" in result
