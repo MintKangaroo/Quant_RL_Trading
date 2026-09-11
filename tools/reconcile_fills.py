@@ -32,9 +32,12 @@ if str(REPO_ROOT) not in sys.path:
 from quant_rl_trading.broker.fills import FillState, PendingFill, sync_fills  # noqa: E402
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
+from quant_rl_trading.executor.action_journal import (  # noqa: E402
+    cancelled_quantities,
+    refresh_order_states,
+    submission_bindings,
+)
 from quant_rl_trading.executor.orders import client_order_id  # noqa: E402
-from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_bindings  # noqa: E402
-from quant_rl_trading.executor.action_journal import refresh_order_states  # noqa: E402
 from quant_rl_trading.executor.pipeline import BROKER_ORDER_NO_PREFIX  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.risk.account import UNVERIFIED_TERMINAL, filled_quantities, key  # noqa: E402
@@ -118,11 +121,23 @@ def missing_broker_ids(store: Store, *, as_of: datetime, market: str) -> int:
                 & ~frame["reason"].fillna("").str.startswith(BROKER_ORDER_NO_PREFIX)).sum())
 
 
-def unverified_remainders(store: Store, *, as_of: datetime, market: str) -> int:
+def unverified_remainders(
+    store: Store, *, as_of: datetime, market: str, venue_day: date | None = None
+) -> int:
+    """잔량이 최종 확정되지 않은 주문 수.
+
+    ``venue_day`` 를 주면 **그 거래소 날짜에 관측된 주문만** 센다. 지난 거래일 것은
+    t0425(당일 주문만 조회)로는 구조적으로 답이 나오지 않는다 — 그것까지 매일 세면
+    rc 가 영영 1 로 굳어 진짜 실패를 덮는다(2026-09-11 15:45 실측 178건). 지난 날
+    잔량은 거래소가 소멸시켰고(day order), 체결 누락 여부는 D+2 정산 대조가 답한다.
+    """
     frame = store.get(ORDERS, as_of=as_of, market=market)
     if frame.empty:
         return 0
     frame = frame[frame["status"].isin(UNVERIFIED_TERMINAL | {"cancel_unknown", "modify_unknown"})]
+    if venue_day is not None and not frame.empty:
+        zone = ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
+        frame = frame[frame["observed_at"].dt.tz_convert(zone).dt.date == venue_day]
     filled = filled_quantities(store, as_of=as_of)
     cancelled = cancelled_quantities(store, as_of=as_of)
     count = 0
@@ -185,10 +200,21 @@ def main(argv: list[str] | None = None) -> int:
     client = LSClient(credentials=credentials, live_trading=True, min_interval_sec=profile.min_interval_sec)
 
     result = sync_fills(store, client, clock, as_of=now, pending=pending)
+    # **지난 거래일 주문은 t0425 로 답할 수 없다** — 그 TR 은 당일 주문만 준다. 이것을
+    # 오늘의 실패와 같은 rc 로 내보내면 매일 1 이라 경보가 죽는다. 밀린 건수는 따로 센다.
+    venue = ZoneInfo("America/New_York" if args.market == "US" else "Asia/Seoul")
+    today = now.astimezone(venue).date()
+    backlog = {
+        p.order_id for p in pending if p.observed_day is not None and p.observed_day != today
+    }
     unknown = 0
+    unknown_backlog = 0
     for outcome in result.outcomes:
         if outcome.state is FillState.UNKNOWN:
-            unknown += 1
+            if outcome.order_id in backlog:
+                unknown_backlog += 1
+            else:
+                unknown += 1
             mark = "모른다"
         elif outcome.state is FillState.RECORDED:
             mark = "체결"
@@ -197,11 +223,21 @@ def main(argv: list[str] | None = None) -> int:
         qty = outcome.fill.quantity if outcome.fill else outcome.cumulative_quantity
         price = f" @ {outcome.fill.price:,.0f}" if outcome.fill else ""
         print(f"  {mark:<4} {outcome.order_id} · {qty if qty is not None else '-'}주{price} {outcome.detail}")
-    print(f"trades {result.rows_written}행 적재 · 모름 {unknown}건")
+    print(
+        f"trades {result.rows_written}행 적재 · "
+        f"모름 {unknown}건(오늘) + {unknown_backlog}건(지난 거래일)"
+    )
 
-    unverified = unverified_remainders(store, as_of=now, market=args.market)
+    unverified = unverified_remainders(store, as_of=now, market=args.market, venue_day=today)
+    carried = unverified_remainders(store, as_of=now, market=args.market) - unverified
     if unverified:
         print(f"잔량 최종 상태 미확정 {unverified}건 — 체결량 확인은 취소 확정이 아니다")
+    if unknown_backlog or carried:
+        print(
+            f"지난 거래일 미확정 {max(unknown_backlog, carried)}건 — t0425 는 당일만 답한다. "
+            "거래소가 잔량을 소멸시켰고 체결 누락은 정산 대조(D+2)가 잡는다. "
+            "주문일 지정 대사는 후속 작업이다 (docs/design/execution-safety.md)"
+        )
     return 1 if unknown or missing or unverified else 0
 
 

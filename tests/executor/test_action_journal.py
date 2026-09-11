@@ -162,7 +162,7 @@ def fill(store, clock, quantity, *, hashed=False):
     )
 
 
-@pytest.mark.parametrize("crash", ["before_api", "after_api", "timeout"])
+@pytest.mark.parametrize("crash", ["before_api", "after_api", "timeout", "transport"])
 def test_crash_never_resends_durable_intent(booked, monkeypatch, crash):
     store, clock, original = booked
     calls = []
@@ -173,12 +173,16 @@ def test_crash_never_resends_durable_intent(booked, monkeypatch, crash):
             calls.append(kwargs)
         if crash == "timeout":
             raise BrokerError("timeout")
+        if crash == "transport":
+            # 토큰 갱신 중 SSL EOF — BrokerError 가 아닌 전송 계층 예외 (2026-09-11 실측)
+            raise ConnectionError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
         raise KeyboardInterrupt("process terminated")
 
     monkeypatch.setattr(broker, "cancel", interrupted)
     journal = ActionJournal(store, clock, broker)
-    if crash == "timeout":
-        journal.dispatch(action(original, clock), original)
+    if crash in ("timeout", "transport"):
+        state, error = journal.dispatch(action(original, clock), original)
+        assert error and state.status is OrderStatus.CANCEL_UNKNOWN
     else:
         with pytest.raises(KeyboardInterrupt):
             journal.dispatch(action(original, clock), original)

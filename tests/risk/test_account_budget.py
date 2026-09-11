@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
 from threading import Barrier
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -469,3 +470,21 @@ def test_order_trading_day_maps_after_close_to_next_session():
     assert order_trading_day(kr, datetime(2026, 9, 11, 0, 30, tzinfo=UTC)) == date(2026, 9, 11)
     assert order_trading_day(kr, datetime(2026, 9, 11, 7, 0, tzinfo=UTC)) == date(2026, 9, 14)
     assert order_trading_day(us, datetime(2026, 9, 10, 3, 20, tzinfo=UTC)) == date(2026, 9, 10)
+
+
+def test_previous_day_unverified_is_backlog_not_today_failure(fund):
+    """지난 거래일 잔량은 t0425 로 답할 수 없다 — 오늘의 실패와 같은 rc 로 세지 않는다.
+
+    2026-09-11 15:45 대사: 8/31~9/8 주문 178건이 매일 '모른다' 로 나와 rc=1 이 고정됐다.
+    매일 빨간 경보는 진짜 실패를 덮는다.
+    """
+    from tools.reconcile_fills import unverified_remainders
+
+    old = NOW - timedelta(days=3)
+    item = intent()
+    row = item.row(as_of=old, observed_at=old, market="KR", status="cancel_unknown")
+    row["reason"] = "broker_order_no=77"
+    fund.append("orders", [row], ingest_run_id="old-unverified")
+    seoul_today = NOW.astimezone(ZoneInfo("Asia/Seoul")).date()
+    assert unverified_remainders(fund, as_of=NOW, market="KR") == 1
+    assert unverified_remainders(fund, as_of=NOW, market="KR", venue_day=seoul_today) == 0

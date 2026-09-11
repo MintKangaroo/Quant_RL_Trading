@@ -322,6 +322,11 @@ class ActionJournal:
                 ), "action rejected"
             except BrokerError:
                 return pending, "broker action outcome unknown"
+            except Exception as exc:  # noqa: BLE001 — 전송 계층 오류(SSL EOF·토큰 갱신 실패 등)
+                # intent 는 이미 적혔고 브로커가 받았는지 모른다 — BrokerError 와 같은
+                # 미확정이다. 여기서 터뜨리면 chase 전체가 죽어 나머지 주문의 상태를
+                # 못 되적는다(2026-09-11 09:4x httpx.ConnectError 로 실측).
+                return pending, f"broker action outcome unknown ({type(exc).__name__})"
             record(
                 self.store,
                 self.clock,
