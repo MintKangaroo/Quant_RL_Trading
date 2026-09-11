@@ -133,3 +133,31 @@ def test_subscription_failure_is_not_a_confirmation(booked):
     with pytest.raises(ValueError, match="subscription"):
         watch(store, client, clock, seconds=1, connector=lambda *a, **k: socket)
     assert not any(e["kind"] == "cancel_confirmed" for e in events(store, as_of=clock.now()))
+
+
+def test_ack_without_tr_cd_counts_in_send_order(booked):
+    """LS 의 구독 확인에는 tr_cd 가 없다 — 정상 응답을 거절로 읽지 않는다.
+
+    2026-09-11 모의 실측: 두 구독 모두 `{"tr_cd": null, "rsp_cd": "00000",
+    "rsp_msg": "정상처리되었습니다"}` 로 온다. tr_cd 를 요구하던 탓에 이 수집기는
+    한 번도 뜨지 못했고, 취소·정정 확인이 당일에 들어오지 않았다.
+    """
+    store, clock, original, client, _ = configured(booked)
+
+    def receive(index):
+        if index <= 2:
+            return {"header": {"tr_cd": None, "rsp_cd": "00000", "rsp_msg": "정상처리되었습니다"}}
+        if index == 3:
+            ActionJournal(store, clock, FakeBroker()).dispatch(action(original, clock), original)
+        return message(clock)
+
+    result = watch(store, client, clock, seconds=3, connector=lambda *a, **k: Socket(clock, receive))
+    assert result.confirmed == 1
+    assert store.get("orders", as_of=clock.now()).iloc[0]["status"] == "cancelled"
+
+
+def test_rejected_ack_still_fails(booked):
+    store, clock, original, client, _ = configured(booked)
+    socket = Socket(clock, lambda _: {"header": {"tr_cd": None, "rsp_cd": "40000"}})
+    with pytest.raises(ValueError):
+        watch(store, client, clock, seconds=3, connector=lambda *a, **k: socket)

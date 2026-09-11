@@ -64,7 +64,8 @@ def watch(
     ) as socket:
         started = clock.now()
         deadline = started + timedelta(seconds=seconds)
-        for code in sorted(CODES):
+        awaiting = sorted(CODES)
+        for code in awaiting:
             socket.send(
                 json.dumps(
                     {
@@ -87,9 +88,21 @@ def watch(
             message = json.loads(raw)
             header = message.get("header", {})
             if "rsp_cd" in header:
-                if header["rsp_cd"] != "00000" or header.get("tr_cd") not in CODES:
+                if header["rsp_cd"] != "00000":
                     raise ValueError("account notification subscription rejected/unknown")
-                subscribed.add(header["tr_cd"])
+                # **LS 는 구독 확인에 tr_cd 를 실어 보내지 않는다** (모의 실측
+                # 2026-09-11: `{"tr_cd": null, "rsp_cd": "00000", "rsp_msg":
+                # "정상처리되었습니다"}` 두 번). tr_cd 를 요구하면 정상 응답을
+                # "거절" 로 읽어 이 수집기가 한 번도 뜨지 못한다. 실어 보내면
+                # 그것을 쓰고, 없으면 **보낸 순서대로** 짝짓는다.
+                acked = header.get("tr_cd")
+                if acked not in CODES:
+                    if not awaiting:
+                        raise ValueError("account notification subscription rejected/unknown")
+                    acked = awaiting[0]
+                if acked in awaiting:
+                    awaiting.remove(acked)
+                subscribed.add(acked)
                 continue
             code = header.get("tr_cd")
             if code not in CODES:
