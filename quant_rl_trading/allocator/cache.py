@@ -646,6 +646,12 @@ CONFIG_INDEPENDENT = frozenset(
         # 정책을 어느 장부에 끼우나 — 세션(allocator/live.py)만 읽는다. 환경은 모른다.
         "allocator.rl.checkpoint",
         "allocator.rl.modes",
+        # 장중 재호가 손잡이 — supervise/chase(실전 경로)만 읽는다. 구운 피처와 무관하다.
+        "execution.max_retries",
+        "execution.retry_after_sec",
+        # 서킷브레이커 임계치 — 그날 신규매수를 막을지의 집행 게이트다. 캐시가 굽는 것은
+        # 피처이지 주문이 아니라 내용이 바뀌지 않는다.
+        "execution.circuit_breaker_drop",
     }
 )
 

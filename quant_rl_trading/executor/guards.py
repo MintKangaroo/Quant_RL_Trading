@@ -226,10 +226,11 @@ def check_pretrade(
 
 # -- 3. 서킷 브레이커 ---------------------------------------------------------------
 
-#: 한국거래소 1단계 서킷브레이커 임계치의 설정 키. 지수가 전일 대비 이만큼
-#: 빠지면 발동한다. **KOSPI·KOSDAQ 을 따로 본다** — 한쪽만 걸리는 날이 실제로
-#: 있다. 값은 `store.config` 에서 읽는다(불변식 10) — 기본 0.08.
-CIRCUIT_BREAKER_KEY = "execution.circuit_breaker_drop"
+#: 한국거래소 1단계 서킷브레이커 임계치는 `execution.circuit_breaker_drop`
+#: (기본 0.08) 에서 읽는다(불변식 10). **KOSPI·KOSDAQ 을 따로 본다** — 한쪽만
+#: 걸리는 날이 실제로 있다. 아래 호출은 **이름을 리터럴로** 적는다: 상수로 감싸면
+#: `tests/allocator/test_cache_config_scope.py` 의 스캐너가 이 읽기를 못 보고,
+#: 그 시험이 지키던 "읽는 키는 전부 지문 목록에 있다" 가 조용히 뚫린다.
 
 # 창고의 지수 ID 는 시장 접두어가 붙는다(`KR:IDX:KOSPI`). 접두어 없는 ID 로는
 # 조회가 항상 비어 "관측 부족 — 통과" 가 되어 브레이커가 한 번도 발동할 수 없었다
@@ -255,7 +256,7 @@ def check_circuit_breaker(store: Store, *, as_of: datetime, board: str) -> GateR
     ordered = frame.sort_values("valid_from")
     closes = ordered["close"].astype(float).tolist()
     change = closes[-1] / closes[-2] - 1.0 if closes[-2] else 0.0
-    threshold = float(store.config(CIRCUIT_BREAKER_KEY, as_of=as_of))
+    threshold = float(store.config("execution.circuit_breaker_drop", as_of=as_of))
     if change <= -threshold:
         return GateResult(passed=False, reason=f"{board} 서킷브레이커 — 지수 {change:.1%}")
     return GateResult(passed=True)
