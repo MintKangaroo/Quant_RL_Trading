@@ -133,6 +133,36 @@ def test_ic_history_carries_threshold_from_config(client) -> None:
     assert analysts == {"risk", "chart"}
 
 
+def test_ranker_observations_remain_market_scoped_and_point_in_time(seeded) -> None:
+    kr = weight_row("ranker", 0.081, True, 120)
+    us = {**kr, "market": "US", "ic": -0.021, "weight": 0.0, "passed": False,
+          "valid_from": MEASURED_AT + timedelta(hours=1)}
+    future = {**kr, "ic": 0.9, "observed_at": NOW + timedelta(days=1)}
+    seeded.append("analyst_weights", [kr, us, future], ingest_run_id="market-scope")
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    for market, expected, weight in (("KR", 0.081, 1.0), ("US", -0.021, 0.0)):
+        gate = body(client.get(
+            "/api/learning/gate", query_string={"market": market, "as_of": NOW.isoformat()},
+        ))["data"]
+        ranker = next(row for row in gate["roster"] if row["analyst"] == "ranker")
+        assert ranker["ic"] == pytest.approx(expected)
+        assert ranker["weight"] == weight
+        assert all(row["market"] == market for row in gate["roster"])
+        history = body(client.get(f"/api/learning/ic-history?market={market}"))["data"]
+        series = next(row for row in history["series"] if row["analyst"] == "ranker")
+        assert [point["ic"] for point in series["points"]] == [expected]
+
+    combined = body(client.get("/api/learning/gate?market=ALL"))["data"]
+    assert len([row for row in combined["roster"] if row["analyst"] == "ranker"]) == 2
+    combined_history = body(client.get("/api/learning/ic-history?market=ALL"))["data"]
+    assert {row["analyst"] for row in combined_history["series"]} >= {"ranker · KR", "ranker · US"}
+
+
+@pytest.mark.parametrize("path", ["gate", "ic-history"])
+def test_model_observation_rejects_unknown_market(client, path) -> None:
+    assert client.get(f"/api/learning/{path}?market=typo").status_code == 400
+
+
 def test_ic_history_is_empty_not_fabricated_when_nothing_measured(seeded) -> None:
     """측정이 없으면 빈 배열이지 0 으로 채운 계열이 아니다."""
     empty_store_app = make_app(seeded, ReplayClock(MEASURED_AT - timedelta(days=200)))

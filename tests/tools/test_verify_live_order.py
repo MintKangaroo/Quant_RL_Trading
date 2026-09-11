@@ -12,6 +12,7 @@ httpx 는 ``MockTransport`` 로 막는다. ``confirm``/``prompt`` 는 스크립�
 
 from __future__ import annotations
 
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
@@ -93,6 +94,11 @@ class FakeStore:
 
     def __init__(self, *, live_trading: bool) -> None:
         self.live_trading = live_trading
+        # broker/fills.py 는 execution_view() 로 캐시를 벗고 root 로 계좌 잠금을 건다.
+        self.root = Path(tempfile.mkdtemp(prefix="fake-store-"))
+
+    def execution_view(self) -> FakeStore:
+        return self
 
     #: 체결 확인(``broker/fills.py``)이 비용 계산에 필요로 하는 값들.
     #: 이 검증기 자체의 관심사는 아니라 기본값으로 채워 둔다.

@@ -1,17 +1,15 @@
 {% extends "base.html" %}
-{% block title %}트레이딩 · Quant_RL_Trading{% endblock %}
-
+{% block title %}운용 관제 · Quant_RL_Trading{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='trading.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='control.css') }}">
 {% endblock %}
-
 {% block body %}
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
-
-<main class="terminal">
-  {# 장부 전환 — 국장은 LS 모의계좌 장부(data/_paper), 미장은 shadow 장부(data/_shadow).
-     LS 모의투자가 해외주식을 막아 두 장부가 갈렸다(2026-09-02). market·ledger 는 URL 로
-     흐르고(scope.js params) 모든 API 가 그걸 같이 받는다. #}
+<main class="terminal mission-control">
+  <div class="desk-heading">
+    <div><span class="desk-eyebrow">PORTFOLIO / EXECUTION</span><h2>운용 관제</h2></div>
+    <div id="emergency-control" class="desk-stop"></div>
   <nav class="ledger-switch seg" aria-label="장부">
     <a href="/trading?market=ALL" data-ledger="all">종합</a>
     <a href="/trading" data-ledger="paper">국장 · 모의계좌</a>
@@ -26,68 +24,40 @@
     });
   })();
   </script>
-  <!-- KPI 줄. 마지막 칸이 EMERGENCY STOP 이다 (trading.js 가 채운다). -->
-  <section class="kpis" id="kpis"></section>
 
-  {# 증권사 계좌가 말하는 숫자 — 장부(KPI)와 나란히 둔다. 둘이 다르면 어느
-     쪽이 틀렸는지 묻는 자리다. 외부 조회(t0424)라 KPI 와 따로 늦게 그린다. #}
-  {# 데스크톱에서는 **가로 두 칸**이다 — 왼쪽 계좌 대조(키-값 표), 오른쪽 경고·AI 리뷰·
-     오늘의 성과. 한 줄에 하나씩 쌓으면 1,900px 의 4분의 3이 빈다(2026-09-02 사용자 지적).
-     모바일에서는 세로로 돌아간다(sheet.css .grid-top). #}
-  <section class="grid-top">
-    <div class="grid-top-left">
-  <section class="panel" id="account-panel" style="display:none">
-    <h2>증권사 계좌 <span class="sub" id="account-sub">t0424 조회 · 장부와 대조</span></h2>
-    <div id="account-kpis" class="scroll"></div>
-  </section>
-
-    </div>
-    <div class="grid-top-right">
-  <section class="alerts" id="alerts"></section>
-
-  {# Claude 일일 리뷰 헤드라인 (M5). 해설자이지 심판이 아니다 — 숫자는 아래 성과 칸과
-     같은 함수(accounting.performance)에서 왔고, 리뷰가 없으면 칸도 없다. #}
-  <section class="panel review" id="panel-review" hidden>
-    <div class="review-head"><span class="badge dim">AI 리뷰</span><span class="sub" id="review-stamp"></span></div>
-    <p class="review-headline" id="review-headline"></p>
-    <details class="fold"><summary>자세히</summary><p class="review-body" id="review-body"></p></details>
-  </section>
-
-  {# 성과 넷 — 매매내역 · 수익률 · 총수익률 · 자산증감.
-     숫자는 전부 accounting/performance.py 에서 오고, 같은 함수를 이메일
-     브리핑도 읽는다. 화면과 메일이 각자 접으면 어느 쪽이 맞는지 판정할
-     방법이 없다 (accounting.md §8). #}
-  {# 성과 | 총자산 곡선 — 반반 (사용자 요청 2026-09-02). #}
-  <div class="grid-half perf-equity">
-  <section class="panel" id="panel-performance">
-    <h2>오늘의 성과
-      <span class="right"><span class="sub" id="perf-stamp"></span></span>
-    </h2>
-    <div id="perf-summary" class="perf-summary"></div>
-    <div id="perf-fills" class="scroll dense"></div>
-    <p class="note">
-      <strong>자산 증감과 수익률은 다른 사실이다.</strong> 증감에는 입출금이
-      섞여 있고 수익률(TWR)은 그것을 빼고 잰다 — 그래서 증감 옆에 그중
-      입출금이 얼마인지 함께 적는다 (<code>accounting.md §6</code>).
-      <strong>매매가 없던 날은 "0건" 이 아니라 없었다고 적는다</strong> —
-      "0" 과 "없다" 와 "못 쟀다" 는 다른 사실이다.
-    </p>
-  </section>
-
-  {# 총자산 일별 꺾은선 — 원 단위, 한 축 (사용자 요청 2026-08-28: 지수+낙폭 두 축은 읽기 어렵다) #}
-  <section class="panel" id="panel-equity">
-    <div>
-      <h2>총자산 (일별)
-        <span class="right"><span class="sub" id="equity-sub"></span></span>
-      </h2>
-      <div class="chart" id="chart-equity"></div>
-      <p class="note">
-        누적지수는 TWR 이다. NAV 원금액으로 재면 입금일이 수익으로 보인다.
-      </p>
-    </div>
-  </section>
   </div>
+  <section id="control-overview" class="control-strip" aria-label="운영 상태" aria-live="polite">
+    <div class="control-state"><span>신규 주문</span><strong>조건 미확인</strong></div>
+    <div class="control-state"><span>데이터</span><strong>확인 중</strong></div>
+    <div class="control-state"><span>모델</span><strong>확인 중</strong></div>
+    <div class="control-state"><span>주문 · 장부 대사</span><strong>미측정</strong></div>
+  </section>
+  <div id="control-budget" class="control-budget" aria-live="polite">리스크 예산 미측정</div>
+  <section class="alerts" id="alerts" aria-live="polite"></section>
+  <section class="kpis" id="kpis" aria-label="포트폴리오 핵심 지표"></section>
+
+  <section class="control-desk">
+    <div class="control-performance">
+      <section class="panel" id="panel-equity">
+        <h2><span class="section-index">01</span> 자산 추이 <span class="right sub" id="equity-sub"></span></h2>
+        <div class="chart" id="chart-equity"></div>
+      </section>
+      <section class="panel" id="panel-cost">
+        <h2>손익과 거래비용 <span class="right sub" id="cost-stamp"></span></h2>
+        <div id="execution-cost" class="cost-strip"><p class="empty">회계 관측을 확인하고 있다.</p></div>
+        <details class="fold"><summary>비용 분해 · 미측정 항목</summary><div id="cost-detail" class="cost-detail"></div></details>
+      </section>
     </div>
+    <section class="panel control-risk" id="panel-risk">
+      <h2><span class="section-index">02</span> 리스크 예산 <span class="right sub">설정 한도 기준</span></h2>
+      <div id="risk"><p class="empty">리스크 관측을 확인하고 있다.</p></div>
+    </section>
+  </section>
+  <section class="panel" id="panel-performance">
+    <h2>회계 기준 성과 <span class="right sub" id="perf-stamp"></span></h2>
+    <div id="perf-summary" class="perf-summary"></div>
+    <details class="fold"><summary>당일 체결과 실현손익</summary><div id="perf-fills" class="scroll dense"></div></details>
+    <p class="note">자산 증감에는 입출금이 포함된다. 수익률은 입출금을 제외한 TWR이며, 비용 분해와 같은 회계 세션을 기준으로 읽는다.</p>
   </section>
   <section class="grid-half">
     <div class="panel">
@@ -116,6 +86,15 @@
     </div>
   </section>
 
+
+  <details class="fold account-fold" id="account-details">
+    <summary>증권사 계좌 관측 · 전체 대사와 별도</summary>
+    <section class="panel" id="account-panel" style="display:none">
+      <h2>증권사 계좌 <span class="sub" id="account-sub">잔고 관측 · 장부와 비교</span></h2>
+      <div id="account-kpis" class="scroll"></div>
+    </section>
+  </details>
+  <details class="fold"><summary>일별 수익률 · 캘린더</summary>
   {# 2행: 일별 수익률 막대 | 수익률 캘린더 — 같은 nav_daily(TWR)라 둘이 어긋나지 않는다.
      달력을 막대 오른쪽에 둔다(사용자 요청 2026-09-07). 모바일에선 세로로 쌓인다. #}
   <section class="grid-half">
@@ -147,13 +126,8 @@
     </div>
   </section>
 
-  {# Underwater(낙폭) 패널은 뺐다 (사용자 요청 2026-08-31). 계좌가 갓 시작해
-     낙폭이 사실상 0 이라 선이 0% 에 납작하게 붙어 아무것도 안 보였다. 낙폭
-     자체는 상단 KPI 스트립(현재낙폭)에 이미 있다. 렌더러(renderUnderwater)와
-     서비스(_series 의 benchmark_drawdown)는 /calendar 등에서 재사용 가능해 남겨 둔다. #}
-
-  {# 부가 패널은 접어 둔다 — 모바일에서 한 화면에 핵심(KPI·계좌·성과·보유·달력)만 (사용자 요청 2026-08-28). #}
-  <details class="fold">
+  </details>
+  <details class="fold" id="candidate-details">
     <summary>후보 · 차트 · AI 결정 흔적</summary>
   <section class="grid-desk">
     <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
@@ -205,30 +179,16 @@
     </div>
   </section>
   </details>
-  <details class="fold">
-    <summary>자산 곡선 · 리스크 모니터</summary>
-  <section class="grid-desk2">
-    <div class="panel">
-      <h2>Risk Monitor</h2>
-      <div id="risk"></div>
-      <p class="note">
-        밴드 12 / 22 / 30% 는 <code>reward-and-risk.md</code> 의 값이고
-        <code>store.config</code> 에서 읽는다 (불변식 10).
-      </p>
-    </div>
-  </section>
+
+  <details class="fold" id="review-details"><summary>AI 해설</summary>
+    <section class="panel review" id="panel-review" hidden>
+      <div class="review-head"><span class="badge dim">AI 리뷰</span><span class="sub" id="review-stamp"></span></div>
+      <p class="review-headline" id="review-headline"></p>
+      <details class="fold"><summary>자세히</summary><p class="review-body" id="review-body"></p></details>
+    </section>
   </details>
-
-
-
-  {# 아래 네 패널은 **두 줄로 접는다.** 세로로 쌓으면 패널 하나가 화면 폭을
-     통째로 먹어서, 낙폭 차트는 납작해지고 달력 칸은 쓸데없이 커진다.
-     dashboard.md §2 는 1920×1080 에서 스크롤 없이 들어갈 것을 요구한다. #}
-
-
 </main>
 {% endblock %}
-
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
 <script src="{{ url_for('static', filename='calendar.js') }}"></script>

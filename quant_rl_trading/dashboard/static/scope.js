@@ -199,31 +199,44 @@ function showScope(body) {
 }
 
 /** 데이터 기준일 띠. **날짜 없는 숫자는 없다** — 어느 세션 값인지, 늦었으면 며칠인지. */
+let latestFreshness = null;
 async function renderFreshness() {
   const target = document.getElementById("freshness");
   if (!target) return;
   const body = await fetchJson("system/freshness");
+  latestFreshness = body.data || { items: [] };
+  if (typeof renderControlFreshness === "function") renderControlFreshness(latestFreshness);
   const items = (body.data && body.data.items) || [];
   if (!items.length) return;
   const md = (iso) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : "—");
   // 모바일 요약 한 줄(sheet.css 가 폭에 따라 하나만 보인다): 지연이 없으면 "전부 최신",
   // 있으면 지연된 것만 이름을 부른다 — 정상 여섯을 늘어놓는 것은 폰에서 두 줄이다.
   const stale = items.filter((it) => it.status === "stale");
+  const unknown = items.filter((it) => it.status !== "ok" && it.status !== "stale");
   const latest = items.map((it) => it.observed).filter(Boolean).sort().pop();
   const summary = stale.length
     ? `<span class="fresh stale">지연 ${stale.map((it) => `${it.label} ${it.lag_sessions}세션`).join(" · ")}</span>`
+    : unknown.length
+    ? `<span class="fresh unknown">확인 필요 ${unknown.map((it) => it.label).join(" · ")}</span>`
     : `<span class="fresh ok">데이터 ${md(latest)} · ${items.length}종 최신</span>`;
   target.innerHTML = `<span class="fresh-summary">${summary}</span>` + items.map((it) => {
     // 상태는 글리프가 아니라 앞의 점(CSS ::before)이 말한다 — ✓·⚠ 같은 문자
     // 기호는 글꼴마다 다르게 그려져 화면이 들쭉날쭉해진다.
     if (it.status === "ok") return `<span class="fresh ok">${it.label} ${md(it.observed)}</span>`;
     if (it.status === "stale") return `<span class="fresh stale">${it.label} ${md(it.observed)} · ${it.lag_sessions}세션 지연 (기대 ${md(it.expected)})</span>`;
-    return `<span class="fresh unknown">${it.label} 없음</span>`;
+    if (it.status === "unexpected") return `<span class="fresh stale">${it.label} 공표 전 세션 ${md(it.observed)} (기대 ${md(it.expected)})</span>`;
+    return `<span class="fresh unknown">${it.label} 미측정</span>`;
   }).map((html) => `<span class="fresh-item">${html}</span>`).join("");
   target.hidden = false;
 }
 if (typeof document !== "undefined" && document.getElementById("freshness")) {
-  renderFreshness().catch(() => {});
+  renderFreshness().catch(() => {
+    latestFreshness = { items: [], error: true };
+    const target = document.getElementById("freshness");
+    target.hidden = false;
+    target.innerHTML = '<span class="fresh unknown">신선도 조회 실패 · 미측정</span>';
+    if (typeof renderControlFreshness === "function") renderControlFreshness(latestFreshness);
+  });
 }
 
 function showAlerts(warnings) {
@@ -277,6 +290,19 @@ function scheduleAutoRefresh(jobs) {
 
 window.addEventListener("resize", () => {
   Object.values(charts).forEach((instance) => instance.resize());
+});
+
+// 모바일 탭 생성 뒤 링크에 조회 범위를 붙인다. 장부 전환은 시점만 보존한다.
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("header nav a, .bottom-tabs a, .more-sheet a, .control-link, .ledger-switch a").forEach((link) => {
+    const destination = new URL(link.getAttribute("href"), window.location.href);
+    const keys = link.closest(".ledger-switch") ? ["as_of", "lookback"] : ["as_of", "lookback", "market", "ledger"];
+    for (const key of keys) {
+      const value = params().get(key);
+      if (value !== null && !destination.searchParams.has(key)) destination.searchParams.set(key, value);
+    }
+    link.href = destination.pathname + destination.search;
+  });
 });
 
 /* 타임머신 폼은 헤더에서 걷어냈다(2026-08-18). **되감기 자체는 살아 있다** —

@@ -58,9 +58,18 @@ def latest_weights(store: Store, *, as_of: datetime, lookback: int) -> pd.DataFr
     return frame.sort_values("valid_from").groupby(["entity_id", "market"]).tail(1)
 
 
-def roster(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
+def roster(
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None,
+) -> list[dict[str, Any]]:
     """Analyst 전원의 상태. 측정 안 된 것도 명단에 남긴다."""
+    if market == "ALL":
+        return [
+            item for region in ("KR", "US")
+            for item in roster(store, as_of=as_of, lookback=lookback, market=region)
+        ]
     measured = latest_weights(store, as_of=as_of, lookback=lookback)
+    if market is not None and not measured.empty:
+        measured = measured.loc[measured["market"] == market]
     by_name: dict[str, dict[str, Any]] = {}
     if not measured.empty:
         for row in measured.to_dict(orient="records"):
@@ -82,7 +91,7 @@ def roster(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, An
                     "passed": None,
                     "sample_days": None,
                     "version": None,
-                    "market": None,
+                    "market": market,
                     "measured_at": None,
                 }
             )
@@ -105,21 +114,27 @@ def roster(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, An
     return out
 
 
-def ic_history(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+def ic_history(
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None,
+) -> dict[str, Any]:
     """Analyst 별 IC 측정 이력.
 
     한 점만 있으면 추이가 아니다. 그래도 그리는 이유는 **감쇠를 보기 위해**서다
     — 재측정이 쌓이면 IC 가 내려가는 것이 여기서 먼저 보인다 (알파 소멸).
     """
     frame = store.get(WEIGHTS, as_of=as_of, lookback=lookback)
+    if market not in (None, "ALL") and not frame.empty:
+        frame = frame.loc[frame["market"] == market]
     if frame.empty:
         return {"series": [], "points": 0}
 
     series: list[dict[str, Any]] = []
-    for name, group in frame.sort_values("valid_from").groupby("entity_id"):
+    label_market = market == "ALL" or (market is None and frame["market"].nunique() > 1)
+    for (name, region), group in frame.sort_values("valid_from").groupby(["entity_id", "market"]):
         series.append(
             {
-                "analyst": str(name),
+                "analyst": f"{name} · {region}" if label_market else str(name),
+                "market": str(region),
                 "points": [
                     {
                         "at": row["valid_from"].isoformat(),

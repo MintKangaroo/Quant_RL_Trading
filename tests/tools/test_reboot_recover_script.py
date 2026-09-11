@@ -16,6 +16,7 @@ test_collect_daily_script.py 와 같은 방식이다 — 임시 디렉터리 안
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -91,8 +92,11 @@ def _run(
     (tmp_path / "logs").mkdir(exist_ok=True)
     record = tmp_path / "calls.txt"
     script = tmp_path / "reboot_recover.sh"
+    source = SCRIPT.read_text(encoding="utf-8")
+    directory_commands = [line for line in source.splitlines() if line.startswith("cd ")]
+    assert len(directory_commands) == 1, "Refuse to run an unisolated shell script"
     script.write_text(
-        SCRIPT.read_text(encoding="utf-8").replace(str(REPO), str(tmp_path)),
+        source.replace(directory_commands[0], f"cd {shlex.quote(str(tmp_path))} || exit 1"),
         encoding="utf-8",
     )
 
@@ -119,6 +123,22 @@ NEED_SESSION = "\n".join(
 
 def _called(calls: list[str], name: str) -> bool:
     return any(line.startswith(f"sh {name}") for line in calls)
+
+
+@pytest.mark.parametrize("commands", ["", "cd /first || exit 1\ncd /second || exit 1"])
+def test_격리할_경로가_불명확하면_셸을_실행하지_않는다(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, commands: str,
+) -> None:
+    source = tmp_path / "source.sh"
+    source.write_text("#!/bin/bash\n" + commands)
+    monkeypatch.setattr(__import__(__name__), "SCRIPT", source)
+
+    def unexpected(*args: object, **kwargs: object) -> None:
+        pytest.fail("Must validate isolation before starting a process")
+
+    monkeypatch.setattr(subprocess, "run", unexpected)
+    with pytest.raises(AssertionError, match="unisolated"):
+        _run(tmp_path / "sandbox", plan="")
 
 
 def test_관문이_다_열리면_세션과_shadow_를_돌린다(tmp_path: Path) -> None:

@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 보존된 과거 실험이다. 현재 재개 조건·검증 계약 없이 학습/홀드아웃/투입하지 않는다.
+echo "보관된 실험 체인 — 실행 중단. docs/design/rl-training.md §13과 docs/rl-postmortem.md §10 참조" >&2
+exit 2
+
 # 8/30 체인: §7(compare-baselines) 완료 → 미장 IC → 시행 A → 파일럿 게이트. 단계마다 status 로그 한 줄.
 # /tmp 는 재부팅에 지워지므로 여기(scripts/)에 둔다. 기동: setsid nohup bash scripts/chain_20260830.sh &
 #

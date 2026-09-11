@@ -170,6 +170,34 @@ def test_매매가_없던_날은_0건이_아니라_없었던_것이다(warehouse
     assert perf.realized_pnl is None
 
 
+def test_explicit_costs_preserve_currencies_without_changing_net_pnl(warehouse) -> None:
+    warehouse.append("nav_daily", [nav_row(DAY1), nav_row(DAY2)], ingest_run_id="nav")
+    kr = trade(DAY2, "KR:005930", "buy", 1, 1_000, "kr-buy")
+    kr.update(fee=10.0, tax=2.0)
+    us = trade(DAY2, "US:AAPL", "buy", 1, 10, "us-buy")
+    us.update(currency=USD, market="US", fee=0.25, tax=0.1)
+    warehouse.append("trades", [kr, us], ingest_run_id="mixed-trades")
+    perf = performance.daily(warehouse, as_of=LATER, fill_limit=None)
+    payload = perf.as_dict()
+    costs = payload["execution_costs"]
+    assert costs["explicit_complete"] is True
+    by_currency = {row["currency"]: row for row in costs["by_currency"]}
+    assert by_currency[KRW] == {"currency": KRW, "commission": 10.0, "tax": 2.0}
+    assert by_currency[USD] == {"currency": USD, "commission": 0.25, "tax": 0.1}
+    assert payload["pnl"] == perf.pnl == 0.0
+    assert "gross_pnl" not in payload
+
+
+def test_unmeasured_and_no_fills_have_different_cost_evidence(warehouse) -> None:
+    assert performance.daily(warehouse, as_of=LATER).execution_costs() == {
+        "explicit_complete": False, "by_currency": [],
+    }
+    warehouse.append("nav_daily", [nav_row(DAY1)], ingest_run_id="nav")
+    assert performance.daily(warehouse, as_of=LATER).execution_costs() == {
+        "explicit_complete": True, "by_currency": [],
+    }
+
+
 def test_첫_세션은_비교할_어제가_없다(warehouse) -> None:
     warehouse.append("capital_flows", [flow(DAY1, 10_000_000.0)], ingest_run_id="flows")
     warehouse.append("nav_daily", [nav_row(DAY1)], ingest_run_id="nav")
@@ -203,6 +231,7 @@ def test_목록이_잘려도_건수와_실현손익은_전수다(warehouse) -> N
     perf = performance.daily(warehouse, as_of=LATER, fill_limit=2)
     assert len(perf.fills) == 2
     assert perf.fills_omitted == 3
+    assert perf.execution_costs() == {"explicit_complete": False, "by_currency": []}
     assert (perf.buy_count, perf.sell_count) == (0, 5)
     assert perf.fill_count == 5
     # 실현손익 합은 다섯 건 전부를 센 것이다. 매도가 100원씩 5건.

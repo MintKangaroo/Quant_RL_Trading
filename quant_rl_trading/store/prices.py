@@ -82,6 +82,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:  # pragma: no cover - 순환 import 를 피한다
@@ -149,6 +150,9 @@ def read_prices(
         columns=fetch,
         market=market,
     )
+    # until은 기존 계약대로 배타적이다. as_of 자체의 유효 가격은 포함한다.
+    if not frame.empty:
+        frame = frame[frame["valid_from"] <= pd.Timestamp(as_of)]
     alive = drop_dead_sessions(frame)
     if adjusted:
         alive = adjust(alive)
@@ -168,7 +172,7 @@ def drop_dead_sessions(
         return frame if keep is None else _project(frame, keep)
 
     close = pd.to_numeric(frame[PRICE_COLUMN], errors="coerce")
-    alive = frame[close.notna() & (close > 0.0)]
+    alive = frame[np.isfinite(close) & (close > 0.0)]
     return alive if keep is None else _project(alive, keep)
 
 

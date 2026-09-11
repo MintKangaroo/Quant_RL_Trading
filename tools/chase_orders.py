@@ -49,6 +49,7 @@ from quant_rl_trading.executor.lifecycle import (
 from quant_rl_trading.executor.pipeline import withdraw_unsent
 from quant_rl_trading.replay.clock import LiveClock
 from quant_rl_trading.risk import account as account_risk
+from quant_rl_trading.store.errors import StoreError
 from quant_rl_trading.risk.budget import Reservation
 from quant_rl_trading.schemas.order import Side
 from quant_rl_trading.settings import load_env
@@ -99,7 +100,7 @@ def check_account(store, clock, *, order: OpenOrder, market: str):
             price, "USD" if market == "US" else "KRW",
         ))
         return guards.GateResult(bool(decision), decision.reason)
-    except (LookupError, ValueError) as exc:
+    except (LookupError, ValueError, StoreError) as exc:
         return guards.GateResult(False, f"risk: account unavailable ({exc})")
 
 

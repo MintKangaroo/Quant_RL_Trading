@@ -46,7 +46,7 @@ from quant_rl_trading.executor.sizing import (
 )
 from quant_rl_trading.risk import account as account_risk
 from quant_rl_trading.schemas.order import Side
-from quant_rl_trading.store.errors import DuplicateIngestRun
+from quant_rl_trading.store.errors import DuplicateIngestRun, StoreError
 from quant_rl_trading.store.locking import account_lock
 
 if TYPE_CHECKING:
@@ -343,7 +343,7 @@ def reserve_orders(
             budget = account_risk.read(store, clock, as_of=now)
             slippage = float(store.config("execution.max_slippage", as_of=now))
             failure = ""
-        except (LookupError, ValueError) as exc:
+        except (LookupError, ValueError, StoreError) as exc:
             budget, slippage, failure = None, 0.0, f"risk: account unavailable ({exc})"
         current_rows = {
             account_risk.key(str(r["session_id"]), str(r["entity_id"]), int(r["slice_seq"])): r
@@ -495,7 +495,7 @@ def _submit_orders_locked(
     try:
         budget = account_risk.read(store, clock, as_of=clock.now())
         budget_error = ""
-    except (LookupError, ValueError) as exc:
+    except (LookupError, ValueError, StoreError) as exc:
         budget, budget_error = None, f"risk: account unavailable ({exc})"
     acks: list[Ack] = []
     for item in planned:

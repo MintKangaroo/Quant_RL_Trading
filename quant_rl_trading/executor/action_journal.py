@@ -52,7 +52,9 @@ def decode(payload: dict) -> OpenOrder:
 
 def events(store: Store, *, as_of: datetime, order_id: str | None = None) -> list[dict]:
     frame = store.get(TABLE, as_of=as_of)
-    if order_id is not None and not frame.empty:
+    if frame.empty:
+        return []
+    if order_id is not None:
         frame = frame[frame["order_id"] == order_id]
     return [
         dict(row, payload=json.loads(row["payload_json"]))

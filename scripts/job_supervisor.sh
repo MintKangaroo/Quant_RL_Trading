@@ -68,30 +68,9 @@ else
   say "시행G 는 §7 이 끝난 뒤에 띄운다 (메모리)"
 fi
 
-# 3) 체인 — §7 뒤 미장 IC → 시행 A → 3회차(파일럿→학습→판정→모의계좌)
-# 체인은 bash 오케스트레이터라 running_orch 로 센다 (running() 은 python 자식 이름이
-# 단계마다 바뀌어 오판한다 — 위 running_orch 주석 참고).
-if [ -f logs/night-chain-20260829.log ] && grep -aq "3회차 체인 끝" logs/night-chain-20260829.log; then
-  :
-elif running_orch "chain_2026083[0]"; then
-  :
-else
-  say "체인 이 안 돌고 있다 — 다시 띄운다"
-  setsid bash -c "cd $(pwd) && bash scripts/chain_20260830.sh" > /dev/null 2>&1 < /dev/null &
-fi
-
-# 4) 3회차 체인을 **직접** 지킨다. 바깥 체인(chain_20260830)이 죽고 이것만 고아로
-# 남는 경우가 있고(2026-08-31 실측), 반대로 이것만 죽는 경우도 있다. 학습은
-# --resume 으로 체크포인트에서 이어지므로 되살리는 값이 크다 — 46시간짜리다.
-# 바깥 체인이 살아 있으면 그쪽이 알아서 부르므로 여기서는 손대지 않는다.
-if [ -f logs/chain-r7.log ] && grep -aq "^.*완료 — 다음 08:40\|중단 —" logs/chain-r7.log; then
-  :
-elif running_orch "chain_r7_ful[l]" || running_orch "chain_2026083[0]"; then
-  :
-elif [ -f logs/chain-r7.log ]; then
-  say "3회차 체인이 시작됐는데 안 돌고 있다 — 체크포인트에서 이어 띄운다"
-  setsid bash -c "cd $(pwd) && bash scripts/chain_r7_full.sh" > /dev/null 2>&1 < /dev/null &
-fi
+# 3·4) 보관된 3회차 체인은 재시작하지 않는다 (2026-09-09).
+# 로그 유실/재부팅은 실험 재개 승인이 아니다. 두 진입점도 실행 전에 종료한다.
+# 재개 조건: docs/rl-postmortem.md §10, 승격 계약: docs/design/rl-training.md §13.
 
 # 5) 시행 C·D (PEAD·내부자) — 3회차 파일럿 불합격 뒤 재료 쪽으로 방향을 튼 작업.
 # 직렬 스크립트라 running_orch 로 세고, 완료 표식은 자기 로그에 남긴다.

@@ -172,10 +172,16 @@ def project(
     active = weights[weights > 0]
     beta = downside_beta.reindex(active.index)
     sigma = cov.reindex(index=active.index, columns=active.index).to_numpy(dtype=float)
-    if not np.isfinite(beta).all() or not np.isfinite(sigma).all():
-        raise ProjectionError("Missing or nonfinite covariance/downside beta")
-    if any(not sectors.get(entity) for entity in active.index):
-        raise ProjectionError("Missing sector classification")
+    # 공분산은 전 종목 유한해야 한다. 하방 베타는 **모르면 NaN 이 정상**이다 —
+    # 섹터 분류가 없는 종목은 베타를 모르고, cap_downside_beta 는 그 종목을
+    # 누르지 않는다(중립). 업종 미상 종목은 sector_risk_contributions 가
+    # 단독 섹터로 접으므로 여기서 거절하지 않는다. 2026-09-11 08:40 모의
+    # 세션이 업종 미상 17종목 때문에 통째로 0 주문이 된 뒤 되돌렸다.
+    if not np.isfinite(sigma).all():
+        raise ProjectionError("Missing or nonfinite covariance")
+    if np.isinf(beta.to_numpy(dtype=float)).any():
+        raise ProjectionError("Nonfinite downside beta")
+    known_beta = beta.dropna()
     scale = max(float(np.max(np.abs(sigma))), 1e-15)
     if (
         not np.allclose(sigma, sigma.T, rtol=1e-8, atol=scale * 1e-10)
@@ -184,10 +190,11 @@ def project(
         raise ProjectionError("Covariance must be symmetric positive semidefinite")
     if (
         len(active) * name_rc_cap < 1 - RC_TOLERANCE
-        or len({sectors[e] for e in active.index}) * sector_rc_cap < 1 - RC_TOLERANCE
+        or len({sectors.get(e, f"__단독:{e}") for e in active.index}) * sector_rc_cap
+        < 1 - RC_TOLERANCE
     ):
         raise ProjectionError("Insufficient names/sectors for risk contribution limits")
-    if float(beta.min()) > downside_beta_cap + RC_TOLERANCE:
+    if not known_beta.empty and float(known_beta.min()) > downside_beta_cap + RC_TOLERANCE:
         raise ProjectionError("All candidates exceed downside beta limit")
     w = _renormalize(active.copy())
     w = cap_downside_beta(w, downside_beta, cap=downside_beta_cap)
@@ -197,7 +204,13 @@ def project(
         raise ProjectionError("Portfolio risk cannot be measured")
     rc = risk_contributions(w, cov)
     sector_rc = sector_risk_contributions(rc, sectors)
-    avg_beta = float((w * beta).sum())
+    # 가중평균 베타는 베타를 아는 종목만으로 낸다 (cap_downside_beta 와 같은 정의).
+    w_known = w.reindex(known_beta.index)
+    avg_beta = (
+        float((w_known * known_beta).sum() / w_known.sum())
+        if not known_beta.empty and w_known.sum() > 0
+        else 0.0
+    )
     violations = []
     if rc.max() > name_rc_cap + RC_TOLERANCE:
         violations.append("name risk contribution")

@@ -115,9 +115,8 @@ def gather_facts(store: Store, *, as_of: datetime, market: str) -> dict[str, Any
         "note": perf.get("note"),
     }
     try:
-        facts["action_reflection_rate"] = round(
-            executor_pipeline.action_reflection_rate(store, as_of=as_of), 4
-        )
+        reflection = executor_pipeline.action_reflection_rate(store, as_of=as_of)
+        facts["action_reflection_rate"] = round(reflection, 4) if reflection is not None else None
     except Exception as exc:  # 반영률은 부가 정보다 — 없어도 리뷰는 쓴다
         facts["action_reflection_rate"] = None
         logger.info("반영률을 못 읽었다: %s", exc)

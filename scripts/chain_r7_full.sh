@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# 보존된 과거 실험이다. 현재 재개 조건·검증 계약 없이 학습/홀드아웃/투입하지 않는다.
+echo "보관된 실험 체인 — 실행 중단. docs/design/rl-training.md §13과 docs/rl-postmortem.md §10 참조" >&2
+exit 2
+
 # 3회차 완주 체인 — 파일럿 게이트 → (통과 시) 본 학습 → 검증폴드 최적 체크포인트 → 홀드아웃 판정
 # → (통과 시) 모의계좌 투입. 사용자 사전 승인(2026-08-29 "준비되면 띄워줘" / 08-30 "AI 가 투자하도록").
 # 각 관문에서 실패하면 **다음 단계를 안 간다** — 시도 예산(5회 중 3회 남음)을 아낀다.
@@ -64,6 +68,5 @@ if [ "${prom}" -ne 0 ]; then
   exit 2
 fi
 
-say "[5/5] 모의계좌 투입 — promote_policy"
-.venv/bin/python tools/promote_policy.py --checkpoint "${CKPT}" --modes paper >> "$S" 2>&1
-say "완료 — 다음 08:40 세션부터 정책이 모의계좌에서 결정한다. 룰은 shadow 로 병주"
+say "[5/5] 승격 미지원 — 구형 평가로 정책을 활성화할 수 없다. docs/design/rl-training.md §13 참조"
+exit 2

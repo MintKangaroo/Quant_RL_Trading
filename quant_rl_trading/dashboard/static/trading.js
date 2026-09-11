@@ -9,6 +9,88 @@
 
 const SIDE_COLOR = { buy: COLOR.up, sell: COLOR.down };
 
+const controlEsc = (value) => String(value ?? "").replace(/[&<>"']/g,
+  (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+const controlLink = (path) => `${path}${path.includes("?") ? "&" : "?"}${params()}`;
+
+function controlState(label, value, detail, state = "unknown", id = "", href = "") {
+  return `<div class="control-state is-${state}"${id ? ` id="${id}"` : ""}>
+    <span>${controlEsc(label)}</span><strong>${controlEsc(value)}</strong>
+    <small>${href ? `<a href="${controlEsc(href)}">${controlEsc(detail)}</a>` : controlEsc(detail)}</small></div>`;
+}
+
+function renderControlOverview(body) {
+  const target = document.getElementById("control-overview");
+  if (!target) return;
+  const risk = body.data.market === "ALL" ? null : body.data.risk;
+  const stopped = risk?.killswitch?.engaged === true;
+  const historical = body.live !== true;
+  target.innerHTML = [
+    controlState("신규 주문", stopped ? "매수 차단" : historical ? "과거 조회" : "조건 미확인",
+      stopped ? risk.killswitch.reason || "킬스위치 발동" : historical ? "현재 주문 상태와 별도" : "대사·데이터 gate 확인 필요",
+      stopped ? "critical" : "warning"),
+    controlState("데이터 신뢰", "미측정", "공표 세션 확인 필요", "unknown", "control-data", controlLink("/data-quality")),
+    controlState("모델 관측", "미측정", "Ranker IC 확인", "unknown", "control-model", controlLink("/learning")),
+    controlState("주문 · 장부 대사", "미측정", "계좌 관측 상세 보기", "unknown", "control-reconciliation", "#account-details"),
+  ].join("");
+  if (typeof latestFreshness !== "undefined" && latestFreshness) renderControlFreshness(latestFreshness);
+  const budget = document.getElementById("control-budget");
+  if (budget) budget.textContent = risk && Number.isFinite(risk.drawdown) && risk.bands?.hard > 0
+    ? `리스크 예산 ${pct(Math.abs(risk.drawdown) / risk.bands.hard, 1)} 사용 · 현재낙폭 ${pct(risk.drawdown)} / 한도 ${pct(risk.bands.hard, 0)} · 회계 기준`
+    : "리스크 예산 미측정 · 회계 관측 확인 필요";
+}
+
+function renderControlFreshness(data) {
+  const target = document.getElementById("control-data");
+  if (!target) return;
+  const items = data?.items || [];
+  const bad = items.filter((item) => ["stale", "unexpected"].includes(item.status));
+  const unknown = items.filter((item) => item.status !== "ok" && !bad.includes(item));
+  const measured = items.length > 0 && !unknown.length && !data?.error;
+  target.classList.toggle("is-warning", bad.length > 0);
+  target.classList.toggle("is-unknown", !bad.length && !measured);
+  target.classList.toggle("is-ok", !bad.length && measured);
+  const value = bad.length ? `${bad.length}개 항목 이상` : measured ? "수집 시점 확인" : "미측정";
+  const detail = bad.length ? bad.map((item) => item.label).join(" · ") : "독립 데이터 품질 gate와 별도";
+  target.innerHTML = `<span>데이터 신뢰</span><strong>${controlEsc(value)}</strong><small><a href="${controlEsc(controlLink('/data-quality'))}">${controlEsc(detail)}</a></small>`;
+}
+
+async function loadControlModel() {
+  const target = document.getElementById("control-model");
+  if (!target) return;
+  try {
+    const body = await fetchJson("learning/gate");
+    const market = (params().get("market") || "KR").toUpperCase();
+    const rows = (body.data?.roster || []).filter((row) => row.analyst === "ranker" && row.market === market);
+    const row = rows.length === 1 ? rows[0] : null;
+    const measured = row?.measured && Number.isFinite(row.ic);
+    const warnings = (body.data?.alerts || []).filter((alert) => !alert.market || alert.market === market);
+    target.classList.toggle("is-warning", warnings.length > 0);
+    target.innerHTML = `<span>모델 관측</span><strong>${measured ? `Ranker IC ${dec(row.ic, 3)}` : "미측정"}</strong>
+      <small><a href="${controlEsc(controlLink('/learning'))}">${controlEsc(warnings.length ? warnings[0].text : measured ? `측정 ${row.measured_at?.slice(0, 10) || '시각 미상'}` : '해당 시장의 Ranker 관측 없음')}</a></small>`;
+  } catch (_) {
+    target.innerHTML = `<span>모델 관측</span><strong>미측정</strong><small>모델 상태 조회 실패</small>`;
+  }
+}
+
+function renderExecutionCosts(body) {
+  const target = document.getElementById("execution-cost");
+  if (!target) return;
+  const p = body.data.performance;
+  const cost = p?.execution_costs;
+  const known = p?.session && body.data.market !== "ALL" && cost?.explicit_complete === true;
+  const rows = known ? cost.by_currency || [] : [];
+  const money = (amount, currency) => `${num(Number(amount.toFixed(currency === 'KRW' ? 0 : 2)))} ${controlEsc(currency)}`;
+  const total = known ? rows.length ? rows.map((row) => money(row.commission + row.tax, row.currency)).join('<br>') : "0 · 체결 없음" : "미측정";
+  const detail = known ? rows.map((row) => `${controlEsc(row.currency)} 수수료 ${num(row.commission)} · 세금 ${num(row.tax)}`).join(' / ') : "명시 비용 전수 집계 없음";
+  document.getElementById("cost-stamp").textContent = p?.session ? `${p.session} · 회계 기준` : "회계 미측정";
+  target.innerHTML = `<div class="cost-item"><span>Gross PnL</span><strong class="cost-unknown">미측정</strong><small>총 거래비용 분해 없음</small></div>
+    <div class="cost-item"><span>Trading Cost · 명시 비용</span><strong${known ? '' : ' class="cost-unknown"'}>${total}</strong><small>장부 전체 수수료 + 세금 · 총비용과 별도</small></div>
+    <div class="cost-item"><span>Net PnL</span><strong class="${tone(p?.pnl)}">${p?.session && p.pnl != null ? wonSigned(p.pnl) : '미측정'}</strong><small>회계 손익 · 비용 재차감 없음</small></div>`;
+  const panel = document.getElementById("cost-detail");
+  if (panel) panel.innerHTML = `${detail}<br>Spread · Slippage · Turnover · 순IR: 미측정`;
+}
+
 function currentEntity() {
   return new URLSearchParams(window.location.search).get("entity");
 }
@@ -32,7 +114,7 @@ function renderStatus(body) {
     <span class="badge dim">${s.mode_note}</span>
     <span class="badge dim">엔진 ${s.engine}</span>
     <span class="badge dim">브로커 ${s.broker}</span>
-    <span class="badge ${engaged ? "stop" : "dim"}">킬스위치 ${engaged ? "발동" : "정상"}</span>
+    <span class="badge ${engaged ? "stop" : "dim"}">킬스위치 ${engaged ? "발동" : "해제"}</span>
     <span class="badge dim">신호 ${s.last_signal ? s.last_signal.slice(0, 16).replace("T", " ") : "없음"}</span>`;
 }
 
@@ -61,7 +143,7 @@ function bindEmergencyStop() {
     if (!reason) return;
     button.disabled = true;
     try {
-      const response = await fetch("/api/trading/killswitch", {
+      const response = await fetch(`/api/trading/killswitch?${params()}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, reason, by: "dashboard" }),
@@ -233,25 +315,27 @@ function renderKpis(body) {
           ? `현재 ${pct(k.live_drawdown)} · ${risk.band_message} · 킬스위치는 ${closeBadge}`
           : `현재 ${pct(k.drawdown)} · ${risk.band_message} · ${closeBadge}`,
         risk.band !== "free", { spark: ddLine, tone: "down" }),
-    kpi("액션 반영률", pct(k.action_reflection, 0), `하한 ${pct(k.action_reflection_floor, 0)}`,
-        k.action_reflection < k.action_reflection_floor),
+    kpi("액션 반영률", k.action_reflection == null ? "미측정" : pct(k.action_reflection, 0),
+        `체결 기준 · 하한 ${pct(k.action_reflection_floor, 0)}`,
+        k.action_reflection != null && k.action_reflection < k.action_reflection_floor),
     kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",
         s ? s.engine : "—"),
     kpi("주문 거부", risk.orders_rejected + " / " + risk.orders_total,
         risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`,
         risk.reject_rate !== null && risk.reject_rate > risk.killswitch.order_fail_rate),
-    emergencyStopCard(risk.killswitch.engaged),
   ];
   document.getElementById("kpis").innerHTML = cards.join("");
+  document.getElementById("emergency-control").innerHTML =
+    emergencyStopCard(risk.killswitch.engaged, !body.live || body.data.market === "ALL");
   bindEmergencyStop();
 }
 
 /* 정지 버튼은 KPI 줄의 마지막 칸이다 — 숫자와 같은 눈높이에 있어야 한다. */
-function emergencyStopCard(engaged) {
+function emergencyStopCard(engaged, disabled = false) {
   return `<div class="kpi kpi-stop${engaged ? " engaged" : ""}">
-    <button type="button" id="emergency-stop" data-engaged="${engaged}"
+    <button type="button" id="emergency-stop" data-engaged="${engaged}" ${disabled ? "disabled" : ""}
             title="신규매수 차단 — 매도는 막지 않는다">
-      ${engaged ? "킬스위치 해제" : "EMERGENCY STOP"}
+      ${disabled ? "조회 모드 · 조작 불가" : engaged ? "킬스위치 해제" : "EMERGENCY STOP"}
     </button>
   </div>`;
 }
@@ -435,24 +519,31 @@ function renderRisk(body) {
     ["최대낙폭 밴드", r.bands.warn, r.bands.hard, "band"],
     ["익스포저", r.exposure, 1 - r.cash_buffer, "limit"],
     ["종목 상한", Math.max(0, ...body.data.positions.map((p) => p.weight || 0)), r.max_position_weight, "limit"],
-    ["보유 종목", k.positions / 10, 1, "limit"],
-    ["주문 거부율", r.reject_rate || 0, r.killswitch.order_fail_rate, "limit"],
+    ["보유 종목", k.positions, null, "count"],
+    ["주문 거부율", r.reject_rate, r.killswitch.order_fail_rate, "limit"],
     ["액션 반영률", k.action_reflection, k.action_reflection_floor, "floor"],
   ];
 
   const rows = limits
     .map(([label, value, limit, kind]) => {
+      if (value === null || value === undefined) {
+        return `<div class="risk-row">
+          <span class="name">${label}</span><span class="val">미측정</span>
+          <span class="track"></span><span class="verdict info">UNKNOWN</span>
+        </div>`;
+      }
       const magnitude = Math.abs(value === null || value === undefined ? 0 : value);
       const ratio = limit ? Math.min(100, (magnitude / Math.abs(limit)) * 100) : 0;
       let level = "info";
       if (kind === "sign") level = value < 0 ? "warning" : "info";
+      else if (kind === "count") level = "info";
+      else if (kind === "band") level = r.band === "hard" ? "critical" : r.band === "warn" ? "warning" : "info";
       else if (kind === "floor") level = value < limit ? "critical" : "info";
       else if (magnitude > Math.abs(limit)) level = "critical";
-      else if (ratio > 70) level = "warning";
       const fill = level === "critical" ? "hot" : level === "warning" ? "warn" : "";
       const text =
         label === "보유 종목"
-          ? `${num(k.positions)} / 10`
+          ? `${num(k.positions)}종목`
           : `${pct(value)}${limit === null ? "" : ` / ${pct(limit, 0)}`}`;
       return `<div class="risk-row">
         <span class="name">${label}</span>
@@ -465,9 +556,9 @@ function renderRisk(body) {
 
   const engaged = r.killswitch.engaged;
   const system = `<div class="sys-line">
-    <span>전체 시스템 상태</span>
+    <span>킬스위치 상태</span>
     <span class="verdict ${engaged ? "critical" : "info"}">
-      ${engaged ? "킬스위치 발동" : "OPERATIONAL"}</span>
+      ${engaged ? "신규매수 차단" : "해제 · 주문 안전과 별도"}</span>
   </div>`;
 
   document.getElementById("risk").innerHTML = gauge + rows + system;
@@ -744,7 +835,7 @@ function renderPerformance(body) {
 
   summary.innerHTML = [
     perfCell("자산 증감", wonSigned(p.nav_change), changeNote, tone(p.nav_change)),
-    perfCell("당일 실현손익", wonSigned(p.realized_pnl ?? 0), `매도 ${p.sell_count ?? 0}건의 (매도가 − 평균매입가)`, tone(p.realized_pnl)),
+    perfCell("당일 실현손익", p.realized_pnl == null ? "미측정" : wonSigned(p.realized_pnl), `매도 ${p.sell_count ?? 0}건 · 비용 차감 후`, tone(p.realized_pnl)),
   ].join("");
 
   if (!p.fill_count) {
@@ -1192,9 +1283,21 @@ async function loadReview() {
 
 async function loadTrading() {
   const entity = currentEntity();
-  const body = await fetchJson(`trading${entity ? "?entity=" + encodeURIComponent(entity) : ""}`);
+  let body;
+  try {
+    body = await fetchJson(`trading${entity ? "?entity=" + encodeURIComponent(entity) : ""}`);
+  } catch (error) {
+    document.getElementById("control-overview").innerHTML = controlState(
+      "운용 상태", "조회 실패", "표시 중인 수치는 이전 응답 · 최신 주문 상태 확인 불가", "critical");
+    document.getElementById("control-budget").textContent = "리스크 예산 미측정 · 최신 조회 실패";
+    document.getElementById("emergency-control").innerHTML = emergencyStopCard(false, true);
+    throw error;
+  }
   showScope(body);
   renderStatus(body);
+  renderControlOverview(body);
+  renderExecutionCosts(body);
+  void loadControlModel();
 
   // 회계가 평가를 거부한 경우(예: 환율 미수집). **가짜 숫자를 그리지 않는다** —
   // 화면이 죽은 것과 데이터가 빠진 것은 다른 사건이고, 그 구분이 복구를 가른다.
@@ -1202,6 +1305,9 @@ async function loadTrading() {
     renderAlerts(body);
     document.getElementById("kpis").innerHTML =
       kpi("평가 불가", "—", body.data.unavailable, true);
+    document.getElementById("emergency-control").innerHTML = emergencyStopCard(false, true);
+    document.getElementById("perf-summary").innerHTML = "";
+    document.getElementById("perf-stamp").textContent = "";
     ["watchlist", "decision", "risk", "positions", "orders", "perf-fills"].forEach((id) => {
       document.getElementById(id).innerHTML =
         `<p class="empty">회계가 평가를 거부했다. 위 사유를 먼저 해결한다.</p>`;
@@ -1235,15 +1341,19 @@ async function loadTrading() {
   const posHead = up(document.getElementById("positions"), ".panel");
   const posH2 = posHead && posHead.querySelector ? posHead.querySelector("h2") : null;
   if (posH2 && combined) posH2.textContent = "일별 수익률 · 종합";
-  if (!combined) renderAccount(body).catch(() => {});  // 외부 조회 — 느리고 실패할 수 있다, KPI 를 막지 않는다
+  if (!combined) renderAccount(body).catch(() => {
+    document.getElementById("account-panel").style.display = "";
+    document.getElementById("account-kpis").textContent = "계좌 조회 실패 · 대사 미측정";
+  });
   renderAlerts(body);
   if (!combined) {
     renderWatchlist(body);
     renderDecision(body);
     renderRisk(body);
     renderPositions(body);
-    renderPositionsPie(body);
     renderOrders(body);
+  } else {
+    document.getElementById("risk").innerHTML = '<p class="empty">종합 리스크 예산 미측정 · 개별 장부에서 확인한다.</p>';
   }
   renderDailyReturns(body);
   renderPerformance(body);
@@ -1252,8 +1362,8 @@ async function loadTrading() {
   // 함수는 /calendar 재사용 위해 남겨 둔다.
   renderCalendarPanel(body);
 
-  // 정지 버튼은 KPI 줄이 그린다 (emergencyStopCard). 여기서 다시 만지지 않는다.
-  if (!combined) await renderCandles(body.data.decision.entity_id, body.data.positions);
+  candidateContext = combined ? null : body.data;
+  await loadOpenDetails();
 
   // 장중이면 다음 갱신을 예약한다. **그리기가 끝난 뒤**여야 한다 — 앞에 두면
   // 느린 세션에서 갱신이 겹쳐 쌓인다.
@@ -1337,4 +1447,29 @@ function bindVisibilityRefresh(body) {
   });
 }
 
-runAll([loadTrading, loadReview]);
+let candidateContext = null;
+
+async function loadOpenDetails() {
+  const candidates = document.getElementById("candidate-details");
+  const review = document.getElementById("review-details");
+  if (candidates?.open && candidateContext) {
+    try {
+      await renderCandles(candidateContext.decision.entity_id, candidateContext.positions);
+    } catch (_) {
+      document.getElementById("chart-note").textContent = "차트 조회 실패 · 재조회하려면 접었다 펼친다.";
+    }
+  }
+  if (review?.open) {
+    try { await loadReview(); } catch (_) {
+      document.getElementById("panel-review").hidden = false;
+      document.getElementById("review-headline").textContent = "AI 해설 조회 실패";
+      document.getElementById("review-body").textContent = "";
+    }
+  }
+}
+
+for (const id of ["candidate-details", "review-details"]) {
+  document.getElementById(id)?.addEventListener("toggle", loadOpenDetails);
+}
+
+runAll([loadTrading]);
