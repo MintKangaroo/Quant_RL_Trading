@@ -22,8 +22,10 @@ for group in groups:
     for market in markets:
         if (group, market) in (("G3", "KR"), ("G4", "US")):
             continue  # 등록대로 그 시장은 전부 0 — 굽지 않는다
-        out = build_panel(store, group, market, sessions[market])
-        print(f"{group} {market}: {len(out):,}행 · 세션 {out['session'].nunique()}", flush=True)
+        # collect=False — 월 조각만 남긴다. 합치면 구운 달을 전부 되읽어 RSS 가 GB 로 간다.
+        build_panel(store, group, market, sessions[market], collect=False)
+        months = len(list(Path("data/_diag/ranker-sources").glob(f"{group}-{market}-*.parquet")))
+        print(f"{group} {market}: 월 조각 {months}개", flush=True)
 print("완료", flush=True)
 PY
   echo "rc=$?"

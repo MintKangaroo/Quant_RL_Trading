@@ -31,7 +31,16 @@ from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.replay.clock import ReplayClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
-from tools.trial_pooled import FEATS, TOP_N, _nw, daily_ic, fit_gbm, load_kr, load_us, top_excess  # noqa: E402
+from tools.trial_pooled import (  # noqa: E402
+    FEATS,
+    TOP_N,
+    _nw,
+    daily_ic,
+    fit_gbm,
+    load_kr,
+    load_us,
+    top_excess,
+)
 from tools.trial_pooled_deep import blocks_for  # noqa: E402
 from tools.trial_pooled_rank import rank_gauss  # noqa: E402
 
@@ -51,8 +60,17 @@ BOTTOM_SHARE = 0.10
 # --------------------------------------------------------------------------- 피처 조각 적재
 
 
-def build_panel(store: Store, group: str, market: str, sessions: list, *, limit: int | None = None) -> pd.DataFrame:
-    """(entity_id, session, 묶음 피처) — 세션마다 개장 직전 as_of. 월 조각이 있으면 다시 굽지 않는다."""
+def build_panel(
+    store: Store, group: str, market: str, sessions: list, *,
+    limit: int | None = None, collect: bool = True,
+) -> pd.DataFrame:
+    """(entity_id, session, 묶음 피처) — 세션마다 개장 직전 as_of. 월 조각이 있으면 다시 굽지 않는다.
+
+    ``collect=False`` 면 **월 조각만 남기고 합치지 않는다.** 굽기 전용 경로다: 합치면
+    이미 구운 달까지 전부 메모리로 되읽어 US 25개월에서 RSS 2.7GB 가 되고, 그 탓에
+    2026-09-11 에 세 번 연속 죽었다(두 번은 WSL 재부팅까지 갔다). 판정 도구는 합쳐야
+    하므로 기본값은 그대로 True 다.
+    """
     CACHE.mkdir(parents=True, exist_ok=True)
     columns = list(GROUPS[group])
     todo = sessions[:limit] if limit else sessions
@@ -63,7 +81,8 @@ def build_panel(store: Store, group: str, market: str, sessions: list, *, limit:
     for month, days in by_month.items():
         path = CACHE / f"{group}-{market}-{month}.parquet"  # invariant-allow: data-access — 창고가 아닌 작업 파일
         if path.exists() and limit is None:
-            parts.append(pd.read_parquet(path))  # invariant-allow: data-access — 창고가 아닌 작업 파일
+            if collect:
+                parts.append(pd.read_parquet(path))  # invariant-allow: data-access — 창고가 아닌 작업 파일
             continue
         rows = []
         for s in days:
@@ -78,8 +97,10 @@ def build_panel(store: Store, group: str, market: str, sessions: list, *, limit:
         chunk = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame(columns=["entity_id", "session", *columns])
         if limit is None:
             chunk.to_parquet(path, index=False)  # invariant-allow: data-access — 창고가 아닌 작업 파일
-        parts.append(chunk)
+        if collect:
+            parts.append(chunk)
         print(f"  {group} {market} {month}: {len(chunk):,}행 ({len(days)}세션)", flush=True)
+        del chunk, rows
     out = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["entity_id", "session", *columns])
     out["session"] = pd.to_datetime(out["session"]).dt.date
     return out
