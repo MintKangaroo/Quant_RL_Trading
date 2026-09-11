@@ -55,6 +55,34 @@ function renderControlFreshness(data) {
   target.innerHTML = `<span>데이터 신뢰</span><strong>${controlEsc(value)}</strong><small><a href="${controlEsc(controlLink('/data-quality'))}">${controlEsc(detail)}</a></small>`;
 }
 
+/** 상단 "주문 · 장부 대사" 칸. 하단 계좌 대조표(t0424 vs 장부)의 핵심 세 줄을 올린다 —
+ *  총자산 차이·현금 차이·종목 수량 불일치 건수. 87% 현금 버그(2026-08-30)를 잡은 것이
+ *  이 표였는데 개편으로 접이식 아래로 내려가 상단은 "미측정" 으로만 떴다(2026-09-11).
+ *  기준: 수량 불일치 1건이라도 있으면 critical, 총자산·현금 차이가 장부의 0.5% 를 넘으면
+ *  warning(대조표의 빨간 칸과 같은 임계), 둘 다 아니면 ok. 조회 실패는 unknown + 사유. */
+function renderControlReconciliation(summary, reason = "") {
+  const target = document.getElementById("control-reconciliation");
+  if (!target) return;
+  const link = "#account-details";
+  const paint = (state, value, detail) => {
+    for (const cls of ["is-ok", "is-warning", "is-critical", "is-unknown"]) target.classList.remove(cls);
+    target.classList.add(`is-${state}`);
+    target.innerHTML = `<span>주문 · 장부 대사</span><strong>${controlEsc(value)}</strong>` +
+      `<small><a href="${link}">${controlEsc(detail)}</a></small>`;
+  };
+  if (!summary) { paint("unknown", "미측정", reason || "계좌 관측 상세 보기"); return; }
+  const fmt = (v) => (v == null ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
+  const big = (d) => d && d.delta != null && Math.abs(d.delta) > 0.005 * Math.max(1, Math.abs(d.base || 1));
+  const detail = `총자산 차 ${fmt(summary.nav?.delta)} · 현금 차 ${fmt(summary.cash?.delta)} · ${summary.names}종목 대조`;
+  if (summary.mismatch > 0) {
+    paint("critical", `수량 불일치 ${summary.mismatch}건`, detail);
+  } else if (big(summary.nav) || big(summary.cash) || summary.positions === false) {
+    paint("warning", "금액 차이 0.5% 초과", detail);
+  } else {
+    paint("ok", `${summary.names}종목 일치`, detail);
+  }
+}
+
 async function loadControlModel() {
   const target = document.getElementById("control-model");
   if (!target) return;
@@ -693,7 +721,11 @@ async function renderAccount(tradingBody) {
   if (!panel || !target) return;
   const body = await fetchJson("trading/account");
   const a = (body && body.data) || {};
-  if (!a.available) { panel.style.display = "none"; return; }
+  if (!a.available) {
+    panel.style.display = "none";
+    renderControlReconciliation(null, a.reason || "계좌 조회 불가");
+    return;
+  }
   const d = tradingBody.data || {};
   const k = d.kpis || {};
   const muted = "color:var(--muted)";
@@ -735,8 +767,10 @@ async function renderAccount(tradingBody) {
     ["당일 실현손익", a.realized_today, ledgerRealized, false],
   ];
   let html = `<table><thead><tr><th>항목</th><th class="r">증권사 계좌</th><th class="r">우리 장부</th><th class="r">차이</th></tr></thead><tbody>`;
+  const deltas = {};
   for (const [label, acct, ledger, judge] of rows) {
     const delta = acct == null || ledger == null ? null : acct - ledger;
+    if (judge) deltas[label] = { delta, base: ledger ?? acct };
     const cell = judge ? diffCell(delta, a.net_asset)
       : `<td class="r mono" style="${muted}">${delta == null ? "—" : sgn(delta)}</td>`;
     html += `<tr><td style="white-space:nowrap">${label}</td>
@@ -775,6 +809,10 @@ async function renderAccount(tradingBody) {
     평가손익 = 현재가 − 평균 매입가 · 당일 실현손익의 계좌 쪽엔 장부 밖 청산(선행 잔고 6종목, 8/28)이 들어 있어 차이를 경고로 치지 않는다 ·
     계좌 값은 t0424(정규장 종가 기준)라 LS 앱의 시간외 현재가 기준 숫자와 조금 다르다 · 차이가 0.5% 를 넘으면 빨갛게 표시.</p>`;
   target.innerHTML = html + legend + verdict + tbl;
+  renderControlReconciliation({
+    mismatch, names: keys.length,
+    nav: deltas["총자산"], cash: deltas["현금(정산 후)"], positions: cntOk,
+  });
   const sub = document.getElementById("account-sub");
   if (sub) sub.textContent = `t0424 조회 · 모드 ${a.mode} · ${stampNow()} 기준`;
   panel.style.display = "";
@@ -1344,6 +1382,7 @@ async function loadTrading() {
   if (!combined) renderAccount(body).catch(() => {
     document.getElementById("account-panel").style.display = "";
     document.getElementById("account-kpis").textContent = "계좌 조회 실패 · 대사 미측정";
+    renderControlReconciliation(null, "계좌 조회 실패");
   });
   renderAlerts(body);
   if (!combined) {
