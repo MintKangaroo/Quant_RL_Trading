@@ -113,12 +113,14 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
         broker_known = str(record["reason"]).startswith("broker_order_no=")
         if status not in RESERVING and not (status in UNVERIFIED_TERMINAL and broker_known):
             continue
-        if status in UNVERIFIED_TERMINAL and _broker_day_has_passed(record, as_of=as_of):
-            # **지난 거래일의 종결 주문은 잔량이 남을 수 없다.** 국장·미장 지정가는
-            # 당일 유효(day order)라 장 마감에 거래소가 미체결을 소멸시킨다. 이걸
-            # 계속 예약으로 잡으면 매일 쌓여 계좌를 마비시킨다 — 2026-09-11 모의계좌
-            # 317건 예약, 매수 24건 "현금 부족"·매도 9건 "재고 초과" 차단.
-            # cancel_unknown·modify_unknown(RESERVING) 은 여기서 풀지 않는다.
+        if _broker_day_has_passed(record, as_of=as_of):
+            # **지난 거래일의 주문은 상태와 무관하게 잔량이 남을 수 없다.** 국장·미장
+            # 지정가는 당일 유효(day order)라 장 마감에 거래소가 미체결을 소멸시킨다.
+            # 받았는지 모르는 주문(submitting·*_unknown)도 받았다면 그날 소멸했고
+            # 못 받았다면 애초에 없다. 예약이 아니라 **대사**의 문제다 — 실제 체결
+            # 누락은 15:45 체결 대사가 잡는다. 이걸 예약으로 계속 잡으면 매일 쌓여
+            # 계좌를 마비시킨다: 2026-09-11 모의계좌 예약 317건(8/26 시뮬 96·abandoned
+            # 120·…), 매수 24건 "현금 부족"·매도 9건 "재고 초과" 차단.
             continue
         session, entity, seq = (
             str(record["session_id"]),

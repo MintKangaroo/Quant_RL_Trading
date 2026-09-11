@@ -419,13 +419,27 @@ def test_previous_day_terminal_order_does_not_reserve(fund, status):
     assert account.read(fund, ReplayClock(NOW), as_of=NOW).reservations == {}
 
 
-def test_previous_day_unknown_cancel_still_reserves(fund):
-    """cancel_unknown 은 날짜가 지나도 풀지 않는다 — 확인 없는 취소는 취소가 아니다."""
+@pytest.mark.parametrize("status", ["cancel_unknown", "submitting", "paper"])
+def test_same_day_unknown_order_still_reserves(fund, status):
+    """같은 거래일 안의 미확인 주문은 예약이다 — 확인 없는 취소는 취소가 아니다."""
+    from quant_rl_trading.risk import account
+
+    old = NOW - timedelta(hours=3)
+    item = intent()
+    row = item.row(as_of=old, observed_at=old, market="KR", status=status)
+    row["reason"] = "broker_order_no=77"
+    fund.append("orders", [row], ingest_run_id="old-order")
+    assert len(account.read(fund, ReplayClock(NOW), as_of=NOW).reservations) == 1
+
+
+@pytest.mark.parametrize("status", ["cancel_unknown", "submitting", "paper"])
+def test_previous_day_unknown_order_expired_at_exchange(fund, status):
+    """지난 거래일의 미확인 주문도 day order 로 소멸했다 — 체결 누락은 대사가 잡는다."""
     from quant_rl_trading.risk import account
 
     old = NOW - timedelta(days=3)
     item = intent()
-    row = item.row(as_of=old, observed_at=old, market="KR", status="cancel_unknown")
+    row = item.row(as_of=old, observed_at=old, market="KR", status=status)
     row["reason"] = "broker_order_no=77"
     fund.append("orders", [row], ingest_run_id="old-order")
-    assert len(account.read(fund, ReplayClock(NOW), as_of=NOW).reservations) == 1
+    assert account.read(fund, ReplayClock(NOW), as_of=NOW).reservations == {}
