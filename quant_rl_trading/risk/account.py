@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 
 from quant_rl_trading.accounting import ledger, snapshot
 from quant_rl_trading.accounting.rates import Rates
-from quant_rl_trading.collectors.market_hours import Market, local_time
+from quant_rl_trading.collectors.market_hours import SPECS, Market, is_trading_day, local_time
 from quant_rl_trading.executor.action_journal import cancelled_quantities
 from quant_rl_trading.executor.orders import PlannedOrder, client_order_id
 from quant_rl_trading.replay.clock import Clock
@@ -54,11 +54,30 @@ def filled_quantities(store: Store, *, as_of: datetime) -> dict[str, float]:
     return filled
 
 
+def order_trading_day(market: Market, moment: datetime) -> date:
+    """``moment`` 에 낸(또는 관측한) 주문이 속하는 **거래소 거래일**.
+
+    현지 시각이 정규장 마감 전이고 그날이 거래일이면 그날, 아니면 다음 거래일이다.
+    미장 주문은 한국시간 12:20 에 기록되는데 현지로는 전날 밤 23:20 이라, 관측
+    시각의 현지 날짜로 세면 그 주문이 아직 열리지도 않은 세션 중에 "지난 날" 로
+    풀려 버린다(코드 리뷰 2026-09-11) — 그래서 날짜가 아니라 세션으로 센다.
+    """
+    here = local_time(market, moment)
+    day = here.date()
+    if here.time() >= SPECS[market].regular_close or not is_trading_day(market, day):
+        day += timedelta(days=1)
+        for _ in range(14):
+            if is_trading_day(market, day):
+                break
+            day += timedelta(days=1)
+    return day
+
+
 def _broker_day_has_passed(record: dict, *, as_of: datetime) -> bool:
-    """이 주문 상태를 마지막으로 관측한 **시장 현지 거래일**이 as_of 의 현지 날짜보다 앞선가."""
+    """이 주문 상태를 마지막으로 관측한 거래소 거래일이 as_of 의 거래일보다 앞선가."""
     market = Market(str(record["market"]))
     seen = pd.Timestamp(record["observed_at"]).to_pydatetime()
-    return local_time(market, seen).date() < local_time(market, as_of).date()
+    return order_trading_day(market, seen) < order_trading_day(market, as_of)
 
 
 def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:

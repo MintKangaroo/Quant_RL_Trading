@@ -261,9 +261,11 @@ def run(
 
     if market_enum is Market.US:
         last_probe = datetime.combine(scored[-1], DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL)
+        first_probe = datetime.combine(sessions[0], DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL)
         require_causal_universe(
             store, market=market,
             as_of=snapshot_moment(store, scored[-1], as_of=last_probe, market=market_enum),
+            window_start=snapshot_moment(store, sessions[0], as_of=first_probe, market=market_enum),
         )
 
     # 설정을 읽으려면 시점이 필요한데, 그 시점을 벽시계에서 가져오면 불변식 2 를

@@ -133,3 +133,20 @@ def test_legacy_backdated_universe_cannot_support_new_research(store):
     with pytest.raises(ValueError, match="Legacy US inferred delistings"):
         require_causal_universe(store, as_of=INFERRED, market="US")
     require_causal_universe(store, as_of=INFERRED, market="KR")
+
+
+def test_legacy_rows_known_before_window_do_not_block_live_session(store):
+    """구간이 '안 날' 뒤에서 시작하면 소급 행은 이미 알려진 사실이다 — 오늘 하루 shadow 를 막지 않는다."""
+    from quant_rl_trading.store.quality import require_causal_universe
+
+    row = session_rows([bar("GONE", date(2026, 3, 1))])[0]
+    row.update(is_listed=False, is_tradable=False, delisted_on=row["valid_from"])
+    store.append("universe", [row], ingest_run_id="US-universe-delisted-2026-03-20")
+    later = datetime(2026, 3, 25, tzinfo=UTC)
+    require_causal_universe(store, as_of=later, market="US", window_start=later)
+    with pytest.raises(ValueError, match="Legacy US inferred delistings"):
+        require_causal_universe(
+            store, as_of=later, market="US", window_start=datetime(2026, 3, 10, tzinfo=UTC)
+        )
+    with pytest.raises(ValueError, match="Legacy US inferred delistings"):
+        require_causal_universe(store, as_of=later, market="US")

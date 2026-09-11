@@ -1,7 +1,7 @@
 """Different orders must not spend the same account cash or inventory."""
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from threading import Barrier
 
 import pytest
@@ -443,3 +443,29 @@ def test_previous_day_unknown_order_expired_at_exchange(fund, status):
     row["reason"] = "broker_order_no=77"
     fund.append("orders", [row], ingest_run_id="old-order")
     assert account.read(fund, ReplayClock(NOW), as_of=NOW).reservations == {}
+
+
+def test_us_order_recorded_before_its_session_stays_reserved_during_that_session(fund):
+    """미장 주문은 KST 12:20(현지 전날 밤)에 기록된다 — 그 세션이 열리는 동안은 예약이다."""
+    from quant_rl_trading.risk import account
+
+    recorded = datetime(2026, 9, 10, 3, 20, tzinfo=UTC)  # 12:20 KST = 23:20 ET 9/9
+    during = datetime(2026, 9, 10, 14, 0, tzinfo=UTC)  # 10:00 ET 9/10, 세션 중
+    next_day = datetime(2026, 9, 11, 3, 20, tzinfo=UTC)  # 다음 날 12:20 KST
+    item = intent("US:AAPL")
+    row = item.row(as_of=recorded, observed_at=recorded, market="US", status="sent")
+    row["reason"] = "broker_order_no=77"
+    fund.append("orders", [row], ingest_run_id="us-order")
+    assert len(account.read(fund, ReplayClock(during), as_of=during).reservations) == 1
+    assert account.read(fund, ReplayClock(next_day), as_of=next_day).reservations == {}
+
+
+def test_order_trading_day_maps_after_close_to_next_session():
+    from quant_rl_trading.collectors.market_hours import Market
+    from quant_rl_trading.risk.account import order_trading_day
+
+    kr, us = Market.KR, Market.US
+    assert order_trading_day(kr, datetime(2026, 9, 10, 23, 40, tzinfo=UTC)) == date(2026, 9, 11)
+    assert order_trading_day(kr, datetime(2026, 9, 11, 0, 30, tzinfo=UTC)) == date(2026, 9, 11)
+    assert order_trading_day(kr, datetime(2026, 9, 11, 7, 0, tzinfo=UTC)) == date(2026, 9, 14)
+    assert order_trading_day(us, datetime(2026, 9, 10, 3, 20, tzinfo=UTC)) == date(2026, 9, 10)

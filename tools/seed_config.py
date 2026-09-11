@@ -9,7 +9,9 @@
     .venv/bin/python tools/seed_config.py --store data/_paper            # 미리보기
     .venv/bin/python tools/seed_config.py --store data/_paper --apply    # 적재
 
-시각은 LiveClock 에서만 온다(불변식 2). 과거 as_of 조회는 옛 값을 그대로 본다.
+시각은 LiveClock 에서만 온다(불변식 2). **바뀐 값**은 지금 시각의 정정본이라 과거 as_of
+조회는 옛 값을 그대로 본다. **새 키**는 일부러 에포크(2000-01-01)로 소급해 심는다 —
+집행 임계치는 세션 as_of(전날)·백테스트의 과거 시점에서도 읽혀야 하기 때문이다.
 """
 
 from __future__ import annotations
@@ -70,7 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         rows,
         ingest_run_id=_config.defaults_run_id(source, moment=now),
     )
-    print(f"{store.root}: {n}행 적재 · 발효 {now.isoformat()}")
+    print(
+        f"{store.root}: {n}행 적재 — 정정 {len(changed_rows)}행 발효 {now.isoformat()} · "
+        f"신규 {len(new_rows)}행 에포크 소급"
+    )
     return 0
 
 

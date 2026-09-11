@@ -770,7 +770,7 @@ async function renderAccount(tradingBody) {
   const deltas = {};
   for (const [label, acct, ledger, judge] of rows) {
     const delta = acct == null || ledger == null ? null : acct - ledger;
-    if (judge) deltas[label] = { delta, base: ledger ?? acct };
+    if (judge) deltas[label] = { delta, base: a.net_asset };  // 대조표 diffCell 과 같은 기준
     const cell = judge ? diffCell(delta, a.net_asset)
       : `<td class="r mono" style="${muted}">${delta == null ? "—" : sgn(delta)}</td>`;
     html += `<tr><td style="white-space:nowrap">${label}</td>
