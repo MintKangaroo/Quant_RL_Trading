@@ -16,7 +16,12 @@ store = Store(root=Path("data"))
 kr, _ = load_kr(); us = load_us()
 sessions = {"KR": sorted(kr["session"].unique()), "US": sorted(us["session"].unique())}
 import os
-groups = tuple(os.environ.get("GROUPS", "G1,G2,G3,G4,G5").split(","))
+# **`GROUPS` 로 넘기면 안 된다** — bash 의 읽기 전용 내장 변수라 `GROUPS=G6 스크립트` 는
+# 조용히 무시되고 기본값이 돈다. 2026-09-11 에 G6 을 두 번 굽는 줄 알았는데 두 번 다
+# 기본 묶음만 확인하고 끝났다. `PANEL_GROUPS` 를 쓰고, 옛 호출을 위해 GROUPS 도 본다.
+groups = tuple(
+    (os.environ.get("PANEL_GROUPS") or os.environ.get("GROUPS") or "G1,G2,G3,G4,G5").split(",")
+)
 markets = tuple(os.environ.get("MARKETS", "KR,US").split(","))
 for group in groups:
     for market in markets:
