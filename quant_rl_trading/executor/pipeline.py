@@ -353,7 +353,8 @@ def reserve_orders(
         for item in planned:
             logical = account_risk.key(item.session_id, item.order.entity_id, item.slice_seq)
             current = current_rows.get(logical)
-            if current and current["status"] != "planned":
+            # risk_blocked 는 그 시점의 판정이다 — 다음 실행에서 다시 심사한다.
+            if current and current["status"] not in ("planned", STATUS_RISK_BLOCKED):
                 if current["status"] == "reserved":
                     approved.append(item)
                 continue

@@ -248,7 +248,8 @@ def test_restart_reserves_only_unfilled_remainder(fund):
 def test_unverified_order_status_never_releases_budget(fund, status):
     from quant_rl_trading.risk import account
 
-    old = NOW - timedelta(days=40)
+    # 같은 거래일 안의 미확인 종결 — 지난 거래일이면 day order 만료로 풀린다(아래 테스트).
+    old = NOW - timedelta(hours=2)
     item = intent()
     row = item.row(as_of=old, observed_at=old, market="KR", status=status)
     row["reason"] = "broker_order_no=77" if status != "submitting" else ""
@@ -399,3 +400,32 @@ def test_simulation_reservation_cannot_switch_to_live_submission(fund):
     broker = Broker()
     assert not send(fund, broker, item)[0].accepted
     assert not broker.calls
+
+
+@pytest.mark.parametrize("status", ["abandoned", "filled", "cancelled", "expired"])
+def test_previous_day_terminal_order_does_not_reserve(fund, status):
+    """지난 거래일의 종결 주문은 거래소가 잔량을 소멸시켰다 — 예약이 아니다.
+
+    2026-09-11 모의계좌: 8/27~9/8 의 abandoned·filled 잔량 317건이 예약으로 남아
+    당일 매수 24건이 '현금 부족', 매도 9건이 '재고 초과' 로 막혔다.
+    """
+    from quant_rl_trading.risk import account
+
+    old = NOW - timedelta(days=3)
+    item = intent()
+    row = item.row(as_of=old, observed_at=old, market="KR", status=status)
+    row["reason"] = "broker_order_no=77"
+    fund.append("orders", [row], ingest_run_id="old-order")
+    assert account.read(fund, ReplayClock(NOW), as_of=NOW).reservations == {}
+
+
+def test_previous_day_unknown_cancel_still_reserves(fund):
+    """cancel_unknown 은 날짜가 지나도 풀지 않는다 — 확인 없는 취소는 취소가 아니다."""
+    from quant_rl_trading.risk import account
+
+    old = NOW - timedelta(days=3)
+    item = intent()
+    row = item.row(as_of=old, observed_at=old, market="KR", status="cancel_unknown")
+    row["reason"] = "broker_order_no=77"
+    fund.append("orders", [row], ingest_run_id="old-order")
+    assert len(account.read(fund, ReplayClock(NOW), as_of=NOW).reservations) == 1

@@ -9,6 +9,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting import ledger, snapshot
 from quant_rl_trading.accounting.rates import Rates
+from quant_rl_trading.collectors.market_hours import Market, local_time
 from quant_rl_trading.executor.action_journal import cancelled_quantities
 from quant_rl_trading.executor.orders import PlannedOrder, client_order_id
 from quant_rl_trading.replay.clock import Clock
@@ -51,6 +52,13 @@ def filled_quantities(store: Store, *, as_of: datetime) -> dict[str, float]:
         base = str(record["order_id"]).split("#", 1)[0]
         filled[base] = filled.get(base, 0.0) + float(record["quantity"])
     return filled
+
+
+def _broker_day_has_passed(record: dict, *, as_of: datetime) -> bool:
+    """이 주문 상태를 마지막으로 관측한 **시장 현지 거래일**이 as_of 의 현지 날짜보다 앞선가."""
+    market = Market(str(record["market"]))
+    seen = pd.Timestamp(record["observed_at"]).to_pydatetime()
+    return local_time(market, seen).date() < local_time(market, as_of).date()
 
 
 def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
@@ -104,6 +112,13 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
         status = str(record["status"])
         broker_known = str(record["reason"]).startswith("broker_order_no=")
         if status not in RESERVING and not (status in UNVERIFIED_TERMINAL and broker_known):
+            continue
+        if status in UNVERIFIED_TERMINAL and _broker_day_has_passed(record, as_of=as_of):
+            # **지난 거래일의 종결 주문은 잔량이 남을 수 없다.** 국장·미장 지정가는
+            # 당일 유효(day order)라 장 마감에 거래소가 미체결을 소멸시킨다. 이걸
+            # 계속 예약으로 잡으면 매일 쌓여 계좌를 마비시킨다 — 2026-09-11 모의계좌
+            # 317건 예약, 매수 24건 "현금 부족"·매도 9건 "재고 초과" 차단.
+            # cancel_unknown·modify_unknown(RESERVING) 은 여기서 풀지 않는다.
             continue
         session, entity, seq = (
             str(record["session_id"]),
