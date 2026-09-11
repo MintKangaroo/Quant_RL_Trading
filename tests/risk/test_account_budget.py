@@ -488,3 +488,32 @@ def test_previous_day_unverified_is_backlog_not_today_failure(fund):
     seoul_today = NOW.astimezone(ZoneInfo("Asia/Seoul")).date()
     assert unverified_remainders(fund, as_of=NOW, market="KR") == 1
     assert unverified_remainders(fund, as_of=NOW, market="KR", venue_day=seoul_today) == 0
+
+
+def test_expiry_uses_submission_time_not_rewritten_observed_at(fund):
+    """15:45 대사가 장 마감 뒤로 다시 적은 주문도 그날 세션 것이다 — 다음 날엔 소멸.
+
+    observed_at 으로 세면 15:30 이후 기록이 '다음 세션' 으로 밀려 예약이 하루 더 산다.
+    """
+    from quant_rl_trading.executor.action_journal import record
+    from quant_rl_trading.risk import account
+    from quant_rl_trading.risk.account import key
+
+    submitted = datetime(2026, 9, 10, 0, 26, tzinfo=UTC)  # 09:26 KST 9/10
+    rewritten = datetime(2026, 9, 10, 6, 45, tzinfo=UTC)  # 15:45 KST, 장 마감 뒤
+    next_day = datetime(2026, 9, 11, 0, 30, tzinfo=UTC)  # 09:30 KST 9/11
+    item = intent()
+    row = item.row(as_of=submitted, observed_at=rewritten, market="KR", status="abandoned")
+    row["reason"] = "broker_order_no=77"
+    fund.append("orders", [row], ingest_run_id="rewritten-after-close")
+    record(
+        fund,
+        ReplayClock(rewritten),
+        order_id=key(SESSION, item.order.entity_id, 0),
+        entity=item.order.entity_id,
+        kind="submitted",
+        identity="initial",
+        at=submitted,
+        payload={"broker_order_no": "77", "order_day": "2026-09-10"},
+    )
+    assert account.read(fund, ReplayClock(next_day), as_of=next_day).reservations == {}

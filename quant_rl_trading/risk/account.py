@@ -10,7 +10,7 @@ import pandas as pd
 from quant_rl_trading.accounting import ledger, snapshot
 from quant_rl_trading.accounting.rates import Rates
 from quant_rl_trading.collectors.market_hours import SPECS, Market, is_trading_day, local_time
-from quant_rl_trading.executor.action_journal import cancelled_quantities
+from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_times
 from quant_rl_trading.executor.orders import PlannedOrder, client_order_id
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.risk.budget import Budget, Limits, Reservation
@@ -73,10 +73,17 @@ def order_trading_day(market: Market, moment: datetime) -> date:
     return day
 
 
-def _broker_day_has_passed(record: dict, *, as_of: datetime) -> bool:
-    """이 주문 상태를 마지막으로 관측한 거래소 거래일이 as_of 의 거래일보다 앞선가."""
+def _broker_day_has_passed(
+    record: dict, *, as_of: datetime, submitted: datetime | None
+) -> bool:
+    """이 주문이 살아 있던 거래소 거래일이 as_of 의 거래일보다 앞선가.
+
+    기준 시각은 **브로커 전송 시각**이다. 주문 행의 ``observed_at`` 은 15:45 대사가
+    장 마감 뒤로 다시 적으므로, 그걸로 세면 그날 주문이 다음 세션 것으로 밀린다.
+    전송 기록이 없으면(미전송 예약) 마지막 관측 시각으로 센다.
+    """
     market = Market(str(record["market"]))
-    seen = pd.Timestamp(record["observed_at"]).to_pydatetime()
+    seen = submitted or pd.Timestamp(record["observed_at"]).to_pydatetime()
     return order_trading_day(market, seen) < order_trading_day(market, as_of)
 
 
@@ -126,20 +133,12 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
         return budget
     filled = filled_quantities(store, as_of=as_of)
     cancelled = cancelled_quantities(store, as_of=as_of)
+    submitted_at = submission_times(store, as_of=as_of)
     slip = float(store.config("execution.max_slippage", as_of=as_of))
     for record in orders.to_dict(orient="records"):
         status = str(record["status"])
         broker_known = str(record["reason"]).startswith("broker_order_no=")
         if status not in RESERVING and not (status in UNVERIFIED_TERMINAL and broker_known):
-            continue
-        if _broker_day_has_passed(record, as_of=as_of):
-            # **지난 거래일의 주문은 상태와 무관하게 잔량이 남을 수 없다.** 국장·미장
-            # 지정가는 당일 유효(day order)라 장 마감에 거래소가 미체결을 소멸시킨다.
-            # 받았는지 모르는 주문(submitting·*_unknown)도 받았다면 그날 소멸했고
-            # 못 받았다면 애초에 없다. 예약이 아니라 **대사**의 문제다 — 실제 체결
-            # 누락은 15:45 체결 대사가 잡는다. 이걸 예약으로 계속 잡으면 매일 쌓여
-            # 계좌를 마비시킨다: 2026-09-11 모의계좌 예약 317건(8/26 시뮬 96·abandoned
-            # 120·…), 매수 24건 "현금 부족"·매도 9건 "재고 초과" 차단.
             continue
         session, entity, seq = (
             str(record["session_id"]),
@@ -148,6 +147,17 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
         )
         logical = key(session, entity, seq)
         hashed = client_order_id(session=session, entity_id=entity, slice_seq=seq)
+        if _broker_day_has_passed(
+            record, as_of=as_of, submitted=submitted_at.get(logical)
+        ):
+            # **지난 거래일의 주문은 상태와 무관하게 잔량이 남을 수 없다.** 국장·미장
+            # 지정가는 당일 유효(day order)라 장 마감에 거래소가 미체결을 소멸시킨다.
+            # 받았는지 모르는 주문(submitting·*_unknown)도 받았다면 그날 소멸했고
+            # 못 받았다면 애초에 없다. 예약이 아니라 **대사**의 문제다 — 실제 체결
+            # 누락은 15:45 체결 대사가 잡는다. 이걸 예약으로 계속 잡으면 매일 쌓여
+            # 계좌를 마비시킨다: 2026-09-11 모의계좌 예약 317건(8/26 시뮬 96·abandoned
+            # 120·…), 매수 24건 "현금 부족"·매도 9건 "재고 초과" 차단.
+            continue
         quantity = (float(record["quantity"]) - filled.get(logical, 0.0)
                     - filled.get(hashed, 0.0) - cancelled.get(logical, 0.0))
         if not math.isfinite(quantity) or quantity < 0:

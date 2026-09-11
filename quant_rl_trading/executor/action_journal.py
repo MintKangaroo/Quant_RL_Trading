@@ -8,6 +8,8 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import pandas as pd
+
 from quant_rl_trading.broker import BrokerError, RejectedOrder
 from quant_rl_trading.collectors.market_hours import Market, local_time
 from quant_rl_trading.executor.lifecycle import Action, ActionType, OpenOrder, OrderStatus
@@ -146,6 +148,19 @@ def cancelled_quantities(store: Store, *, as_of: datetime) -> dict[str, float]:
             key = str(event["order_id"])
             quantities[key] = quantities.get(key, 0.0) + float(event["payload"]["quantity"])
     return quantities
+
+
+def submission_times(store: Store, *, as_of: datetime) -> dict[str, datetime]:
+    """주문별 **브로커 전송 시각**. 그 주문이 어느 거래소 세션에 살아 있었는지의 근거다.
+
+    주문 행의 ``observed_at`` 은 대사·상태 되적기로 계속 갱신된다(15:45 대사가 그날
+    주문을 장 마감 뒤 시각으로 다시 적는다) — 그걸로 세션을 세면 하루씩 밀린다.
+    """
+    return {
+        e["order_id"]: pd.Timestamp(e["valid_from"]).to_pydatetime()
+        for e in events(store, as_of=as_of)
+        if e["kind"] == "submitted"
+    }
 
 
 def submission_bindings(store: Store, *, as_of: datetime) -> dict[str, dict]:
@@ -322,7 +337,7 @@ class ActionJournal:
                 ), "action rejected"
             except BrokerError:
                 return pending, "broker action outcome unknown"
-            except Exception as exc:  # noqa: BLE001 — 전송 계층 오류(SSL EOF·토큰 갱신 실패 등)
+            except Exception as exc:
                 # intent 는 이미 적혔고 브로커가 받았는지 모른다 — BrokerError 와 같은
                 # 미확정이다. 여기서 터뜨리면 chase 전체가 죽어 나머지 주문의 상태를
                 # 못 되적는다(2026-09-11 09:4x httpx.ConnectError 로 실측).
