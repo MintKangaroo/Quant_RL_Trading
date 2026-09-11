@@ -39,7 +39,20 @@ def main(argv: list[str] | None = None) -> int:
     now = LiveClock().now()
     existing = _config.current_values(store.get(_config.CONFIG_TABLE, as_of=now))
     changed = _config.changed_names(source, existing)
-    rows = _config.defaults_rows(source, current=existing, effective_at=now)
+    # **새 키는 에포크에, 바뀐 값은 지금 시각에.** 집행 임계치(risk.*, 서킷브레이커)는
+    # 세션의 as_of(전날 마감)와 백테스트의 과거 시점에서도 읽혀야 한다 — 그때 없던
+    # 키를 지금부터만 발효시키면 백테스트 주문이 전부 "설정 없음" 으로 막혀 백테스트와
+    # 라이브가 갈라진다(불변식 5). 2026-09-11 09:24 재실행이 그렇게 터졌다. RL 캐시
+    # 지문(2026-08-28 사고)은 RL 이 비활성이라 감수한다.
+    changed_rows = [
+        r for r in _config.defaults_rows(source, current=existing, effective_at=now)
+        if r["entity_id"] in changed
+    ]
+    new_rows = [
+        r for r in _config.defaults_rows(source, current=existing, effective_at=None)
+        if r["entity_id"] not in changed
+    ]
+    rows = changed_rows + new_rows
     if not rows:
         print(f"{store.root}: 심을 것이 없다 — 창고가 {source.name} 과 같다")
         return 0
@@ -47,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         name = row["entity_id"]
         kind = "정정" if name in changed else "신규"
         before = existing.get(name, ("—",))[0]
-        print(f"  {kind}  {name}: {before} → {row.get("value_json")!r}")
+        born = row["valid_from"].isoformat()
+        print(f"  {kind}  {name}: {before} → {row.get('value_json')!r} (발효 {born})")
     if not args.apply:
         print(f"{len(rows)}행 — 미리보기다. 적재하려면 --apply")
         return 0
