@@ -12,7 +12,9 @@ FAILED=0
 {
     echo "=== $(date '+%F %T') 주간 IC 측정 ==="
     for M in KR US; do
-        nice -n 5 .venv/bin/python -u tools/measure_ic.py --market "$M" --sessions 300 --save
+        # --exit-zero: 합격 여부는 숫자로 읽는다. rc 는 "측정을 못 했다" 일 때만 0 이 아니다.
+        nice -n 5 .venv/bin/python -u tools/measure_ic.py \
+            --market "$M" --sessions 300 --save --exit-zero
         rc=$?
         echo "  $M rc=$rc"
         [ "$rc" -ne 0 ] && FAILED=$((FAILED + 1))

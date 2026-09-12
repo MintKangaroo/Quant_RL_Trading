@@ -109,3 +109,24 @@ def test_save_없이는_건너뛰지_않는다(seeded) -> None:
 
     assert measured.call_count == 1
     assert appended.call_count == 0, "--save 가 없는데 적재했다"
+
+
+def test_정기_측정은_미통과를_실패로_내보내지_않는다(seeded) -> None:
+    """``--exit-zero`` 면 rc 는 "측정을 했나" 만 답한다.
+
+    기본 종료코드는 '전원 합격이면 0' 이다. 관찰 모드 Analyst 가 하나라도 있으면
+    (정상 상태다) 주간 크론이 매주 실패로 보고한다 — 2026-09-12 첫 실행 직전 확인:
+    chart KR IC -0.013 [미통과] → rc=1.
+    """
+    argv = [
+        "--analyst", "risk", "--market", "KR", "--sessions", "300",
+        "--as-of", "2025-09-17T00:00:00+00:00", "--data-root", str(seeded.root),
+    ]
+    verdict = mock.MagicMock(passed=False, ic=-0.01, weight=0.0, fold_ics=[], sample_days=300)
+    with (
+        mock.patch.object(measure_ic, "build_store", return_value=seeded),
+        mock.patch.object(measure_ic, "measure", return_value=(None, None, verdict)),
+        mock.patch.object(measure_ic, "render", return_value="[미통과]"),
+    ):
+        assert measure_ic.main(argv) == 1
+        assert measure_ic.main([*argv, "--exit-zero"]) == 0

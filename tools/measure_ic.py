@@ -40,10 +40,10 @@ from quant_rl_trading.analysts.ranker import RankerAnalyst  # noqa: E402
 from quant_rl_trading.analysts.regime import RegimeAnalyst  # noqa: E402
 from quant_rl_trading.analysts.risk import RiskAnalyst  # noqa: E402
 from quant_rl_trading.analysts.volume import VolumeAnalyst  # noqa: E402
-from quant_rl_trading.selector.constraints import CONSTRAINT_ANALYSTS
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.collectors.publication import publication_policy  # noqa: E402
 from quant_rl_trading.replay.clock import Clock, LiveClock, ReplayClock  # noqa: E402
+from quant_rl_trading.selector.constraints import CONSTRAINT_ANALYSTS
 from quant_rl_trading.store import Store  # noqa: E402
 from tools.backfill import build_store, load_env  # noqa: E402
 
@@ -188,6 +188,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--save", action="store_true", help="analyst_weights 에 적재")
     parser.add_argument(
+        "--exit-zero",
+        action="store_true",
+        help=(
+            "측정이 끝나면 0 — **합격 여부를 종료코드로 내지 않는다.** 정기 측정용이다. "
+            "기본 종료코드는 '전원 합격이면 0' 이라, 관찰 모드 Analyst 가 하나라도 있으면 "
+            "(정상 상태다) 크론이 매주 실패로 보고한다. 이 깃발을 주면 rc≠0 은 '측정을 "
+            "못 했다' 만 뜻한다"
+        ),
+    )
+    parser.add_argument(
         "--as-of",
         help=(
             "이 시점까지만 알고 측정한다 (ISO8601). 워크포워드 백테스트의 전제 — "
@@ -281,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
         written = store.append("analyst_weights", rows, ingest_run_id=run_id)
         print(f"\nanalyst_weights 적재: {written}행")
 
+    if args.exit_zero:
+        # 측정은 끝났다. 합격 여부는 숫자와 창고(analyst_weights)가 말한다 —
+        # 종료코드는 "돌았나" 만 답한다. 2026-09-12 주간 크론 첫 실행을 앞두고
+        # 확인: chart KR IC -0.013 [미통과] → rc=1 → 주간 작업이 매주 빨간불이 된다.
+        return 0
     return 0 if all(result.passed for result in results) else 1
 
 
