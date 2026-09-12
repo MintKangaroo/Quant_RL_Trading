@@ -92,7 +92,7 @@ def run_interest(store: Store, client: httpx.Client, start: date, end: date) -> 
             flush=True,
         )
     print(f"완료 — {rows:,}행 · 건너뜀 {skipped} · 미공표 {empty} · 오류 {errors}", flush=True)
-    return 0
+    return 1 if errors else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -121,25 +121,35 @@ def main(argv: list[str] | None = None) -> int:
             date.fromisoformat(args.start), date.fromisoformat(args.end)
         )
         print(f"FINRA 공매도 · {len(days)}일 ({args.start} ~ {args.end})", flush=True)
-        rows = skipped = empty = errors = 0
+        rows = skipped = empty = errors = pending = 0
         for index, day in enumerate(days, start=1):
             result = backfiller.run_day(day)
             if result.skipped:
                 skipped += 1
+            elif getattr(result, "pending", False):
+                pending += 1
             elif result.error:
                 errors += 1
+                # **이유를 적는다.** 전에는 "오류 1" 만 남아서 다음 사람이
+                # 무엇이 막혔는지 알 수 없었다 (2026-09-12: 9/11 분이 이렇게 묻혔다).
+                print(f"  오류 {day}: {result.error}", file=sys.stderr, flush=True)
             elif result.rows == 0:
                 empty += 1
             else:
                 rows += result.rows
             if index % 20 == 0 or index == len(days):
                 print(
-                    f"[{index}/{len(days)}] {day} · 누적 {rows:,}행 · "
-                    f"건너뜀 {skipped} · 휴장 {empty} · 오류 {errors}",
+                    f"[{index}/{len(days)}] {day} · 누적 {rows:,}행 · 건너뜀 {skipped} · "
+                    f"휴장 {empty} · 미공표 {pending} · 오류 {errors}",
                     flush=True,
                 )
-    print(f"완료 — {rows:,}행 · 건너뜀 {skipped} · 휴장 {empty} · 오류 {errors}", flush=True)
-    return 0
+    print(
+        f"완료 — {rows:,}행 · 건너뜀 {skipped} · 휴장 {empty} · "
+        f"미공표 {pending} · 오류 {errors}",
+        flush=True,
+    )
+    # 조용한 실패 금지. 미공표·휴장은 정상이고, 오류만 밖으로 낸다.
+    return 1 if errors else 0
 
 
 if __name__ == "__main__":

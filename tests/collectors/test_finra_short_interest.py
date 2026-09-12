@@ -1,7 +1,7 @@
 """FINRA 공매도 잔고 — 결제일·공표시각·파싱·페이지네이션."""
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from quant_rl_trading.collectors import finra_short as fs
 from quant_rl_trading.collectors.market_hours import Market, trading_days
@@ -100,3 +100,26 @@ def test_backfiller_paginates_and_refuses_before_publication() -> None:
     result = filler.run_settlement(date(2026, 8, 31))
     assert result.error == "아직 공표 전"
     assert calls == []
+
+
+def test_아직_공표_전은_오류_칸에_들어가지_않는다(tmp_path) -> None:
+    """미공표는 실패가 아니다 — 같은 칸에 넣으면 매 실행이 "오류 1" 이라 진짜 고장이 묻힌다.
+
+    2026-09-12: 매일 "오류 1" 이 떠 있어서, 9/11 일별 공매도가 실제로 못 들어온
+    원인(그 시각 FINRA 가 파일을 아직 안 올림)이 그 칸에 가려 보이지 않았다.
+    """
+    from quant_rl_trading.collectors.finra_short import ShortVolumeBackfiller, publish_moment
+    from quant_rl_trading.replay.clock import ReplayClock
+    from quant_rl_trading.store import Store
+
+    day = date(2026, 9, 11)
+    before = publish_moment(day) - timedelta(hours=1)
+
+    def never_called(url: str) -> str:  # pragma: no cover - 불려선 안 된다
+        raise AssertionError("공표 전인데 요청했다")
+
+    store = Store(root=tmp_path / "w")
+    backfiller = ShortVolumeBackfiller(store=store, fetch=never_called, clock=ReplayClock(before))
+    result = backfiller.run_day(day)
+    assert result.pending is True
+    assert result.error == "아직 공표 전"

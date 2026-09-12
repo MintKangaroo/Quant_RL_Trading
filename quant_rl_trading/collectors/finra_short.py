@@ -144,6 +144,10 @@ class DailyResult:
     rows: int
     skipped: bool = False
     error: str = ""
+    #: 아직 공표 전이라 **요청하지 않았다.** 실패가 아니다 — 다음 실행이 받는다.
+    #: 이걸 오류와 같은 칸에 넣으면 매 실행이 "오류 1" 이 되어 진짜 고장이 묻힌다
+    #: (2026-09-12: 9/11 분이 못 들어온 진짜 원인은 이 칸에 가려 안 보였다).
+    pending: bool = False
 
 
 @dataclass
@@ -172,7 +176,7 @@ class ShortVolumeBackfiller:
         observed_at = publish_moment(day)
         if observed_at > self.clock.now():
             # 아직 알 수 없는 날이다. 이력에 안 남기므로 다음 실행이 받는다.
-            return DailyResult(day, 0, error="아직 공표 전")
+            return DailyResult(day, 0, error="아직 공표 전", pending=True)
         try:
             text = self.fetch(DAILY_URL.format(day=day.strftime("%Y%m%d")))
         except FileNotFoundError:
@@ -305,7 +309,7 @@ class ShortInterestBackfiller:
             return DailyResult(settlement, 0, skipped=True)
         observed_at = interest_publish_moment(settlement, sessions=self.sessions)
         if observed_at > self.clock.now():
-            return DailyResult(settlement, 0, error="아직 공표 전")
+            return DailyResult(settlement, 0, error="아직 공표 전", pending=True)
         rows: list[dict[str, Any]] = []
         offset = 0
         try:
