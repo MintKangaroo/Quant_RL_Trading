@@ -225,6 +225,26 @@ class DartSource:
             )
         return list(payload.get("list") or [])
 
+    # -- 공시 원문 -------------------------------------------------------------
+
+    def document(self, rcept_no: str) -> bytes:
+        """공시서류 원본(ZIP 바이트). 파싱은 `dart_documents.extract` 가 한다.
+
+        **오류 응답은 ZIP 이 아니라 XML 이다.** 200 으로 오므로 본문 첫 두
+        바이트로 가른다. 데이터 없음(013)은 그 공시에 첨부 원문이 없다는 뜻이라
+        빈 바이트를 돌려주고, 나머지는 실패다 — 특히 한도 초과(020)를 조용히
+        넘기면 그날 남은 호출을 전부 헛되이 쓴다.
+        """
+        response = self._call("/document.xml", {"rcept_no": rcept_no})
+        if response.status_code != 200:
+            raise DartUnavailable(f"document.xml HTTP {response.status_code}")
+        if response.content[:2] == b"PK":
+            return response.content
+        body = response.text[:300]
+        if f"<status>{NO_DATA}</status>" in body:
+            return b""
+        raise DartUnavailable(f"document.xml 원문 대신 응답을 받았다: {body}")
+
     # -- 공시 목록 -------------------------------------------------------------
 
     def filings(

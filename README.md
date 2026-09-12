@@ -514,6 +514,7 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | 시각 | 하는 일 |
 |---|---|
 | 토 10:00 | 미장 상장폐지 갱신 |
+| 01:20 | 수집 | 공시 원문 3,000건 (`tools/collect_filing_texts.py`) — 임베딩 재료의 선행, `raw_path` 를 채운다 |
 | 토 10:30 | 수집 | KRX 금요일 세션 시총·지수 보충 (`scripts/refresh_krx_morning.sh`) — 06:00 엔 아직 안 낸다 |
 | 토 12:00 | 주간 IC 측정 KR·US `--save` → 학습 탭 랭커 감쇠 경보 (`scripts/measure_ic_weekly.sh`, M5 ①) |
 | 토 11:00 | 미장 한국어 회사명 보충 |
