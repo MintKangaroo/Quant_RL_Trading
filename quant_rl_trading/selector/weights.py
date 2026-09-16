@@ -29,12 +29,75 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import pandas as pd
+
+from quant_rl_trading.collectors.market_hours import Market, local_time, trading_days
 from quant_rl_trading.selector.constraints import alpha_weights
+from quant_rl_trading.store.errors import ConfigNotFound
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 ANALYST_WEIGHTS = "analyst_weights"
+BLEND_KEY = "selector.weight_blend_sessions"
+
+
+def blend_sessions(store: Store, *, as_of: datetime, market: str) -> int:
+    """가중치 갱신을 몇 세션에 걸쳐 섞을지. 시장별 접미사(`_us`)가 있으면 그것.
+
+    키가 없으면 0(즉시 교체) — 옛 창고·시험 창고가 막히지 않게 한다. 실전 창고는
+    `seed_config_defaults` 가 심는다.
+    """
+    for name in (f"{BLEND_KEY}_{market.lower()}", BLEND_KEY):
+        try:
+            return int(store.config(name, as_of=as_of))
+        except ConfigNotFound:
+            continue
+    return 0
+
+
+def _sessions_after(market: str, since: datetime, as_of: datetime) -> int:
+    """``since`` 뒤로 지난 그 시장의 세션 수 (시장 지역시각 날짜 기준, ``since`` 당일 제외)."""
+    enum = Market(market)
+    start = local_time(enum, since).date()
+    end = local_time(enum, as_of).date()
+    if end <= start:
+        return 0
+    return sum(1 for day in trading_days(enum, start, end) if day > start)
+
+
+def blended_rows(
+    frame: pd.DataFrame, *, as_of: datetime, market: str, sessions: int
+) -> dict[str, float]:
+    """{analyst: weight} — 최신 측정을 직전 측정과 K 세션에 걸쳐 선형으로 섞은 값 (selector.md §6).
+
+    2026-09-13 주간 IC 가 미장에 fundamental 0.797 을 새로 넣자 결합 점수 상위 24 가
+    통째로 바뀌어 shadow 보유 17종목이 다음 세션에 전량 매도됐다. 규칙이 가중치를
+    정하는 건 맞지만 한 번에 바꾸면 회전 비용을 그날 다 낸다.
+
+    직전 측정이 이 시장에 하나도 없으면(첫 측정) 섞지 않는다 — 전부 0 에서 출발하면
+    첫 세션의 알파가 0종이 된다.
+    """
+    ordered = frame.sort_values(["observed_at", "valid_from"])
+    latest = ordered.groupby("entity_id").tail(1).set_index("entity_id")
+    current = {str(name): float(row["weight"]) for name, row in latest.iterrows()}
+    if sessions <= 0 or len(frame) == len(latest):
+        return current
+    newest_at = latest["observed_at"].max()
+    fresh = latest[latest["observed_at"] == newest_at]
+    previous_frame = ordered[ordered["observed_at"] < newest_at]
+    if previous_frame.empty:
+        return current
+    previous = {
+        str(name): float(row["weight"])
+        for name, row in previous_frame.groupby("entity_id").tail(1).set_index("entity_id").iterrows()
+    }
+    passed = _sessions_after(market, newest_at.to_pydatetime(), as_of)
+    fraction = min(1.0, passed / sessions)
+    for name in fresh.index:
+        before = previous.get(str(name), 0.0)
+        current[str(name)] = before + (current[str(name)] - before) * fraction
+    return current
 
 
 def analyst_weights(
@@ -66,12 +129,11 @@ def measured_weights(
     frame = frame[frame["market"] == market]
     if frame.empty:
         return {}
-    latest = frame.sort_values(["observed_at", "valid_from"]).groupby("entity_id").tail(1)
-    return {
-        str(row["entity_id"]): float(row["weight"])
-        for row in latest.to_dict(orient="records")
-        if float(row["weight"]) > 0.0
-    }
+    rows = blended_rows(
+        frame, as_of=as_of, market=market,
+        sessions=blend_sessions(store, as_of=as_of, market=market),
+    )
+    return {name: value for name, value in rows.items() if value > 0.0}
 
 
 #: 측정 자체가 없다. 창고에 이 시장의 `analyst_weights` 행이 한 줄도 없다 —
@@ -176,11 +238,10 @@ def weight_census(
     frame = frame[frame["market"] == market]
     if frame.empty:
         return WeightCensus((), (), (), (), {})
-    latest = frame.sort_values(["observed_at", "valid_from"]).groupby("entity_id").tail(1)
-    rows = {
-        str(row["entity_id"]): float(row["weight"])
-        for row in latest.to_dict(orient="records")
-    }
+    rows = blended_rows(
+        frame, as_of=as_of, market=market,
+        sessions=blend_sessions(store, as_of=as_of, market=market),
+    )
     passed = tuple(sorted(name for name, value in rows.items() if value > 0.0))
     alpha = tuple(sorted(alpha_weights({name: rows[name] for name in passed})))
     return WeightCensus(

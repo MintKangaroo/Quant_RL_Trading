@@ -209,6 +209,9 @@ selector:
   # 진입은 n_candidates(24). 2026-08-27 사전등록 시행: 회전 5.6→1.3회/년.
   exit_rank: 72                # 시행 N (2026-09-04): 24→48 은 ranker 의 일별 순위 요동을 못 잡았다(연회전 64~88). 3N=72
   exit_rank_us: 48             # 시행 R (2026-09-04, 미장) 기각 — 미장은 옛 값. 시장별 키는 접미사(selector/candidates.market_config)
+  # 가중치 갱신(주간 IC --save·재학습)은 이 세션 수에 걸쳐 직전 값과 선형으로 섞는다 (selector.md §6). 0 이면 즉시 교체.
+  # 2026-09-13 갱신이 미장 fundamental 0→0.797 로 상위24 를 통째로 바꿔 보유 17종목이 전량 매도됐다.
+  weight_blend_sessions: 5
   population: 64
   generations: 40
   # 적합도 페널티 둘. **기준은 연율화 샤프 1.0**(진짜로 좋은 전략)이다 —

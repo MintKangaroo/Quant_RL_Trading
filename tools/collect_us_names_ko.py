@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.collectors import naver_us_names as nn  # noqa: E402
+from quant_rl_trading.store.errors import DuplicateIngestRun  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 
@@ -40,7 +41,15 @@ def _held_entities(root: str, now: datetime) -> set[str]:
 def _flush(store: Store, rows: list, run_id: str, upto: int) -> int:
     if not rows:
         return 0
-    return int(store.append(nn.NAMES_KO, rows, ingest_run_id=f"{run_id}-p{upto}", source=nn.SOURCE))
+    # 같은 날 두 번째 실행은 조각 id 가 겹친다 — 2026-09-16 밤 재실행이 낮 실행의 p1600 과 부딪혀
+    # 1,400개에서 죽고 200개를 잃었다. 겹치면 접미사를 올려 다시 쓴다(append-only, 내용은 다른 행이다).
+    for attempt in range(10):
+        suffix = f"-p{upto}" + (f"-r{attempt}" if attempt else "")
+        try:
+            return int(store.append(nn.NAMES_KO, rows, ingest_run_id=f"{run_id}{suffix}", source=nn.SOURCE))
+        except DuplicateIngestRun:
+            continue
+    raise DuplicateIngestRun(f"{run_id}-p{upto}: 재시도 10번 모두 겹쳤다")
 
 
 def main(argv=None) -> int:

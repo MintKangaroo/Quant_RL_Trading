@@ -105,3 +105,45 @@ def test_measured_weights_의_동작은_그대로다(seeded) -> None:
 
     assert weights_module.measured_weights(seeded, as_of=NOW, market="KR") == {"risk": 0.5}
     assert weights_module.analyst_weights(seeded, as_of=NOW, market="KR") == {}
+
+
+def _weights_at(store, rows, *, at: datetime, tag: str) -> None:  # type: ignore[no-untyped-def]
+    store.append(
+        "analyst_weights",
+        [
+            {
+                "entity_id": analyst, "valid_from": at, "observed_at": at,
+                "source": "test", "market": market, "ic": weight, "weight": weight,
+            }
+            for analyst, market, weight in rows
+        ],
+        ingest_run_id=tag,
+    )
+
+
+def test_가중치_갱신은_K세션에_걸쳐_섞인다(seeded) -> None:
+    """2026-09-13 미장: fundamental 0 → 0.797 이 한 번에 들어가 보유 17종목이 전량 매도됐다."""
+    first = datetime(2026, 9, 3, 8, 35, tzinfo=UTC)   # 목 17:35 KST
+    second = datetime(2026, 9, 13, 0, 4, tzinfo=UTC)  # 토 09:04 KST = 금 20:04 NY
+    _weights_at(seeded, [("ranker", "US", 1.0), ("risk", "US", 1.0), ("fundamental", "US", 0.0)], at=first, tag="w1")
+    _weights_at(seeded, [("ranker", "US", 1.0), ("risk", "US", 1.0), ("fundamental", "US", 0.8)], at=second, tag="w2")
+
+    # 9/14(월) 미장 세션 = 갱신 뒤 1세션 → 1/5
+    monday = datetime(2026, 9, 14, 20, 20, tzinfo=UTC)
+    assert weights_module.measured_weights(seeded, as_of=monday, market="US")["fundamental"] == pytest.approx(0.16)
+    assert weights_module.weight_census(seeded, as_of=monday, market="US").values["fundamental"] == pytest.approx(0.16)
+    # 9/18(금) = 5세션 → 전부
+    friday = datetime(2026, 9, 18, 20, 20, tzinfo=UTC)
+    assert weights_module.measured_weights(seeded, as_of=friday, market="US")["fundamental"] == pytest.approx(0.8)
+    # 갱신 당일(토)엔 0세션 → 직전 값. 0 이라 통과 목록에서 빠진다
+    assert "fundamental" not in weights_module.measured_weights(seeded, as_of=second, market="US")
+    # 안 바뀐 Analyst 는 그대로
+    assert weights_module.measured_weights(seeded, as_of=monday, market="US")["ranker"] == 1.0
+
+
+def test_첫_측정은_섞지_않는다(seeded) -> None:
+    """직전 측정이 없는데 0 에서 출발하면 첫 세션의 알파가 0종이 된다."""
+    at = datetime(2026, 9, 13, 0, 4, tzinfo=UTC)
+    _weights_at(seeded, [("ranker", "KR", 1.0)], at=at, tag="w-first")
+    monday = datetime(2026, 9, 14, 7, 0, tzinfo=UTC)
+    assert weights_module.measured_weights(seeded, as_of=monday, market="KR") == {"ranker": 1.0}
