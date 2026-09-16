@@ -75,6 +75,8 @@ def collect(
             break
         if not content:
             empty += 1
+            if not dry_run:
+                rows.append(docs.revision_row(record, raw_path=docs.NO_TEXT, observed_at=clock.now()))
             continue
         try:
             text = docs.extract(content)
@@ -83,6 +85,8 @@ def collect(
             continue
         if not text:
             empty += 1
+            if not dry_run:
+                rows.append(docs.revision_row(record, raw_path=docs.NO_TEXT, observed_at=clock.now()))
             continue
         got += 1
         valid_from = record["valid_from"]

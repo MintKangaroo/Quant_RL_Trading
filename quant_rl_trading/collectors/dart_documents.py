@@ -122,6 +122,11 @@ def read_text(path: Path) -> str:
         return handle.read()
 
 
+#: 원문이 없는 공시의 raw_path 표식. 빈 값으로 두면 `pending` 이 매일 밤 다시 고르고,
+#: 최근 것부터 주므로 그 공시들이 배치 머리를 영영 차지한다 (2026-09-16: 014 한 건에 3,000건 배치가 멈췄다).
+NO_TEXT = "-"
+
+
 def pending(
     frame: pd.DataFrame, *, limit: int = 0, doc_types: Iterable[str] | None = None
 ) -> pd.DataFrame:

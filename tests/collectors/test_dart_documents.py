@@ -149,7 +149,7 @@ def test_DART_가_막으면_거기서_멈추고_받은_만큼_남긴다(store, t
 
 
 def test_원문이_없는_공시는_실패가_아니다(store, tmp_path) -> None:
-    """DART 가 013(데이터 없음)을 주면 빈 바이트다 — 정정본을 만들지 않는다."""
+    """DART 가 013·014(원문 없음)를 주면 빈 바이트다 — '없음' 표식을 정정본으로 남겨 다시 안 고른다."""
     source = FakeSource({"20260911900698": b""})
     saved, empty, total = tool.collect(
         store, source, ReplayClock(NOW),
@@ -157,4 +157,7 @@ def test_원문이_없는_공시는_실패가_아니다(store, tmp_path) -> None
         root=tmp_path / "docs", sleep=lambda _: None,
     )
     assert (saved, empty, total) == (0, 1, 1)
-    assert len(store.get(docs.DOCUMENTS, as_of=NOW)) == 1
+    frame = store.get(docs.DOCUMENTS, as_of=NOW)
+    assert len(frame) == 1 and int(frame["revision"].iloc[0]) == 1  # 조회는 최신 revision 만
+    assert frame["raw_path"].iloc[0] == docs.NO_TEXT
+    assert docs.pending(frame).empty, "없음 표식이 없으면 매일 밤 같은 공시를 다시 두드린다"

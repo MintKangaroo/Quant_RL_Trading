@@ -82,6 +82,7 @@ class DartUnavailable(CollectorError):
 #: 정상 응답이 아닌 상태코드 중 **데이터 없음**은 실패가 아니다.
 #: 013 = 조회된 데이터 없음, 021 = 조회 가능 회사 수 초과.
 NO_DATA = "013"
+NO_FILE = "014"  # "파일이 존재하지 않습니다" — 그 공시에 첨부 원문이 없다 (2026-09-16 실측, 한도 초과가 아니다)
 
 
 def _number(value: Any) -> float | None:
@@ -231,8 +232,8 @@ class DartSource:
         """공시서류 원본(ZIP 바이트). 파싱은 `dart_documents.extract` 가 한다.
 
         **오류 응답은 ZIP 이 아니라 XML 이다.** 200 으로 오므로 본문 첫 두
-        바이트로 가른다. 데이터 없음(013)은 그 공시에 첨부 원문이 없다는 뜻이라
-        빈 바이트를 돌려주고, 나머지는 실패다 — 특히 한도 초과(020)를 조용히
+        바이트로 가른다. 데이터 없음(013)·파일 없음(014)은 그 공시에 첨부 원문이
+        없다는 뜻이라 빈 바이트를 돌려주고, 나머지는 실패다 — 특히 한도 초과(020)를 조용히
         넘기면 그날 남은 호출을 전부 헛되이 쓴다.
         """
         response = self._call("/document.xml", {"rcept_no": rcept_no})
@@ -241,7 +242,7 @@ class DartSource:
         if response.content[:2] == b"PK":
             return response.content
         body = response.text[:300]
-        if f"<status>{NO_DATA}</status>" in body:
+        if f"<status>{NO_DATA}</status>" in body or f"<status>{NO_FILE}</status>" in body:
             return b""
         raise DartUnavailable(f"document.xml 원문 대신 응답을 받았다: {body}")
 
