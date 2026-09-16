@@ -24,6 +24,7 @@ import pandas as pd
 
 from quant_rl_trading.analysts import scorecard
 from quant_rl_trading.store import Store
+from quant_rl_trading.selector import weights as weights_module
 
 WEIGHTS = "analyst_weights"
 SIGNALS = "signals"
@@ -74,6 +75,11 @@ def roster(
     if not measured.empty:
         for row in measured.to_dict(orient="records"):
             by_name[str(row["entity_id"])] = row
+    # **적용 가중치** — 갱신을 K 세션에 걸쳐 섞은 값(selector.md §6). 측정값과 다를 수 있고,
+    # 매매가 보는 건 이쪽이다. 시장이 없으면 섞을 달력이 없어 측정값 그대로 둔다.
+    applied: dict[str, float] = {}
+    if market in ("KR", "US"):
+        applied = weights_module.measured_weights(store, as_of=as_of, market=market, lookback=lookback)
 
     out: list[dict[str, Any]] = []
     for name, note in sorted(PLANNED.items()):
@@ -87,6 +93,7 @@ def roster(
                     # 측정 전에는 가중치가 0 이다. "아직 모름" 이 아니라
                     # "아직 자격 없음" 이 맞다 — 검증 전에는 매매에 쓰지 않는다.
                     "weight": 0.0,
+                    "applied": 0.0,
                     "ic": None,
                     "passed": None,
                     "sample_days": None,
@@ -102,6 +109,7 @@ def roster(
                 "note": note,
                 "measured": True,
                 "weight": float(row["weight"]),
+                "applied": float(applied.get(name, 0.0)) if applied else float(row["weight"]),
                 "ic": float(row["ic"]),
                 "ic_threshold": float(row["ic_threshold"]),
                 "passed": bool(row["passed"]),

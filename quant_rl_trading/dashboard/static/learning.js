@@ -210,6 +210,7 @@ async function renderGate() {
       <td>${state}</td>
       <td class="num">${icCell}</td>
       <td class="num">${dec(item.weight, 1)}</td>
+      <td class="num ${item.applied !== undefined && Math.abs(item.applied - item.weight) > 0.005 ? "warn" : ""}">${item.applied === undefined ? "—" : dec(item.applied, 2)}</td>
       <td class="num">${item.measured_at ? item.measured_at.slice(0, 16).replace("T", " ") : "—"}</td>
     </tr>`;
   });
@@ -219,7 +220,7 @@ async function renderGate() {
   document.getElementById("gate").innerHTML = `${alerts}<table>
     <thead><tr>
       <th>애널리스트</th><th>상태</th><th class="num">적중도</th>
-      <th class="num">가중치</th><th class="num">측정 시각</th>
+      <th class="num">가중치</th><th class="num">적용<span class="hint">5세션 혼합</span></th><th class="num">측정 시각</th>
     </tr></thead>
     <tbody>${rows.join("")}</tbody></table>`;
 }
