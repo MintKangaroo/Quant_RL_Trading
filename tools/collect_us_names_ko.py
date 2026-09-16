@@ -76,6 +76,8 @@ def main(argv=None) -> int:
             for suffix in nn.SUFFIXES:
                 try:
                     r = client.get(nn.URL.format(ticker=ticker, suffix=suffix))
+                    if nn.not_exist(r.status_code, r.text):
+                        continue  # 없는 코드 — 자고 다시 물어도 같은 답이다 (2026-09-16, 4시간의 원인)
                     if r.status_code == 409:
                         time_module.sleep(2.0); r = client.get(nn.URL.format(ticker=ticker, suffix=suffix))
                     if r.status_code != 200:

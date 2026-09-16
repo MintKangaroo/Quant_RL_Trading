@@ -197,6 +197,9 @@ def produce(
         if revision:
             run_id = f"{run_id}-rev{revision}"
         if store.ingest_run_recorded(SIGNALS, run_id):
+            # 조용히 넘기면 "signals 0행" 이 실패와 똑같이 보인다 — 2026-09-16 에 이미 들어간
+            # 정정본(rev1)을 다시 돌리고 0행을 보고 반나절 의심했다. 건너뛴 이유를 남긴다.
+            result.warnings.append(f"{name}: 이미 기록됨({run_id}) — 건너뜀")
             continue
 
         analyst = factory(cached, clock, market=market)

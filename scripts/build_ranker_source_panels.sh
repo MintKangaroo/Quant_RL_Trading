@@ -25,8 +25,8 @@ groups = tuple(
 markets = tuple(os.environ.get("MARKETS", "KR,US").split(","))
 for group in groups:
     for market in markets:
-        if (group, market) in (("G3", "KR"), ("G4", "US")):
-            continue  # 등록대로 그 시장은 전부 0 — 굽지 않는다
+        if (group, market) in (("G3", "KR"), ("G4", "US"), ("G6", "KR")):
+            continue  # 등록대로 그 시장은 전부 0 — 굽지 않는다 (G6 8-K 는 미장 전용)
         # collect=False — 월 조각만 남긴다. 합치면 구운 달을 전부 되읽어 RSS 가 GB 로 간다.
         build_panel(store, group, market, sessions[market], collect=False)
         months = len(list(Path("data/_diag/ranker-sources").glob(f"{group}-{market}-*.parquet")))
