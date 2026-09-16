@@ -13,8 +13,11 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.publication import publication_policy
+from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.reporting.sessions import expected_session
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.errors import ConfigNotFound
 
 #: (키, 이름, 테이블, 달력 시장, market 필터, entity 필터)
 DATASETS: tuple[tuple[str, str, str, Market, str | None, str | None], ...] = (
@@ -51,18 +54,46 @@ def _lag_sessions(market: Market, observed: date, expected: date) -> int:
     return len(trading_days(market, observed + timedelta(days=1), expected))
 
 
+def _within_grace(store: Store, market: Market, *, expected: date, as_of: datetime) -> bool:
+    """기대 세션이 공표된 지 유예(초) 안인가 — 수집 크론이 아직 안 돌았을 뿐인 구간.
+
+    "기대 세션" 은 공표 정책(미장 마감+20분 = 05:20 KST)으로 세는데 수집은 08:40 에
+    돈다. 그 사이엔 매일 '1세션 지연' 넷이 떴다(2026-09-17). 유예는 config 가 정한다.
+    """
+    try:
+        grace = float(store.config(f"system.freshness_grace_seconds_{market.value.lower()}", as_of=as_of))
+    except ConfigNotFound:
+        return False
+    if grace <= 0:
+        return False
+    try:
+        published = publication_policy(store, market, clock=ReplayClock(as_of)).for_session(expected)
+    except Exception:  # 거래일이 아니거나 정책을 못 읽으면 유예를 주지 않는다
+        return False
+    return (as_of - published).total_seconds() < grace
+
+
 def summary(store: Store, *, as_of: datetime) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     for key, label, table, market, market_filter, entity in DATASETS:
         expected = expected_session(store, market, as_of=as_of)
         observed = _latest_session(store, table, as_of=as_of, market=market_filter, entity=entity)
         lag = _lag_sessions(market, observed, expected) if (observed and expected) else None
+        if observed and expected and observed > expected:
+            status = "unexpected"
+        elif lag == 0:
+            status = "ok"
+        elif lag == 1 and expected and _within_grace(store, market, expected=expected, as_of=as_of):
+            status = "pending"  # 공표는 됐고 수집 크론이 아직 안 돈 구간
+        elif lag:
+            status = "stale"
+        else:
+            status = "unknown"
         items.append({
             "key": key, "label": label,
             "expected": expected.isoformat() if expected else None,
             "observed": observed.isoformat() if observed else None,
             "lag_sessions": lag,
-            "status": ("unexpected" if observed and expected and observed > expected
-                       else "ok" if lag == 0 else ("stale" if lag else "unknown")),
+            "status": status,
         })
     return {"as_of": as_of.isoformat(), "items": items, "stale": [i["key"] for i in items if i["status"] == "stale"]}

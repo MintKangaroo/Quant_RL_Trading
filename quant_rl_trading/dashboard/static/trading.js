@@ -45,7 +45,7 @@ function renderControlFreshness(data) {
   if (!target) return;
   const items = data?.items || [];
   const bad = items.filter((item) => ["stale", "unexpected"].includes(item.status));
-  const unknown = items.filter((item) => item.status !== "ok" && !bad.includes(item));
+  const unknown = items.filter((item) => !["ok", "pending"].includes(item.status) && !bad.includes(item));
   const measured = items.length > 0 && !unknown.length && !data?.error;
   target.classList.toggle("is-warning", bad.length > 0);
   target.classList.toggle("is-unknown", !bad.length && !measured);
