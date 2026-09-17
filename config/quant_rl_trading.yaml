@@ -624,6 +624,16 @@ system:
   freshness_grace_seconds_kr: 2400    # 16:00 공표 → 15:52 시세·16:02 지수 수집, 16:40 까지 유예
   freshness_grace_seconds_us: 16800   # 05:20 공표 → 08:40 크론(1세션 ~1시간), 10:00 까지 유예
 
+# 화면 응답 속도 (docs/design/dashboard.md §API). 창고는 크론이 쓸 때만 바뀌므로
+# 화면은 그 사이 같은 값을 다시 계산할 이유가 없다.
+dashboard:
+  # 라이브 요청의 as_of 를 이 폭으로 바닥 내림한다. 한 화면의 패널들이 **같은 시각**을
+  # 묻게 되고(지금은 패널마다 밀리초가 달랐다), 그래야 프로세스 읽기 캐시가 맞는다.
+  # 화면이 보는 낡음의 상한이기도 하다. 0 이면 양자화도 캐시도 끈다.
+  live_bucket_seconds: 45
+  # 프로세스 읽기 캐시가 들고 있을 프레임의 총량. 넘으면 오래된 것부터 버린다.
+  read_cache_mb: 192
+
 # 랭커 ModelOps (docs/design/modelops-ranker.md ①) — 감쇠 경보의 기준. 화면이 이 값을 읽는다(불변식 10).
 modelops:
   ranker:

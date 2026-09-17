@@ -102,3 +102,15 @@ def test_공표_뒤_수집_유예_안이면_지연이_아니라_수집_대기다
     # 10:30 KST 면 유예가 끝났다 — 진짜 지연
     late = freshness.summary(store, as_of=datetime(2026, 9, 17, 1, 30, tzinfo=UTC))
     assert {i["key"]: i for i in late["items"]}["us_prices"]["status"] == "stale"
+
+
+def test_라이브_as_of_는_버킷으로_바닥_내림한다():
+    """한 화면의 패널들이 **같은 시각**을 묻게 한다. 명시된 as_of 는 안 건드린다."""
+    from datetime import UTC, datetime
+
+    from quant_rl_trading.dashboard.api.common import quantize
+
+    moment = datetime(2026, 9, 17, 4, 1, 37, 812000, tzinfo=UTC)
+    assert quantize(moment, bucket_seconds=45) == datetime(2026, 9, 17, 4, 1, 30, tzinfo=UTC)
+    assert quantize(moment, bucket_seconds=0) == moment, "0 이면 끈다"
+    assert quantize(moment, bucket_seconds=1) == moment.replace(microsecond=0)

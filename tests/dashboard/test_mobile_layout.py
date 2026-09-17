@@ -186,3 +186,63 @@ def test_데스크톱_배치는_그대로다() -> None:
     assert any("min(420px, 100%)" in body for body in bodies), (
         ".grid2 의 데스크톱 최소폭 420px 이 사라졌다"
     )
+
+
+# ---------------------------------------------------------------------------
+# `<col>` 은 본문 요소와 class 를 공유하지 않는다
+# ---------------------------------------------------------------------------
+
+def _col_classes() -> dict[str, list[str]]:
+    """front-end 가 내보내는 `<col class="...">` 의 class 목록 (파일별)."""
+    out: dict[str, list[str]] = {}
+    root = STATIC.parent
+    for path in [*STATIC.glob("*.js"), *(root / "templates").glob("*.html")]:
+        found = re.findall(r"<col\s+class=\"([^\"]+)\"", path.read_text(encoding="utf-8"))
+        names = [c for chunk in found for c in chunk.split()]
+        if names:
+            out[path.name] = names
+    return out
+
+
+def test_col_class_는_본문_요소와_겹치지_않는다() -> None:
+    """**`display` 를 잃은 `<col>` 은 열 목록에서 빠지고, 남은 폭이 한 칸씩 밀린다.**
+
+    2026-09-17 실측(아이폰 390px): 순위표가 `<col class="name">` 을 썼는데
+    app.css 의 `.dense .name { display: block }` 이 그 col 까지 잡았다. col 하나가
+    열이 아니게 되자 나머지 col 의 폭이 옆 열에 붙어 — 종목 95px(=metric 26%) ·
+    거래대금 110px(=price 30%) — 머리글이 값 위에 안 서고 등락률이 표 밖으로
+    52px 삐져나왔다. 사용자가 "표 디자인이 어긋나 있다" 고 본 것이 이것이다.
+
+    그래서 col 의 class 는 본문 요소가 쓰는 이름과 겹치면 안 된다. 다른 표는
+    이미 `c-` 접두사를 쓰고 있었다(trading.js · system.html).
+    """
+    offenders: list[str] = []
+    for name, classes in _col_classes().items():
+        for cls in classes:
+            if not cls.startswith("c-"):
+                offenders.append(f"{name}: <col class=\"{cls}\"> — `c-` 로 시작해야 한다")
+    assert not offenders, "\n".join(offenders)
+
+
+def test_col_class_를_건드리는_display_규칙이_없다() -> None:
+    """접두사를 지켜도, 누가 같은 이름의 본문 규칙을 새로 쓰면 다시 난다."""
+    used = {cls for classes in _col_classes().values() for cls in classes}
+    offenders: list[str] = []
+    for path in STATIC.glob("*.css"):
+        for _media, selector, body in _blocks(path.read_text(encoding="utf-8")):
+            if "display" not in body:
+                continue
+            for part in selector.split(","):
+                part = part.strip()
+                for cls in used:
+                    for segment in re.split(r"[\s>+~]+", part):
+                        if not re.search(rf"\.{re.escape(cls)}(?![\w-])", segment):
+                            continue
+                        # **요소 이름이 앞에 붙어 있으면 안전하다** — `td.c-pnl` 은
+                        # `<col>` 을 못 잡는다. 위험한 것은 요소를 안 가리는 `.c-pnl` 이다.
+                        tag = re.match(r"^([a-zA-Z][\w-]*)", segment)
+                        if tag is None:
+                            offenders.append(
+                                f"{path.name}: `{part}` 가 col class `.{cls}` 의 display 를 바꾼다"
+                            )
+    assert not offenders, "\n".join(offenders)

@@ -597,9 +597,17 @@ function liveBadge(panel) {
  * 칸을 밀어내고, 실시간 줄까지 들어간 가격 칸에서 숫자가 잘린다(아이폰
  * 실측 2026-08-19: `1,662,00` 처럼 보였다). 좁은 화면에서 시총 열을 접는
  * 것도 이 class 를 잡고 한다(market.css).
+ *
+ * **class 는 `c-` 로 시작한다** (trading.js·system.html 과 같은 규약).
+ * 예전엔 `class="name"` 이었는데 app.css 의 `.dense .name { display: block }`
+ * 이 그 `<col>` 까지 잡았다 — `display` 가 `table-column` 이 아니게 된 col 은
+ * 열 목록에서 빠지고, 남은 col 의 폭이 **한 칸씩 밀려** 다음 열에 붙는다.
+ * 실측 2026-09-17(아이폰 390px): 종목 95px(=metric 26%) · 거래대금 110px(=price 30%)
+ * · 가격 81px 이 되어 머리글이 값 위에 안 서고 등락률이 표 밖으로 52px 삐져나왔다.
+ * 본문 요소와 class 를 공유하면 언제든 다시 난다(tests/dashboard/test_mobile_layout.py).
  */
 function rankCols() {
-  return `<colgroup><col class="name"><col class="metric"><col class="price"><col class="cap"></colgroup>`;
+  return `<colgroup><col class="c-name"><col class="c-metric"><col class="c-price"><col class="c-cap"></colgroup>`;
 }
 
 function renderRankings(body, code, suffix) {
@@ -642,7 +650,7 @@ function renderRankings(body, code, suffix) {
           <td><span class="name trunc" title="${esc(row.name)} (${esc(row.entity_id)})">${esc(row.name)}</span>
               ${codeCell(row.entity_id, row.name)}</td>
           <td class="r mono ${table.key === "gainers" ? signClass(row.change) : ""}">${rankMetric(table, row, panel.currency)}</td>
-          <td class="r mono">${priceCell(row)}</td>
+          <td class="r mono rank-price">${priceCell(row)}</td>
           <td class="r mono cap">${row.market_cap === null ? "—" : money(row.market_cap, panel.currency)}</td>
         </tr>`
       )

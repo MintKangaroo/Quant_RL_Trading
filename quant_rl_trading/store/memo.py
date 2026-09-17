@@ -25,6 +25,8 @@ Store 는 프로세스 수명 동안 산다. 거기에 캐시를 붙이면 대�
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Any
@@ -170,4 +172,156 @@ class MemoStore:
     def __getattr__(self, name: str) -> Any:
         # 위에서 다루지 않은 것은 그대로 넘긴다. 캐시가 Store 의 기능을
         # 가리지 않게 한다.
+        return getattr(self._inner, name)
+
+
+class SharedMemo:
+    """프로세스가 함께 쓰는 읽기 캐시. **수명이 짧고 경계가 시각이다.**
+
+    ## 왜 또 하나가 필요한가
+
+    `MemoStore` 는 요청 하나 안에서만 산다. 그런데 화면 하나가 API 를 여럿
+    부르고(데이터 품질 탭은 7개), 그 일곱이 **같은 표를 각자 다시 읽는다.**
+    요청 경계에서 버리는 캐시는 그 사이를 못 잇는다.
+
+    실측 2026-09-17: `indices` 는 9.0MB 를 파일 **1,987개**로 들고 있다(하루치
+    파티션이 30개 안팎). 180일 창이면 DuckDB 가 그 파일 footer 를 전부 연다 —
+    122행을 얻는 데 280ms 다. 비싼 것은 데이터가 아니라 파일 수다. 같은 질의를
+    화면마다 다시 하면 그 값을 계속 다시 낸다.
+
+    ## 낡은 값을 보여주지 않으려면
+
+    memo.py 머리말의 경고 — "오래 뜬 프로세스에 캐시를 붙이면 화면이 낡은
+    데이터를 계속 보여준다" — 는 그대로 유효하다. 그래서 둘을 건다:
+
+    1. **TTL.** ``ttl_seconds`` 가 지난 항목은 없는 것으로 친다.
+    2. **as_of 양자화.** 라이브 요청의 as_of 를 같은 폭으로 바닥 내림해서
+       (`dashboard/api/common.py`), 한 화면의 패널들이 **같은 시각**을 묻게
+       한다. 캐시가 맞는 이유이기도 하고, 그 자체가 옳다 — 지금은 패널마다
+       as_of 가 밀리초씩 달라 "이 숫자는 언제 기준인가" 의 답이 패널마다 다르다.
+
+    그래서 화면이 보는 낡음의 상한은 ``ttl_seconds`` 이고, 그 값은 config 가
+    정한다(불변식 10). 창고는 크론이 쓸 때만 바뀌므로 분 단위로 충분하다.
+
+    ``killswitch`` 는 캐시하지 않는다 — 다른 프로세스가 건 latch 가 같은 시각의
+    다음 조회에서 보여야 한다(`MemoStore` 와 같은 이유).
+    """
+
+    def __init__(
+        self,
+        inner: Store,
+        *,
+        ttl_seconds: float,
+        budget_bytes: int,
+        monotonic: Any = time.monotonic,
+    ) -> None:
+        self._inner = inner
+        self._ttl = float(ttl_seconds)
+        self._budget = int(budget_bytes)
+        self._now = monotonic
+        self._lock = threading.Lock()
+        #: 키 → (만료 시각, 바이트, 프레임). 삽입 순서가 곧 오래된 순서다.
+        self._frames: dict[tuple[Any, ...], tuple[float, int, pd.DataFrame]] = {}
+        self._bytes = 0
+        self.hits = 0
+        self.misses = 0
+
+    # -- 조회 -----------------------------------------------------------------
+
+    def execution_view(self) -> Store:
+        return self._inner.execution_view()
+
+    def get(
+        self,
+        table: str,
+        *,
+        as_of: datetime,
+        entity: str | Sequence[str] | None = None,
+        lookback: timedelta | int | None = None,
+        until: datetime | None = None,
+        columns: Sequence[str] | None = None,
+        market: str | None = None,
+    ) -> pd.DataFrame:
+        if table == "killswitch" or self._ttl <= 0:
+            return self._inner.get(
+                table, as_of=as_of, entity=entity, lookback=lookback,
+                until=until, columns=columns, market=market,
+            )
+        key = _key(table, as_of, entity, lookback, until, columns, market)
+        now = self._now()
+        with self._lock:
+            found = self._frames.get(key)
+            if found is not None and found[0] > now:
+                self.hits += 1
+                return found[2].copy()
+            if found is not None:
+                self._drop(key)
+        # **락 밖에서 읽는다.** 창고 조회는 초 단위라, 들고 있으면 스레드가
+        # 전부 그 뒤에 선다 — 캐시가 오히려 화면을 직렬화한다.
+        frame = self._inner.get(
+            table, as_of=as_of, entity=entity, lookback=lookback,
+            until=until, columns=columns, market=market,
+        )
+        size = int(frame.memory_usage(index=True, deep=True).sum())
+        with self._lock:
+            self.misses += 1
+            if size <= self._budget:
+                self._frames[key] = (now + self._ttl, size, frame)
+                self._bytes += size
+                self._evict()
+        return frame.copy()
+
+    def config(self, name: str, *, as_of: datetime) -> Any:
+        """설정도 이 캐시를 탄다 — config 표 조회도 파티션을 훑는다."""
+        return resolve(self.get(CONFIG_TABLE, as_of=as_of), name, as_of)
+
+    # -- 살림 -----------------------------------------------------------------
+
+    def _drop(self, key: tuple[Any, ...]) -> None:
+        expiry_size_frame = self._frames.pop(key, None)
+        if expiry_size_frame is not None:
+            self._bytes -= expiry_size_frame[1]
+
+    def _evict(self) -> None:
+        """예산을 넘으면 **오래 들어온 것부터** 버린다. 락 안에서만 부른다."""
+        now = self._now()
+        for key in [key for key, (expiry, _, _) in self._frames.items() if expiry <= now]:
+            self._drop(key)
+        while self._bytes > self._budget and self._frames:
+            self._drop(next(iter(self._frames)))
+
+    # -- 적재 -----------------------------------------------------------------
+
+    def append(
+        self,
+        table: str,
+        records: Sequence[Mapping[str, object]],
+        *,
+        ingest_run_id: str,
+        source: str | None = None,
+    ) -> int:
+        written = self._inner.append(
+            table, records, ingest_run_id=ingest_run_id, source=source
+        )
+        self.invalidate(table)
+        return written
+
+    def invalidate(self, table: str) -> None:
+        with self._lock:
+            for key in [key for key in self._frames if key[0] == table]:
+                self._drop(key)
+
+    # -- 위임 -----------------------------------------------------------------
+
+    def ingest_run_recorded(self, table: str, ingest_run_id: str) -> bool:
+        return self._inner.ingest_run_recorded(table, ingest_run_id)
+
+    def tables(self) -> list[str]:
+        return self._inner.tables()
+
+    @property
+    def root(self) -> Any:
+        return self._inner.root
+
+    def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)

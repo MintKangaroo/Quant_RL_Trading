@@ -142,6 +142,23 @@ def read_thresholds(as_of: datetime) -> dict[str, Any]:
     return {name: current.config(key, as_of=as_of) for name, key in THRESHOLD_KEYS.items()}
 
 
+def quantize(moment: datetime, *, bucket_seconds: float) -> datetime:
+    """시각을 ``bucket_seconds`` 폭으로 **바닥 내림**한다.
+
+    라이브 요청에만 쓴다. 화면 하나가 API 를 일곱 개 부르면 지금은 일곱이
+    각자 ``clock().now()`` 를 읽어 **as_of 가 밀리초씩 다르다** — 봉투가
+    돌려주는 "이 숫자는 언제 기준인가" 의 답이 패널마다 갈린다는 뜻이다.
+    바닥 내림하면 한 화면이 한 시각을 묻고, 그래서 프로세스 읽기 캐시도 맞는다
+    (`store/memo.py` SharedMemo).
+
+    **명시된 as_of 는 건드리지 않는다.** 타임머신은 부른 그 시각 그대로다.
+    """
+    if bucket_seconds <= 0:
+        return moment
+    epoch = moment.timestamp()
+    return datetime.fromtimestamp(epoch - (epoch % bucket_seconds), tz=moment.tzinfo)
+
+
 def scope() -> RequestScope:
     """요청 파라미터 → RequestScope.
 
@@ -149,6 +166,11 @@ def scope() -> RequestScope:
     소급해 바뀌면 재현이 불가능해진다.
     """
     as_of, live = parse_as_of(request.args.get("as_of"), now=clock().now())
+    if live:
+        as_of = quantize(
+            as_of,
+            bucket_seconds=float(current_app.config.get("QUANT_RL_LIVE_BUCKET_SECONDS") or 0.0),
+        )
     thresholds = read_thresholds(as_of)
     return RequestScope(
         as_of=as_of,

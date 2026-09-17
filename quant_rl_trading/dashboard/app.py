@@ -85,6 +85,37 @@ def _warm_calendars() -> None:
     threading.Thread(target=run, name="warm-calendars", daemon=True).start()
 
 
+def _wrap_read_cache(app: Flask) -> None:
+    """주·부 장부에 프로세스 읽기 캐시를 씌운다. 폭은 config 가 정한다(불변식 10).
+
+    설정을 **앱이 뜰 때 한 번** 읽는다. 매 요청 읽으면 그 조회 자체가 캐시가 없애려는
+    비용이고, 이건 매매 임계치가 아니라 화면 속도 손잡이라 재시작으로 반영해도 된다.
+    창고에 키가 없으면(옛 창고) 캐시를 안 씌운다 — 없는 것이 낡은 것보다 낫다.
+    """
+    from quant_rl_trading.store.errors import ConfigNotFound
+    from quant_rl_trading.store.memo import SharedMemo
+
+    base: Store = app.config["QUANT_RL_STORE"]
+    now = app.config["QUANT_RL_CLOCK"].now()
+    try:
+        bucket = float(base.config("dashboard.live_bucket_seconds", as_of=now))
+        budget = int(float(base.config("dashboard.read_cache_mb", as_of=now)) * 1024 * 1024)
+    except (ConfigNotFound, LookupError, ValueError):
+        app.config["QUANT_RL_LIVE_BUCKET_SECONDS"] = 0.0
+        return
+    app.config["QUANT_RL_LIVE_BUCKET_SECONDS"] = bucket
+    if bucket <= 0:
+        return
+    # TTL 은 버킷의 두 배. 버킷 끝자락에 들어온 항목이 그 버킷이 끝나기도 전에
+    # 만료되면 같은 화면 안에서 절반은 캐시를 못 탄다.
+    for key in ("QUANT_RL_STORE", "QUANT_RL_STORE_SHADOW"):
+        inner = app.config.get(key)
+        if inner is not None:
+            app.config[key] = SharedMemo(
+                inner, ttl_seconds=bucket * 2, budget_bytes=budget
+            )
+
+
 def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     # API 키를 여기서 읽는다. 안 부르면 화면이 200 을 내면서 해설만 조용히
     # 빠진다 — 그건 고장이 아니라 침묵이라 아무도 눈치채지 못한다.
@@ -111,6 +142,12 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
         Store(root=shadow_root) if main_root.name == "_paper" and shadow_root.is_dir() else None
     )
     app.config["QUANT_RL_CLOCK"] = clock if clock is not None else LiveClock()
+    # **읽기 캐시는 실서비스에서만 씌운다.** 화면 하나가 API 를 여럿 부르고 그것들이
+    # 같은 표를 각자 다시 읽는다(데이터 품질 탭 7개). 요청 경계에서 버리는 MemoStore 는
+    # 그 사이를 못 잇는다. 테스트(ReplayClock)에는 안 씌운다 — 픽스처가 창고에 직접 쓰고
+    # 앱으로 읽는 경로가 있어서, 캐시가 방금 쓴 것을 가린다.
+    if isinstance(app.config["QUANT_RL_CLOCK"], LiveClock):
+        _wrap_read_cache(app)
     # 실서비스(LiveClock)에서만 — 테스트의 ReplayClock 아래에선 스레드가 as_of 를 흐린다.
     if isinstance(app.config["QUANT_RL_CLOCK"], LiveClock):
         from quant_rl_trading.dashboard.services import system as _system_service
