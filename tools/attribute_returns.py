@@ -58,8 +58,6 @@ from quant_rl_trading.store import Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 START = date(2026, 8, 28)
-#: 주식 비중이 이보다 작으면 슬리브 수익을 역산하지 않는다 — 0 으로 나누면 잡음이 폭발한다.
-MIN_WEIGHT = 0.02
 TERMS = ("선택", "유니버스", "노출", "야간갭", "집행", "명시비용")
 
 
@@ -95,13 +93,32 @@ def universe_frame(store: Store, days: list[date]) -> pd.DataFrame:
         return pd.DataFrame()
     prices = prices.assign(day=prices["valid_from"].dt.tz_convert("Asia/Seoul").dt.date)
     wide = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last")
-    listed = store.latest_by_entity(
-        "universe", as_of=end, lookback=span + 30, market="KR",
-        columns=["entity_id", "is_listed", "is_tradable"],
-    )
-    keep = listed[listed["is_listed"].astype(bool) & listed["is_tradable"].astype(bool)]
-    wide = wide[[c for c in wide.columns if c in set(keep["entity_id"].astype(str))]]
     return wide.sort_index()
+
+
+def universe_members(store: Store, days: list[date]) -> dict[date, set[str]]:
+    """세션마다 **그날 기준** 상장·거래가능 종목. 미래를 보지 않는다.
+
+    처음엔 창의 **마지막 날** 소속을 전 구간에 썼다. 그러면 마지막 날 상장폐지·거래정지된
+    종목이 과거에서도 지워져 "살 수 있었던 세계" 가 생존편향으로 걸러진다 — 그 편향이
+    곧장 `선택` 항으로 흘러드는데, 그게 이 도구가 재려는 바로 그 숫자다.
+    """
+    if not days:
+        return {}
+    end = datetime.combine(days[-1], time(23, 0), tzinfo=UTC)
+    span = (days[-1] - days[0]).days + 40
+    frame = store.get(
+        "universe", as_of=end, lookback=span, market="KR",
+        columns=["entity_id", "valid_from", "is_listed", "is_tradable"],
+    )
+    if frame.empty:
+        return {}
+    frame = frame.assign(day=frame["valid_from"].dt.tz_convert("Asia/Seoul").dt.date)
+    frame = frame[frame["is_listed"].astype(bool) & frame["is_tradable"].astype(bool)]
+    out: dict[date, set[str]] = {}
+    for day, chunk in frame.groupby("day"):
+        out[day] = set(chunk["entity_id"].astype(str))
+    return out
 
 
 def _span_return(series: pd.Series, start: date, end: date) -> float:
@@ -115,13 +132,23 @@ def _span_return(series: pd.Series, start: date, end: date) -> float:
     return last / first - 1.0
 
 
-def _universe_span(wide: pd.DataFrame, start: date, end: date) -> float:
+def _universe_span(
+    wide: pd.DataFrame, start: date, end: date, members: set[str] | None = None
+) -> float:
     """구간 동일가중 수익. **양쪽 종가가 다 있는 종목만** 평균한다 — 결측을 0 으로
-    메우면 상장·거래정지 종목이 "변동 없음" 으로 평균을 끌어당긴다."""
+    메우면 상장·거래정지 종목이 "변동 없음" 으로 평균을 끌어당긴다.
+
+    ``members`` 는 **구간 시작 시점의** 상장·거래가능 명단이다. 끝 시점 명단을 쓰면
+    생존편향이 선택 항으로 흘러든다.
+    """
     if wide.empty or start not in wide.index or end not in wide.index:
         return float("nan")
     first, last = wide.loc[start], wide.loc[end]
     both = first.notna() & last.notna() & (first > 0)
+    if members is not None:
+        both &= pd.Series(
+            [str(name) in members for name in wide.columns], index=wide.columns
+        )
     if not bool(both.any()):
         return float("nan")
     return float((last[both] / first[both] - 1.0).mean())
@@ -214,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     bench_closes = _by_day(bench, "close").sort_index()
     wide = universe_frame(source, days)
+    members = universe_members(source, days)
     gaps, fills = execution_won(book, days)
     costs = cost_won(book, now)
 
@@ -235,7 +263,9 @@ def main(argv: list[str] | None = None) -> int:
         # **직전 장부 세션부터 잰다.** 장부에 빈 거래일이 있으면 그 구간의 장부 수익은
         # 며칠치이고, 벤치마크·유니버스도 같은 구간이어야 한다.
         r_b = _span_return(bench_closes, previous, day)
-        r_u = _universe_span(wide, previous, day)
+        # 소속은 **구간 시작 시점** 기준. 그날 명단이 없으면 그 이전 마지막 명단.
+        known = [d for d in members if d <= previous]
+        r_u = _universe_span(wide, previous, day, members.get(max(known)) if known else None)
         base_nav = float(navs.get(previous, float("nan")))
         weight = float(equity.get(previous, float("nan"))) / base_nav if base_nav else float("nan")
         cost = sum(float(costs.get(d, 0.0) or 0.0) for d in span_days) / base_nav if base_nav else 0.0
@@ -245,11 +275,11 @@ def main(argv: list[str] | None = None) -> int:
             rows.append({"day": day, "r_p": r_p, "r_b": r_b, "미측정": True})
             previous = day
             continue
-        if weight < MIN_WEIGHT:
-            selection = 0.0
-        else:
-            r_h = (r_p + cost) / weight
-            selection = weight * (r_h - r_u) - gap - fill
+        # **나누지 않는다.** 예전에는 `r_h = (r_p + 비용)/w` 를 구해 `w(r_h − r_u)` 를 냈는데,
+        # w 가 0 에 가까우면 터져서 "비중이 작으면 선택 항을 0 으로" 라는 예외를 뒀었다. 그러면
+        # 그 구간만 항등식이 깨지고(나머지 다섯 항은 그대로 나간다) 도구가 조용히 거짓말을 한다.
+        # 정의상 `w·r_h = r_p + 비용` 이므로 곱을 직접 쓰면 나눗셈이 아예 없다.
+        selection = (r_p + cost) - weight * r_u - gap - fill
         rows.append({
             "day": day, "r_p": r_p, "r_b": r_b, "w": weight, "미측정": False,
             "선택": selection,

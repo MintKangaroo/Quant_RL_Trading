@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -30,6 +31,12 @@ from tools.backfill import build_store  # noqa: E402
 from tools.run_backtest import JOURNAL  # noqa: E402
 
 
+#: 같은 창 안 재접속 상한. 남의 서버를 우리 편의로 두들기지 않는다.
+MAX_RETRIES = 5
+RETRY_BACKOFF_SEC = 2.0
+MAX_BACKOFF_SEC = 15.0
+
+
 def _watch_until(store, client, clock, *, seconds: int, connector=None):
     """남은 시간이 있는 한 다시 붙는다. **놓친 이벤트는 다음 회차가 못 되살린다** —
     스트림은 과거를 다시 주지 않으므로, 구독이 안 붙은 채 회차를 버리면 그 창의
@@ -42,6 +49,7 @@ def _watch_until(store, client, clock, *, seconds: int, connector=None):
     deadline = clock.now() + timedelta(seconds=seconds)
     confirmed = duplicates = unmatched = 0
     last: WatchAborted | None = None
+    attempts = 0
     while True:
         left = int((deadline - clock.now()).total_seconds())
         if left <= 0:
@@ -57,7 +65,15 @@ def _watch_until(store, client, clock, *, seconds: int, connector=None):
                 exc.partial = WatchResult(confirmed, duplicates, unmatched)
                 raise
             last = exc
-            print(f"{_stamp(clock)} 구독 재시도: {exc}", file=sys.stderr)
+            attempts += 1
+            if attempts >= MAX_RETRIES:
+                print(f"{_stamp(clock)} 구독 재시도 {attempts}회 실패 — 그만둔다: {exc}", file=sys.stderr)
+                exc.partial = WatchResult(confirmed, duplicates, unmatched)
+                raise
+            # **쉬었다 다시 건다.** 구독 거절은 붙자마자 나므로 그냥 `continue` 하면 창이
+            # 끝날 때까지 초당 두어 번씩 LS 에 접속·인증을 반복한다(170초면 수백 회).
+            print(f"{_stamp(clock)} 구독 재시도 {attempts}/{MAX_RETRIES}: {exc}", file=sys.stderr)
+            time.sleep(min(RETRY_BACKOFF_SEC * attempts, MAX_BACKOFF_SEC))
             continue
         return WatchResult(
             confirmed + done.confirmed, duplicates + done.duplicates, unmatched + done.unmatched
@@ -111,6 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         # Authentication/transport exceptions may embed payloads; print no raw details.
         print(f"{_stamp(clock)} 주문 확인 수집 중단 ({type(exc).__name__}) — 미확정 예약 유지", file=sys.stderr)
         return 1
+    except BaseException:
+        raise
     finally:
         if client is not None:
             client.close()

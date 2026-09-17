@@ -113,8 +113,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{YIELD_KEY} 가 창고에 없다 — 분배금 보정 없이는 등록 문구(총수익)를 못 맞춘다",
               file=sys.stderr)
         return 2
-    # 분배금은 거래일 비례로 더한다. ETF 가격에는 보수가 이미 들어 있다.
-    dividend = annual * (len(both) - 1) / TRADING_DAYS_PER_YEAR
+    # 분배금은 **창의 거래일 수**에 비례해 더한다. ETF 가격에는 보수가 이미 들어 있다.
+    # `len(both)` 를 쓰면 안 된다 — 우리 장부에 빈 거래일이 있으면(9/13~16 정지) 그 기간의
+    # ETF 수익은 다 세면서 분배금만 덜 붙어 **벤치마크가 과소평가되고 우리가 유리해진다.**
+    # 이 보정의 취지는 그 반대다.
+    spanned = len(trading_days(Market.KR, both[0], both[-1])) - 1
+    dividend = annual * max(spanned, 0) / TRADING_DAYS_PER_YEAR
     ours_total = float(a.iloc[-1]) - 1.0
     etf_price = float(b.iloc[-1]) - 1.0
     etf_total = etf_price + dividend
@@ -137,7 +141,9 @@ def main(argv: list[str] | None = None) -> int:
 
     ra, rb = a.pct_change().dropna(), b.pct_change().dropna()
     if len(rb) > 2 and float(np.var(rb)) > 0:
-        beta = float(np.cov(ra, rb)[0, 1] / np.var(rb))
+        # **ddof 를 맞춘다.** `np.cov` 는 기본 ddof=1, `np.var` 는 ddof=0 이라 그냥 나누면
+        # 베타가 n/(n−1) 만큼 부푼다(60세션이면 +1.7%). 사전등록한 수식은 표본 공분산/표본 분산이다.
+        beta = float(np.cov(ra, rb, ddof=1)[0, 1] / np.var(rb, ddof=1))
         alpha = ours_total - beta * etf_total
         print(f"\n참고(관문 아님) · 베타 {beta:.2f} · 베타 보정 알파 {alpha * 100:+.2f}%p")
         print("  노출을 걷어내면 무엇이 남나. 2026-09-18 사전등록 — 판정에는 넣지 않는다.")
