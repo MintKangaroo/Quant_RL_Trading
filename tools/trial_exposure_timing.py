@@ -26,6 +26,7 @@ import pandas as pd  # noqa: E402
 
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.selector.exposure import (  # noqa: E402
+    BAND_EPSILON,
     INDEX_LOOKBACK_DAYS,
     ExposureParams,
     regime_scale,
@@ -102,7 +103,9 @@ def deadband(raw: list[float], width: float, *, asymmetric: bool = False) -> lis
     for value in raw:
         if asymmetric and value < held:
             held = value
-        elif abs(value - held) >= width:
+        # 생산과 **같은 여유**를 쓴다 — 안 맞추면 여기서 잰 것과 실전이 다르게 움직인다.
+        # `1.0 - 0.8 = 0.19999999999999996` 이라 여유가 없으면 0.8 이 흡수 상태가 된다.
+        elif abs(value - held) >= width - BAND_EPSILON:
             held = value
         out.append(held)
     return out

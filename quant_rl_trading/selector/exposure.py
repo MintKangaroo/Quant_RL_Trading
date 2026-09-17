@@ -153,6 +153,12 @@ class ExposureDecision:
         return {"scale": self.scale, "driver": self.driver, "notes": list(self.notes)}
 
 
+#: 밴드 비교의 부동소수 여유. **`1.0 - 0.8` 은 0.19999999999999996 이다** — 밴드 0.20 과
+#: 견주면 "20% 차이" 가 밴드 **안**으로 판정돼 0.8 이 위로 못 올라가는 흡수 상태가 된다.
+#: 0.8 은 압축 축의 값이라 실전에서 가장 흔한 배수다(모의 장부 9/01·02·03·07·08 전부 0.8).
+#: 그러면 압축이 한 번 걸린 뒤로 영영 80% 노출에 눌러앉는다 — 규칙이 뜻한 바가 아니다.
+BAND_EPSILON = 1e-9
+
 #: 직전 적용 배수를 찾는 창(달력일). 연휴를 넉넉히 넘긴다 — 못 찾으면 밴드를 안 건다.
 HELD_LOOKBACK_DAYS = 20
 EVENTS = "events"
@@ -349,10 +355,11 @@ def decide(
     # 나았다(+9.4% vs +9.2% · −15.8% vs −17.7% · 26회 vs 42회).
     if params.deadband > 0.0 and held is not None:
         falling = proposed < held
-        if not (params.deadband_asymmetric and falling) and abs(proposed - held) < params.deadband:
+        gap = abs(proposed - held)
+        if not (params.deadband_asymmetric and falling) and gap < params.deadband - BAND_EPSILON:
             decision.notes.append(
                 f"데드밴드 — 새 배수 {proposed:.0%} 가 적용 중 {held:.0%} 와 "
-                f"{abs(proposed - held):.0%} 차이라 유지 (밴드 {params.deadband:.0%})"
+                f"{gap:.0%} 차이라 유지 (밴드 {params.deadband:.0%})"
             )
             decision.scale = held
             decision.driver = "deadband"

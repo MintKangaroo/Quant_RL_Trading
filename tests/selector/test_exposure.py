@@ -331,3 +331,22 @@ def test_적용_중인_배수는_저널에서_읽는다(store) -> None:
 
 def test_저널이_비면_None(store) -> None:
     assert held_scale(store, as_of=NOW, market="KR") is None
+
+
+def test_0_8_에서_1_0_으로_올라갈_수_있다() -> None:
+    """**`1.0 - 0.8` 은 0.19999999999999996 이다.** 밴드 0.20 과 그냥 견주면 "20% 차이" 가
+    밴드 안으로 판정돼 0.8 이 흡수 상태가 된다 — 0.8 은 압축 축의 값이라 실전에서 가장 흔하다
+    (모의 장부 9/01·02·03·07·08 전부 0.8). 그러면 압축이 한 번 걸린 뒤 영영 80% 에 눌러앉는다.
+    """
+    decision = _decide(_rising(), state="bull", held=0.8)
+
+    assert decision.scale == pytest.approx(1.0), "밴드와 정확히 같은 차이는 '밖' 이다"
+    assert decision.driver == "full"
+
+
+def test_밴드보다_확실히_작은_차이는_여전히_유지한다() -> None:
+    """여유를 준다고 밴드가 무의미해지면 안 된다."""
+    decision = _decide(_rising(), state="bear", held=0.6)  # 새 배수 0.7, 차이 0.10
+
+    assert decision.scale == 0.6
+    assert decision.driver == "deadband"
