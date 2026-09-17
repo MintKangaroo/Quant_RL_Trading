@@ -48,6 +48,7 @@ KR 300세션·82만 행). **횡단면은 여전히 전부 미달이다** — 최
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 
 from dataclasses import dataclass, field
@@ -103,6 +104,11 @@ class ExposureParams:
     #: 국면 배수 확인 기간(세션). 최근 N 세션 배수의 최솟값 — 낮추기는 즉시, 올리기는
     #: N 연속 확인. 1 이면 현재 국면만 본다.
     regime_confirm_sessions: int = 1
+    #: **노출 데드밴드** (시행 U 채택, 2026-09-18). 새 배수가 지금 적용 중인 배수와
+    #: 이만큼 차이 나지 않으면 그대로 둔다. 0 이면 끈다.
+    deadband: float = 0.0
+    #: 밴드를 **올릴 때만** 거는가. 낮추기는 즉시 — 현행 `regime_confirm_sessions` 와 같은 정신.
+    deadband_asymmetric: bool = True
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> ExposureParams:
@@ -126,6 +132,8 @@ class ExposureParams:
             squeezed=float(section["squeezed"]),
             squeeze_quantile=float(section["squeeze_quantile"]),
             regime_confirm_sessions=int(section.get("regime_confirm_sessions", 1)),
+            deadband=float(section.get("deadband", 0.0)),
+            deadband_asymmetric=bool(section.get("deadband_asymmetric", True)),
         )
 
 
@@ -143,6 +151,42 @@ class ExposureDecision:
 
     def as_dict(self) -> dict[str, object]:
         return {"scale": self.scale, "driver": self.driver, "notes": list(self.notes)}
+
+
+#: 직전 적용 배수를 찾는 창(달력일). 연휴를 넉넉히 넘긴다 — 못 찾으면 밴드를 안 건다.
+HELD_LOOKBACK_DAYS = 20
+EVENTS = "events"
+
+
+def held_scale(store: Store, *, as_of: datetime, market: str) -> float | None:
+    """**지금 적용 중인** 노출 배수. 직전 세션이 실제로 쓴 값이다. 없으면 None.
+
+    데드밴드는 "새 값이 지금 값과 얼마나 다른가" 를 묻는 장치라 기준점이 필요한데,
+    노출 결정은 원래 상태가 없었다(매 세션 처음부터 계산). 그 기준점을 **저널에서**
+    읽는다 — 별도 상태 표를 만들면 그것이 창고와 어긋날 때 아무도 모른다.
+
+    못 찾으면 None 을 주고 호출부는 밴드를 걸지 않는다. **모르면 원래대로**가
+    안전한 쪽이다 — 기준 없이 밴드를 걸면 첫 세션이 1.0 에 붙박인다.
+    """
+    frame = store.get(EVENTS, as_of=as_of, lookback=HELD_LOOKBACK_DAYS)
+    if frame.empty:
+        return None
+    prefix = f"session-{market}-"
+    rows = frame[
+        (frame["stage"] == "exposure")
+        & frame["entity_id"].astype(str).str.startswith(prefix)
+        & (frame["valid_from"] < as_of)
+    ]
+    if rows.empty:
+        return None
+    latest = rows.sort_values(["valid_from", "seq"]).iloc[-1]
+    payload = latest["payload"]
+    try:
+        data = json.loads(payload) if isinstance(payload, str) else dict(payload)
+        value = float(data["scale"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    return value if 0.0 < value <= 1.0 else None
 
 
 def _index_close(store: Store, *, as_of: datetime, entity_id: str) -> pd.Series:
@@ -269,6 +313,7 @@ def decide(
     regime_state: str,
     params: ExposureParams,
     recent_regime_states: Sequence[str] = (),
+    held: float | None = None,
 ) -> ExposureDecision:
     """노출 배수 하나와 그 이유.
 
@@ -291,13 +336,30 @@ def decide(
 
     name, lowest, _ = min(axes, key=lambda item: item[1])
     if lowest >= 1.0:
-        return decision
+        proposed, driver = 1.0, "full"
+    else:
+        # 바닥을 둔다. 방어는 참여를 줄이는 것이지 나가는 것이 아니다.
+        proposed, driver = max(FLOOR, lowest), name
+        if lowest < FLOOR:
+            decision.notes.append(f"바닥 {FLOOR:.0%} 에서 멈춤 (계산값 {lowest:.0%})")
 
-    # 바닥을 둔다. 방어는 참여를 줄이는 것이지 나가는 것이 아니다.
-    decision.scale = max(FLOOR, lowest)
-    decision.driver = name
-    if lowest < FLOOR:
-        decision.notes.append(f"바닥 {FLOOR:.0%} 에서 멈춤 (계산값 {lowest:.0%})")
+    # **데드밴드** (시행 U 채택, 2026-09-18). 배수가 조금 움직일 때마다 따라가면
+    # 장부의 그만큼이 왕복한다 — 모의계좌 실측으로 거래의 76%가 이 축에서 났고,
+    # 판정 창 360세션에서 밴드 0.20(내릴 때는 즉시)이 수익·MDD·전환 셋 다 현행보다
+    # 나았다(+9.4% vs +9.2% · −15.8% vs −17.7% · 26회 vs 42회).
+    if params.deadband > 0.0 and held is not None:
+        falling = proposed < held
+        if not (params.deadband_asymmetric and falling) and abs(proposed - held) < params.deadband:
+            decision.notes.append(
+                f"데드밴드 — 새 배수 {proposed:.0%} 가 적용 중 {held:.0%} 와 "
+                f"{abs(proposed - held):.0%} 차이라 유지 (밴드 {params.deadband:.0%})"
+            )
+            decision.scale = held
+            decision.driver = "deadband"
+            return decision
+
+    decision.scale = proposed
+    decision.driver = driver
     return decision
 
 

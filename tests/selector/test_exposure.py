@@ -234,3 +234,100 @@ def test_확인_기간_1이면_옛_동작이다() -> None:
     d = decide(FakeStore(_rising()), as_of=NOW, index_id="KR:IDX:KOSPI",
                regime_state="volatile", params=PARAMS, recent_regime_states=["crisis"])
     assert d.scale == 1.0
+
+
+# ---------------------------------------------------------------------------
+# 데드밴드 — 시행 U 채택 (2026-09-18)
+# ---------------------------------------------------------------------------
+
+import dataclasses  # noqa: E402
+
+from quant_rl_trading.selector.exposure import held_scale  # noqa: E402
+
+BANDED = dataclasses.replace(PARAMS, deadband=0.20, deadband_asymmetric=True)
+
+
+def _decide(closes: list[float], *, state: str, held: float | None, params=BANDED):
+    return decide(
+        FakeStore(closes), as_of=NOW, index_id="KR:IDX:KRX 300",
+        regime_state=state, params=params, held=held,
+    )
+
+
+def test_밴드_안의_변화는_적용_중인_배수를_유지한다() -> None:
+    """작은 변화를 따라가면 그만큼 장부가 왕복한다 — 모의계좌 거래의 76%가 이 축이었다.
+
+    **올리는 방향**이어야 밴드가 걸린다. 내리는 쪽은 아래 테스트가 따로 본다.
+    """
+    # 추세 아래(0.6) 인데 적용 중은 0.5 — 차이 0.10 < 밴드 0.20, 올리는 방향
+    decision = _decide(_falling(), state="bull", held=0.5)
+
+    assert decision.scale == 0.5
+    assert decision.driver == "deadband"
+    assert any("데드밴드" in note for note in decision.notes)
+
+
+def test_밴드_밖의_변화는_따라간다() -> None:
+    decision = _decide(_falling(), state="bull", held=1.0)
+
+    assert decision.scale == pytest.approx(0.6), "0.4 차이면 밴드를 넘는다"
+    assert decision.driver == "trend"
+
+
+def test_내릴_때는_밴드를_안_건다() -> None:
+    """방어는 늦추지 않는다 — `regime_confirm_sessions` 와 같은 정신."""
+    # crisis 0.5, 적용 중 0.6 → 차이 0.10 으로 밴드 안이지만 **내리는** 방향이다
+    decision = _decide(_falling(), state="crisis", held=0.6)
+
+    assert decision.scale == pytest.approx(0.5)
+    assert decision.driver == "regime"
+
+
+def test_올릴_때는_밴드를_건다() -> None:
+    """같은 0.10 차이라도 올리는 쪽은 기다린다."""
+    decision = _decide(_rising(), state="bear", held=0.6)  # 새 배수 0.7
+
+    assert decision.scale == 0.6
+    assert decision.driver == "deadband"
+
+
+def test_기준점을_모르면_밴드를_안_건다() -> None:
+    """첫 세션·저널 결손. 기준 없이 밴드를 걸면 1.0 에 붙박인다."""
+    decision = _decide(_falling(), state="bull", held=None)
+
+    assert decision.scale == pytest.approx(0.6)
+
+
+def test_밴드가_0이면_꺼진다() -> None:
+    off = dataclasses.replace(PARAMS, deadband=0.0)
+    decision = _decide(_falling(), state="bull", held=0.7, params=off)
+
+    assert decision.scale == pytest.approx(0.6)
+
+
+def test_적용_중인_배수는_저널에서_읽는다(store) -> None:
+    """별도 상태 표를 만들면 그것이 창고와 어긋날 때 아무도 모른다."""
+    import json
+
+    rows = [
+        {"entity_id": "session-KR-2026-08-17", "valid_from": NOW - timedelta(days=2),
+         "observed_at": NOW - timedelta(days=2), "source": "replay", "seq": 3,
+         "stage": "exposure", "actor": "regime", "payload_hash": "a",
+         "payload": json.dumps({"scale": 0.5, "driver": "regime", "notes": []})},
+        {"entity_id": "session-KR-2026-08-18", "valid_from": NOW - timedelta(days=1),
+         "observed_at": NOW - timedelta(days=1), "source": "replay", "seq": 4,
+         "stage": "exposure", "actor": "trend", "payload_hash": "b",
+         "payload": json.dumps({"scale": 0.7, "driver": "trend", "notes": []})},
+        {"entity_id": "session-US-2026-08-18", "valid_from": NOW - timedelta(hours=2),
+         "observed_at": NOW - timedelta(hours=2), "source": "replay", "seq": 5,
+         "stage": "exposure", "actor": "regime", "payload_hash": "c",
+         "payload": json.dumps({"scale": 0.5, "driver": "regime", "notes": []})},
+    ]
+    store.append("events", rows, ingest_run_id="events-test")
+
+    assert held_scale(store, as_of=NOW, market="KR") == pytest.approx(0.7), "가장 늦은 국장 것"
+    assert held_scale(store, as_of=NOW, market="US") == pytest.approx(0.5), "시장을 섞지 않는다"
+
+
+def test_저널이_비면_None(store) -> None:
+    assert held_scale(store, as_of=NOW, market="KR") is None

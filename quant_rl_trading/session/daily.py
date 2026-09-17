@@ -389,6 +389,12 @@ def run(
             regime_state=regime.state(as_of),
             params=exposure_params,
             recent_regime_states=recent_states,
+            # 지금 적용 중인 배수. 데드밴드의 기준점이고, 못 찾으면 밴드를 안 건다.
+            held=(
+                exposure.held_scale(store, as_of=as_of, market=market)
+                if exposure_params.deadband > 0.0
+                else None
+            ),
         )
     scaled = exposure.apply(weights, decision)
     result.weights = scaled
