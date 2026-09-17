@@ -203,6 +203,14 @@ class SharedMemo:
     그래서 화면이 보는 낡음의 상한은 ``ttl_seconds`` 이고, 그 값은 config 가
     정한다(불변식 10). 창고는 크론이 쓸 때만 바뀌므로 분 단위로 충분하다.
 
+    ## 큰 프레임은 안 들고 있는다
+
+    비용이 파일 수로 붙으므로 **큰 프레임일수록 행당 싸다.** 실측 2026-09-18(마켓 탭
+    + 데이터 품질): 4MB 넘는 8개가 메모리 67.3/71.0MB 를 먹으면서 질의 시간은 42% 만
+    아꼈고, 4MB 이하 32개는 3.7MB 로 58% 를 아꼈다. 기억이 스왑으로 밀리면 적중이
+    디스크 읽기가 되어 **캐시가 없느니만 못해진다** — 그날 대시보드 첫 응답이
+    4.9초에서 10~14초로 뒤집혔고 프로세스가 227MB 를 스왑에 두고 있었다.
+
     ``killswitch`` 는 캐시하지 않는다 — 다른 프로세스가 건 latch 가 같은 시각의
     다음 조회에서 보여야 한다(`MemoStore` 와 같은 이유).
     """
@@ -213,11 +221,15 @@ class SharedMemo:
         *,
         ttl_seconds: float,
         budget_bytes: int,
+        entry_bytes: int | None = None,
         monotonic: Any = time.monotonic,
     ) -> None:
         self._inner = inner
         self._ttl = float(ttl_seconds)
         self._budget = int(budget_bytes)
+        #: 한 프레임의 상한. 큰 것은 아예 안 들고 있는다 — 조회 비용은 행이 아니라
+        #: 파일 수로 붙어서 큰 프레임일수록 행당 싸고, 들고 있으면 스왑으로 밀린다.
+        self._entry = int(entry_bytes) if entry_bytes else int(budget_bytes)
         self._now = monotonic
         self._lock = threading.Lock()
         #: 키 → (만료 시각, 바이트, 프레임). 삽입 순서가 곧 오래된 순서다.
@@ -265,7 +277,7 @@ class SharedMemo:
         size = int(frame.memory_usage(index=True, deep=True).sum())
         with self._lock:
             self.misses += 1
-            if size <= self._budget:
+            if size <= self._entry:
                 self._frames[key] = (now + self._ttl, size, frame)
                 self._bytes += size
                 self._evict()

@@ -142,3 +142,22 @@ def test_돌려주는_프레임은_사본이다(ticking) -> None:
     first.loc[0, "n"] = -999
 
     assert memo.get("prices", as_of=NOW).loc[0, "n"] != -999
+
+
+def test_큰_프레임은_아예_안_들고_있는다(ticking) -> None:
+    """조회 비용은 행이 아니라 **파일 수**로 붙는다 — 큰 프레임일수록 행당 싸다.
+
+    들고 있으면 그것이 스왑으로 밀리고 적중이 디스크 읽기가 된다(2026-09-18: 대시보드
+    첫 응답 4.9s → 10~14s, 프로세스 스왑 227MB).
+    """
+    holder, clock = ticking
+    inner = _Counting()
+    memo = SharedMemo(
+        inner, ttl_seconds=45, budget_bytes=10 << 20, entry_bytes=1, monotonic=clock
+    )
+
+    memo.get("prices", as_of=NOW)
+    memo.get("prices", as_of=NOW)
+
+    assert inner.reads == 2, "상한을 넘는 프레임은 기억하지 않는다"
+    assert memo._bytes == 0

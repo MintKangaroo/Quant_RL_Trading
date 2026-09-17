@@ -100,6 +100,7 @@ def _wrap_read_cache(app: Flask) -> None:
     try:
         bucket = float(base.config("dashboard.live_bucket_seconds", as_of=now))
         budget = int(float(base.config("dashboard.read_cache_mb", as_of=now)) * 1024 * 1024)
+        entry = int(float(base.config("dashboard.read_cache_entry_mb", as_of=now)) * 1024 * 1024)
     except (ConfigNotFound, LookupError, ValueError):
         app.config["QUANT_RL_LIVE_BUCKET_SECONDS"] = 0.0
         return
@@ -112,7 +113,7 @@ def _wrap_read_cache(app: Flask) -> None:
         inner = app.config.get(key)
         if inner is not None:
             app.config[key] = SharedMemo(
-                inner, ttl_seconds=bucket * 2, budget_bytes=budget
+                inner, ttl_seconds=bucket * 2, budget_bytes=budget, entry_bytes=entry
             )
 
 
