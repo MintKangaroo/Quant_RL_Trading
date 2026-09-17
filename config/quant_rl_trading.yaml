@@ -28,6 +28,11 @@ reward:
   normalize_returns: return_std   # none | return_std | popart
 
 benchmark:
+  # 종료 판정(milestones.md)의 대조군인 KODEX200 의 **분배금 연율 가정**.
+  # ETF 가격에는 운용보수(0.15%)가 이미 들어 있지만 분배금은 빠져 있어, 보정하지 않으면
+  # 벤치마크가 낮게 잡혀 **우리가 이긴 것처럼 보인다.** 2026-09-18 사전등록 —
+  # 이 값은 판정 결과를 보고 고치지 않는다. 근거: KODEX200 최근 3년 분배율 1.3~1.8%.
+  kodex200_distribution_yield_annual: 0.015
   kr_weight: 0.5
   us_weight: 0.5
   # ⚠️ **가격지수(PR)다. 총수익지수(TR)가 아니다.** 목표는 TR 이지만

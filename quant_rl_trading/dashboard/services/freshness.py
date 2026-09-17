@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from quant_rl_trading.collectors.benchmark_etf import BENCHMARK_ETF
 from quant_rl_trading.collectors.market_hours import Market, trading_days
 from quant_rl_trading.collectors.publication import publication_policy
 from quant_rl_trading.replay.clock import ReplayClock
@@ -29,6 +30,11 @@ DATASETS: tuple[tuple[str, str, str, Market, str | None, str | None], ...] = (
     # FINRA 일별 공매도 거래량 — flow_us 의 입력. 2026-08-18 백필 뒤 일일 수집이 빠져
     # 열흘을 조용히 멈춰 있었다(8/29 발견). 띠에 올려 두면 다음엔 하루 만에 보인다.
     ("us_short", "미장 공매도", "short_flow", Market.US, "US", None),
+    # **종료 판정의 대조군**(milestones.md). 2026-09-18 확인 시점에 창고에 0행이었다 —
+    # ETF 는 유니버스에 없어 일상 수집 어디에도 안 걸리고, 띠에도 없어 그 공백이
+    # 아무 데도 안 보였다. 판정일에 발견하면 소급해 채우는 수밖에 없고, 그때 채우면
+    # "결과를 보고 창을 고른" 것이 된다.
+    ("kr_benchmark", "판정 벤치마크", "indices", Market.KR, None, BENCHMARK_ETF),
 )
 
 
