@@ -214,7 +214,10 @@ def main(argv=None) -> int:
         store.append("research_trials", [{
             "entity_id": f"{TRIAL_PREFIX}:{args.group}", "valid_from": now, "observed_at": now,
             "source": "trial_ranker_sources", "market": PRIMARY[args.group], "family": "ranker", "n_trials": 1,
-            "protocol_hash": digest, "detail": " | ".join(lines)[:900],
+            # **판정을 맨 앞에 박는다.** detail 은 900자에서 잘리는데 판정문은 원래 맨 끝
+            # 줄이었다 — 피처가 늘어 gain 줄이 길어지면 잘려 나가고, 그러면 다음 묶음의
+            # 대조에 채택 피처가 빠진 채로 돈다(scripts/measure_ranker_round6.sh 가 이걸 읽는다).
+            "protocol_hash": digest, "detail": (f"판정: {verdict} | " + " | ".join(lines))[:900],
         }], ingest_run_id=f"trial-ranker-{args.group}-{now:%Y%m%dT%H%M%S}")
         print(f"research_trials 기록: ranker/{args.group} · protocol {digest} · {verdict}")
     return 0

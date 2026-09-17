@@ -114,3 +114,14 @@ def test_라이브_as_of_는_버킷으로_바닥_내림한다():
     assert quantize(moment, bucket_seconds=45) == datetime(2026, 9, 17, 4, 1, 30, tzinfo=UTC)
     assert quantize(moment, bucket_seconds=0) == moment, "0 이면 끈다"
     assert quantize(moment, bucket_seconds=1) == moment.replace(microsecond=0)
+
+
+def test_판정_벤치마크는_자기_유예를_쓴다():
+    """KRX 는 KODEX200 을 **다음 날 아침**에 낸다 — 국장 기본 유예(40분)로 재면 평일
+    16:40 부터 매일 빨간불이 켜진다. 그런 경보는 진짜 고장을 덮는다."""
+    from quant_rl_trading.dashboard.services.freshness import DATASETS
+
+    row = next(item for item in DATASETS if item[0] == "kr_benchmark")
+    assert row[6] == "system.freshness_grace_seconds_kr_benchmark", "자기 유예 키가 있어야 한다"
+    others = [item[6] for item in DATASETS if item[0] != "kr_benchmark"]
+    assert all(key is None for key in others), "나머지는 시장 기본값을 쓴다"

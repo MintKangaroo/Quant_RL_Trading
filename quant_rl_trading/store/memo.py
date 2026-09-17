@@ -278,6 +278,10 @@ class SharedMemo:
         with self._lock:
             self.misses += 1
             if size <= self._entry:
+                # **먼저 빼고 넣는다.** 두 스레드가 같은 키를 동시에 놓치면 둘 다 넣는데,
+                # 덮어쓰기만 하면 앞 항목의 바이트가 장부에 남아 `_bytes` 가 부풀고
+                # 결국 멀쩡한 기억까지 쫓아낸다(틀리진 않지만 캐시가 무용지물이 된다).
+                self._drop(key)
                 self._frames[key] = (now + self._ttl, size, frame)
                 self._bytes += size
                 self._evict()
