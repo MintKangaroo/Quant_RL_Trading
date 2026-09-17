@@ -224,12 +224,18 @@ def main(argv: list[str] | None = None) -> int:
     }
     unknown = 0
     unknown_backlog = 0
+    # **지난 거래일 건은 줄마다 찍지 않는다.** t0425 가 구조적으로 답할 수 없는 것이라
+    # 매일 같은 문장이 그대로 다시 나온다 — 2026-09-17 실측 178줄. 오늘 볼 것은 그 아래
+    # 열한 줄인데 그것이 178줄에 묻혔다. 건수와 보기 몇 개만 남긴다.
+    backlog_examples: list[str] = []
     for outcome in result.outcomes:
         if outcome.state is FillState.UNKNOWN:
             if outcome.order_id in backlog:
                 unknown_backlog += 1
-            else:
-                unknown += 1
+                if len(backlog_examples) < 3:
+                    backlog_examples.append(outcome.order_id)
+                continue
+            unknown += 1
             mark = "모른다"
         elif outcome.state is FillState.RECORDED:
             mark = "체결"
@@ -238,6 +244,9 @@ def main(argv: list[str] | None = None) -> int:
         qty = outcome.fill.quantity if outcome.fill else outcome.cumulative_quantity
         price = f" @ {outcome.fill.price:,.0f}" if outcome.fill else ""
         print(f"  {mark:<4} {outcome.order_id} · {qty if qty is not None else '-'}주{price} {outcome.detail}")
+    if backlog_examples:
+        more = f" 외 {unknown_backlog - len(backlog_examples)}건" if unknown_backlog > len(backlog_examples) else ""
+        print(f"  모른다 지난 거래일 {unknown_backlog}건 — {', '.join(backlog_examples)}{more}")
     print(
         f"trades {result.rows_written}행 적재 · "
         f"모름 {unknown}건(오늘) + {unknown_backlog}건(지난 거래일)"

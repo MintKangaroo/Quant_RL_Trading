@@ -161,3 +161,76 @@ def test_rejected_ack_still_fails(booked):
     socket = Socket(clock, lambda _: {"header": {"tr_cd": None, "rsp_cd": "40000"}})
     with pytest.raises(ValueError):
         watch(store, client, clock, seconds=3, connector=lambda *a, **k: socket)
+
+
+# ---------------------------------------------------------------------------
+# 중단 사유는 적히고, 일시적인 것은 같은 창 안에서 다시 붙는다 (2026-09-17)
+# ---------------------------------------------------------------------------
+
+def test_구독이_안_붙으면_어느_코드가_빠졌는지_적는다(booked):
+    """예전엔 사유가 `ValueError` 한 글자였다. 네 번 죽는 동안 원인을 못 찾았다."""
+    from quant_rl_trading.collectors.order_events import WatchAborted
+
+    store, clock, _original, client, _tokens = configured(booked)
+    # SC2 만 확인해 준다 — SC3(정정·취소)는 끝내 안 붙는다.
+    socket = Socket(clock, lambda i: {"header": {"tr_cd": "SC2", "rsp_cd": "00000"}} if i == 1 else {"header": {}})
+    with pytest.raises(WatchAborted) as caught:
+        watch(store, client, clock, seconds=3, connector=lambda *a, **k: socket)
+    assert "SC3" in str(caught.value), "빠진 코드가 곧 처방이다"
+    assert caught.value.retryable, "구독은 다시 걸면 된다"
+
+
+def test_계좌_지문_불일치는_다시_걸지_않는다(booked):
+    """구독 실패와 달리, 지문이 어긋난 것은 다시 걸어도 같고 걸어서도 안 된다."""
+    from quant_rl_trading.collectors.order_events import WatchAborted
+
+    store, clock, _original, client, _tokens = configured(booked)
+    client.credentials = LSCredentials(
+        appkey="other", appsecret="other", base_url="https://api.test", kind="paper"
+    )
+    with pytest.raises(WatchAborted) as caught:
+        watch(store, client, clock, seconds=1, connector=lambda *a, **k: pytest.fail("no connection"))
+    assert not caught.value.retryable
+
+
+def test_일시적_중단은_남은_시간_안에서_다시_붙는다(booked):
+    """**놓친 이벤트는 다음 회차가 못 되살린다** — 스트림은 과거를 다시 주지 않는다.
+
+    2026-09-17 15:19 회차가 구독 실패로 죽어 15:20 마감 취소 10건이 미확정으로 남았고
+    15:45 대사가 rc=1 이 됐다. 창을 버리지 않고 즉시 다시 붙는 것이 유일한 기회다.
+    """
+    from tools.watch_order_events import _watch_until
+
+    store, clock, _original, client, _tokens = configured(booked)
+    attempts: list[int] = []
+
+    def connect(*_args, **_kwargs):
+        attempts.append(len(attempts))
+        if len(attempts) == 1:
+            # 첫 회: 구독이 거절된다 → retryable 중단이 바로 난다(창을 다 안 쓴다)
+            return Socket(clock, lambda _i: {"header": {"tr_cd": "SC3", "rsp_cd": "ERROR"}})
+        # 둘째 회: 정상으로 붙고 조용히 창을 지킨다
+        return Socket(
+            clock,
+            lambda i: {"header": {"tr_cd": ["SC2", "SC3"][i - 1], "rsp_cd": "00000"}}
+            if i <= 2
+            else {"header": {}},
+        )
+
+    result = _watch_until(store, client, clock, seconds=8, connector=connect)
+
+    assert len(attempts) == 2, "첫 회가 죽었으면 창이 끝나기 전에 다시 붙는다"
+    assert result.confirmed == 0
+
+
+def test_창이_끝날_때까지_못_붙으면_성공으로_끝내지_않는다(booked):
+    """조용히 0건으로 끝내면 '이벤트가 없었다' 와 '못 들었다' 가 같아 보인다."""
+    from quant_rl_trading.collectors.order_events import WatchAborted
+    from tools.watch_order_events import _watch_until
+
+    store, clock, _original, client, _tokens = configured(booked)
+    with pytest.raises(WatchAborted):
+        _watch_until(
+            store, client, clock, seconds=4,
+            connector=lambda *a, **k: Socket(clock, lambda _i: {"header": {"tr_cd": "SC3", "rsp_cd": "ERROR"}}),
+        )
