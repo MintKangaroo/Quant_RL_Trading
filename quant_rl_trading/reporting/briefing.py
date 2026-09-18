@@ -22,6 +22,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -249,6 +251,10 @@ class Briefing:
     #: ``None`` 이면 성과 섹션을 아예 안 실은 것이다(옛 호출부·테스트).
     #: "성과가 0" 과 다른 사실이라 렌더러가 자리를 통째로 비운다.
     performance: performance_module.Performance | None = None
+    #: 미장 paper 트랙 — shadow 장부의 **달러 슬리브**(``performance.usd_sleeve``).
+    #: 위 ``performance`` 와 **다른 창고**에서 오므로 따로 든다 — 합치지 않는다.
+    #: 칸도 따로 그린다(reporting.md "미장 슬리브 칸"). ``None`` 이면 칸이 없다.
+    performance_us: performance_module.Performance | None = None
     #: 데이터 기준일 — 국장 시세·지수, 미장 지수·시세, 환율의 창고 최신 세션 대 기대 세션.
     #: 메일 맨 위에 그대로 적는다(사용자 요청 2026-08-28: "최신 데이터인지 두 번 검증하기 싫다").
     freshness: list[dict[str, Any]] = field(default_factory=list)
@@ -300,6 +306,7 @@ class Briefing:
             "macro": self.macro.as_dict(),
             "markets": {code: brief.as_dict() for code, brief in self.markets.items()},
             "performance": self.performance.as_dict() if self.performance else None,
+            "performance_us": self.performance_us.as_dict() if self.performance_us else None,
         }
 
 
@@ -1450,8 +1457,24 @@ def _performance(store: Store, *, as_of: datetime) -> performance_module.Perform
         )
 
 
+def _sleeve(store: Store | None, *, as_of: datetime) -> performance_module.Performance | None:
+    """미장 슬리브 성과. 못 내면 칸을 비운다 — 리포트는 비필수 경로다(reporting.md §2)."""
+    if store is None:
+        return None
+    try:
+        return performance_module.usd_sleeve(store, as_of=as_of)
+    except Exception as error:  # noqa: BLE001 - 메일은 나가야 한다
+        print(f"미장 슬리브 성과를 못 냈다 — {error}", file=sys.stderr)
+        return None
+
+
 def build_briefing(
-    store: Store, *, as_of: datetime, clock: Clock | None = None, translate: Any = None
+    store: Store,
+    *,
+    as_of: datetime,
+    clock: Clock | None = None,
+    translate: Any = None,
+    sleeve_store: Store | None = None,
 ) -> Briefing:
     """``as_of`` 시점의 시황 브리핑.
 
@@ -1497,6 +1520,7 @@ def build_briefing(
         ),
         markets=markets,
         performance=_performance(store, as_of=as_of),
+        performance_us=_sleeve(sleeve_store, as_of=as_of),
         freshness=_freshness(store, as_of=as_of),
     )
 

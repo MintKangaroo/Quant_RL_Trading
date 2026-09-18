@@ -37,7 +37,7 @@ import pandas as pd
 
 from quant_rl_trading.accounting import ledger
 from quant_rl_trading.accounting import snapshot as snapshot_module
-from quant_rl_trading.accounting.book import KRW, Book, Side, Trade
+from quant_rl_trading.accounting.book import KRW, USD, Book, Side, Trade
 from quant_rl_trading.accounting.nav import BASE_INDEX
 from quant_rl_trading.store import names as names_module
 
@@ -146,6 +146,8 @@ class Performance:
     #: 성과를 못 잰 이유. **``None`` 이면 잰 것이다** — 매매 0건은 잰 결과이지
     #: 못 잰 것이 아니다.
     note: str | None = None
+    #: 금액 필드의 통화. 기본은 원화 장부 전체, ``USD`` 는 달러 슬리브(``usd_sleeve``).
+    currency: str = KRW
 
     @property
     def measured(self) -> bool:
@@ -184,6 +186,7 @@ class Performance:
             "buy_count": self.buy_count,
             "sell_count": self.sell_count,
             "note": self.note,
+            "currency": self.currency,
             "execution_costs": self.execution_costs(),
         }
 
@@ -457,4 +460,100 @@ def daily(
             if previous is not None
             else "첫 회계 세션 — 비교할 직전 스냅샷이 없다"
         ),
+    )
+
+
+NEW_YORK = "America/New_York"
+
+
+def usd_sleeve(store: Store, *, as_of: datetime) -> Performance | None:
+    """shadow 장부의 **달러 슬리브** 성과 — 미장 paper 트랙의 숫자.
+
+    shadow 장부 하나에 국장 원화와 미장 달러가 같이 산다. 장부 전체 NAV 를 미장 성과로
+    읽으면 국장 초기자본·달러 입금의 계단이 미장 수익처럼 보인다(2026-09-04 사용자 지적).
+    회계가 ``nav_daily`` 에 남긴 ``equity_us + cash_usd`` 를 더할 뿐이다 — **다시 계산하지
+    않는다.** 화면(``dashboard/services/trading._us_sleeve``)과 같은 두 열이다.
+
+    세션은 **뉴욕 날짜**로 가르되, **ET 정오 전의 행은 전날 세션**으로 친다. 스냅샷은
+    05:20 KST(미장 마감 뒤, ET 16:20)와 16:00 KST(ET 03:00) 둘인데, 뒤의 것은 그날 미장이
+    열리기 전이라 슬리브 값이 전날 종가 그대로다. 그 행을 "오늘" 로 세면 장도 안 열린
+    날에 "변화 0" 이 찍힌다. 정오로 자르는 이유: 겨울(EST)엔 마감 스냅샷이 ET 16:00
+    언저리로 당겨질 수 있어 16:00 로 자르면 경계에 걸린다.
+
+    원금은 ``capital_flows`` 의 USD 합, 지수·낙폭은 슬리브 첫 스냅샷 = 100 기준.
+    슬리브 입출금이 생기면 단순 비율은 TWR 이 아니다 — 지금은 입금이 첫날 한 번뿐이라
+    같지만, 두 번째 입금이 들어오면 여기부터 고쳐야 한다(``inflow`` 로 그날 입금을 적는다).
+
+    슬리브가 없는 창고(달러를 들인 적 없음)면 ``None``.
+    """
+    curve = store.get(ledger.NAV_DAILY, as_of=as_of, entity=ledger.ACCOUNT, lookback=None)
+    if curve.empty or "equity_us" not in curve.columns:
+        return None
+    ordered = curve.sort_values(["valid_from", "observed_at"]).copy()
+    ordered = ordered.groupby("valid_from", as_index=False).tail(1)
+    ordered["nav_usd"] = ordered["equity_us"].astype(float) + ordered["cash_usd"].astype(float)
+    ordered = ordered[ordered["nav_usd"] > 0]
+    if ordered.empty:
+        return None
+    ordered["day"] = (
+        pd.to_datetime(ordered["valid_from"]).dt.tz_convert(NEW_YORK) - pd.Timedelta(hours=12)
+    ).dt.date
+    daily = ordered.groupby("day", sort=True).tail(1).reset_index(drop=True)
+
+    flows = store.get("capital_flows", as_of=as_of, entity=ledger.ACCOUNT, lookback=None)
+    usd = flows[flows["currency"].astype(str) == USD] if not flows.empty else flows
+    principal = float(usd["amount"].astype(float).sum()) if not usd.empty else 0.0
+
+    navs = daily["nav_usd"].astype(float)
+    last = daily.iloc[-1]
+    nav = float(last["nav_usd"])
+    base = float(navs.iloc[0])
+    peak = float(navs.max())
+    previous = daily.iloc[-2] if len(daily) > 1 else None
+    previous_nav = float(previous["nav_usd"]) if previous is not None else None
+    start = pd.Timestamp(previous["valid_from"]) if previous is not None else None
+    end = pd.Timestamp(last["valid_from"])
+    inflow = 0.0
+    if start is not None and not usd.empty:
+        stamps = pd.to_datetime(usd["valid_from"])
+        inflow = float(usd.loc[(stamps > start) & (stamps <= end), "amount"].astype(float).sum())
+    nav_change = nav - previous_nav if previous_nav is not None else None
+    pnl = nav_change - inflow if nav_change is not None else None
+
+    buys = sells = 0
+    trades = store.get(ledger.TRADES, as_of=as_of, lookback=10)
+    if start is not None and not trades.empty:
+        stamps = pd.to_datetime(trades["valid_from"])
+        window = trades[
+            (trades["currency"].astype(str) == USD) & (stamps > start) & (stamps <= end)
+        ]
+        buys = int((window["side"].astype(str) == Side.BUY).sum())
+        sells = int((window["side"].astype(str) == Side.SELL).sum())
+
+    from quant_rl_trading.store import mode as mode_module
+
+    mode = mode_module.of(store.root)
+    return Performance(
+        mode=mode.code,
+        mode_note=f"{mode.note} · 달러 슬리브(USD)",
+        store_root=str(store.root),
+        session=last["day"],
+        previous_session=previous["day"] if previous is not None else None,
+        since=daily["day"].iloc[0],
+        nav=nav,
+        previous_nav=previous_nav,
+        nav_change=nav_change,
+        inflow=inflow,
+        pnl=pnl,
+        daily_return=(pnl / previous_nav) if pnl is not None and previous_nav else None,
+        cumulative_return=nav / base - 1.0 if previous is not None else None,
+        index_value=BASE_INDEX * nav / base,
+        drawdown=nav / peak - 1.0,
+        principal=principal or None,
+        total_pnl=nav - principal if principal > 0 else None,
+        fills=[],
+        buy_count=buys,
+        sell_count=sells,
+        note=None if previous is not None else "첫 슬리브 세션 — 비교할 직전 스냅샷이 없다",
+        currency=USD,
     )

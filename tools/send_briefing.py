@@ -64,6 +64,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--store", help="창고 경로. 기본은 레포의 data/")
     parser.add_argument(
+        "--sleeve-store",
+        help="미장 달러 슬리브가 사는 창고(보통 data/_shadow). 주면 성과 칸이 하나 더 붙는다",
+    )
+    parser.add_argument(
         "--persist-translations",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -126,7 +130,10 @@ def main(argv: list[str] | None = None) -> int:
 
     store = open_store(args)
     translator = NewsTitleTranslate.from_env(store, clock, persist=args.persist_translations)
-    briefing = build_briefing(store, as_of=as_of, clock=clock, translate=translator)
+    sleeve_store = Store(root=Path(args.sleeve_store)) if args.sleeve_store else None
+    briefing = build_briefing(
+        store, as_of=as_of, clock=clock, translate=translator, sleeve_store=sleeve_store
+    )
     parts = render.render(briefing)
 
     print(parts["text"])

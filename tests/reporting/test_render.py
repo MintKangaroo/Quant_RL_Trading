@@ -1314,3 +1314,24 @@ def test_headline_does_not_stamp_the_weekly_fx_lag() -> None:
         fx_gap_kind=MISSING,
     )
     assert "(08-07 관측)" in headline(ours)
+
+
+def test_미장_슬리브_칸은_달러로_적는다() -> None:
+    """달러 슬리브를 원으로 적으면 $368,373 이 '368,373원' 이 된다 (2026-09-18)."""
+    from datetime import date
+
+    from quant_rl_trading.accounting.performance import Performance
+    from quant_rl_trading.reporting import render as render_module
+
+    perf = Performance(
+        mode="SHADOW", mode_note="", store_root="data/_shadow",
+        session=date(2026, 9, 17), previous_session=date(2026, 9, 16), since=date(2026, 9, 2),
+        nav=368_373.45, previous_nav=368_000.0, nav_change=373.45, inflow=0.0, pnl=373.45,
+        daily_return=0.001, cumulative_return=-0.0044, index_value=99.56, drawdown=-0.008,
+        principal=370_000.0, total_pnl=-1_626.55, fills=[], currency="USD",
+    )
+    lines = "\n".join(render_module._performance_section_lines(perf, "성과 · 미장 슬리브 (USD)"))
+    html = render_module._performance_section(perf, "성과 · 미장 슬리브 (USD)")
+    for text in (lines, html):
+        assert "$368,373.45" in text and "-$1,626.55" in text
+        assert "368,373원" not in text and "1,627원" not in text

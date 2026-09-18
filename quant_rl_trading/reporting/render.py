@@ -930,6 +930,26 @@ def _won(value: float | None) -> str:
     return "—" if value is None else f"{value:,.0f}원"
 
 
+def _usd(value: float | None) -> str:
+    """달러 금액 — 슬리브 칸. 센트까지 적는다(달러 슬리브는 원화보다 자릿수가 셋 작다)."""
+    return "—" if value is None else f"${value:,.2f}"
+
+
+def _usd_signed(value: float | None) -> str:
+    if value is None:
+        return "—"
+    if round(value, 2) == 0:
+        return "$0.00"
+    return f"{'+' if value > 0 else '-'}${abs(value):,.2f}"
+
+
+def _money_fns(perf: Any) -> tuple[Any, Any]:
+    """성과 칸의 금액 서식. **칸의 통화를 따른다** — 달러 슬리브를 원으로 적으면 36만원이 된다."""
+    if getattr(perf, "currency", "KRW") == "USD":
+        return _usd, _usd_signed
+    return _won, _won_signed
+
+
 def _won_signed(value: float | None) -> str:
     """부호를 붙인 원화. **0 과 없음을 가른다** — 없으면 ``—`` 다.
 
@@ -1007,7 +1027,7 @@ def _fill_rows(perf: Any) -> str:
     return rows
 
 
-def _performance_block(briefing: Briefing) -> str:
+def _performance_section(perf: Any, title: str) -> str:
     """성과 섹션 — 매매내역 · 수익률 · 총수익률 · 자산증감.
 
     ## 자산 증감과 수익률을 반드시 가른다 ⭐
@@ -1028,12 +1048,12 @@ def _performance_block(briefing: Briefing) -> str:
     없던 날은 "0건" 이 아니라 "매매가 없었다" 로 적는다 — 0 은 잰 결과이고
     없음은 사건이 없던 것이다.
     """
-    perf = briefing.performance
     if perf is None:
         return ""
+    won, won_signed = _money_fns(perf)
 
     mode = MODE_LABEL.get(perf.mode, perf.mode)
-    head = _section("성과", sub=f"· {mode}")
+    head = _section(title, sub=f"· {mode}")
     if not perf.measured:
         return _rule() + head + _band(
             perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다",
@@ -1044,30 +1064,30 @@ def _performance_block(briefing: Briefing) -> str:
     # 증감 아래 줄이 입출금을 말한다. **입출금이 0 이어도 적는다** — 있는 날만
     # 적으면 없는 날의 침묵이 "안 적어도 되는 값" 으로 읽힌다.
     flow = (
-        f"그중 입출금 {_won_signed(perf.inflow)}"
+        f"그중 입출금 {won_signed(perf.inflow)}"
         if perf.inflow
         else "입출금 없음"
     )
     change_note = (
-        f"{_won(perf.previous_nav)} → {_won(perf.nav)} · {flow}"
+        f"{won(perf.previous_nav)} → {won(perf.nav)} · {flow}"
         if perf.previous_nav is not None
         else (perf.note or "비교할 직전 스냅샷이 없다")
     )
 
     rows = _perf_row(
         "총자산",
-        _won(perf.nav),
-        note=f"{perf.session.isoformat()} 종가 · 원금 {_won(perf.principal)}",
+        won(perf.nav),
+        note=f"{perf.session.isoformat()} 종가 · 원금 {won(perf.principal)}",
     )
     rows += _perf_row(
         "자산 증감",
-        _won_signed(perf.nav_change),
+        won_signed(perf.nav_change),
         color=_color(perf.nav_change),
         note=change_note,
     )
     rows += _perf_row(
         "당일 손익",
-        _won_signed(perf.pnl),
+        won_signed(perf.pnl),
         color=_color(perf.pnl),
         note="자산 증감에서 입출금을 뺀 것",
     )
@@ -1090,7 +1110,7 @@ def _performance_block(briefing: Briefing) -> str:
     )
     rows += _perf_row(
         "총 수익금",
-        _won_signed(perf.total_pnl),
+        won_signed(perf.total_pnl),
         color=_color(perf.total_pnl),
         note="원금(입출금 누계) 대비",
     )
@@ -1105,38 +1125,51 @@ def _performance_block(briefing: Briefing) -> str:
     return out + _foot(f"매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count}) — 내역은 대시보드")
 
 
+def _performance_block(briefing: Briefing) -> str:
+    """국장 모의계좌 칸 + (있으면) 미장 달러 슬리브 칸. **칸마다 창고 하나다**(reporting.md)."""
+    return _performance_section(briefing.performance, "성과") + _performance_section(
+        getattr(briefing, "performance_us", None), "성과 · 미장 슬리브 (USD)"
+    )
+
+
 def _performance_lines(briefing: Briefing) -> list[str]:
+    return _performance_section_lines(briefing.performance, "성과") + _performance_section_lines(
+        getattr(briefing, "performance_us", None), "성과 · 미장 슬리브 (USD)"
+    )
+
+
+def _performance_section_lines(perf: Any, title: str) -> list[str]:
     """텍스트 대체본. **HTML 과 같은 사실을 말한다** — 한쪽만 정직하면
     이미지·스타일이 막힌 클라이언트에서 다른 메일이 된다."""
-    perf = briefing.performance
     if perf is None:
         return []
+    won, won_signed = _money_fns(perf)
     mode = MODE_LABEL.get(perf.mode, perf.mode)
-    lines = [f"== 성과 · {mode} =="]
+    lines = [f"== {title} · {mode} =="]
     if not perf.measured:
         lines += ["  " + (perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다"), ""]
         return lines
 
-    flow = f"그중 입출금 {_won_signed(perf.inflow)}" if perf.inflow else "입출금 없음"
+    flow = f"그중 입출금 {won_signed(perf.inflow)}" if perf.inflow else "입출금 없음"
     lines.append(
-        f"  총자산 {_won(perf.nav)} ({perf.session.isoformat()} 종가) · "
-        f"원금 {_won(perf.principal)}"
+        f"  총자산 {won(perf.nav)} ({perf.session.isoformat()} 종가) · "
+        f"원금 {won(perf.principal)}"
     )
     if perf.previous_nav is None:
         lines.append(f"  자산 증감: {perf.note or '비교할 직전 스냅샷이 없다'}")
     else:
         lines.append(
-            f"  자산 증감 {_won_signed(perf.nav_change)} "
-            f"({_won(perf.previous_nav)} → {_won(perf.nav)}, {flow})"
+            f"  자산 증감 {won_signed(perf.nav_change)} "
+            f"({won(perf.previous_nav)} → {won(perf.nav)}, {flow})"
         )
-    lines.append(f"  당일 손익 {_won_signed(perf.pnl)} (자산 증감 − 입출금)")
+    lines.append(f"  당일 손익 {won_signed(perf.pnl)} (자산 증감 − 입출금)")
     lines.append(f"  당일 수익률 {_pct(perf.daily_return)} (TWR — 입출금은 수익이 아니다)")
     lines.append(
         f"  총 수익률 {_pct(perf.cumulative_return)} (TWR 누적"
         + (f", {perf.since.isoformat()} 이후" if perf.since else "")
         + f", 지수 {_num(perf.index_value)})"
     )
-    lines.append(f"  총 수익금 {_won_signed(perf.total_pnl)} (원금 대비)")
+    lines.append(f"  총 수익금 {won_signed(perf.total_pnl)} (원금 대비)")
 
     if not perf.fill_count:
         lines += [f"  -- 매매: {perf.session.isoformat()} 에 체결된 매매가 없다", ""]

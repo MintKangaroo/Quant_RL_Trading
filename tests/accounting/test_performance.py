@@ -282,3 +282,56 @@ def test_모드는_창고_경로에서_나온다(tmp_path) -> None:
     perf = performance.daily(shadow, as_of=LATER)
     assert perf.mode == "SHADOW"
     assert perf.store_root.endswith("_shadow")
+
+
+# -- 미장 달러 슬리브 (메일 두 번째 칸, 2026-09-18) --------------------------------
+
+
+def _sleeve_row(day: datetime, equity_us: float, cash_usd: float) -> dict:
+    return nav_row(day, equity_us=equity_us, cash_usd=cash_usd, nav=99_000_000.0)
+
+
+def test_슬리브는_달러로_접고_원화_장부_계단을_안_섞는다(warehouse) -> None:
+    """shadow 장부 NAV(원화, 국장 포함)가 아니라 equity_us + cash_usd 만 본다."""
+    close1 = datetime(2026, 3, 2, 20, 20, tzinfo=UTC)  # KST 3/3 05:20 = ET 3/2 15:20
+    pre = datetime(2026, 3, 3, 7, 0, tzinfo=UTC)  # KST 3/3 16:00 = ET 3/3 02:00 — 장 전
+    close2 = datetime(2026, 3, 3, 20, 20, tzinfo=UTC)  # ET 3/3 15:20
+    warehouse.append("capital_flows", [flow(close1 - timedelta(hours=1), 1_000.0, USD),
+                                       flow(close1 - timedelta(hours=2), 5_000_000.0, KRW)],
+                     ingest_run_id="flows")
+    warehouse.append("nav_daily", [
+        _sleeve_row(close1, 0.0, 1_000.0),
+        _sleeve_row(pre, 0.0, 1_000.0),
+        _sleeve_row(close2, 900.0, 150.0),
+    ], ingest_run_id="nav")
+    perf = performance.usd_sleeve(warehouse, as_of=close2 + timedelta(hours=1))
+    assert perf is not None and perf.currency == USD
+    assert perf.session.isoformat() == "2026-03-03"
+    assert perf.previous_session.isoformat() == "2026-03-02"
+    assert perf.nav == pytest.approx(1_050.0)
+    assert perf.previous_nav == pytest.approx(1_000.0)
+    assert perf.daily_return == pytest.approx(0.05)
+    assert perf.principal == pytest.approx(1_000.0)  # 원화 입금은 안 섞인다
+    assert perf.total_pnl == pytest.approx(50.0)
+
+
+def test_장_전_스냅샷은_오늘로_세지_않는다(warehouse) -> None:
+    """16:00 KST 행이 '오늘' 이 되면 장도 안 열린 날에 변화 0 이 찍힌다."""
+    close1 = datetime(2026, 3, 2, 20, 20, tzinfo=UTC)
+    close2 = datetime(2026, 3, 3, 20, 20, tzinfo=UTC)
+    pre3 = datetime(2026, 3, 4, 7, 0, tzinfo=UTC)  # ET 3/4 02:00 — 3/3 세션 값
+    warehouse.append("capital_flows", [flow(close1 - timedelta(hours=1), 1_000.0, USD)],
+                     ingest_run_id="flows")
+    warehouse.append("nav_daily", [
+        _sleeve_row(close1, 0.0, 1_000.0),
+        _sleeve_row(close2, 900.0, 150.0),
+        _sleeve_row(pre3, 900.0, 150.0),
+    ], ingest_run_id="nav")
+    perf = performance.usd_sleeve(warehouse, as_of=pre3 + timedelta(hours=1))
+    assert perf.session.isoformat() == "2026-03-03"
+    assert perf.nav_change == pytest.approx(50.0)
+
+
+def test_달러를_들인_적_없으면_슬리브가_없다(warehouse) -> None:
+    warehouse.append("nav_daily", [nav_row(DAY1)], ingest_run_id="nav")
+    assert performance.usd_sleeve(warehouse, as_of=LATER) is None

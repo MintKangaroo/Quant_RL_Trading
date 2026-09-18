@@ -45,6 +45,6 @@ sys.exit(0 if any(is_trading_day(m, y) for m in (Market.KR, Market.US)) else 1)
         sleep 120
     done
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
-        .venv/bin/python tools/send_briefing.py --send --store data/_paper   # 성과는 모의계좌 장부(2026-08-28~)
+        .venv/bin/python tools/send_briefing.py --send --store data/_paper --sleeve-store data/_shadow   # 성과: 국장 모의계좌(08-28~) + 미장 shadow 달러 슬리브(09-02~)
     echo "rc=$?"
 } >>"${LOG}" 2>&1
