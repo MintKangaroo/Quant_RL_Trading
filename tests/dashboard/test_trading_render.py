@@ -298,6 +298,13 @@ def test_보유_파이를_실제로_그린다() -> None:
     source = (STATIC / "trading.js").read_text(encoding="utf-8")
     calls = source.count("renderPositionsPie(body);")
     assert calls >= 1, "renderPositionsPie 가 정의만 있고 호출되지 않는다"
+    # 두 겹이었다 — 호출과 함께 CSS 도 칸을 숨겼다(control.css). 어느 스타일시트도 파이 칸을 끄지 않는다.
+    import re
+
+    for sheet in STATIC.glob("*.css"):
+        text = re.sub(r"/\*.*?\*/", "", sheet.read_text(encoding="utf-8"), flags=re.S)
+        for rule in re.findall(r"([^{}]*positions-(?:viz|pie)[^{}]*)\{([^}]*)\}", text):
+            assert "display: none" not in rule[1] and "display:none" not in rule[1], (sheet.name, rule)
 
 
 def test_후보와_캘린더는_기본으로_펼쳐져_있다() -> None:

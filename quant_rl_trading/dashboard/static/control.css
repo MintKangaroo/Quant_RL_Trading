@@ -44,7 +44,8 @@
 .mission-control #panel-performance { margin-top: 4px; }
 .mission-control .perf-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .mission-control .grid-half { gap: 28px; }
-.mission-control .positions-viz { display: none; }
+/* 보유 파이를 숨기던 `.positions-viz { display: none }` 을 뺐다 — 9/9 재배치가 호출과 함께 지웠는데
+   근거가 설계 문서에 없고 사용자가 되살리라 했다(2026-09-19). */
 .mission-control .positions-body > .scroll, .mission-control #orders { max-height: 240px; }
 .model-intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 28px; }
 .model-identity { padding: 10px 0 14px; }
