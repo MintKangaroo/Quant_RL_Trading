@@ -447,7 +447,11 @@ def run(
         execution_clock=execution_clock,
     )
     result.orders = execution.planned
-    result.notes.extend(execution.notes)
+    # **집행 노트를 맨 앞에 둔다.** 게이트(데이터 품질·서킷·defer)는 매수를 통째로 막는데
+    # ``blocked_by`` 가 아니라 노트로만 남는다. 뒤에 붙이면 선정 노트(위험 컷·상관 감점…)에
+    # 밀려 세션 로그의 앞 5줄 밖으로 잘렸고, 미장이 9/16·9/17 이틀 주문 0 으로 끝난 이유가
+    # 어디에도 안 보였다(2026-09-18).
+    result.notes[:0] = execution.notes
     # **못 판 보유 종목은 노트로 올린다.** ``execution.skipped`` 에만 남기면
     # 화면과 리포트가 그것을 못 보고, 청산 불가가 조용히 쌓인다.
     result.notes.extend(
@@ -465,6 +469,8 @@ def run(
                 for item in execution.planned
             ],
             "blocked_by": execution.blocked_by,
+            # 게이트가 매수를 막은 이유는 노트에만 있다 — 저널에도 남겨야 나중에 찾는다.
+            "notes": list(execution.notes),
         },
     )
 
