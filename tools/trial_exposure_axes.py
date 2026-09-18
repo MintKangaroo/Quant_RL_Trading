@@ -158,8 +158,11 @@ def main(argv=None) -> int:
     for name, keep in VARIANTS.items():
         m = results[name]
         lines.append(
-            f"| {name} | {'·'.join(keep) or '없음'} | {m['ann']:+.1%} | {m['mdd']:.1%} | "
-            f"{m['worst']:.1%} | {m['switches']} | {m['avg_scale']:.2f} | "
+            # **소수점 셋까지 찍는다.** 한 자리로는 게이트가 왜 떨어뜨렸는지 안 보인다 —
+            # 2026-09-18 실행에서 여덟 변형의 MDD 가 전부 "−17.7%" 로 같아 보였는데
+            # 전체 정밀도에서는 갈렸다. 반올림이 판정 근거를 가리면 안 된다.
+            f"| {name} | {'·'.join(keep) or '없음'} | {m['ann']:+.2%} | {m['mdd']:+.3%} | "
+            f"{m['worst']:+.3%} | {m['switches']} | {m['avg_scale']:.2f} | "
             f"{m['ann_1h']:+.1%} | {m['ann_2h']:+.1%} |"
         )
     lines.append("")
