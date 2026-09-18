@@ -1390,6 +1390,9 @@ async function loadTrading() {
     renderDecision(body);
     renderRisk(body);
     renderPositions(body);
+    // 9/9 화면 재배치(2744252)에서 이 한 줄이 빠져 파이가 두 시장 다 사라졌다 — 템플릿 칸은
+    // 남아 있어 빈 자리만 보였다(2026-09-19 사용자 지적). tests/dashboard 가 호출을 지킨다.
+    renderPositionsPie(body);
     renderOrders(body);
   } else {
     document.getElementById("risk").innerHTML = '<p class="empty">종합 리스크 예산 미측정 · 개별 장부에서 확인한다.</p>';

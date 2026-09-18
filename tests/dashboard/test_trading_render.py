@@ -291,3 +291,20 @@ def test_매매가_없던_날은_0건이_아니라_없었다고_적는다(tmp_pa
     dump = _render(tmp_path, trading, chart)
     assert "체결된 매매가 없다" in dump["perf-fills"]
     assert "0건" not in dump["perf-fills"]
+
+
+def test_보유_파이를_실제로_그린다() -> None:
+    """9/9 재배치에서 호출 한 줄이 빠져 파이가 두 시장 다 사라졌다 — 정의만 있고 부르는 곳이 없었다."""
+    source = (STATIC / "trading.js").read_text(encoding="utf-8")
+    calls = source.count("renderPositionsPie(body);")
+    assert calls >= 1, "renderPositionsPie 가 정의만 있고 호출되지 않는다"
+
+
+def test_후보와_캘린더는_기본으로_펼쳐져_있다() -> None:
+    """사용자 요청 2026-09-19 — 후보·차트·AI 결정 흔적, 일별 수익률·캘린더. 접혀 있으면 매번 눌러야 한다."""
+    import re
+
+    template = TEMPLATE.read_text(encoding="utf-8")
+    for section in ("candidate-details", "calendar-details"):
+        tag = re.search(rf"<details[^>]*id=\"{section}\"[^>]*>", template)
+        assert tag and re.search(r"\sopen(\s|>)", tag.group(0)), section

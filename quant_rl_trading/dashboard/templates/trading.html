@@ -94,7 +94,7 @@
       <div id="account-kpis" class="scroll"></div>
     </section>
   </details>
-  <details class="fold"><summary>일별 수익률 · 캘린더</summary>
+  <details class="fold" id="calendar-details" open><summary>일별 수익률 · 캘린더</summary>
   {# 2행: 일별 수익률 막대 | 수익률 캘린더 — 같은 nav_daily(TWR)라 둘이 어긋나지 않는다.
      달력을 막대 오른쪽에 둔다(사용자 요청 2026-09-07). 모바일에선 세로로 쌓인다. #}
   <section class="grid-half">
@@ -127,7 +127,8 @@
   </section>
 
   </details>
-  <details class="fold" id="candidate-details">
+  <!-- 기본 펼침 — 사용자 요청 2026-09-19. 펼친 상태면 loadTrading 끝에서 차트까지 그린다(loadOpenDetails). -->
+  <details class="fold" id="candidate-details" open>
     <summary>후보 · 차트 · AI 결정 흔적</summary>
   <section class="grid-desk">
     <!-- 좌: 워치리스트 — 클릭하면 차트가 그 종목으로 간다 -->
