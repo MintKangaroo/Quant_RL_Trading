@@ -104,7 +104,10 @@
 
 /* 시장 묶음. **가로 한 줄에서는 위치가 시장을 말해주지 않는다** — 좌우로
    갈랐을 때 왼쪽/오른쪽이 하던 일을 머리글과 구분선이 대신한다. */
-.index-group { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+/* **min-width 는 min-content 다 — 0 이 아니다.** 0 이면 좁은 화면(아이패드 가로 ~1000px)에서
+   묶음이 안의 패널 바닥폭(280×n)보다 좁게 줄고, 넘친 코스닥 패널이 옆 묶음 SPY 위에
+   겹쳐 그려졌다(2026-09-19 아이패드 실측). 묶음은 패널 합보다 안 줄고, 모자라면 줄이 민다. */
+.index-group { display: flex; flex-direction: column; gap: 6px; min-width: min-content; }
 
 /* 두 번째 묶음부터 앞에 선을 세운다. 여섯을 균등하게 늘어놓으면 코스닥과
    SPY 사이의 경계가 사라지는데, 그 둘은 다른 시장이고 성격도 다르다
