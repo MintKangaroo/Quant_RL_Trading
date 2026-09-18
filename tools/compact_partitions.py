@@ -1,7 +1,7 @@
 """파티션 압축 CLI — 본체는 `quant_rl_trading/store/compaction.py` 에 있다.
 
-    .venv/bin/python tools/compact_partitions.py --table indices --table fx
-    .venv/bin/python tools/compact_partitions.py --table indices --apply
+    .venv/bin/python tools/compact_partitions.py --all
+    .venv/bin/python tools/compact_partitions.py --all --apply
 
 **장 중·수집 중에는 돌리지 않는다.** 원본을 지우는 순간이 읽는 쪽과의 경합 지점이다.
 종료코드: 0 정상 · 1 검증 실패로 건너뛴 파티션이 있다.
@@ -35,20 +35,31 @@ def _bytes(directory: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="data")
-    parser.add_argument("--table", action="append", required=True, help="여러 번 줄 수 있다")
+    parser.add_argument("--table", action="append", default=[], help="여러 번 줄 수 있다")
+    parser.add_argument("--all", action="store_true", help="창고의 모든 표 — 새 표가 생겨도 따라간다")
     parser.add_argument("--older-than-days", type=int, default=DEFAULT_OLDER_THAN)
     parser.add_argument("--limit", type=int, default=0, help="파티션 N 개만")
     parser.add_argument("--apply", action="store_true", help="실제로 합친다 (기본은 미리보기)")
     args = parser.parse_args(argv)
 
     root = Path(args.root)
+    tables = list(args.table)
+    if args.all:
+        # **표를 손으로 적지 않는다.** 새 표가 생기면 그것만 조용히 파편화된 채 남는다.
+        curated = root / paths.CURATED
+        tables = sorted(
+            d.name for d in curated.iterdir()
+            if d.is_dir() and not d.name.startswith("_")
+        )
+    if not tables:
+        parser.error("--table 또는 --all 이 필요하다")
     now = datetime.now(UTC)  # invariant-allow: wallclock — 파일 정리 유예 계산, 도메인 시각 아님
     cutoff = now.date() - timedelta(days=int(args.older_than_days))
     staging = root / paths.CURATED / paths.STAGING
     connection = connect()
     touched = skipped = 0
 
-    for table in args.table:
+    for table in tables:
         found = candidates(root, table, cutoff=cutoff)
         if args.limit:
             found = found[: args.limit]
