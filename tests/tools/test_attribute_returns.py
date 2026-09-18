@@ -108,3 +108,13 @@ def test_유니버스_소속은_구간_시작_시점이다() -> None:
 
     assert with_dead == pytest.approx(-0.20), "그때 살 수 있었으면 그 손실도 세계의 일부다"
     assert without == pytest.approx(0.10), "끝 시점 명단으로 거르면 −50% 가 사라진다"
+
+
+def test_변경_지점은_날짜순이고_설명이_있다() -> None:
+    """변경을 하면 여기 한 줄을 넣어 그 전·후를 따로 분해한다. 판정일에 '무엇이 돈이 됐나'
+    를 말하려면 변경마다 경계가 있어야 한다."""
+    from tools.attribute_returns import CHANGE_POINTS
+
+    days = [d for d, _ in CHANGE_POINTS]
+    assert days == sorted(days)
+    assert all(label.strip() for _, label in CHANGE_POINTS)

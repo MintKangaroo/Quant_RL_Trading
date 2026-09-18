@@ -58,6 +58,13 @@ from quant_rl_trading.store import Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 START = date(2026, 8, 28)
+
+#: **운용을 바꾼 날.** 각 변경의 "전·후" 를 따로 분해하려고 둔다. 날짜는 그 변경이 **처음 영향을
+#: 준 장부 세션**이다(설정은 장 마감 뒤에 넣으므로 보통 다음 거래일). 변경을 하면 여기 한 줄 넣는다.
+#: `--changes` 를 주면 이 지점들로 창을 자른다.
+CHANGE_POINTS: tuple[tuple[date, str], ...] = (
+    (date(2026, 9, 21), "V6 — 노출 축을 국면만 남김(추세·압축 끔)"),
+)
 TERMS = ("선택", "유니버스", "노출", "야간갭", "집행", "명시비용")
 
 
@@ -214,6 +221,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from", dest="start", default=START.isoformat())
     parser.add_argument("--to", dest="end")
     parser.add_argument("--daily", action="store_true", help="세션별 표도 찍는다")
+    parser.add_argument("--split", action="append", default=[], help="이 날부터 새 구간 (여러 번)")
+    parser.add_argument("--changes", action="store_true", help="등록된 운용 변경 지점으로 자른다")
     args = parser.parse_args(argv)
 
     book = Store(root=Path(args.sandbox))
@@ -298,16 +307,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(f"분해 창 {anchors[0]} ~ {anchors[-1]} · 구간 {len(good)}"
           + (f" (미측정 {int(frame['미측정'].sum())})" if frame["미측정"].any() else ""))
-    print(f"  우리 {good['r_p'].sum() * 100:+.2f}%  ·  벤치마크 {good['r_b'].sum() * 100:+.2f}%"
-          f"  ·  차이 {(good['r_p'] - good['r_b']).sum() * 100:+.2f}%p   (일별 합, 복리 아님)")
-    print("\n  차이를 항목으로 가르면")
-    for term in TERMS:
-        value = float(good[term].sum())
-        print(f"    {term:6s} {value * 100:+7.2f}%p")
-    total = float(sum(good[t].sum() for t in TERMS))
-    gap = float((good["r_p"] - good["r_b"]).sum())
-    print(f"    {'합계':6s} {total * 100:+7.2f}%p   (차이와 어긋남 {abs(total - gap) * 100:.4f}%p)")
-    print(f"\n  평균 주식 비중 {good['w'].mean():.0%} · 최저 {good['w'].min():.0%} · 최고 {good['w'].max():.0%}")
+
+    splits = sorted({date.fromisoformat(d) for d in args.split})
+    if args.changes:
+        splits = sorted(set(splits) | {d for d, _ in CHANGE_POINTS})
+    labels = {d: label for d, label in CHANGE_POINTS}
+    edges = [d for d in splits if good["day"].min() < d <= good["day"].max()]
+    bounds = [good["day"].min(), *edges]
+    mechanics = _mechanics(book, now)
+    for i, lo in enumerate(bounds):
+        hi = bounds[i + 1] if i + 1 < len(bounds) else None
+        part = good[(good["day"] >= lo) & ((good["day"] < hi) if hi else True)]
+        if part.empty:
+            continue
+        title = "전체" if len(bounds) == 1 else (
+            f"{lo} 부터" + (f" — {labels[lo]}" if lo in labels else "") if i else f"{lo} ~ 변경 전"
+        )
+        _report(part, title, mechanics)
 
     if args.daily:
         show = good[["day", "w", "r_p", "r_b", *TERMS]].copy()
@@ -315,6 +331,74 @@ def main(argv: list[str] | None = None) -> int:
             show[column] = (show[column] * 100).round(3)
         print("\n" + show.to_string(index=False))
     return 0
+
+
+def _report(part: pd.DataFrame, title: str, mechanics: pd.DataFrame) -> None:
+    """한 구간의 분해와 **메커니즘 점검**.
+
+    둘을 가르는 이유: 변경이 돈이 됐는지는 표본이 쌓여야 말할 수 있지만(판정은 11-25),
+    변경이 **뜻대로 작동했는지**는 며칠이면 보인다 — 노출을 올리려 했으면 비중이 올랐나,
+    회전을 줄이려 했으면 노출 왕복이 줄었나. 작동조차 안 했다면 수익을 기다릴 이유가 없다.
+    """
+    print(f"\n=== {title} · 구간 {len(part)} ===")
+    print(f"  우리 {part['r_p'].sum() * 100:+.2f}%  ·  벤치마크 {part['r_b'].sum() * 100:+.2f}%"
+          f"  ·  차이 {(part['r_p'] - part['r_b']).sum() * 100:+.2f}%p   (일별 합, 복리 아님)")
+    for term in TERMS:
+        print(f"    {term:6s} {float(part[term].sum()) * 100:+7.2f}%p")
+    total = float(sum(part[t].sum() for t in TERMS))
+    gap = float((part["r_p"] - part["r_b"]).sum())
+    print(f"    {'합계':6s} {total * 100:+7.2f}%p   (차이와 어긋남 {abs(total - gap) * 100:.4f}%p)")
+
+    days = set(part["day"])
+    m = mechanics[mechanics["day"].isin(days)] if not mechanics.empty else mechanics
+    print("  메커니즘 — 뜻대로 작동했나")
+    print(f"    주식 비중     평균 {part['w'].mean():.0%} · 최저 {part['w'].min():.0%} · 최고 {part['w'].max():.0%}")
+    if not m.empty and float(m["gross"].sum()) > 0:
+        share = float(m["net"].abs().sum()) / float(m["gross"].sum())
+        print(f"    거래 구성     노출 변경 {share:.0%} · 종목 교체·리밸런스 {1 - share:.0%}"
+              f"  (거래대금 {float(m['gross'].sum()) / 1e8:,.1f}억)")
+    scales = m.dropna(subset=["scale"])["scale"] if not m.empty and "scale" in m else pd.Series(dtype=float)
+    if len(scales):
+        switches = int((scales.diff().abs() > 1e-9).sum())
+        print(f"    노출 배수     전환 {switches}회 · 값 {sorted(set(round(v, 2) for v in scales))}")
+
+
+def _mechanics(book: Store, now: datetime) -> pd.DataFrame:
+    """세션마다 순매수·총거래(원)와 적용 노출 배수. 분해가 아니라 **작동 여부**를 본다."""
+    trades = book.get("trades", as_of=now, lookback=300, market="KR",
+                      columns=["valid_from", "side", "quantity", "price"])
+    out = pd.DataFrame(columns=["day", "net", "gross", "scale"])
+    if not trades.empty:
+        t = trades.assign(
+            day=trades["valid_from"].dt.tz_convert("Asia/Seoul").dt.date,
+            gross=trades["quantity"].astype(float) * trades["price"].astype(float),
+        )
+        t["net"] = t["gross"].where(t["side"].astype(str) == "buy", -t["gross"])
+        out = t.groupby("day")[["net", "gross"]].sum().reset_index()
+    events = book.get("events", as_of=now, lookback=300)
+    if not events.empty:
+        e = events[(events["stage"] == "exposure")
+                   & events["entity_id"].astype(str).str.startswith("session-KR-")].copy()
+        if not e.empty:
+            import json
+
+            e["scale"] = [float(json.loads(p)["scale"]) if isinstance(p, str) else float(p["scale"])
+                          for p in e["payload"]]
+            # 세션 run 이름의 날짜 = 그 세션이 **결정한 기준일**(직전 마감). 그 배수는 다음
+            # 거래일부터 효력이 있고, 다음 결정이 나올 때까지 유지된다(차단된 세션은 이벤트가
+            # 없다 — 적용된 배수가 그대로다). 그래서 **시점 조인**이다: 장부의 각 날에 대해
+            # "그날보다 앞선 마지막 결정". 처음엔 '다음 이벤트 날짜' 에 붙여 9/16 의 0.5 가
+            # 통째로 빠졌다(9/10 차단 세션처럼 이벤트가 듬성하면 날짜가 밀린다).
+            e["decided"] = pd.to_datetime(e["entity_id"].str.slice(11)).dt.date
+            decisions = e.sort_values("valid_from").groupby("decided")["scale"].last().sort_index()
+            days = sorted(set(out["day"])) if not out.empty else []
+            applied = []
+            for day in days:
+                prior = decisions[decisions.index < day]
+                applied.append(float(prior.iloc[-1]) if len(prior) else float("nan"))
+            if days:
+                out = out.assign(scale=applied)
+    return out.sort_values("day") if not out.empty else out
 
 
 def cost_won(book: Store, now: datetime) -> pd.Series:
