@@ -234,3 +234,26 @@ def test_창이_끝날_때까지_못_붙으면_성공으로_끝내지_않는다(
             store, client, clock, seconds=4,
             connector=lambda *a, **k: Socket(clock, lambda _i: {"header": {"tr_cd": "SC3", "rsp_cd": "ERROR"}}),
         )
+
+
+def test_확인_하나가_거부돼도_감시는_계속된다(booked):
+    """2026-09-18: `accept()` 가 던진 ValueError 가 회차를 통째로 끝냈다 — 확인 이벤트가 **도착하는
+    바로 그 순간** 감시가 죽어, 그날 확인이 하루 종일 0건이었고 재호가 9건이 미확정으로 남았다.
+    거부된 한 건은 기록하지 않되 감시는 이어가고, 사유를 남긴다."""
+    store, clock, original, client, _tokens = configured(booked)
+
+    def receive(index):
+        if index <= 2:
+            return {"header": {"tr_cd": ["SC2", "SC3"][index - 1], "rsp_cd": "00000"}}
+        if index == 3:
+            # 검증에서 걸리는 이벤트 — 종목코드가 엉터리다
+            return {"header": {"tr_cd": "SC3"}, "body": {"shtnIsuno": "BAD", "ordno": "1", "orgordno": "2"}}
+        if index == 4:
+            ActionJournal(store, clock, FakeBroker()).dispatch(action(original, clock), original)
+        return message(clock)
+
+    result = watch(store, client, clock, seconds=6, connector=lambda *a, **k: Socket(clock, receive))
+
+    assert result.rejected >= 1, "거부를 세야 한다"
+    assert result.confirmed == 1, "거부 뒤에 온 정상 확인은 받아야 한다 — 예전엔 여기서 죽었다"
+    assert any("invalid KR instrument" in reason for reason, _ in result.reasons), "사유가 남아야 한다"

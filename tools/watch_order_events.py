@@ -76,7 +76,8 @@ def _watch_until(store, client, clock, *, seconds: int, connector=None):
             time.sleep(min(RETRY_BACKOFF_SEC * attempts, MAX_BACKOFF_SEC))
             continue
         return WatchResult(
-            confirmed + done.confirmed, duplicates + done.duplicates, unmatched + done.unmatched
+            confirmed + done.confirmed, duplicates + done.duplicates, unmatched + done.unmatched,
+            done.rejected, done.reasons,
         )
     if last is not None:
         # 창이 끝날 때까지 한 번도 못 붙었다. 성공으로 끝내지 않는다.
@@ -132,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
     finally:
         if client is not None:
             client.close()
+    if result.rejected:
+        # 거부 사유를 남긴다. 이게 없으면 "확인 0건" 이 "아무 일도 없었다" 와 구별되지 않는다.
+        detail = " · ".join(f"{reason} {count}건" for reason, count in result.reasons)
+        print(f"{_stamp(clock)} 확인 거부 {result.rejected}건 — {detail}", file=sys.stderr)
     print(
         f"{_stamp(clock)} 취소·정정 확인 {result.confirmed}건 · 중복 {result.duplicates}건 · "
         f"로컬 주문과 연결되지 않은 이벤트 {result.unmatched}건"

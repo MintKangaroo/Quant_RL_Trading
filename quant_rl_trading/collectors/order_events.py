@@ -56,6 +56,9 @@ class WatchResult:
     confirmed: int
     duplicates: int
     unmatched: int
+    #: 검증에서 거부된 확인 이벤트 수와 사유별 건수. **거부는 감시를 멈추지 않는다** — 아래 참고.
+    rejected: int = 0
+    reasons: tuple[tuple[str, int], ...] = ()
 
 
 def pinned_mode(store: Store, client: LSClient, clock: Clock) -> str:
@@ -85,7 +88,8 @@ def watch(
     token = client.ensure_token(allow_paper=True).access_token
     if not token or token == "PAPER_PLACEHOLDER":
         raise WatchAborted("authenticated token unavailable")
-    confirmed = duplicates = unmatched = 0
+    confirmed = duplicates = unmatched = rejected = 0
+    reasons: dict[str, int] = {}
     subscribed: set[str] = set()
     with connector(
         URLS[mode], open_timeout=10, close_timeout=5, max_size=1_048_576, proxy=None
@@ -155,6 +159,16 @@ def watch(
                 )
             except UnmatchedConfirmation:
                 unmatched += 1  # Manual/legacy orders have no trusted local binding.
+            except ValueError as exc:
+                # **이벤트 하나가 거부됐다고 감시 전체를 멈추지 않는다.** 예전에는 `accept()` 가
+                # 던진 ValueError 가 그대로 올라가 회차를 통째로 끝냈다 — 확인 이벤트가 **도착하는
+                # 바로 그 순간** 감시가 죽고, 그 뒤 같은 창의 다른 확인도 영영 못 받았다.
+                # 2026-09-18 실측: 재호가(:20·:40) 직후 네 번 죽었고, 그날 확인이 하루 종일 0건,
+                # 장중 재호가 9건이 cancel_unknown 으로 남아 15:45 대사가 rc=1 이었다.
+                # 거부된 그 한 건은 기록하지 않는다(예약 유지 — 전과 같은 안전한 기본값)가,
+                # **사유는 남긴다.** accept() 의 문구는 전부 고정이라 payload 가 섞이지 않는다.
+                rejected += 1
+                reasons[str(exc)] = reasons.get(str(exc), 0) + 1
             else:
                 confirmed += int(added)
                 duplicates += int(not added)
@@ -166,4 +180,6 @@ def watch(
             partial=WatchResult(confirmed, duplicates, unmatched),
             retryable=True,
         )
-    return WatchResult(confirmed, duplicates, unmatched)
+    return WatchResult(
+        confirmed, duplicates, unmatched, rejected, tuple(sorted(reasons.items()))
+    )
