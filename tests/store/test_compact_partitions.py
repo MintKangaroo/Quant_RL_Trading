@@ -13,7 +13,7 @@ import duckdb
 import pytest
 
 from quant_rl_trading.store import paths
-from tools.compact_partitions import MERGED_PREFIX, compact_partition
+from quant_rl_trading.store.compaction import MERGED_PREFIX, compact_partition
 
 NOW = datetime(2026, 9, 10, 6, 0, tzinfo=UTC)
 
