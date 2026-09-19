@@ -79,6 +79,12 @@ def run_interest(store: Store, client: httpx.Client, start: date, end: date) -> 
         result = backfiller.run_settlement(day)
         if result.skipped:
             skipped += 1
+        elif getattr(result, "pending", False):
+            # **공표 전은 오류가 아니다** — 다음 실행이 받는다. 거래량 쪽(아래 루프)은 9/12 에
+            # 이렇게 고쳤는데 잔고 쪽이 빠져, 결제일마다 공표 전 1주일 내내 rc=1 헛경보가
+            # 났다(9/16·9/17·9/19). 진짜 고장이 이 칸에 묻힌다.
+            empty += 1
+            print(f"  {day}: {result.error}", flush=True)
         elif result.error:
             errors += 1
             print(f"  {day}: {result.error}", flush=True)
