@@ -17,11 +17,14 @@ from __future__ import annotations
 import argparse
 import sys
 import time as time_module
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+import pandas as pd  # noqa: E402
 
 from quant_rl_trading.collectors import dart_documents as docs  # noqa: E402
 from quant_rl_trading.collectors.dart_source import DartSource, DartUnavailable  # noqa: E402
@@ -49,6 +52,7 @@ def collect(
     root: Path,
     dry_run: bool = False,
     sleep=time_module.sleep,
+    until: date | None = None,
 ) -> tuple[int, int, int]:
     """(받은 건수, 원문 없음, 대상 건수). 적재는 마지막에 한 번.
 
@@ -57,6 +61,10 @@ def collect(
     """
     now = clock.now()
     frame = store.get(docs.DOCUMENTS, as_of=now, lookback=lookback_days)
+    if until is not None and not frame.empty:
+        # 판정 창 **밖** 표본(시행 X 모델 선정·PCA 적합)만 받을 때. pending 은 최근 것부터라
+        # 창을 자르지 않으면 판정 창 안의 공시가 배치 머리를 차지한다.
+        frame = frame[frame["valid_from"] < pd.Timestamp(until, tz="UTC")]
     todo = docs.pending(frame, limit=limit, doc_types=doc_types)
     if todo.empty:
         return 0, 0, 0
@@ -118,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
         help=f"쉼표로. 기본 {','.join(DEFAULT_TYPES)} · 'all' 이면 전부",
     )
     parser.add_argument("--lookback", type=int, default=400, help="창고 조회 창(일)")
+    parser.add_argument("--until", type=date.fromisoformat, default=None,
+                        help="이 날짜 **전** 공시만 (판정 창 밖 표본용, 예: 2024-01-01)")
     parser.add_argument("--text-root", default=str(docs.TEXT_ROOT))
     parser.add_argument("--dry-run", action="store_true", help="받아만 보고 적재하지 않는다")
     args = parser.parse_args(argv)
@@ -137,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         lookback_days=args.lookback,
         root=Path(args.text_root),
         dry_run=args.dry_run,
+        until=args.until,
     )
     if total == 0:
         print("원문이 없는 공시가 없다 — 할 일 없음")

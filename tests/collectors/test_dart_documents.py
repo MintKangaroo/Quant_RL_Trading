@@ -175,3 +175,12 @@ def test_DART_가_아닌_문서는_고르지_않는다() -> None:
         {**row, "valid_from": NOW, "revision": 0, "raw_path": None, "doc_type": "distress"} for row in rows
     ])
     assert docs.pending(frame)["doc_id"].tolist() == ["20260911900698"]
+
+
+def test_until_은_그_날짜_전_공시만_고른다(store, tmp_path) -> None:
+    """판정 창 밖 표본용 — 자르지 않으면 최근 공시가 배치 머리를 차지한다."""
+    source = FakeSource({"20260911900698": zipped(b"<p>x</p>")})
+    kwargs = dict(limit=10, doc_types=("distress",), lookback_days=30, root=tmp_path / "docs", sleep=lambda _: None)
+    assert tool.collect(store, source, ReplayClock(NOW), until=FILED.date(), **kwargs)[2] == 0, "until 당일 공시를 골랐다"
+    assert source.calls == []
+    assert tool.collect(store, source, ReplayClock(NOW), until=NOW.date(), **kwargs)[:2] == (1, 0)
