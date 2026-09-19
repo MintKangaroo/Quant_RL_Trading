@@ -1,10 +1,10 @@
-"""시행 X — 베타는 시장만큼, 종목은 랭커가. docs/protocols/market-beta-selection-2026-09.md.
+"""시행 Y — 베타는 시장만큼, 종목은 랭커가. docs/protocols/market-beta-selection-2026-09.md.
 
     .venv/bin/python tools/trial_market_beta.py [--save]
 
 틀은 시행 P(`trial_float_cap.py`) 그대로다 — 명단·점수·완충·수익·비용·K200 구성종목이 같아야 P 와 견준다.
 여기서 더하는 것은 둘뿐이다: 노출 배수(시행 V 의 국면 축, `trial_regime_rule.scales_for`)와
-상승·하락일 추종률. 판정은 X0(현행 대리) 대비다.
+상승·하락일 추종률. 판정은 Y0(현행 대리) 대비다.
 """
 from __future__ import annotations
 
@@ -48,11 +48,11 @@ PROTOCOL = Path("docs/protocols/market-beta-selection-2026-09.md")
 N, EXIT_MULT, SPAN, CAP_LIMIT = 24, 3, 5, 0.10
 #: 이름: (K200 구성종목만, 유동시총 가중, 노출 V6)
 VARIANTS = {
-    "X0": (False, False, True),
-    "X1": (False, False, False),
-    "X2": (True, False, True),
-    "X3": (True, False, False),
-    "X4": (True, True, False),
+    "Y0": (False, False, True),
+    "Y1": (False, False, False),
+    "Y2": (True, False, True),
+    "Y3": (True, False, False),
+    "Y4": (True, True, False),
 }
 ASYM_GATE, UP_GATE, MDD_SLACK, T_GATE = 0.05, 0.80, 0.02, 2.0
 
@@ -69,7 +69,7 @@ def main(argv=None) -> int:
     parser.add_argument("--root", default="data"); parser.add_argument("--save", action="store_true")
     args = parser.parse_args(argv)
     digest = hashlib.sha256(PROTOCOL.read_bytes()).hexdigest()[:16]
-    print(f"=== 시행 X — {PROTOCOL} (해시 {digest}) ===", flush=True)
+    print(f"=== 시행 Y — {PROTOCOL} (해시 {digest}) ===", flush=True)
     store = Store(root=Path(args.root))
     trad = _pkl("tradable"); sessions = sorted(d for d in trad["session"].unique() if d < HOLDOUT_START)
     end_moment = datetime.combine(sessions[-1], time(16), tzinfo=UTC)
@@ -126,7 +126,7 @@ def main(argv=None) -> int:
         m["ir_1h"] = metrics(sr.iloc[:half], b.iloc[:half])["ir"]; m["ir_2h"] = metrics(sr.iloc[half:], b.iloc[half:])["ir"]
         rows[name] = m; series[name] = sr
 
-    bench = idx_ret.reindex(series["X0"].index).fillna(0.0)
+    bench = idx_ret.reindex(series["Y0"].index).fillna(0.0)
     bnav = (1 + bench).cumprod(); bench_mdd = float((bnav / bnav.cummax() - 1).min())
     lines = [
         f"K200 같은 창: 연 {bench.mean() * ANN:+.1%} · MDD {bench_mdd:.1%} · 상승일 {int((bench > 0).sum())} · 하락일 {int((bench < 0).sum())}",
@@ -139,9 +139,9 @@ def main(argv=None) -> int:
                      f"{m['excess']:+.1%} | {m['up']:.2f} | {m['down']:.2f} | {m['asym']:+.3f} | {m['turn']:.1f} | "
                      f"{m['effn']:.1f} | {m['avg_scale']:.2f} | {m['ir_1h']:+.2f}/{m['ir_2h']:+.2f} |")
     lines.append("")
-    base = series["X0"]; passed = []
+    base = series["Y0"]; passed = []
     for v in VARIANTS:
-        if v == "X0":
+        if v == "Y0":
             continue
         m = rows[v]; d = (series[v] - base).dropna(); t = float(ic_module.newey_west_t(d, lag=4))
         c = (m["asym"] >= ASYM_GATE, m["up"] >= UP_GATE, m["mdd"] >= bench_mdd - MDD_SLACK, t >= T_GATE)
@@ -157,11 +157,11 @@ def main(argv=None) -> int:
     if args.save:
         now = datetime.now(UTC)  # invariant-allow: wallclock — 시행 기록 시각
         store.append("research_trials", [{
-            "entity_id": "market-beta-selection-2026-09:X", "valid_from": now, "observed_at": now, "source": "trial_market_beta",
+            "entity_id": "market-beta-selection-2026-09:Y", "valid_from": now, "observed_at": now, "source": "trial_market_beta",
             "market": "KR", "family": "selection", "n_trials": 1, "protocol_hash": digest,
             "detail": (f"{verdict} | " + " | ".join(lines[4:]))[:900],
-        }], ingest_run_id=f"trial-market-beta-X-{now:%Y%m%dT%H%M%S}")
-        print(f"research_trials 기록: selection/X · protocol {digest}")
+        }], ingest_run_id=f"trial-market-beta-Y-{now:%Y%m%dT%H%M%S}")
+        print(f"research_trials 기록: selection/Y · protocol {digest}")
     return 0
 
 
