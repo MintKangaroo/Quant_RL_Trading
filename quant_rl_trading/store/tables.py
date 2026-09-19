@@ -629,6 +629,27 @@ _SPECS: dict[str, TableSpec] = {
             "접수일 18:00 ET(EDGAR 관례, edgar_filings.FILING_HOUR_ET). 6차 G7(미장 내부자) 재료."
         ),
     ),
+    # 공시 원문 임베딩(시행 X). **원문이 아니라 3차원 주성분만** 창고에 둔다 — 원문은 data/_docs 에 있고,
+    # 랭커가 먹는 것은 이 셋이다. PCA 는 판정 창 밖에서 적합해 고정(pca_id), 모델도 해시로 고정(model_id).
+    "document_embeddings": TableSpec(
+        name="document_embeddings",
+        columns={
+            "market": pa.string(),
+            "doc_id": pa.string(),
+            "doc_type": pa.string(),
+            "model_id": pa.string(),   # 모델 이름@커밋해시
+            "pca_id": pa.string(),     # PCA 적합 산출물 이름(창 밖 표본)
+            "pc1": pa.float64(),
+            "pc2": pa.float64(),
+            "pc3": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "doc_id", "model_id"),
+        observation_lag_days=1,
+        doc=(
+            "공시 원문 임베딩의 주성분 3개. valid_from·observed_at 은 원 공시(documents)의 값을 그대로 옮긴다 — "
+            "임베딩은 계산일 뿐 새 사실이 아니다. 시행 X(filing-text-embedding-2026-09.md)의 랭커 피처."
+        ),
+    ),
     "earnings_calendar": TableSpec(
         name="earnings_calendar",
         columns={

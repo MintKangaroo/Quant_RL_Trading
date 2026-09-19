@@ -29,6 +29,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "G6": ("pead_2d", "days_since_earn", "earn_gap"),
     # G7 (2026-09-19 추가, 사용자 승인) — 미장 내부자 Form 4. G4 의 미장 짝. 표는 form4_trades(G4 입력을 안 건드린다).
     "G7": ("form4_sell_60", "form4_sellers_20", "form4_buy_60"),
+    # X (시행 X, filing-text-embedding-2026-09.md) — 공시 원문 임베딩의 주성분 3개. 국장만(DART 원문).
+    "X": ("text_pc1", "text_pc2", "text_pc3"),
 }
 
 #: G1 — ADV120 이 필요하므로 달력일로 넉넉히.
@@ -43,6 +45,9 @@ SHORT_LOOKBACK_DAYS = 60
 #: G4 — 60세션 ≈ 90달력일.
 INSIDER_LOOKBACK_DAYS = 100
 INSIDER_SESSIONS = 60
+#: X — 공시 임베딩: 최근 60세션 공시의 주성분 평균.
+EMBED_LOOKBACK_DAYS = 100
+EMBED_SESSIONS = 60
 #: G7 — 접수일 기준 60세션(금액)·20세션(보고자 수).
 FORM4_LOOKBACK_DAYS = 100
 FORM4_SESSIONS = 60
@@ -375,9 +380,38 @@ def form4_trading(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
 
 
+# --------------------------------------------------------------------------- X 공시 원문 임베딩
+
+
+def filing_embedding(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """시행 X. 최근 60세션 공시 임베딩 주성분의 **종목별 평균**. 공시가 없으면 결측(0 이 아니다 —
+    '공시가 없었다' 와 '주성분이 0 이었다' 는 다른 사실이고, rank-gauss 가 결측을 중앙으로 보낸다)."""
+    rows = analyst.store.get(
+        "document_embeddings", as_of=as_of, lookback=EMBED_LOOKBACK_DAYS, market=str(analyst.market),
+        columns=["entity_id", "valid_from", "pc1", "pc2", "pc3"],
+    )
+    if rows.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=EMBED_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    sessions = _session_index(prices)
+    if len(sessions) < 20:
+        return pd.DataFrame()
+    start = sessions[-min(EMBED_SESSIONS, len(sessions))]
+    rows = rows.copy()
+    rows["day"] = rows["valid_from"].dt.date
+    rows = rows[rows["day"] >= start]
+    if rows.empty:
+        return pd.DataFrame()
+    mean = rows.groupby("entity_id")[["pc1", "pc2", "pc3"]].mean()
+    mean.columns = ["text_pc1", "text_pc2", "text_pc3"]
+    return mean.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
 BUILDERS = {
     "G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling,
-    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading,
+    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading, "X": filing_embedding,
 }
 
 
