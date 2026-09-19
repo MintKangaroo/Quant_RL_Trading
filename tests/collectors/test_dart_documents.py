@@ -14,6 +14,7 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from quant_rl_trading.collectors import dart_documents as docs
@@ -161,3 +162,16 @@ def test_원문이_없는_공시는_실패가_아니다(store, tmp_path) -> None
     assert len(frame) == 1 and int(frame["revision"].iloc[0]) == 1  # 조회는 최신 revision 만
     assert frame["raw_path"].iloc[0] == docs.NO_TEXT
     assert docs.pending(frame).empty, "없음 표식이 없으면 매일 밤 같은 공시를 다시 두드린다"
+
+
+def test_DART_가_아닌_문서는_고르지_않는다() -> None:
+    """미장 8-K(EDGAR)·뉴스(newsapi)도 같은 표에 산다 — DART 에 물으면 014 를 받고 헛돈다."""
+    rows = [
+        {"entity_id": "KR:005930", "doc_id": "20260911900698", "source": "dart"},
+        {"entity_id": "US:AAPL", "doc_id": "0000320193-26-000045", "source": "edgar"},
+        {"entity_id": "KR:000660", "doc_id": "news-1", "source": "newsapi"},
+    ]
+    frame = pd.DataFrame([
+        {**row, "valid_from": NOW, "revision": 0, "raw_path": None, "doc_type": "distress"} for row in rows
+    ])
+    assert docs.pending(frame)["doc_id"].tolist() == ["20260911900698"]

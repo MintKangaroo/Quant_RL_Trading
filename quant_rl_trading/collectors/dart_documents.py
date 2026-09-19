@@ -130,9 +130,14 @@ NO_TEXT = "-"
 def pending(
     frame: pd.DataFrame, *, limit: int = 0, doc_types: Iterable[str] | None = None
 ) -> pd.DataFrame:
-    """원문이 아직 없는 공시. **최근 것부터** 준다.
+    """원문이 아직 없는 **DART** 공시. **최근 것부터** 준다.
 
     이어받기 상태를 따로 들지 않는다 — 이미 채운 행은 여기서 빠진다.
+
+    **출처가 DART 인 행만 고른다.** ``documents`` 에는 미장 8-K(EDGAR)와 뉴스(newsapi)도
+    같이 산다. 거르지 않으면 SEC 접수번호를 DART 에 물어 014 를 받고 '없음' 으로 찍는다 —
+    2026-09-16~19 밤 배치 3,000건 중 최대 74% 가 그렇게 헛돌았다. 아직 원문이 없는 행은
+    revision 0 이라 ``source`` 가 원래 출처 그대로다(정정 행만 ``dart`` 로 적힌다).
     """
     if frame.empty:
         return frame
@@ -140,6 +145,7 @@ def pending(
         ["entity_id", "valid_from", "doc_id"], as_index=False
     ).tail(1)
     missing = latest[latest["raw_path"].fillna("").astype(str).str.len() == 0]
+    missing = missing[missing["source"] == SOURCE]
     if doc_types is not None:
         wanted = set(doc_types)
         missing = missing[missing["doc_type"].isin(wanted)]
