@@ -1330,8 +1330,17 @@ def test_미장_슬리브_칸은_달러로_적는다() -> None:
         daily_return=0.001, cumulative_return=-0.0044, index_value=99.56, drawdown=-0.008,
         principal=370_000.0, total_pnl=-1_626.55, fills=[], currency="USD",
     )
-    lines = "\n".join(render_module._performance_section_lines(perf, "성과 · 미장 슬리브 (USD)"))
-    html = render_module._performance_section(perf, "성과 · 미장 슬리브 (USD)")
+    lines = "\n".join(render_module._performance_section_lines(perf, render_module.US_TITLE))
+    html = render_module._performance_section(perf, render_module.US_TITLE)
     for text in (lines, html):
         assert "$368,373.45" in text and "-$1,626.55" in text
         assert "368,373원" not in text and "1,627원" not in text
+
+
+def test_성과_칸은_시장과_계좌_종류를_적는다() -> None:
+    """메일에 코드명 'PAPER' 가 찍혔고 어느 칸이 국장인지 안 보였다 (2026-09-19)."""
+    from quant_rl_trading.reporting import render as render_module
+
+    assert "국장" in render_module.KR_TITLE and "미장" in render_module.US_TITLE
+    assert "모의투자" in render_module.MODE_LABEL["PAPER"]
+    assert render_module.MODE_LABEL["PAPER"] != render_module.MODE_LABEL["SHADOW"]

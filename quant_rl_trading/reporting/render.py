@@ -203,7 +203,8 @@ def _cell(
     """표 칸 하나. **글자색과 배경색을 언제나 함께 준다** (다크 모드)."""
     nowrap = "" if wrap else "white-space:nowrap;"
     return (
-        f'<td style="padding:{pad};background-color:{PAPER};color:{color};'
+        # vertical-align:top — 값이 두 줄(종가+RSI)일 때 이름이 가운데 떠서 줄이 어긋났다(2026-09-19).
+        f'<td style="padding:{pad};background-color:{PAPER};color:{color};vertical-align:top;'
         f"font-size:{size}px;font-weight:{weight};text-align:{align};"
         f'line-height:1.35;{nowrap}{extra}">{content}</td>'
     )
@@ -211,9 +212,11 @@ def _cell(
 
 def _foot(text: str) -> str:
     """각주 한 줄. 밝혀야 할 것들이 사는 자리다 — 본문에서 뺀 게 아니라 내린 것."""
+    # 크기는 SMALL 아래로 안 내린다(아이폰 Mail 자동 확대 — 위 BODY/SMALL 주석). 정리는
+    # 간격으로 한다: 표와 붙지 않게 위를 띄우고, 다음 제목 전에 숨을 둔다(2026-09-19 "깔끔하게").
     return (
         f'<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;'
-        f'line-height:1.5;padding:5px 4px 0">{text}</div>'
+        f'line-height:1.45;padding:6px 4px 4px">{text}</div>'
     )
 
 
@@ -236,8 +239,9 @@ def _section(text: str, *, sub: str = "") -> str:
         else ""
     )
     return (
+        # 좌우 4px 은 표 칸(_cell)의 안쪽 여백과 같다 — 0 이면 제목만 왼쪽으로 튀어나온다.
         f'<div style="background-color:{PAPER};color:{INK};font-size:18px;'
-        f'font-weight:700;padding:12px 0 5px">{text}{tail}</div>'
+        f'font-weight:700;padding:14px 4px 4px">{text}{tail}</div>'
     )
 
 
@@ -427,7 +431,9 @@ def _headline_block(briefing: Briefing) -> str:
     parts = _headline_parts(briefing)
     body = (
         " · ".join(
-            f'<span style="color:{_color(change)}">{text}</span>' for text, change in parts
+            # 조각 안에서는 줄을 안 바꾼다 — "환/율 1,377" 로 끊겼다(2026-09-19 폰 실측).
+            f'<span style="white-space:nowrap"><span style="color:{_color(change)}">{text}</span></span>'
+            for text, change in parts
         )
         if parts
         else "지수가 들어오지 않았다"
@@ -802,7 +808,7 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
         shut = report_day.strftime("%m-%d")
         head = (
             f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
-            f'font-weight:800;padding:14px 0 6px">{label}'
+            f'font-weight:800;padding:16px 4px 6px">{label}'
             f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> '
             f'<span style="white-space:nowrap">{shut} 휴장</span></span></div>'
         )
@@ -818,7 +824,7 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
     )
     head = (
         f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
-        f'font-weight:800;padding:14px 0 6px">{label}'
+        f'font-weight:800;padding:16px 4px 6px">{label}'
         f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> {when}</span></div>'
     )
     body = _index_rows(brief.prices, volatility=False)
@@ -918,7 +924,10 @@ def _gap_detail(briefing: Briefing) -> str:
 #: 모드 배지 문구. ``store/mode.py`` 가 코드를, 여기가 메일에서 읽을 말을 든다.
 MODE_LABEL = {
     "LIVE": "실전",
-    "SHADOW": "모의 운용",
+    # PAPER 가 빠져 있어 메일에 코드명 "PAPER" 가 그대로 찍혔다(2026-09-19 사용자 지적).
+    # 둘을 가르는 말이 핵심이다 — 모의계좌는 LS 에 실제로 주문이 나가고, shadow 는 안 나간다.
+    "PAPER": "LS 모의투자 계좌 · 실주문",
+    "SHADOW": "모의 운용 · 가상 체결",
     "BACKTEST": "백테스트",
     "DEMO": "화면 확인용",
 }
@@ -968,9 +977,11 @@ def _perf_row(label: str, value: str, *, color: str = INK, note: str = "") -> st
 
     두 칸 표다 — 390px 에서 세 칸을 만들면 숫자가 줄바꿈된다.
     """
+    # 근거 줄은 **두 칸을 다 쓴다.** 왼쪽 칸에만 두면 폰 폭에서 "지수 97.93" 이
+    # "지/수 97.93" 으로 잘려 내려갔다(2026-09-19 폰 실측).
     tail = (
-        f'<tr>{_cell(note, color=FOOTNOTE, size=SMALL, pad="0 4px 6px", extra="")}'
-        f'{_cell("", pad="0 4px 6px")}</tr>'
+        f'<tr><td colspan="2" style="padding:1px 4px 8px;background-color:{PAPER};'
+        f'color:{FOOTNOTE};font-size:{SMALL}px;line-height:1.4;vertical-align:top">{note}</td></tr>'
         if note
         else ""
     )
@@ -1069,7 +1080,7 @@ def _performance_section(perf: Any, title: str) -> str:
         else "입출금 없음"
     )
     change_note = (
-        f"{won(perf.previous_nav)} → {won(perf.nav)} · {flow}"
+        f"전일 {won(perf.previous_nav)} · {flow}"
         if perf.previous_nav is not None
         else (perf.note or "비교할 직전 스냅샷이 없다")
     )
@@ -1085,12 +1096,15 @@ def _performance_section(perf: Any, title: str) -> str:
         color=_color(perf.nav_change),
         note=change_note,
     )
-    rows += _perf_row(
-        "당일 손익",
-        won_signed(perf.pnl),
-        color=_color(perf.pnl),
-        note="자산 증감에서 입출금을 뺀 것",
-    )
+    # **입출금이 있는 날만** 당일 손익을 따로 적는다. 없는 날은 자산 증감과 같은 숫자라
+    # 두 줄이 같은 말을 한다(2026-09-19 "더 깔끔하게"). 있는 날은 둘이 갈리는 게 핵심이다.
+    if perf.inflow:
+        rows += _perf_row(
+            "당일 손익",
+            won_signed(perf.pnl),
+            color=_color(perf.pnl),
+            note="자산 증감에서 입출금을 뺀 것",
+        )
     rows += _perf_row(
         "당일 수익률",
         _pct(perf.daily_return),
@@ -1101,12 +1115,7 @@ def _performance_section(perf: Any, title: str) -> str:
         "총 수익률",
         _pct(perf.cumulative_return),
         color=_color(perf.cumulative_return),
-        note=(
-            f"TWR 누적 · {perf.since.isoformat()} 이후 · 지수 "
-            f"{_num(perf.index_value)}"
-            if perf.since
-            else "TWR 누적"
-        ),
+        note=f"TWR 누적 · {perf.since.isoformat()} 이후" if perf.since else "TWR 누적",
     )
     rows += _perf_row(
         "총 수익금",
@@ -1125,16 +1134,22 @@ def _performance_section(perf: Any, title: str) -> str:
     return out + _foot(f"매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count}) — 내역은 대시보드")
 
 
+#: 칸 제목에 **시장을 적는다.** 제목이 "성과" 뿐이면 두 칸 중 어느 것이 국장인지 모른다
+#: (2026-09-19 사용자 지적). 모드(계좌 종류)는 제목 옆 부제로 따로 붙는다.
+KR_TITLE = "성과 · 국장 (KRW)"
+US_TITLE = "성과 · 미장 (USD)"
+
+
 def _performance_block(briefing: Briefing) -> str:
     """국장 모의계좌 칸 + (있으면) 미장 달러 슬리브 칸. **칸마다 창고 하나다**(reporting.md)."""
-    return _performance_section(briefing.performance, "성과") + _performance_section(
-        getattr(briefing, "performance_us", None), "성과 · 미장 슬리브 (USD)"
+    return _performance_section(briefing.performance, KR_TITLE) + _performance_section(
+        getattr(briefing, "performance_us", None), US_TITLE
     )
 
 
 def _performance_lines(briefing: Briefing) -> list[str]:
-    return _performance_section_lines(briefing.performance, "성과") + _performance_section_lines(
-        getattr(briefing, "performance_us", None), "성과 · 미장 슬리브 (USD)"
+    return _performance_section_lines(briefing.performance, KR_TITLE) + _performance_section_lines(
+        getattr(briefing, "performance_us", None), US_TITLE
     )
 
 
@@ -1192,7 +1207,12 @@ def _source_foot(briefing: Briefing) -> str:
     if perf is None:
         return "성과 섹션 없음 — 회계를 읽지 않고 만든 메일이다"
     mode = MODE_LABEL.get(perf.mode, perf.mode)
-    return f"성과는 {mode} 창고({perf.store_root}) 기준 · 수익률은 TWR"
+    text = f"국장 성과는 {mode} 창고({perf.store_root})"
+    # 미장 칸은 **다른 창고**다 — 한 창고만 밝히면 미장 숫자가 어디서 왔는지 안 보인다.
+    us = getattr(briefing, "performance_us", None)
+    if us is not None:
+        text += f" · 미장은 {MODE_LABEL.get(us.mode, us.mode)} 창고({us.store_root})"
+    return text + " · 수익률은 TWR"
 
 
 def _report_date(briefing: Briefing) -> str:
@@ -1232,15 +1252,27 @@ def _freshness_band(briefing: Briefing) -> str:
     line = _freshness_line(briefing)
     if not line:
         return ""
-    any_late = any(late for _, _, late in line)
-    body = " · ".join(f"{name} {text}" for name, text, _ in line)
-    head = "⚠ 일부 데이터가 늦었다 — " if any_late else "데이터 기준일 — "
-    return _band(head + body, ink=(DOWN if any_late else INK), bg=PAPER)
+    late = [f"{name} {text}" for name, text, is_late in line if is_late]
+    fine = [f"{name} {text}" for name, text, is_late in line if not is_late]
+    # **늦은 것만 경고 띠에 싣는다.** 멀쩡한 여섯과 늦은 하나를 한 띠에 섞으면 무엇이 늦었는지
+    # 다시 찾아야 한다(2026-09-19). 나머지 기준일은 아래 회색 한 줄로 — 빼지는 않는다
+    # (날짜가 붙어야 한다, 2026-08-28 사용자 요청). 경고색이지 파랑이 아니다 — 파랑은 하락이다.
+    fine_line = (
+        f'<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;'
+        f'line-height:1.5;padding:2px 4px 0">기준일 · {" · ".join(fine)}</div>'
+        if fine
+        else ""
+    )
+    if late:
+        return _band("⚠ 늦은 데이터 — " + " · ".join(late), ink=WARN_INK, bg=WARN_BG) + fine_line
+    return fine_line
 
 
 def render_html(briefing: Briefing) -> str:
     report_day = report_date(briefing)
-    blocks = _freshness_band(briefing) + "".join(
+    # 기준일 띠는 **맨 위**(제목 바로 아래)다 — 성과와 시황 사이에 끼어 있으면 어느 칸의 주석인지
+    # 모호하다(2026-09-19). 사용자 요청 원문이 "메일 맨 위"였다(2026-08-28).
+    blocks = "".join(
         _market_block(briefing.markets[code], report_day)
         for code in MARKET_ORDER
         if code in briefing.markets
@@ -1266,6 +1298,7 @@ border-collapse:collapse;border-radius:10px">
 <div style="background-color:{PAPER};color:{SOFT};font-size:{SMALL}px">\
 시황 브리핑 · {_report_date(briefing)}</div>
 {_headline_block(briefing)}
+{_freshness_band(briefing)}
 {_gap_line(briefing)}
 {_performance_block(briefing)}
 {blocks}
