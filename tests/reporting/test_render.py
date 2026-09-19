@@ -272,7 +272,8 @@ def test_volatility_row_carries_no_profit_colour() -> None:
 def test_price_index_keeps_its_colour() -> None:
     """가격지수는 색을 쓴다 — 변동성만 예외라는 것이 이 테스트의 뜻이다."""
     html = render_html(_briefing())
-    row = re.search(r"코스피.{0,600}?</tr>", html, re.S)
+    # 지수 표의 코스피 **칸**을 찾는다 — 맨 위 요약 줄에도 "코스피" 가 있다(2026-09-19 재설계).
+    row = re.search(r">코스피</td>.{0,600}?</tr>", html, re.S)
     assert row is not None
     assert UP in row.group(0)
 
@@ -811,7 +812,8 @@ def test_macro_row_is_one_cell_so_nothing_squeezes_the_label() -> None:
     고칠 수 없으니 나눠 가질 폭 자체를 없앤다.
     """
     html = render_html(_briefing())
-    rows = [row for row in re.findall(r"<tr>.*?</tr>", html, re.S) if "소매판매" in row]
+    # **가장 안쪽 행**만 — 카드가 표를 한 겹 감싸므로 바깥 <tr> 부터 잡으면 카드 전체가 한 행이 된다.
+    rows = [row for row in re.findall(r"<tr>(?:(?!<tr>).)*?</tr>", html, re.S) if "소매판매" in row]
     assert len(rows) == 1
     # 칸이 하나면 나눠 가질 폭이 없다 — 좁은 화면에서 무너질 자리가 사라진다.
     assert rows[0].count("<td") == 1

@@ -115,9 +115,10 @@ DOWN = "#5b9dff"       # 하락이 파랑. 밝은 하늘색 — UP 과 명도가
 INK = "#e8eaed"        # 본문 글자
 SOFT = "#9aa0a6"       # 보조 글자
 FOOTNOTE = "#8a8f96"   # 각주
-PAPER = "#1c1e21"      # 카드 바탕
-CANVAS = "#0e0f11"     # 바깥 바탕 — 카드보다 한 단 더 어둡게, 카드 경계가 보이게
-RULE = "#4a4e54"       # 구분선 — 카드 배경과 명도차를 충분히 둔다
+PAPER = "#15171a"      # 카드 바탕
+CANVAS = "#0b0c0e"     # 바깥 바탕 — 카드보다 한 단 더 어둡게, 카드 경계가 보이게
+RULE = "#3a3e44"       # 구분선 — 카드 배경과 명도차를 충분히 둔다
+LINE = "#2a2d32"       # 카드 테두리·표 안 가는 선 — 구분선(RULE)보다 한 단 조용하게
 WARN_INK = "#ffca7a"
 WARN_BG = "#3d2e10"
 
@@ -228,8 +229,29 @@ def _band(text: str, *, ink: str, bg: str, size: int = SMALL) -> str:
     )
 
 
-def _rule() -> str:
-    return f'<div style="border-top:1px solid {RULE};margin:12px 0 0"></div>'
+def _card(inner: str, *, pad: str = "14px 12px 10px", gap: str = "12px") -> str:
+    """카드 하나. **채움이 아니라 테두리로 가른다** — 칸마다 배경색을 짝으로 박아 두어서
+    (다크모드 반전 방지, ``_cell``) 카드 안 바탕을 바꾸면 칸들이 얼룩진다. 테두리와 둥근
+    모서리만으로 묶음이 보인다(2026-09-19 전면 재설계)."""
+    return (
+        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        f'style="width:100%;border-collapse:separate;background-color:{PAPER};'
+        f'border:1px solid {LINE};border-radius:12px;margin:{gap} 0 0">'
+        f'<tr><td style="padding:{pad};background-color:{PAPER}">{inner}</td></tr></table>'
+    )
+
+
+def _divider(text: str) -> str:
+    """구역 나눔 — 가운데 글자 양옆에 가는 선. '여기부터 자세히' 를 말한다."""
+    line = f'<td style="width:50%;background-color:{CANVAS};border-top:1px solid {RULE};font-size:0">&nbsp;</td>'
+    return (
+        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        f'style="width:100%;border-collapse:collapse;margin:22px 0 2px;background-color:{CANVAS}"><tr>'
+        f"{line}"
+        f'<td style="padding:0 10px;background-color:{CANVAS};color:{SOFT};font-size:{SMALL}px;'
+        f'white-space:nowrap;letter-spacing:0.06em">{text}</td>'
+        f"{line}</tr></table>"
+    )
 
 
 def _section(text: str, *, sub: str = "") -> str:
@@ -790,6 +812,15 @@ def _macro_block(macro: MacroSection) -> str:
 # -- 시장 한 칸 -------------------------------------------------------------------
 
 
+def _market_head(label: str, when: str) -> str:
+    """시장 카드 머리 — 시장 이름(크게)과 세션(작게). 카드가 묶음을 가르므로 앞 구분선은 없다."""
+    return (
+        f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
+        f'font-weight:800;padding:2px 4px 6px">{label}'
+        f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> {when}</span></div>'
+    )
+
+
 def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
     """시장 한 칸. **휴장이면 표를 그리지 않는다.**
 
@@ -806,15 +837,10 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
     if _is_closed(brief.market, report_day):
         assert report_day is not None
         shut = report_day.strftime("%m-%d")
-        head = (
-            f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
-            f'font-weight:800;padding:16px 4px 6px">{label}'
-            f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> '
-            f'<span style="white-space:nowrap">{shut} 휴장</span></span></div>'
-        )
+        head = _market_head(label, f'<span style="white-space:nowrap">{shut} 휴장</span>')
         prior = brief.price_session.expected or brief.index_session.expected
         since = f" 직전 거래일은 {prior.isoformat()} 다." if prior else ""
-        return _rule() + head + _foot(f"이 날은 장이 서지 않았다 — 실을 세션이 없다.{since}")
+        return head + _foot(f"이 날은 장이 서지 않았다 — 실을 세션이 없다.{since}")
 
     # 세션 조각은 낱개로 안 접히게 묶는다 — "지수 / 08-20" 으로 쪼개지면
     # 둘을 다시 붙여 읽어야 날짜가 된다 (``_macro_block`` 과 같은 이유).
@@ -822,11 +848,7 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
         f'<span style="white-space:nowrap">{token}</span>'
         for token in _session_tokens(brief)
     )
-    head = (
-        f'<div style="background-color:{PAPER};color:{INK};font-size:20px;'
-        f'font-weight:800;padding:16px 4px 6px">{label}'
-        f'<span style="color:{SOFT};font-size:{SMALL}px;font-weight:400"> {when}</span></div>'
-    )
+    head = _market_head(label, when)
     body = _index_rows(brief.prices, volatility=False)
     index_day = _rows_session(brief.prices, brief.volatility)
     expected = brief.index_session.expected
@@ -871,7 +893,7 @@ def _market_block(brief: MarketBrief, report_day: date | None = None) -> str:
     for rank in brief.rankings:
         body += _ranking_block(rank, brief)
     body += _news_block(brief.news)
-    return _rule() + head + body
+    return head + body
 
 
 # -- 한 판 ---------------------------------------------------------------------
@@ -972,26 +994,6 @@ def _won_signed(value: float | None) -> str:
     return f"{value:+,.0f}원"
 
 
-def _perf_row(label: str, value: str, *, color: str = INK, note: str = "") -> str:
-    """성과 한 줄. 왼쪽 이름, 오른쪽 값, 그 아래 근거 한 줄.
-
-    두 칸 표다 — 390px 에서 세 칸을 만들면 숫자가 줄바꿈된다.
-    """
-    # 근거 줄은 **두 칸을 다 쓴다.** 왼쪽 칸에만 두면 폰 폭에서 "지수 97.93" 이
-    # "지/수 97.93" 으로 잘려 내려갔다(2026-09-19 폰 실측).
-    tail = (
-        f'<tr><td colspan="2" style="padding:1px 4px 8px;background-color:{PAPER};'
-        f'color:{FOOTNOTE};font-size:{SMALL}px;line-height:1.4;vertical-align:top">{note}</td></tr>'
-        if note
-        else ""
-    )
-    return (
-        f"<tr>{_cell(label, color=SOFT, size=SMALL, pad='6px 4px 0')}"
-        f"{_cell(value, color=color, align='right', weight=700, pad='6px 4px 0', wrap=False)}"
-        f"</tr>{tail}"
-    )
-
-
 def _fill_rows(perf: Any) -> str:
     """체결 목록. 매수·매도를 갈라 세고, **실현손익은 매도에만 적는다.**
 
@@ -1038,106 +1040,107 @@ def _fill_rows(perf: Any) -> str:
     return rows
 
 
+def _stat(label: str, value: str, *, color: str = INK, sub: str = "") -> str:
+    """성과 카드의 한 칸 — 이름(작게) 위, 값(크게) 아래. 2×2 로 깐다."""
+    tail = (
+        f'<div style="color:{FOOTNOTE};font-size:{SMALL}px;line-height:1.35;padding-top:2px">{sub}</div>'
+        if sub
+        else ""
+    )
+    return (
+        f'<td style="width:50%;padding:10px 4px 6px;background-color:{PAPER};vertical-align:top">'
+        f'<div style="color:{SOFT};font-size:{SMALL}px;line-height:1.3">{label}</div>'
+        f'<div style="color:{color};font-size:20px;font-weight:700;line-height:1.3;'
+        f'white-space:nowrap;font-variant-numeric:tabular-nums">{value}</div>{tail}</td>'
+    )
+
+
 def _performance_section(perf: Any, title: str) -> str:
-    """성과 섹션 — 매매내역 · 수익률 · 총수익률 · 자산증감.
+    """성과 카드 — 총자산을 크게, 그 아래 2×2(자산 증감·당일 수익률 / 총 수익금·총 수익률).
 
     ## 자산 증감과 수익률을 반드시 가른다 ⭐
 
     2026-08-24 에 490,238,209원이 모의계좌에 들어온다. 그날 NAV 는 976만에서
     5억으로 뛰는데 **그건 수익이 아니다.** 단순 NAV 변화율을 "수익률" 이라
     적으면 하루에 +5,000% 가 찍힌다 — 시간가중수익률(TWR)이 그래서 있다
-    (accounting.md §6).
-
-    그래서 **"자산 증감" 줄 바로 아래에 그중 입출금이 얼마인지 적는다.**
-    사용자가 명시적으로 요청한 항목이라 절대액을 보여주는 것이 맞지만,
-    입출금을 안 적으면 이 줄이 그 위의 수익률 줄과 서로를 거짓말쟁이로
-    만든다.
+    (accounting.md §6). 그래서 자산 증감 칸 바로 아래에 **그중 입출금**을 적고,
+    입출금이 있는 날은 **당일 손익**(입출금 제외) 줄을 따로 세운다.
 
     ## 없는 것은 없다고 적는다
 
     회계 스냅샷이 없으면 숫자 자리를 통째로 비우고 이유만 적는다. 매매가
-    없던 날은 "0건" 이 아니라 "매매가 없었다" 로 적는다 — 0 은 잰 결과이고
-    없음은 사건이 없던 것이다.
+    없던 날은 "0건" 이 아니라 "매매가 없었다" 로 적는다.
     """
     if perf is None:
         return ""
     won, won_signed = _money_fns(perf)
-
     mode = MODE_LABEL.get(perf.mode, perf.mode)
-    head = _section(title, sub=f"· {mode}")
+    head = (
+        f'<div style="background-color:{PAPER};padding:0 4px">'
+        f'<span style="color:{INK};font-size:17px;font-weight:700">{title}</span>'
+        f'<span style="color:{SOFT};font-size:{SMALL}px"> · {mode}</span></div>'
+    )
     if not perf.measured:
-        return _rule() + head + _band(
+        return _card(head + _band(
             perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다",
             ink=WARN_INK,
             bg=WARN_BG,
-        )
+        ))
 
-    # 증감 아래 줄이 입출금을 말한다. **입출금이 0 이어도 적는다** — 있는 날만
-    # 적으면 없는 날의 침묵이 "안 적어도 되는 값" 으로 읽힌다.
-    flow = (
-        f"그중 입출금 {won_signed(perf.inflow)}"
-        if perf.inflow
-        else "입출금 없음"
+    # **입출금이 0 이어도 적는다** — 있는 날만 적으면 없는 날의 침묵이
+    # "안 적어도 되는 값" 으로 읽힌다.
+    flow = f"그중 입출금 {won_signed(perf.inflow)}" if perf.inflow else "입출금 없음"
+    hero = (
+        f'<div style="background-color:{PAPER};padding:8px 4px 2px">'
+        f'<span style="color:{INK};font-size:28px;font-weight:800;letter-spacing:-0.01em;'
+        f'font-variant-numeric:tabular-nums;white-space:nowrap">{won(perf.nav)}</span></div>'
+        f'<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;padding:0 4px 4px">'
+        f'총자산 · {perf.session.isoformat()} 종가 · 원금 {won(perf.principal)}'
+        + (f" · 전일 {won(perf.previous_nav)}" if perf.previous_nav is not None else "")
+        + "</div>"
     )
-    change_note = (
-        f"전일 {won(perf.previous_nav)} · {flow}"
-        if perf.previous_nav is not None
-        else (perf.note or "비교할 직전 스냅샷이 없다")
+    # 칸 아래 설명은 **한 줄에 들어가게 짧게** — 2×2 칸은 폰에서 170px 남짓이다.
+    # 전일 NAV 는 총자산 줄 아래로 옮긴다(칸 안에 두면 두 줄로 접혔다).
+    change_sub = flow if perf.previous_nav is not None else (perf.note or "직전 스냅샷 없음")
+    since = f"{perf.since.strftime('%m-%d')} 이후 · TWR" if perf.since else "TWR 누적"
+    rows = (
+        "<tr>"
+        + _stat("자산 증감", won_signed(perf.nav_change), color=_color(perf.nav_change), sub=change_sub)
+        + _stat("당일 수익률", _pct(perf.daily_return), color=_color(perf.daily_return), sub="TWR · 입출금 제외")
+        + "</tr><tr>"
+        + _stat("총 수익금", won_signed(perf.total_pnl), color=_color(perf.total_pnl), sub="원금 대비")
+        + _stat("총 수익률", _pct(perf.cumulative_return), color=_color(perf.cumulative_return), sub=since)
+        + "</tr>"
     )
-
-    rows = _perf_row(
-        "총자산",
-        won(perf.nav),
-        note=f"{perf.session.isoformat()} 종가 · 원금 {won(perf.principal)}",
-    )
-    rows += _perf_row(
-        "자산 증감",
-        won_signed(perf.nav_change),
-        color=_color(perf.nav_change),
-        note=change_note,
-    )
-    # **입출금이 있는 날만** 당일 손익을 따로 적는다. 없는 날은 자산 증감과 같은 숫자라
-    # 두 줄이 같은 말을 한다(2026-09-19 "더 깔끔하게"). 있는 날은 둘이 갈리는 게 핵심이다.
     if perf.inflow:
-        rows += _perf_row(
-            "당일 손익",
-            won_signed(perf.pnl),
-            color=_color(perf.pnl),
-            note="자산 증감에서 입출금을 뺀 것",
+        # 입출금이 있는 날만 — 없는 날은 자산 증감과 같은 숫자라 두 칸이 같은 말을 한다.
+        rows += (
+            "<tr>"
+            + _stat("당일 손익", won_signed(perf.pnl), color=_color(perf.pnl), sub="자산 증감에서 입출금을 뺀 것")
+            + f'<td style="background-color:{PAPER}"></td></tr>'
         )
-    rows += _perf_row(
-        "당일 수익률",
-        _pct(perf.daily_return),
-        color=_color(perf.daily_return),
-        note="TWR — 입출금은 수익이 아니다",
+    grid = (
+        f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+        f'style="width:100%;border-collapse:collapse;background-color:{PAPER};'
+        f'border-top:1px solid {LINE};margin-top:6px">{rows}</table>'
     )
-    rows += _perf_row(
-        "총 수익률",
-        _pct(perf.cumulative_return),
-        color=_color(perf.cumulative_return),
-        note=f"TWR 누적 · {perf.since.isoformat()} 이후" if perf.since else "TWR 누적",
-    )
-    rows += _perf_row(
-        "총 수익금",
-        won_signed(perf.total_pnl),
-        color=_color(perf.total_pnl),
-        note="원금(입출금 누계) 대비",
-    )
-
-    out = _rule() + head + _grid(rows)
-
     if not perf.fill_count:
         # **"0건" 이 아니라 "없었다" 다.** 앞은 수치이고 뒤는 사실이다.
-        return out + _foot(f"{perf.session.isoformat()} 에 체결된 매매가 없다.")
-
-    # 매매내역(체결 목록)은 메일에 싣지 않는다(사용자 요청 2026-08-29) — 대시보드 몫이다. 건수만.
-    return out + _foot(f"매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count}) — 내역은 대시보드")
+        trades = f"{perf.session.isoformat()} 에 체결된 매매가 없다."
+    else:
+        # 매매내역(체결 목록)은 메일에 싣지 않는다(사용자 요청 2026-08-29) — 대시보드 몫이다. 건수만.
+        trades = f"매매 {perf.fill_count}건 (매수 {perf.buy_count} · 매도 {perf.sell_count}) — 내역은 대시보드"
+    foot = (
+        f'<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;'
+        f'line-height:1.45;padding:8px 4px 0;border-top:1px solid {LINE};margin-top:4px">{trades}</div>'
+    )
+    return _card(head + hero + grid + foot)
 
 
 #: 칸 제목에 **시장을 적는다.** 제목이 "성과" 뿐이면 두 칸 중 어느 것이 국장인지 모른다
 #: (2026-09-19 사용자 지적). 모드(계좌 종류)는 제목 옆 부제로 따로 붙는다.
-KR_TITLE = "성과 · 국장 (KRW)"
-US_TITLE = "성과 · 미장 (USD)"
+KR_TITLE = "국장 (KRW)"
+US_TITLE = "미장 (USD)"
 
 
 def _performance_block(briefing: Briefing) -> str:
@@ -1160,7 +1163,7 @@ def _performance_section_lines(perf: Any, title: str) -> list[str]:
         return []
     won, won_signed = _money_fns(perf)
     mode = MODE_LABEL.get(perf.mode, perf.mode)
-    lines = [f"== {title} · {mode} =="]
+    lines = [f"== 성과 · {title} · {mode} =="]
     if not perf.measured:
         lines += ["  " + (perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다"), ""]
         return lines
@@ -1258,8 +1261,8 @@ def _freshness_band(briefing: Briefing) -> str:
     # 다시 찾아야 한다(2026-09-19). 나머지 기준일은 아래 회색 한 줄로 — 빼지는 않는다
     # (날짜가 붙어야 한다, 2026-08-28 사용자 요청). 경고색이지 파랑이 아니다 — 파랑은 하락이다.
     fine_line = (
-        f'<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;'
-        f'line-height:1.5;padding:2px 4px 0">기준일 · {" · ".join(fine)}</div>'
+        f'<div style="background-color:{CANVAS};color:{FOOTNOTE};font-size:{SMALL}px;'
+        f'line-height:1.5;padding:2px 2px 4px">기준일 · {" · ".join(fine)}</div>'
         if fine
         else ""
     )
@@ -1268,17 +1271,39 @@ def _freshness_band(briefing: Briefing) -> str:
     return fine_line
 
 
+def _masthead(briefing: Briefing) -> str:
+    """머리 — 무엇의 메일인지(작게)와 어느 날의 메일인지(크게)."""
+    day = report_date(briefing)
+    weekday = "월화수목금토일"[day.weekday()] if day else ""
+    big = f"{day.month}월 {day.day}일 ({weekday})" if day else _report_date(briefing)
+    return (
+        f'<div style="background-color:{CANVAS};color:{SOFT};font-size:{SMALL}px;'
+        f'letter-spacing:0.04em;padding:4px 2px 0">Quant RL Trading · 시황 브리핑</div>'
+        f'<div style="background-color:{CANVAS};color:{INK};font-size:24px;font-weight:800;'
+        f'padding:2px 2px 4px">{big}</div>'
+    )
+
+
 def render_html(briefing: Briefing) -> str:
+    """한 판. **맨 위는 내 성과, 그 아래 오늘의 시장, '자세히' 아래 나머지**
+    (사용자 선택 2026-09-19 — 성과 먼저 · 핵심만 위 · 다크 유지).
+
+    기준일 띠는 **맨 위**다 — 사용자 요청 원문이 "메일 맨 위"였다(2026-08-28).
+    """
     report_day = report_date(briefing)
-    # 기준일 띠는 **맨 위**(제목 바로 아래)다 — 성과와 시황 사이에 끼어 있으면 어느 칸의 주석인지
-    # 모호하다(2026-09-19). 사용자 요청 원문이 "메일 맨 위"였다(2026-08-28).
-    blocks = "".join(
-        _market_block(briefing.markets[code], report_day)
+    markets = "".join(
+        _card(_market_block(briefing.markets[code], report_day))
         for code in MARKET_ORDER
         if code in briefing.markets
     )
     # 거시는 두 시장 뒤에 한 번. 좌우로 가르지 않는 이유는 Briefing.macro 주석 참고.
-    blocks += _rule() + _macro_block(briefing.macro)
+    macro = _card(_macro_block(briefing.macro))
+    today = _card(
+        f'<div style="background-color:{PAPER};color:{SOFT};font-size:{SMALL}px;padding:0 4px 2px">'
+        f"오늘의 시장</div>"
+        f'<div style="background-color:{PAPER};padding:0 4px">{_headline_block(briefing)}</div>'
+        f"{_gap_line(briefing)}"
+    )
     stamp = briefing.as_of.astimezone(KST).strftime("%m-%d %H:%M")
     return f"""<!DOCTYPE html><html style="background-color:{CANVAS}">\
 <head><meta charset="utf-8">
@@ -1290,21 +1315,20 @@ def render_html(briefing: Briefing) -> str:
 font-family:-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" \
 style="width:100%;background-color:{CANVAS};border-collapse:collapse">
-<tr><td style="padding:10px;background-color:{CANVAS}">
+<tr><td style="padding:14px 10px 24px;background-color:{CANVAS}">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" \
-style="width:100%;max-width:520px;margin:0 auto;background-color:{PAPER};\
-border-collapse:collapse;border-radius:10px">
-<tr><td style="padding:16px 14px;background-color:{PAPER}">
-<div style="background-color:{PAPER};color:{SOFT};font-size:{SMALL}px">\
-시황 브리핑 · {_report_date(briefing)}</div>
-{_headline_block(briefing)}
+style="width:100%;max-width:560px;margin:0 auto;background-color:{CANVAS};border-collapse:collapse">
+<tr><td style="padding:0;background-color:{CANVAS}">
+{_masthead(briefing)}
 {_freshness_band(briefing)}
-{_gap_line(briefing)}
 {_performance_block(briefing)}
-{blocks}
+{today}
+{_divider("자세히")}
+{markets}
+{macro}
 {_gap_detail(briefing)}
-<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;\
-line-height:1.5;padding:14px 0 0;border-top:1px solid {RULE};margin-top:16px">
+<div style="background-color:{CANVAS};color:{FOOTNOTE};font-size:{SMALL}px;\
+line-height:1.5;padding:16px 4px 0">
 {_source_foot(briefing)} · 전 수치 store.get(as_of) 경유 · 생성 {stamp} KST
 </div>
 </td></tr></table>
