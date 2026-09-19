@@ -27,6 +27,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "G5": ("accrual_wc", "z_lite", "loss_streak"),
     # G6 (2026-09-08 추가, 사용자 승인) — 미장 8-K 2.02(실적 발표) 기준 PEAD. 시행 J 는 10-Q 공시일이라 앞 2~3주를 놓쳤다.
     "G6": ("pead_2d", "days_since_earn", "earn_gap"),
+    # G7 (2026-09-19 추가, 사용자 승인) — 미장 내부자 Form 4. G4 의 미장 짝. 표는 form4_trades(G4 입력을 안 건드린다).
+    "G7": ("form4_sell_60", "form4_sellers_20", "form4_buy_60"),
 }
 
 #: G1 — ADV120 이 필요하므로 달력일로 넉넉히.
@@ -41,6 +43,10 @@ SHORT_LOOKBACK_DAYS = 60
 #: G4 — 60세션 ≈ 90달력일.
 INSIDER_LOOKBACK_DAYS = 100
 INSIDER_SESSIONS = 60
+#: G7 — 접수일 기준 60세션(금액)·20세션(보고자 수).
+FORM4_LOOKBACK_DAYS = 100
+FORM4_SESSIONS = 60
+FORM4_CLUSTER_SESSIONS = 20
 
 
 def _session_index(prices: pd.DataFrame) -> list[date]:
@@ -326,9 +332,52 @@ def earnings_drift(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
 
 
+# --------------------------------------------------------------------------- G7 미장 내부자 Form 4
+
+
+def form4_trading(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G7. 계획 외 장내매도 금액·매도 보고자 수·장내매수 금액. **창은 접수일(valid_from)로 센다** —
+    거래일로 세면 아직 공시 안 된 거래를 본다. 10b5-1 계획매매(plan_10b5_1 == 1)는 매도에서 뺀다."""
+    trades = analyst.store.get(
+        "form4_trades", as_of=as_of, lookback=FORM4_LOOKBACK_DAYS, market=str(analyst.market),
+        columns=["entity_id", "valid_from", "owner_cik", "trans_code", "shares", "price", "plan_10b5_1"],
+    )
+    if trades.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=FORM4_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    close = analyst.wide(prices, "close")
+    volume = analyst.wide(prices, "volume").reindex(columns=close.columns)
+    value = analyst.wide(prices, "value").reindex(columns=close.columns)
+    value = value.where(value.notna(), close * volume)  # G1 과 같은 대체
+    sessions = _session_index(prices)
+    if len(sessions) < FORM4_CLUSTER_SESSIONS:
+        return pd.DataFrame()
+    trades = trades.copy()
+    trades["day"] = trades["valid_from"].dt.date
+    trades["usd"] = trades["shares"].astype(float) * trades["price"].astype(float)
+    trades = trades[trades["usd"] > 0]
+    start_60 = sessions[-min(FORM4_SESSIONS, len(sessions))]
+    start_20 = sessions[-FORM4_CLUSTER_SESSIONS]
+    recent = trades[trades["day"] >= start_60]
+    sells = recent[(recent["trans_code"] == "S") & (recent["plan_10b5_1"].fillna(0.0) != 1.0)]
+    buys = recent[recent["trans_code"] == "P"]
+    adv20 = value.tail(20).mean().replace(0.0, np.nan)
+    raw = pd.DataFrame(index=adv20.index)
+    raw["form4_sell_60"] = sells.groupby("entity_id")["usd"].sum().reindex(adv20.index).fillna(0.0) / adv20
+    cluster = sells[sells["day"] >= start_20]
+    raw["form4_sellers_20"] = (
+        cluster[cluster["owner_cik"].astype(str) != ""].groupby("entity_id")["owner_cik"].nunique()
+        .reindex(adv20.index).fillna(0.0).astype(float)
+    )
+    raw["form4_buy_60"] = buys.groupby("entity_id")["usd"].sum().reindex(adv20.index).fillna(0.0) / adv20
+    return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
 BUILDERS = {
     "G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling,
-    "G5": accounting_quality, "G6": earnings_drift,
+    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading,
 }
 
 

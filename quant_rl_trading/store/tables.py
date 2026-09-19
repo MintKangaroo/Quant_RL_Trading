@@ -601,6 +601,34 @@ _SPECS: dict[str, TableSpec] = {
             "(공시 시각 미상 → 장 마감 뒤로 보수적). 내부자 순매수 신호(사전등록 시행 D)의 재료."
         ),
     ),
+    # **insider_trades 와 표를 나눈다** (2026-09-19). 같은 표에 미장을 넣으면 6차 G4 의 등록된
+    # 미장 입력(전부 0)이 몰래 바뀐다. 필드도 다르다 — Form 4 는 거래 코드·가격·10b5-1 여부가 있다.
+    "form4_trades": TableSpec(
+        name="form4_trades",
+        columns={
+            "market": pa.string(),
+            "accession": pa.string(),       # SEC 접수번호
+            "trans_sk": pa.string(),        # 보고서 안 거래 행 키(NONDERIV_TRANS_SK)
+            "owner_cik": pa.string(),       # 보고자 — 여럿이면 첫 번째
+            "owner_name": pa.string(),
+            "relationship": pa.string(),    # Director · Officer · TenPercentOwner … (쉼표로 잇는다)
+            "title": pa.string(),
+            "trans_date": pa.string(),      # 거래일 YYYY-MM-DD. 창은 이게 아니라 접수일(valid_from)로 센다
+            "trans_code": pa.string(),      # P 장내매수 · S 장내매도 · F 세금 · M 행사 · G 증여 …
+            "acquired_disposed": pa.string(),  # A | D
+            "shares": pa.float64(),
+            "price": pa.float64(),
+            "shares_after": pa.float64(),
+            "direct_indirect": pa.string(),  # D | I
+            "plan_10b5_1": pa.float64(),     # AFF10B5ONE — 1 이면 미리 정한 계획매매. 2023-04 전 서식엔 없어 결측
+        },
+        natural_key=("entity_id", "valid_from", "accession", "trans_sk"),
+        observation_lag_days=1,
+        doc=(
+            "SEC Insider Transactions Data Sets(분기 벌크) — Form 4 비파생 거래. valid_from = observed_at = "
+            "접수일 18:00 ET(EDGAR 관례, edgar_filings.FILING_HOUR_ET). 6차 G7(미장 내부자) 재료."
+        ),
+    ),
     "earnings_calendar": TableSpec(
         name="earnings_calendar",
         columns={
