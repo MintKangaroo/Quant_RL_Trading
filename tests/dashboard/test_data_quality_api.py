@@ -291,10 +291,17 @@ def test_delisted_symbol_is_visible_before_delisting(client) -> None:
 
 
 def test_page_renders(client) -> None:
-    response = client.get("/")
+    response = client.get("/data-quality")
 
     assert response.status_code == 200
     assert b"Data Quality" in response.data
+
+
+def test_root_opens_trading_and_keeps_as_of(client) -> None:
+    assert client.get("/").headers["Location"].endswith("/trading")
+    moved = client.get("/?as_of=2026-07-20T00:00:00Z&lookback=5")
+    assert moved.status_code == 302
+    assert moved.headers["Location"].endswith("/trading?as_of=2026-07-20T00:00:00Z&lookback=5")
 
 
 # -----------------------------------------------------------------------------

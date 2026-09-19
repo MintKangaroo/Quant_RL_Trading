@@ -11,7 +11,7 @@ from typing import Any
 
 from pathlib import Path
 
-from flask import Flask, render_template, request
+from flask import Flask, redirect, render_template, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.exceptions import HTTPException
 
@@ -174,7 +174,14 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(learning.bp)
     app.register_blueprint(ai_review.bp)
 
+    # 첫 화면은 트레이딩이다(사용자 요청 2026-09-19). 루트가 데이터 품질에 붙어
+    # 있어서 접속할 때마다 배관부터 봤다 — 탭 줄 순서(운용→분석→운영)와 어긋난다.
+    # 쿼리는 그대로 넘긴다: ``/?as_of=...`` 되감기가 루트에서도 돌아야 한다(불변식 9).
     @app.get("/")
+    def root_page():  # type: ignore[no-untyped-def]
+        query = request.query_string.decode()
+        return redirect("/trading" + (f"?{query}" if query else ""))
+
     @app.get("/data-quality")
     def data_quality_page() -> str:
         return render_template("data_quality.html")
