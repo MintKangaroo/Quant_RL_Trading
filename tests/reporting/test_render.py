@@ -1346,3 +1346,39 @@ def test_성과_칸은_시장과_계좌_종류를_적는다() -> None:
     assert "국장" in render_module.KR_TITLE and "미장" in render_module.US_TITLE
     assert "모의투자" in render_module.MODE_LABEL["PAPER"]
     assert render_module.MODE_LABEL["PAPER"] != render_module.MODE_LABEL["SHADOW"]
+
+
+def test_구워진_차트만_참조한다() -> None:
+    """굽지 못한 차트를 cid 로 가리키면 메일에 깨진 이미지 아이콘이 뜬다 (2026-09-19)."""
+    html = render_html(_briefing(performance=_perf()))
+    assert "cid:" not in html
+    with_chart = render_html(_briefing(performance=_perf()), frozenset({"perf-kr"}))
+    assert 'src="cid:perf-kr"' in with_chart
+    assert "cid:perf-us" not in with_chart
+
+
+def test_차트_png_를_echarts_로_굽는다() -> None:
+    """실제로 굽는다 — Chromium 이 없는 환경에선 건너뛴다(차트는 비필수 경로)."""
+    import pytest
+
+    pytest.importorskip("playwright.sync_api")
+    from quant_rl_trading.accounting.performance import Curve
+    from quant_rl_trading.reporting import charts
+
+    curve = Curve(
+        sessions=["2026-09-16", "2026-09-17", "2026-09-18"],
+        index=[100.0, 100.5, 99.8],
+        benchmark=[100.0, 100.2, 100.9],
+        daily=[None, 0.005, -0.007],
+    )
+    images = charts.render_pngs({"KR": curve})
+    if not images:
+        pytest.skip("Chromium 을 못 띄웠다 — 비필수 경로라 빈 결과가 정상이다")
+    assert set(images) == {"perf-kr"}
+    assert images["perf-kr"].startswith(b"\x89PNG")
+
+
+def test_곡선이_없으면_차트를_굽지_않는다() -> None:
+    from quant_rl_trading.reporting import charts
+
+    assert charts.render_pngs({}) == {}

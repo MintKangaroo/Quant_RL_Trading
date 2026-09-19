@@ -255,6 +255,9 @@ class Briefing:
     #: 위 ``performance`` 와 **다른 창고**에서 오므로 따로 든다 — 합치지 않는다.
     #: 칸도 따로 그린다(reporting.md "미장 슬리브 칸"). ``None`` 이면 칸이 없다.
     performance_us: performance_module.Performance | None = None
+    #: 성과 카드 차트의 재료 — ``{"KR": Curve, "US": Curve}``. 회계 장부를 읽기만 한 것이다
+    #: (``performance.curve``·``usd_sleeve_curve``). 비면 차트 자리가 없다.
+    curves: dict[str, performance_module.Curve] = field(default_factory=dict)
     #: 데이터 기준일 — 국장 시세·지수, 미장 지수·시세, 환율의 창고 최신 세션 대 기대 세션.
     #: 메일 맨 위에 그대로 적는다(사용자 요청 2026-08-28: "최신 데이터인지 두 번 검증하기 싫다").
     freshness: list[dict[str, Any]] = field(default_factory=list)
@@ -307,6 +310,7 @@ class Briefing:
             "markets": {code: brief.as_dict() for code, brief in self.markets.items()},
             "performance": self.performance.as_dict() if self.performance else None,
             "performance_us": self.performance_us.as_dict() if self.performance_us else None,
+            "curves": {code: curve.as_dict() for code, curve in self.curves.items()},
         }
 
 
@@ -1468,6 +1472,27 @@ def _sleeve(store: Store | None, *, as_of: datetime) -> performance_module.Perfo
         return None
 
 
+def _curves(
+    store: Store, sleeve_store: Store | None, *, as_of: datetime
+) -> dict[str, performance_module.Curve]:
+    """차트 재료. **못 읽으면 그 차트만 빠진다** — 리포트는 비필수 경로다."""
+    out: dict[str, performance_module.Curve] = {}
+    try:
+        kr = performance_module.curve(store, as_of=as_of)
+        if kr is not None:
+            out["KR"] = kr
+    except Exception as error:  # noqa: BLE001 - 메일은 나가야 한다
+        print(f"국장 곡선을 못 읽었다 — {error}", file=sys.stderr)
+    if sleeve_store is not None:
+        try:
+            us = performance_module.usd_sleeve_curve(sleeve_store, as_of=as_of)
+            if us is not None:
+                out["US"] = us
+        except Exception as error:  # noqa: BLE001
+            print(f"미장 슬리브 곡선을 못 읽었다 — {error}", file=sys.stderr)
+    return out
+
+
 def build_briefing(
     store: Store,
     *,
@@ -1521,6 +1546,7 @@ def build_briefing(
         markets=markets,
         performance=_performance(store, as_of=as_of),
         performance_us=_sleeve(sleeve_store, as_of=as_of),
+        curves=_curves(store, sleeve_store, as_of=as_of),
         freshness=_freshness(store, as_of=as_of),
     )
 

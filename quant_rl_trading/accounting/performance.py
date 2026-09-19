@@ -466,6 +466,27 @@ def daily(
 NEW_YORK = "America/New_York"
 
 
+def _sleeve_daily(store: Store, *, as_of: datetime) -> pd.DataFrame | None:
+    """슬리브를 뉴욕 세션마다 한 행으로 접는다(``usd_sleeve`` 의 세션 규칙 그대로).
+
+    성과 숫자와 차트 곡선이 **같은 접기**를 쓰게 여기 한 곳에 둔다 — 둘이 따로 접으면
+    카드의 총 수익률과 그 아래 곡선의 끝점이 어긋난다.
+    """
+    curve = store.get(ledger.NAV_DAILY, as_of=as_of, entity=ledger.ACCOUNT, lookback=None)
+    if curve.empty or "equity_us" not in curve.columns:
+        return None
+    ordered = curve.sort_values(["valid_from", "observed_at"]).copy()
+    ordered = ordered.groupby("valid_from", as_index=False).tail(1)
+    ordered["nav_usd"] = ordered["equity_us"].astype(float) + ordered["cash_usd"].astype(float)
+    ordered = ordered[ordered["nav_usd"] > 0]
+    if ordered.empty:
+        return None
+    ordered["day"] = (
+        pd.to_datetime(ordered["valid_from"]).dt.tz_convert(NEW_YORK) - pd.Timedelta(hours=12)
+    ).dt.date
+    return ordered.groupby("day", sort=True).tail(1).reset_index(drop=True)
+
+
 def usd_sleeve(store: Store, *, as_of: datetime) -> Performance | None:
     """shadow 장부의 **달러 슬리브** 성과 — 미장 paper 트랙의 숫자.
 
@@ -486,19 +507,9 @@ def usd_sleeve(store: Store, *, as_of: datetime) -> Performance | None:
 
     슬리브가 없는 창고(달러를 들인 적 없음)면 ``None``.
     """
-    curve = store.get(ledger.NAV_DAILY, as_of=as_of, entity=ledger.ACCOUNT, lookback=None)
-    if curve.empty or "equity_us" not in curve.columns:
+    daily = _sleeve_daily(store, as_of=as_of)
+    if daily is None:
         return None
-    ordered = curve.sort_values(["valid_from", "observed_at"]).copy()
-    ordered = ordered.groupby("valid_from", as_index=False).tail(1)
-    ordered["nav_usd"] = ordered["equity_us"].astype(float) + ordered["cash_usd"].astype(float)
-    ordered = ordered[ordered["nav_usd"] > 0]
-    if ordered.empty:
-        return None
-    ordered["day"] = (
-        pd.to_datetime(ordered["valid_from"]).dt.tz_convert(NEW_YORK) - pd.Timedelta(hours=12)
-    ).dt.date
-    daily = ordered.groupby("day", sort=True).tail(1).reset_index(drop=True)
 
     flows = store.get("capital_flows", as_of=as_of, entity=ledger.ACCOUNT, lookback=None)
     usd = flows[flows["currency"].astype(str) == USD] if not flows.empty else flows
@@ -555,5 +566,89 @@ def usd_sleeve(store: Store, *, as_of: datetime) -> Performance | None:
         buy_count=buys,
         sell_count=sells,
         note=None if previous is not None else "첫 슬리브 세션 — 비교할 직전 스냅샷이 없다",
+        currency=USD,
+    )
+
+
+#: 차트에 싣는 최근 세션 수. 대시보드 곡선(EQUITY_SESSIONS)과 같은 창을 쓸 필요는 없다 —
+#: 메일은 폰 폭 한 장이라 석 달이면 충분하다.
+CURVE_SESSIONS = 60
+
+
+@dataclass(frozen=True)
+class Curve:
+    """차트 한 장의 재료. **회계가 남긴 값을 읽기만 한다** — 여기서 NAV 를 새로 재지 않는다.
+
+    ``index`` 와 ``benchmark`` 는 둘 다 첫 세션 = 100 이다(장부의 ``index_value``·
+    ``benchmark_index`` 가 이미 그렇다). ``benchmark`` 가 없는 장부(미장 슬리브)는 빈 목록.
+    """
+
+    sessions: list[str]
+    index: list[float]
+    benchmark: list[float | None]
+    daily: list[float | None]
+    currency: str = KRW
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "sessions": self.sessions,
+            "index": self.index,
+            "benchmark": self.benchmark,
+            "daily": self.daily,
+            "currency": self.currency,
+        }
+
+
+def curve(store: Store, *, as_of: datetime, market: str = "KR") -> Curve | None:
+    """원화 장부의 누적 곡선 — ``nav_daily`` 의 지수·벤치마크·일간 TWR.
+
+    **휴장일 행은 뺀다.** 장부엔 주말 15:40 스냅샷(8/30 등)이 끼어 있는데, 그대로 그리면
+    평평한 계단이 거래일처럼 보인다(대시보드 ``_trading_sessions_only`` 와 같은 규칙).
+    """
+    from quant_rl_trading.collectors import market_hours
+
+    frame = store.get(ledger.NAV_DAILY, as_of=as_of, entity=ledger.ACCOUNT, lookback=None)
+    if frame.empty:
+        return None
+    ordered = frame.sort_values(["valid_from", "observed_at"]).copy()
+    ordered["day"] = ordered["valid_from"].map(_kst_date)
+    ordered = ordered.groupby("day", sort=True).tail(1)
+    venue = market_hours.Market(market)
+    ordered = ordered[[market_hours.is_trading_day(venue, day) for day in ordered["day"]]]
+    ordered = ordered.tail(CURVE_SESSIONS)
+    if len(ordered) < 2:
+        return None
+
+    def _clean(values: Any) -> list[float | None]:
+        return [None if pd.isna(value) else float(value) for value in values]
+
+    return Curve(
+        sessions=[day.isoformat() for day in ordered["day"]],
+        index=[float(value) for value in ordered["index_value"]],
+        benchmark=_clean(ordered["benchmark_index"]) if "benchmark_index" in ordered else [],
+        daily=_clean(ordered["twr_return"]),
+    )
+
+
+def usd_sleeve_curve(store: Store, *, as_of: datetime) -> Curve | None:
+    """달러 슬리브의 누적 곡선 — ``usd_sleeve`` 와 **같은 접기**(``_sleeve_daily``).
+
+    지수는 슬리브 첫 세션 = 100, 일간 수익률은 전 세션 대비. 입출금은 첫날 한 번뿐이라
+    단순 비율이 곧 TWR 이다 — 두 번째 입금이 생기면 ``usd_sleeve`` 와 함께 고친다.
+    """
+    daily = _sleeve_daily(store, as_of=as_of)
+    if daily is None or len(daily) < 2:
+        return None
+    daily = daily.tail(CURVE_SESSIONS)
+    navs = daily["nav_usd"].astype(float).tolist()
+    base = navs[0]
+    returns: list[float | None] = [None] + [
+        (now / before - 1.0) if before else None for before, now in zip(navs, navs[1:])
+    ]
+    return Curve(
+        sessions=[day.isoformat() for day in daily["day"]],
+        index=[BASE_INDEX * nav / base for nav in navs],
+        benchmark=[],
+        daily=returns,
         currency=USD,
     )

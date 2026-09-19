@@ -166,3 +166,24 @@ def test_mask() -> None:
     assert emailer.mask("ab@x.com") == "a***@x.com"
     assert emailer.mask("someone@x.com") == "s*****e@x.com"
     assert emailer.mask("broken") == "***"
+
+
+def test_차트는_html_에_딸린_인라인_이미지로_붙는다() -> None:
+    """``cid:`` 가 찾을 이름으로 multipart/related 에 붙는다 — data URI 는 Gmail 이 막는다 (2026-09-19)."""
+    transport = MockTransport()
+    png = b"\x89PNG\r\n\x1a\nfake"
+    result = _send(transport, images={"perf-kr": png})
+    assert result.ok
+    message = transport.sent[0]
+    types = {part.get_content_type() for part in message.walk()}
+    assert {"text/plain", "text/html", "multipart/related", "image/png"} <= types
+    image = next(part for part in message.walk() if part.get_content_type() == "image/png")
+    assert image["Content-ID"] == "<perf-kr>"
+    assert image.get_content() == png
+
+
+def test_이미지가_없으면_관련_파트도_없다() -> None:
+    transport = MockTransport()
+    _send(transport)
+    types = {part.get_content_type() for part in transport.sent[0].walk()}
+    assert "multipart/related" not in types and "image/png" not in types

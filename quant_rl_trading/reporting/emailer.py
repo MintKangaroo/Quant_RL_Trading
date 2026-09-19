@@ -118,7 +118,12 @@ def load_config(env: dict[str, str] | None = None) -> SmtpConfig | None:
 
 
 def build_message(
-    *, subject: str, html: str, text: str, config: SmtpConfig
+    *,
+    subject: str,
+    html: str,
+    text: str,
+    config: SmtpConfig,
+    images: dict[str, bytes] | None = None,
 ) -> EmailMessage:
     """텍스트 대체본을 함께 실은 한 통.
 
@@ -131,6 +136,12 @@ def build_message(
     message["To"] = config.recipient
     message.set_content(text)
     message.add_alternative(html, subtype="html")
+    # 차트는 HTML 파트에 **관련 파트(multipart/related)** 로 붙인다 — ``cid:`` 가 이 이름을
+    # 찾는다. data URI 는 Gmail 이 막는다(reporting.md "차트").
+    if images:
+        html_part = message.get_payload()[-1]
+        for cid, png in images.items():
+            html_part.add_related(png, maintype="image", subtype="png", cid=f"<{cid}>", filename=f"{cid}.png")
     return message
 
 
@@ -152,6 +163,7 @@ def send(
     subject: str,
     html: str,
     text: str,
+    images: dict[str, bytes] | None = None,
     config: SmtpConfig | None = None,
     transport: Transport | None = None,
     attempts: int = ATTEMPTS,
@@ -167,7 +179,7 @@ def send(
         return SendResult(ok=False, status="skipped", detail="SMTP 미설정 (.env)")
 
     carrier = transport or SmtpTransport()
-    message = build_message(subject=subject, html=html, text=text, config=resolved)
+    message = build_message(subject=subject, html=html, text=text, config=resolved, images=images)
     last = ""
     for attempt in range(1, max(attempts, 1) + 1):
         try:

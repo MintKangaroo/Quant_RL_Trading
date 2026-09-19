@@ -335,3 +335,38 @@ def test_장_전_스냅샷은_오늘로_세지_않는다(warehouse) -> None:
 def test_달러를_들인_적_없으면_슬리브가_없다(warehouse) -> None:
     warehouse.append("nav_daily", [nav_row(DAY1)], ingest_run_id="nav")
     assert performance.usd_sleeve(warehouse, as_of=LATER) is None
+
+
+def test_곡선은_장부를_읽기만_하고_휴장일을_뺀다(warehouse) -> None:
+    """주말 15:40 스냅샷을 그대로 그리면 평평한 계단이 거래일처럼 보인다."""
+    # 3/2(월)는 삼일절 대체공휴일이라 거래일이 아니다 — 화·수로 잡는다.
+    monday = datetime(2026, 3, 3, 7, 0, tzinfo=UTC)   # KST 16:00 화
+    tuesday = monday + timedelta(days=1)
+    saturday = monday + timedelta(days=4)
+    warehouse.append("nav_daily", [
+        nav_row(monday, index_value=100.0, benchmark_index=100.0, twr_return=0.0),
+        nav_row(tuesday, index_value=101.0, benchmark_index=100.5, twr_return=0.01),
+        nav_row(saturday, index_value=101.0, benchmark_index=100.5, twr_return=0.0),
+    ], ingest_run_id="nav")
+    got = performance.curve(warehouse, as_of=saturday + timedelta(hours=1))
+    assert got is not None
+    assert got.sessions == ["2026-03-03", "2026-03-04"]
+    assert got.index == [100.0, 101.0] and got.benchmark == [100.0, 100.5]
+
+
+def test_슬리브_곡선_끝은_카드_숫자와_같다(warehouse) -> None:
+    """카드의 지수와 그 아래 차트의 끝점이 어긋나면 안 된다 — 같은 접기(_sleeve_daily)를 쓴다."""
+    close1 = datetime(2026, 3, 2, 20, 20, tzinfo=UTC)
+    close2 = datetime(2026, 3, 3, 20, 20, tzinfo=UTC)
+    warehouse.append("capital_flows", [flow(close1 - timedelta(hours=1), 1_000.0, USD)],
+                     ingest_run_id="flows")
+    warehouse.append("nav_daily", [
+        _sleeve_row(close1, 0.0, 1_000.0),
+        _sleeve_row(close2, 900.0, 150.0),
+    ], ingest_run_id="nav")
+    as_of = close2 + timedelta(hours=1)
+    got = performance.usd_sleeve_curve(warehouse, as_of=as_of)
+    card = performance.usd_sleeve(warehouse, as_of=as_of)
+    assert got is not None and card is not None
+    assert got.index[-1] == pytest.approx(card.index_value)
+    assert got.daily[-1] == pytest.approx(0.05) and got.currency == USD

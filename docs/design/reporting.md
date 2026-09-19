@@ -65,6 +65,20 @@
 환율 가정을 끌어들이고, 그건 대시보드 종합 탭의 몫이다. 슬리브 숫자는
 `accounting/performance.usd_sleeve` 가 회계의 `equity_us + cash_usd` 를 접은 것이다.
 
+**2026-09-19 갱신 — 성과 카드에 차트를 싣는다.** 사용자 요청("시각화 자료도"). 카드마다
+이미지 한 장: 위는 누적 곡선(펀드 지수 vs 벤치마크 지수, 둘 다 첫날 100 — 회계가 남긴
+`nav_daily.index_value`·`benchmark_index` 그대로), 아래는 일간 수익률 막대(`twr_return`).
+미장 슬리브는 벤치마크가 미배선이라 펀드 곡선만.
+
+- **라이브러리는 ECharts 하나다**(CLAUDE.md 금지 사항). 대시보드가 쓰는 같은
+  `static/echarts.min.js` 를 헤드리스 Chromium(Playwright)에 올려 PNG 로 굽는다.
+  메일은 JS·SVG 를 못 그리므로 이미지여야 하고, 인라인 첨부(`cid:`)로 싣는다 —
+  data URI 는 Gmail 이 막는다.
+- **차트는 비필수다.** 굽다가 실패하면(Chromium 없음 등) 이미지 자리를 통째로 빼고 메일은
+  나간다. HTML 은 **실제로 구워진 cid 만** 참조한다 — 없는 그림을 가리키면 깨진 아이콘이 뜬다.
+- 곡선은 **회계 장부를 읽기만** 한다(`accounting/performance.curve`·`usd_sleeve_curve`).
+  NAV·수익률을 여기서 다시 계산하지 않는다. 휴장일 행은 뺀다(대시보드와 같은 규칙).
+
 #### 셋을 가른다 — 0 · 없음 · 못 쟀음
 
 | 사실 | 화면 문구 |

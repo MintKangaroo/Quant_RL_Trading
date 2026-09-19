@@ -508,14 +508,17 @@ def _index_rows(rows: list[IndexRow], *, volatility: bool) -> str:
         # **RSI 는 손익 색을 쓰지 않는다.** 70 이 이익이고 30 이 손실인 것이
         # 아니다 — 변동성 지수에 색을 안 쓰는 것과 같은 이유다. 과매수·과매도
         # 구간에서만 눈에 띄게 하고, 그 밖에서는 조용한 회색으로 둔다.
+        # **RSI 는 이름 칸에 붙인다** — 값 칸 아래 줄로 두면 지수마다 한 줄씩 늘어 행 사이가
+        # 벌어졌다(2026-09-19 폰 실측 "공백 불편"). 이름 아래 작은 글씨면 값 줄과 높이를 나눠 쓴다.
+        name = row.label
         if row.rsi is not None:
-            tint = WARN_INK if row.rsi_zone else SOFT
+            tint = WARN_INK if row.rsi_zone else FOOTNOTE
             tag = (
                 " 과매수" if row.rsi_zone == "overbought"
                 else " 과매도" if row.rsi_zone == "oversold"
                 else ""
             )
-            value += (
+            name += (
                 f'<br><span style="color:{tint};font-size:{SMALL}px;'
                 f'font-weight:400">RSI {row.rsi:.0f}{tag}</span>'
             )
@@ -527,8 +530,8 @@ def _index_rows(rows: list[IndexRow], *, volatility: bool) -> str:
             )
         body += (
             "<tr>"
-            + _cell(row.label, color=SOFT)
-            + _cell(value, align="right", size=17, wrap=False)
+            + _cell(name, color=SOFT, pad="5px 4px")
+            + _cell(value, align="right", size=17, wrap=False, pad="5px 4px")
             + "</tr>"
         )
     return _grid(body)
@@ -1055,7 +1058,19 @@ def _stat(label: str, value: str, *, color: str = INK, sub: str = "") -> str:
     )
 
 
-def _performance_section(perf: Any, title: str) -> str:
+def _chart(cid: str | None, alt: str) -> str:
+    """카드 안 차트 한 장. ``cid`` 가 없으면(굽지 못했으면) **자리째 뺀다** — 깨진 아이콘 금지."""
+    if not cid:
+        return ""
+    return (
+        f'<div style="background-color:{PAPER};padding:8px 0 0">'
+        f'<img src="cid:{cid}" width="360" alt="{alt}" '
+        f'style="display:block;width:100%;max-width:560px;height:auto;border:0;'
+        f'border-radius:6px"></div>'
+    )
+
+
+def _performance_section(perf: Any, title: str, chart_cid: str | None = None) -> str:
     """성과 카드 — 총자산을 크게, 그 아래 2×2(자산 증감·당일 수익률 / 총 수익금·총 수익률).
 
     ## 자산 증감과 수익률을 반드시 가른다 ⭐
@@ -1134,7 +1149,8 @@ def _performance_section(perf: Any, title: str) -> str:
         f'<div style="background-color:{PAPER};color:{FOOTNOTE};font-size:{SMALL}px;'
         f'line-height:1.45;padding:8px 4px 0;border-top:1px solid {LINE};margin-top:4px">{trades}</div>'
     )
-    return _card(head + hero + grid + foot)
+    chart = _chart(chart_cid, f"{title} 누적 수익·일간 수익률 차트")
+    return _card(head + hero + chart + grid + foot)
 
 
 #: 칸 제목에 **시장을 적는다.** 제목이 "성과" 뿐이면 두 칸 중 어느 것이 국장인지 모른다
@@ -1143,10 +1159,18 @@ KR_TITLE = "국장 (KRW)"
 US_TITLE = "미장 (USD)"
 
 
-def _performance_block(briefing: Briefing) -> str:
-    """국장 모의계좌 칸 + (있으면) 미장 달러 슬리브 칸. **칸마다 창고 하나다**(reporting.md)."""
-    return _performance_section(briefing.performance, KR_TITLE) + _performance_section(
-        getattr(briefing, "performance_us", None), US_TITLE
+def _performance_block(briefing: Briefing, charts: frozenset[str] = frozenset()) -> str:
+    """국장 모의계좌 칸 + (있으면) 미장 달러 슬리브 칸. **칸마다 창고 하나다**(reporting.md).
+
+    ``charts`` 는 **실제로 구워진** cid 들이다 — 여기 없는 차트는 참조하지 않는다.
+    """
+    from quant_rl_trading.reporting.charts import CID
+
+    def pick(code: str) -> str | None:
+        return CID[code] if CID[code] in charts else None
+
+    return _performance_section(briefing.performance, KR_TITLE, pick("KR")) + _performance_section(
+        getattr(briefing, "performance_us", None), US_TITLE, pick("US")
     )
 
 
@@ -1284,7 +1308,7 @@ def _masthead(briefing: Briefing) -> str:
     )
 
 
-def render_html(briefing: Briefing) -> str:
+def render_html(briefing: Briefing, charts: frozenset[str] = frozenset()) -> str:
     """한 판. **맨 위는 내 성과, 그 아래 오늘의 시장, '자세히' 아래 나머지**
     (사용자 선택 2026-09-19 — 성과 먼저 · 핵심만 위 · 다크 유지).
 
@@ -1321,7 +1345,7 @@ style="width:100%;max-width:560px;margin:0 auto;background-color:{CANVAS};border
 <tr><td style="padding:0;background-color:{CANVAS}">
 {_masthead(briefing)}
 {_freshness_band(briefing)}
-{_performance_block(briefing)}
+{_performance_block(briefing, charts)}
 {today}
 {_divider("자세히")}
 {markets}
@@ -1454,8 +1478,16 @@ def render_text(briefing: Briefing) -> str:
 
 
 def render(briefing: Briefing) -> dict[str, Any]:
+    """제목·HTML·텍스트, 그리고 HTML 이 ``cid:`` 로 참조하는 PNG 들(``images``).
+
+    차트를 먼저 굽고, **구워진 것만** HTML 에 건다 — 굽기 실패는 차트 없는 메일이 된다.
+    """
+    from quant_rl_trading.reporting import charts as charts_module
+
+    images = charts_module.render_pngs(getattr(briefing, "curves", {}) or {})
     return {
         "subject": subject(briefing),
-        "html": render_html(briefing),
+        "html": render_html(briefing, frozenset(images)),
         "text": render_text(briefing),
+        "images": images,
     }

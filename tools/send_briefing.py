@@ -149,7 +149,13 @@ def main(argv: list[str] | None = None) -> int:
         html_path = target / f"briefing_{stamp}.html"
         text_path = target / f"briefing_{stamp}.txt"
         json_path = target / f"briefing_{stamp}.json"
-        html_path.write_text(parts["html"], encoding="utf-8")
+        # 파일로 볼 때는 ``cid:`` 가 안 풀린다 — 차트 PNG 를 옆에 떨구고 그 파일을 가리키게 바꾼다.
+        preview = parts["html"]
+        for cid, png in (parts.get("images") or {}).items():
+            png_path = target / f"briefing_{stamp}_{cid}.png"
+            png_path.write_bytes(png)
+            preview = preview.replace(f"cid:{cid}", png_path.name)
+        html_path.write_text(preview, encoding="utf-8")
         text_path.write_text(parts["text"], encoding="utf-8")
         json_path.write_text(
             json.dumps(briefing.as_dict(), ensure_ascii=False, indent=2, default=str),
@@ -162,7 +168,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     result = emailer.send(
-        subject=parts["subject"], html=parts["html"], text=parts["text"]
+        subject=parts["subject"],
+        html=parts["html"],
+        text=parts["text"],
+        images=parts.get("images") or None,
     )
     print(f"\n발송: {result.status} — {result.detail}", file=sys.stderr)
     # 발송 실패도 종료코드 0 이다. 크론이 이걸 실패로 세면 알림이 쌓이고,
