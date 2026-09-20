@@ -168,6 +168,7 @@ def run(
     wall_clock: Clock | None = None,
     broker: Broker | None = None,
     execution_clock: Clock | None = None,
+    record: bool = True,
 ) -> DailySession:
     """하루치 결정. 주문을 만들고 기록한다.
 
@@ -445,6 +446,7 @@ def run(
         broker=broker,
         fx_rate=fx_rate,
         execution_clock=execution_clock,
+        record=record,
     )
     result.orders = execution.planned
     # **집행 노트를 맨 앞에 둔다.** 게이트(데이터 품질·서킷·defer)는 매수를 통째로 막는데

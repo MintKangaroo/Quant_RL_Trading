@@ -215,6 +215,10 @@ def main(argv: list[str] | None = None) -> int:
         # 체결시킨다 — 2026-08-28 첫 실운용에서 그렇게 계좌에 없는 가상 보유 23종목이
         # 장부에 생겼고, 실제 주문은 그 가상 보유 대비 차액만 나갔다.
         warmup_days=0 if broker is not None else 1,
+        # **워밍업은 체결을 돌리기 위한 재생일 뿐이다 — 주문을 새로 적지 않는다.**
+        # 2026-09-19: 전날(US-09-17) 이 실시간에 품질 게이트로 주문 0 이었는데 이 재생이
+        # $341k 주문·체결을 사후에 장부에 박았다. 운영 사고가 성과에서 지워진다.
+        record_warmup=False,
         # 신호는 일일 실행기가 실전 창고에 이미 쌓았다. 여기서 또 만들지 않는다.
         produce_signals=False,
         broker=broker,

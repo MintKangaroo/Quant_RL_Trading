@@ -215,6 +215,7 @@ def run(
     capital: float = 0.0,
     board: str = "KOSPI",
     warmup_days: int = 0,
+    record_warmup: bool = True,
     produce_signals: bool = True,
     on_day: DayCallback | None = None,
     broker: Broker | None = None,
@@ -367,6 +368,11 @@ def run(
             # 한 줄이 없으면 실전 세션마다 전날 주문이 한 벌씩 더 나간다.
             broker=None if day in warmup_set else broker,
             execution_clock=execution_clock,
+            # **재생 워밍업은 기록하지 않는다** (``record_warmup=False``, 실전·shadow 세션).
+            # 백테스트의 워밍업은 처음부터 굴리는 시뮬레이션이라 기록해야 보유가 쌓이지만,
+            # 라이브 세션의 워밍업은 **이미 지나간 하루를 다시 굴리는 것**이다. 그날 실시간에
+            # 게이트로 주문 0 이었다면 이 재생이 없던 주문을 사후에 만들어 넣는다(2026-09-19 $341k).
+            record=record_warmup or day not in warmup_set,
         )
         elapsed["결정"] = perf_counter() - mark
         # 최대 RSS(MB). **메모리는 조용히 는다** — 2026-08-14 실행이 5.3GB 에서

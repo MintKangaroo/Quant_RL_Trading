@@ -108,11 +108,12 @@ def warehouse(store):  # type: ignore[no-untyped-def]
     return store
 
 
-def _run_day(store, day: date, *, warmup_days: int, capital: float = 0.0):
+def _run_day(store, day: date, *, warmup_days: int, capital: float = 0.0,
+             record_warmup: bool = True):
     """``tools/run_session.py`` 가 하는 것과 같은 모양 — 하루짜리 ``loop.run``."""
     return loop.run(
         store, start=day, end=day, market="KR", capital=capital,
-        warmup_days=warmup_days, produce_signals=False,
+        warmup_days=warmup_days, produce_signals=False, record_warmup=record_warmup,
     )
 
 
@@ -142,3 +143,20 @@ def test_전날을_워밍업으로_같이_돌리면_어제_주문이_오늘_체�
     trades = warehouse.get("trades", as_of=entry.as_of, lookback=30)
     assert not trades.empty
     assert (trades["valid_from"].dt.date == DAY_TWO).all()
+
+
+def test_재생_워밍업은_없던_주문을_사후에_만들지_않는다(warehouse) -> None:
+    """2026-09-19 사고: 전날이 실시간에 주문 0 이었는데 워밍업 재생이 \$341k 를 장부에 박았다.
+
+    ``record_warmup=False``(실전·shadow 세션)면 **워밍업 날의** 주문은 창고에 안 적힌다.
+    판정일 주문은 그대로 적힌다 — 오늘의 결정은 진짜 결정이다.
+    """
+    result = _run_day(warehouse, DAY_TWO, warmup_days=1, capital=100_000_000.0,
+                      record_warmup=False)
+    entry = result.days[-1]
+    orders = warehouse.get("orders", as_of=entry.as_of, lookback=30)
+    days = set(orders["valid_from"].dt.date) if not orders.empty else set()
+    assert START not in days, "워밍업 재생이 없던 주문을 창고에 적었다"
+    assert DAY_TWO in days, "판정일 주문까지 사라졌다"
+    # 워밍업이 주문을 안 냈으니 오늘 체결될 것도 없다 — 그날의 '주문 0' 이 성적에 남는다.
+    assert entry.filled == 0 and entry.requested == 0

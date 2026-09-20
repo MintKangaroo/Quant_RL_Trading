@@ -102,6 +102,7 @@ def run(
     broker: Broker | None = None,
     fx_rate: float = 1.0,
     execution_clock: Clock | None = None,
+    record: bool = True,
 ) -> ExecutionResult:
     """한 세션의 집행. 주문을 만들고, 창고에 적고, 전송한다.
 
@@ -239,6 +240,13 @@ def run(
     result.planned = tuple(planned)
 
     send_clock = execution_clock if execution_clock is not None else clock
+    if not record:
+        # **재생이다 — 창고에 새 주문을 적지 않는다.** 실전·shadow 세션은 전날을 워밍업으로
+        # 다시 굴려 D+1 체결을 돌리는데(run_session.py), 그 전날이 실시간에 게이트로 주문 0
+        # 이었으면 이 재생이 **없던 주문을 사후에 만들어** 장부에 박는다(2026-09-19 실측
+        # $341k). 계산은 그대로 하고 기록만 안 한다 — 위험 예약·전송도 함께 건너뛴다.
+        result.notes.append("워밍업 재생 — 주문을 기록하지 않았다")
+        return result
     record_orders(store, send_clock, planned=planned, as_of=as_of, market=market)
     approved, risk_notes = reserve_orders(
         store,
