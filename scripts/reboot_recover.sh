@@ -88,6 +88,32 @@ if need collect; then
     echo "  수집 rc=$?"
 fi
 
+# -- 4b. 미장 수집도 따라잡는다 (2026-09-20 추가) -----------------------------
+#
+# 위 머리말은 "미장 시세 수집은 안 한다 — 2시간 51분짜리라 재부팅 직후에 밟을 경로가 아니다"
+# 였다. 그 판단이 9/18 에 값을 치렀다: 재부팅으로 수집이 5,600/6,602 에서 끊겼고, 12:00
+# run_daily·12:20 shadow 가 낡은 시세로 돌아 품질 게이트에 걸려 주문 0 으로 끝났다.
+#
+# 그래서 **창을 좁혀서** 다시 넣는다. 수집기는 (세션, 1,700종목 배치) 매니페스트로 이어받기가
+# 되므로 끊긴 데서 이어 약 25분이면 끝난다 — 처음부터 2시간 51분이 아니다.
+#
+#   · 화~토(미장 마감 다음 날)이고 08:40~11:40 KST 사이일 때만. 12:00 run_daily 전에 끝나야 한다.
+#   · 창고가 오늘 미장 세션을 아직 모를 때만(plan_recovery).
+#   · 가용 메모리 4GB 이상일 때만. 국장 장중과 겹쳐도 US appkey 는 별개라 API 는 안 부딪친다.
+US_PLAN=$(.venv/bin/python tools/plan_recovery.py --market US 2>&1)
+US_DOW=$(date +%u); US_HM=$(date +%H%M)
+US_AVAIL=$(free -m | awk '/^Mem:/{print $7}')
+if echo "${US_PLAN}" | grep -q "^NEED collect   US " \
+   && [ "${US_DOW}" -ge 2 ] && [ "${US_DOW}" -le 6 ] \
+   && [ "${US_HM}" -ge 0840 ] && [ "${US_HM}" -le 1140 ] \
+   && [ "${US_AVAIL}" -ge 4000 ]; then
+    echo "  -- 미장 수집 따라잡기 (가용 ${US_AVAIL}MB · 이어받기)"
+    nohup bash scripts/collect_daily.sh US > /dev/null 2>&1 &
+    echo "  미장 수집 백그라운드 시작 pid $!"
+elif echo "${US_PLAN}" | grep -q "^NEED collect   US "; then
+    echo "  -- 미장 수집 필요하지만 창 밖이거나 메모리 부족 (요일 ${US_DOW} · ${US_HM} · ${US_AVAIL}MB)"
+fi
+
 # -- 5. 세션은 **입력이 다 들어온 뒤에만** 따라잡는다 ---------------------------
 #
 # 크론이 22:40 수집 → 22:55 run_daily → 23:05 run_shadow 순인 데는 이유가
