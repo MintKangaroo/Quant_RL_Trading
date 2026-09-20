@@ -616,6 +616,8 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     "execution.max_slippage",
     "execution.min_order_value",
     "execution.settlement_days",
+    "execution.settlement_days_kr",
+    "execution.settlement_days_us",
     "execution.slice_count",
     "execution.slice_interval_sec",
     "exposure",

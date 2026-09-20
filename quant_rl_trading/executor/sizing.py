@@ -21,12 +21,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import TYPE_CHECKING
 
+from quant_rl_trading.accounting import ledger
 from quant_rl_trading.schemas.order import Side
-
-if TYPE_CHECKING:
-    from quant_rl_trading.store import Store
+from quant_rl_trading.store import Store
 
 
 @dataclass(frozen=True)
@@ -40,7 +38,7 @@ class SizingParams:
 
     @classmethod
     def from_store(
-        cls, store: Store, *, as_of: datetime, fx_rate: float = 1.0
+        cls, store: Store, *, as_of: datetime, fx_rate: float = 1.0, market: str = "KR"
     ) -> SizingParams:
         """``fx_rate`` 는 **시장 통화 1단위의 원화 가격**(미장이면 USD/KRW).
 
@@ -58,7 +56,8 @@ class SizingParams:
             min_order_value=float(store.config("execution.min_order_value", as_of=as_of))
             / fx_rate,
             max_price_ratio=float(store.config("universe.max_price_ratio", as_of=as_of)),
-            settlement_days=int(store.config("execution.settlement_days", as_of=as_of)),
+            # 결제일은 시장마다 다르다 — 국장 D+2, 미장 T+1(2024-05~).
+            settlement_days=ledger.settlement_days_for(store, market=market, as_of=as_of),
         )
 
 

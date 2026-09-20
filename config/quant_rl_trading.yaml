@@ -189,6 +189,11 @@ execution:
   # 허용하는 편의이지 우리 설계에 있는 것이 아니다 (accounting.md §1:
   # "미결제 대금 때문에 NAV가 있어도 못 산다").
   settlement_days: 2
+  # **시장마다 다르다** (2026-09-20). 미국은 2024-05 부터 T+1 이다. 하나로 두었더니
+  # 9/15 미장 매도대금 $351k 가 하루 더 묶여 9/16 세션 주문가능현금이 $17.6k 였다.
+  # 아래 키가 없으면 위 settlement_days 로 되돌아간다(ledger.settlement_days_for).
+  settlement_days_kr: 2
+  settlement_days_us: 1
 
 selector:
   n_candidates: 24

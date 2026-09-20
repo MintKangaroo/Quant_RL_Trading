@@ -221,7 +221,7 @@ def run(
     # **출처는 장부다.** 실전에서 증권사 주문가능금액(LS `t0424`)을 쓰는 것이
     # 더 정확하지만, 그러면 백테스트와 라이브가 다른 숫자를 보게 된다
     # (불변식 5). 지금은 양쪽 다 장부에서 접는다.
-    settlement_days = int(store.config("execution.settlement_days", as_of=as_of))
+    settlement_days = ledger_module.settlement_days_for(store, market=market, as_of=as_of)
     cash = ledger_module.available_cash(
         store,
         as_of=as_of,

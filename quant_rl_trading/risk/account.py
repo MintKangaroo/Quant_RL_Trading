@@ -114,13 +114,13 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
         budget.nav, budget.fx = snap.valuation.nav, snap.valuation.fx_rate
         budget.daily_return, budget.drawdown = snap.twr_return, snap.drawdown
         budget.marks = snapshot.last_prices(store, as_of=as_of, entities=sorted(book.positions))
-        days = int(store.config("execution.settlement_days", as_of=as_of))
+        # **결제일은 시장마다 다르다** — 국장 D+2, 미장 T+1(2024-05~).
         budget.cash = {
             currency: ledger.available_cash(
                 store,
                 as_of=as_of,
                 book=book,
-                settlement_days=days,
+                settlement_days=ledger.settlement_days_for(store, market=market, as_of=as_of),
                 market=market,
                 currency=currency,
             )

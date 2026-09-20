@@ -193,6 +193,20 @@ def build_book(
     return book
 
 
+def settlement_days_for(store: Store, *, market: str, as_of: datetime) -> int:
+    """매도대금이 예수금이 되기까지의 거래일 — **시장마다 다르다.**
+
+    국장 D+2, 미장 T+1(2024-05 부터). 하나로 두었더니 미장 매도대금이 하루 더 묶여
+    주문가능현금이 바닥났다(2026-09-16 실측 $17.6k). 시장 키가 없으면 공용 키로 되돌아간다 —
+    설정이 아직 안 심긴 창고에서도 옛 동작 그대로 돈다.
+    """
+    key = f"execution.settlement_days_{market.lower()}"
+    try:
+        return int(store.config(key, as_of=as_of))
+    except Exception:  # noqa: BLE001 — 없는 키·미심김 둘 다 공용 키로 되돌린다
+        return int(store.config("execution.settlement_days", as_of=as_of))
+
+
 def available_cash(
     store: Store,
     *,

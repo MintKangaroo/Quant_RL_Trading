@@ -13,6 +13,7 @@ import pytest
 from quant_rl_trading.accounting import KRW, USD, Rates, snapshot
 from quant_rl_trading.accounting import ledger as ledger_module
 from quant_rl_trading.replay.clock import ReplayClock
+from quant_rl_trading.store import Store
 
 DAY1 = datetime(2026, 3, 2, 6, 40, tzinfo=UTC)   # 한국시간 15:40
 DAY2 = DAY1 + timedelta(days=1)
@@ -203,3 +204,19 @@ def test_같은_날을_두_번_쓰지_않는다(funded) -> None:
 
     assert snapshot.write(funded, clock, snapshot=result) == 1
     assert snapshot.write(funded, clock, snapshot=result) == 0
+
+
+def test_결제일은_시장마다_다르다(tmp_path) -> None:
+    """국장 D+2 · 미장 T+1(2024-05~). 하나로 두면 미장 매도대금이 하루 더 묶인다."""
+    store = Store(root=tmp_path / "warehouse")
+    store.seed_config_defaults()
+    moment = datetime(2026, 9, 21, tzinfo=UTC)
+    assert ledger_module.settlement_days_for(store, market="US", as_of=moment) == 1
+    assert ledger_module.settlement_days_for(store, market="KR", as_of=moment) == 2
+    # 시장 키가 없는 창고(옛 설정)에서는 공용 키로 되돌아간다.
+    bare = Store(root=tmp_path / "bare")
+    bare.append("config", [{
+        "entity_id": "execution.settlement_days", "valid_from": moment, "observed_at": moment,
+        "source": "test", "revision": 0, "value_json": "3",
+    }], ingest_run_id="seed-bare")
+    assert ledger_module.settlement_days_for(bare, market="US", as_of=moment) == 3
