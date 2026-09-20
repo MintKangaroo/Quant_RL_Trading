@@ -15,6 +15,21 @@
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 LOG="logs/ranker-round6-$(date +%Y%m%d).log"
+
+# **메모리 가드** (2026-09-20). 묶음 하나가 패널 적재만 3.3~3.8GB 를 쓴다. 다른 무거운 작업과
+# 겹치면 OOM 으로 사슬이 통째로 멈춘다 — 이미 잰 묶음은 건너뛰므로 다음 회차가 이어받지만,
+# 겹치는 줄 알면서 시작할 이유는 없다.
+for tool in tools/diagnose_ic.py tools/backfill_ic_history.py tools/measure_ic.py tools/train_ranker.py; do
+    if pgrep -f "${tool}" > /dev/null; then
+        echo "$(date '+%F %T') ${tool} 가 도는 중 — 이번 회차는 건너뛴다" >> "${LOG}"
+        exit 0
+    fi
+done
+AVAIL=$(free -m | awk '/^Mem:/{print $7}')
+if [ "${AVAIL}" -lt 4500 ]; then
+    echo "$(date '+%F %T') 가용 ${AVAIL}MB < 4500MB — 이번 회차는 건너뛴다" >> "${LOG}"
+    exit 0
+fi
 SAVE="--save"; [ "${DRY:-0}" = "1" ] && SAVE=""
 ADOPTED=""
 {
