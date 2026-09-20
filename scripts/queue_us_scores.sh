@@ -12,8 +12,10 @@ done_count=$(ls "${WORK}"/scores-*.version 2>/dev/null | wc -l)
 [ "${done_count}" -ge 6 ] && exit 0
 
 # **자기 자신을 세지 않는다** — 스크립트 이름이 아니라 도구 이름으로 찾는다(background-job-hygiene).
+# 시행 AB 에 우선권을 준다 — 결과를 기다리는 쪽이 먼저다(2026-09-20).
 for tool in tools/backfill_ic_history.py tools/diagnose_ic.py tools/train_ranker.py \
-            tools/backfill_ranker_signals.py tools/measure_ic.py tools/trial_ranker_sources.py; do
+            tools/backfill_ranker_signals.py tools/measure_ic.py tools/trial_ranker_sources.py \
+            tools/trial_ranker_ensemble.py; do
     pgrep -f "${tool}" > /dev/null && exit 0
 done
 
