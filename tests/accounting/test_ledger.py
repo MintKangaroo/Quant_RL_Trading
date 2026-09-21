@@ -212,7 +212,8 @@ def test_결제일은_시장마다_다르다(tmp_path) -> None:
     store.seed_config_defaults()
     moment = datetime(2026, 9, 21, tzinfo=UTC)
     assert ledger_module.settlement_days_for(store, market="US", as_of=moment) == 1
-    assert ledger_module.settlement_days_for(store, market="KR", as_of=moment) == 2
+    # 국장 0 — 매도대금은 즉시 재매수에 쓸 수 있다(2026-09-21, 증권사 실측으로 정정).
+    assert ledger_module.settlement_days_for(store, market="KR", as_of=moment) == 0
     # 시장 키가 없는 창고(옛 설정)에서는 공용 키로 되돌아간다.
     bare = Store(root=tmp_path / "bare")
     bare.append("config", [{
