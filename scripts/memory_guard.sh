@@ -36,6 +36,8 @@ VICTIMS=(
   # **스크래치 진단이 제일 먼저다** (2026-09-21). 트랜스포머 시행이 도는 중에 스크래치 진단을 같이 돌려
   # 가용 240MB 로 26분 스래싱했고, 이 목록에 둘 다 없어 가드가 "내릴 것이 없다" 만 찍었다 — 시행은 죽었다.
   "scratchpa[d]/.*\.py"       # Claude 세션의 일회성 진단 — 다시 돌리면 그만이다
+  "pytes[t]"                   # 테스트 — 다시 돌리면 그만이다. 18:36 에 커밋 전 불변식 테스트가 가용을
+                               # 514MB 로 끌어내려 가드가 9시간짜리 트랜스포머를 내렸다(2026-09-21)
   "trial_llm_analys[t]"        # agent_cache 덕에 재개가 공짜
   "trial_new_source[s]"        # 측정 재실행 싸다
   "backfill_ic_histor[y]"      # 작업 디렉터리에 중간 산출물이 남아 이어 돌 수 있다
@@ -48,7 +50,16 @@ VICTIMS=(
   "train_r[l].py"              # 체크포인트에서 잇는다 — 마지막 수단
 )
 
+# **트랜스포머는 스왑 여유가 있는 한 두다** (2026-09-21). 9시간짜리라 한 번 내리면 처음부터 다시 돈다.
+# 그리고 그 증가는 PyTorch·glibc 가 쓰고 난 블록을 붙잡는 것(차가운 페이지)이라 스왑으로 내려가도 학습 속도에
+# 거의 영향이 없다. 가용 250MB 미만 **이고** 스왑 여유도 1GB 미만일 때만 내린다.
+swap_free_mb=$(awk '/^SwapFree:/ {print int($2/1024)}' /proc/meminfo)
 for pat in "${VICTIMS[@]}"; do
+  if [ "$pat" = "trial_price_transforme[r]" ] && { [ "$avail_mb" -ge 250 ] || [ "${swap_free_mb:-0}" -ge 1024 ]; }; then
+    pgrep -f "$pat" > /dev/null 2>&1 && \
+      say "가용 ${avail_mb}MB — 트랜스포머는 둔다(스왑 여유 ${swap_free_mb}MB, 내림 기준: 가용<250MB 이고 스왑<1GB)"
+    continue
+  fi
   for pid in $(pgrep -f "$pat" 2>/dev/null); do
     comm=$(cat "/proc/$pid/comm" 2>/dev/null || true)
     case "$comm" in

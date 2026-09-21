@@ -6,6 +6,9 @@
 # 순서: Z → AD → AE(오버레이) → AF(상한 완화) → AC(트랜스포머, 몇 시간짜리) → AA(타깃 β 잔차) → AG(미장 검증).
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
+# glibc 아레나를 묶는다 — 여러 스레드가 아레나를 따로 잡으면 쓰고 난 메모리를 못 돌려줘 RSS 가 계속 는다
+# (2026-09-21 트랜스포머: 3.3 → 4.4GB, 시간당 0.4GB). 대시보드 재기동 스크립트와 같은 값이다.
+export MALLOC_ARENA_MAX=2
 
 # **운영이 먼저다.** 연구 시행은 운영 작업이 도는 동안 시작하지 않는다 — 22:40 국장 수집 → 22:55 run_daily →
 # 23:05 shadow → 23:20 회계는 내일 세션의 입력이고, 미장 TWAP 조각(20분마다)은 shadow 주문이다.
