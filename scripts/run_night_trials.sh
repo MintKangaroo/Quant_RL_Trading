@@ -3,7 +3,7 @@
 # 자원이 남으면 낮에도 돈다. 대신 운영 구간은 아래 창으로 비켜 간다. 30분마다 불러도 안전하다:
 #  · 이미 끝난 시행(로그에 '판정:')은 건너뛴다
 #  · 무거운 도구가 돌거나 가용 메모리가 모자라면 즉시 종료
-# 순서: Z → AD → AE(오버레이) → AF(상한 완화) → AC(트랜스포머, 마지막·몇 시간짜리).
+# 순서: Z → AD → AE(오버레이) → AF(상한 완화) → AC(트랜스포머, 몇 시간짜리) → AA(타깃 β 잔차).
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
@@ -60,13 +60,20 @@ run_one "시행 AF" tools/trial_cap_relax.py           logs/trial-cap-relax-AF.l
 # 시행 AC(트랜스포머)는 몇 시간짜리라 마지막이다. 시드 0 만(판정), **8스레드** — 12 코어 중 4 개는
 # 밤 운영(수집·세션·TWAP 조각)에 남긴다. 그만큼 느려지지만(약 7시간) 운영을 굶기지 않는다.
 # 시드 1·2(기록 항목)는 다른 밤에 따로 — 등록 문서 "비용 실측과 실행 순서".
-if ! grep -q "^판정:" logs/trial-price-transformer-AC.log 2>/dev/null    && ! pgrep -f tools/trial_price_transformer.py > /dev/null; then
-    echo "$(date '+%F %T') 시행 AC 시작 (가용 ${AVAIL}MB · 약 7시간, 8스레드)" >> logs/night-trials.log
+if ! grep -q "^판정:" logs/trial-price-transformer-AC.log 2>/dev/null; then
+    # **AC 가 돌고 있으면 여기서 멈춘다.** 지나치면 아래 AA 가 같이 시작한다 — GBM 학습과 트랜스포머가 겹쳐
+    # 머신을 나누게 된다(2026-09-21 에 두 번 그렇게 죽었다).
+    pgrep -f "tools/trial_price_transforme[r].py" > /dev/null && exit 0
+    echo "$(date '+%F %T') 시행 AC 시작 (가용 ${AVAIL}MB · 약 9시간, 8스레드)" >> logs/night-trials.log
     {
-        echo "=== $(date '+%F %T') 시행 AC (seed 0, 12 threads) ==="
-        QUANT_RL_DUCKDB_MEMORY_LIMIT=1500MB nice -n 5 .venv/bin/python -u tools/trial_price_transformer.py             --save --no-extra-seeds --threads 8
+        echo "=== $(date '+%F %T') 시행 AC (seed 0, 8 threads) ==="
+        QUANT_RL_DUCKDB_MEMORY_LIMIT=1500MB nice -n 5 .venv/bin/python -u tools/trial_price_transformer.py \
+            --save --no-extra-seeds --threads 8
         echo "rc=$?"
     } >> logs/trial-price-transformer-AC.log 2>&1
     exit 0
 fi
+
+# 시행 AA(랭커 타깃 β 잔차) — GBM 학습이라 트랜스포머와 겹치면 안 된다. AC 가 끝난 뒤에만(위에서 AC 가 돌면 이미 빠졌다).
+run_one "시행 AA" tools/trial_ranker_target_beta.py logs/trial-ranker-target-beta-AA.log || exit 0
 echo "$(date '+%F %T') 대기열 비었다 — 크론 두 줄 지울 것" >> logs/night-trials.log
