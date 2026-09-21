@@ -650,6 +650,32 @@ _SPECS: dict[str, TableSpec] = {
             "임베딩은 계산일 뿐 새 사실이 아니다. 시행 X(filing-text-embedding-2026-09.md)의 랭커 피처."
         ),
     ),
+    # 종목별 프로그램매매(국장) — 사용자 제안(2026-09-20). **과거 이력을 주는 소스가 없다**: LS t1637 은 당일
+    # 분 단위, t1636 은 당일 순위뿐이고 KRX 정보데이터시스템은 로그인 세션을 요구한다(자동 수집은 약관 위반).
+    # 그래서 2026-09-21 부터 매일 쌓는다. 판정 가능한 표본(200세션)은 2027 여름이다.
+    "program_trading": TableSpec(
+        name="program_trading",
+        columns={
+            "market": pa.string(),
+            "board": pa.string(),            # KOSPI | KOSDAQ
+            "net_value": pa.float64(),       # 프로그램 순매수 금액
+            "buy_value": pa.float64(),
+            "sell_value": pa.float64(),
+            "net_volume": pa.float64(),
+            "buy_volume": pa.float64(),
+            "sell_volume": pa.float64(),
+            "market_cap": pa.float64(),
+            "mkcap_ratio": pa.float64(),     # 시총 대비 순매수 비중(LS 가 주는 값 그대로)
+            "price": pa.float64(),
+            "volume": pa.float64(),
+        },
+        observation_lag_days=3,
+        doc=(
+            "LS t1636(종목별프로그램매매동향) 페이지를 끝까지 넘겨 받은 하루치. valid_from = 세션 시각, "
+            "observed_at = **실제 수집 시각**(공표 정책 시각이 아니다 — 늦게 받은 날은 늦게 받은 것으로 남는다). "
+            "차익·비차익을 가르지 않은 합계다(TR 이 안 가른다)."
+        ),
+    ),
     "earnings_calendar": TableSpec(
         name="earnings_calendar",
         columns={
