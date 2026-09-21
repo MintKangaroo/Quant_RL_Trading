@@ -3,7 +3,7 @@
 # 자원이 남으면 낮에도 돈다. 대신 운영 구간은 아래 창으로 비켜 간다. 30분마다 불러도 안전하다:
 #  · 이미 끝난 시행(로그에 '판정:')은 건너뛴다
 #  · 무거운 도구가 돌거나 가용 메모리가 모자라면 즉시 종료
-# 순서: Z(베타·대형주) → AD(패자만 뺀다) → AE(오버레이 재측정). 셋 다 학습이 없어 가볍다.
+# 순서: Z → AD → AE(오버레이) → AF(상한 완화) → AC(트랜스포머, 마지막·몇 시간짜리).
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
@@ -46,6 +46,7 @@ run_one() {  # $1=이름 $2=도구 $3=로그
 run_one "시행 Z"  tools/trial_beta_megacap.py       logs/trial-beta-megacap-Z.log      || exit 0
 run_one "시행 AD" tools/trial_index_minus_losers.py logs/trial-index-minus-losers-AD.log || exit 0
 run_one "시행 AE" tools/trial_overlay_extended.py   logs/trial-overlay-extended-AE.log   || exit 0
+run_one "시행 AF" tools/trial_cap_relax.py           logs/trial-cap-relax-AF.log          || exit 0
 
 # 시행 AC(트랜스포머)는 몇 시간짜리라 마지막이다. 시드 0 만(판정), **8스레드** — 12 코어 중 4 개는
 # 밤 운영(수집·세션·TWAP 조각)에 남긴다. 그만큼 느려지지만(약 7시간) 운영을 굶기지 않는다.
