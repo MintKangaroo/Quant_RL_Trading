@@ -26,9 +26,9 @@ function renderControlOverview(body) {
   const stopped = risk?.killswitch?.engaged === true;
   const historical = body.live !== true;
   target.innerHTML = [
-    controlState("신규 주문", stopped ? "매수 차단" : historical ? "과거 조회" : "조건 미확인",
-      stopped ? risk.killswitch.reason || "킬스위치 발동" : historical ? "현재 주문 상태와 별도" : "대사·데이터 gate 확인 필요",
-      stopped ? "critical" : "warning"),
+    controlState("신규 주문", stopped ? "매수 차단" : historical ? "과거 조회" : "확인 중",
+      stopped ? risk.killswitch.reason || "킬스위치 발동" : historical ? "현재 주문 상태와 별도" : "데이터·대사 칸을 기다리는 중",
+      stopped ? "critical" : historical ? "warning" : "unknown", "control-orders"),
     controlState("데이터 신뢰", "미측정", "공표 세션 확인 필요", "unknown", "control-data", controlLink("/data-quality")),
     controlState("모델 관측", "미측정", "Ranker IC 확인", "unknown", "control-model", controlLink("/learning")),
     controlState("주문 · 장부 대사", "미측정", "계좌 관측 상세 보기", "unknown", "control-reconciliation", "#account-details"),
@@ -38,6 +38,29 @@ function renderControlOverview(body) {
   if (budget) budget.textContent = risk && Number.isFinite(risk.drawdown) && risk.bands?.hard > 0
     ? `리스크 예산 ${pct(Math.abs(risk.drawdown) / risk.bands.hard, 1)} 사용 · 현재낙폭 ${pct(risk.drawdown)} / 한도 ${pct(risk.bands.hard, 0)} · 회계 기준`
     : "리스크 예산 미측정 · 회계 관측 확인 필요";
+}
+
+/** "신규 주문" 칸은 **다른 칸에서 유도한다.** 예전엔 킬스위치만 꺼져 있으면 영영 "조건 미확인 ·
+ *  gate 확인 필요" 를 경고색으로 띄웠다 — 데이터·대사 칸이 정상으로 바뀌어도 안 따라왔다(2026-09-21).
+ *  늘 켜져 있는 경고는 경고가 아니다. 실제 차단은 executor 의 게이트가 하고, 이 칸은 그 요약이다. */
+function renderControlOrders() {
+  const target = document.getElementById("control-orders");
+  if (!target || target.classList.contains("is-critical")) return;  // 킬스위치 발동은 그대로 둔다
+  if (target.querySelector("strong")?.textContent === "과거 조회") return;
+  const has = (id, cls) => document.getElementById(id)?.classList.contains(cls);
+  let state = "ok", value = "가능", detail = "킬스위치 꺼짐 · 데이터·대사 정상";
+  if (has("control-reconciliation", "is-critical")) {
+    state = "critical"; value = "점검 필요"; detail = "장부와 계좌 수량이 다르다 — 대사 칸 확인";
+  } else if (has("control-data", "is-warning")) {
+    state = "warning"; value = "매수 막힐 수 있음"; detail = "데이터 지연 — 품질 게이트가 신규 매수를 막는다";
+  } else if (has("control-reconciliation", "is-warning")) {
+    state = "warning"; value = "주의"; detail = "장부·계좌 금액 차이 — 대사 칸 확인";
+  } else if (has("control-data", "is-unknown") || has("control-reconciliation", "is-unknown")) {
+    state = "unknown"; value = "확인 중"; detail = "데이터·대사 칸이 아직 미측정";
+  }
+  for (const cls of ["is-ok", "is-warning", "is-critical", "is-unknown"]) target.classList.remove(cls);
+  target.classList.add(`is-${state}`);
+  target.innerHTML = `<span>신규 주문</span><strong>${controlEsc(value)}</strong><small>${controlEsc(detail)}</small>`;
 }
 
 function renderControlFreshness(data) {
@@ -53,6 +76,7 @@ function renderControlFreshness(data) {
   const value = bad.length ? `${bad.length}개 항목 이상` : measured ? "수집 시점 확인" : "미측정";
   const detail = bad.length ? bad.map((item) => item.label).join(" · ") : "독립 데이터 품질 gate와 별도";
   target.innerHTML = `<span>데이터 신뢰</span><strong>${controlEsc(value)}</strong><small><a href="${controlEsc(controlLink('/data-quality'))}">${controlEsc(detail)}</a></small>`;
+  renderControlOrders();
 }
 
 /** 상단 "주문 · 장부 대사" 칸. 하단 계좌 대조표(t0424 vs 장부)의 핵심 세 줄을 올린다 —
@@ -69,6 +93,7 @@ function renderControlReconciliation(summary, reason = "") {
     target.classList.add(`is-${state}`);
     target.innerHTML = `<span>주문 · 장부 대사</span><strong>${controlEsc(value)}</strong>` +
       `<small><a href="${link}">${controlEsc(detail)}</a></small>`;
+    renderControlOrders();
   };
   if (!summary) { paint("unknown", "미측정", reason || "계좌 관측 상세 보기"); return; }
   const fmt = (v) => (v == null ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
@@ -672,7 +697,11 @@ function renderOrders(body) {
   const rows = body.data.orders;
   // 서버가 **마지막 주문일 하루치만** 준다(사용자 요청 2026-09-07). 어느 날인지 머리에 적는다.
   const head2 = document.getElementById("orders-head");
-  if (head2) head2.textContent = rows.length ? `${rows[0].time.slice(0, 10)} · ${rows.length}건` : "";
+  // 머리에는 **주문이 실제로 움직인 날**을 적는다. 세션 시각(전 거래일 16:00)을 적으면 오늘 낸 주문이
+  // 지난 금요일 주문처럼 읽힌다(2026-09-21). 세션은 괄호로 남긴다 — 어느 종가로 결정했는지는 사실이다.
+  const moved = rows.length ? rows.map((r) => r.updated || r.time).sort().slice(-1)[0].slice(0, 10) : "";
+  if (head2) head2.textContent = rows.length
+    ? `${moved} 주문 · ${rows.length}건 (결정 기준 ${rows[0].time.slice(0, 10)} 종가)` : "";
   if (!rows.length) {
     document.getElementById("orders").innerHTML =
       `<p class="empty">기록된 주문이 없다. Session 이 돌면 여기 쌓인다.</p>`;
@@ -683,7 +712,7 @@ function renderOrders(body) {
      옆으로 밀면 종목명이 사라져 어느 행인지 몰랐다 — 행의 정체성은 종목이다.
      ② 16자 시각이 폭을 먹어 실현손익이 화면 밖으로 잘렸다(실측 2026-08-31
      아이폰). 시점은 지운 게 아니라 자리만 옮겼다(data-must-be-dated). */
-  const head = `<thead><tr><th class="mobile-hide">시각</th><th>종목</th><th class="mid">방향</th>
+  const head = `<thead><tr><th class="mobile-hide">최근 변경</th><th>종목</th><th class="mid">방향</th>
     <th class="r mobile-hide">지정가</th><th class="r">체결가</th><th class="r">수량</th>
     <th class="r mobile-hide">체결수량</th><th class="r mobile-hide">비용</th><th class="r">실현손익</th>
     <th class="r">수익률</th><th class="r mobile-hide">목표비중</th>
@@ -692,8 +721,8 @@ function renderOrders(body) {
     `<table class="ledger">${head}${rows
       .map(
         (row) => `<tr class="click" data-entity="${row.entity_id}">
-      <td class="mono mobile-hide">${row.time.slice(0, 16).replace("T", " ")}</td>
-      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span><span class="time-inline mono">${row.time.slice(5, 16).replace("T", " ")}</span></td>
+      <td class="mono mobile-hide">${(row.updated || row.time).slice(0, 16).replace("T", " ")}</td>
+      <td><span class="name">${row.name}</span><span class="code">${row.entity_id}</span><span class="time-inline mono">${(row.updated || row.time).slice(5, 16).replace("T", " ")}</span></td>
       <td class="mid side ${row.side}">${row.side.toUpperCase()}</td>
       <td class="r mono mobile-hide">${row.limit_price ? num(Math.round(row.limit_price)) : "시장가"}</td>
       <td class="r mono">${row.fill_price ? num(Math.round(row.fill_price)) : "—"}</td>

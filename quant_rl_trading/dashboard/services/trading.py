@@ -908,6 +908,11 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
         rows.append(
             {
                 "time": pd.Timestamp(row["valid_from"]).isoformat(),
+                # **세션 시각과 주문이 실제로 움직인 시각은 다르다.** ``valid_from`` 은 세션 기준
+                # 시각(전 거래일 16:00)이라, 그것만 보이면 오늘 08:40 에 낸 주문이 "9/18 16:00 주문"
+                # 으로 읽힌다(사용자 지적 2026-09-21). ``observed_at`` 은 이 행이 마지막으로 바뀐
+                # 시각 — 접수·체결·취소 중 가장 최근 것이다.
+                "updated": pd.Timestamp(row["observed_at"]).tz_convert("Asia/Seoul").isoformat(),
                 "entity_id": str(row["entity_id"]),
                 "name": names.get(str(row["entity_id"]), str(row["entity_id"])),
                 "side": str(row["side"]),
