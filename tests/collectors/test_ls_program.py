@@ -8,17 +8,26 @@ from quant_rl_trading.store.tables import table_names
 
 
 class FakeClient:
-    def __init__(self, pages: list[tuple[list[dict], object]]) -> None:
-        self.pages = pages
-        self.calls: list[object] = []
+    """LS 연속조회는 **본문 cts_idx + 헤더 tr_cont** 를 같이 줘야 다음 쪽이 온다(2026-09-21 실측)."""
 
-    def request_tr(self, path: str, tr: str, body: dict) -> dict:
+    def __init__(self, pages: list[list[dict]]) -> None:
+        self.pages = pages
+        self.calls: list[tuple[int, str]] = []
+
+    def request_tr(self, path: str, tr: str, body: dict, *, tr_cont: str = "N",
+                   tr_cont_key: str = "", with_headers: bool = False) -> dict:
         assert (path, tr) == (program.PATH, program.TR)
+        assert with_headers, "헤더를 안 받으면 '이어서' 표시를 못 읽는다"
         block = body[f"{tr}InBlock"]
         assert block["gubun2"] == "0", "순매수 정렬이면 장중에 페이지 사이로 종목이 샌다"
-        self.calls.append(block["cts_idx"])
-        rows, nxt = self.pages[len(self.calls) - 1]
-        return {f"{tr}OutBlock": {"cts_idx": nxt}, f"{tr}OutBlock1": rows}
+        cts = int(block["cts_idx"])
+        self.calls.append((cts, tr_cont))
+        index = cts // 20
+        rows = self.pages[index] if index < len(self.pages) else []
+        more = index + 1 < len(self.pages)
+        return {f"{tr}OutBlock1": rows,
+                f"{tr}OutBlock": {"cts_idx": (index + 1) * 20 if more else cts},
+                "_cont": {"tr_cont": "Y" if more else "N", "tr_cont_key": "0"}}
 
 
 def item(code: str, net: str) -> dict:
@@ -29,18 +38,20 @@ def item(code: str, net: str) -> dict:
 
 def test_끝까지_넘기고_겹친_종목은_마지막_값으로_접는다() -> None:
     client = FakeClient([
-        ([item("005930", "6"), item("000660", "3")], 20),
-        ([item("000660", "9"), item("035420", "-2")], 40),
-        ([], 0),
+        [item("005930", "6"), item("000660", "3")],
+        [item("000660", "9"), item("035420", "-2")],
+        [item("207940", "1")],
     ])
     items = program.fetch_board(client, "0")
-    assert client.calls == [" ", 20, 40]
-    assert {i["shcode"]: i["svalue"] for i in items} == {"005930": "6", "000660": "9", "035420": "-2"}
+    assert client.calls == [(0, "N"), (20, "Y"), (40, "Y")], "본문 cts_idx 와 헤더 tr_cont 를 같이 줘야 한다"
+    assert {i["shcode"]: i["svalue"] for i in items} == {
+        "005930": "6", "000660": "9", "035420": "-2", "207940": "1"}
 
 
-def test_cts_가_제자리면_멈춘다() -> None:
-    """같은 쪽을 영원히 도는 것을 막는다 — 초당 1건 제한에서 그건 그날 수집 전체를 태운다."""
-    client = FakeClient([([item("005930", "1")], 20), ([item("000660", "1")], 20), ([item("035420", "1")], 20)])
+def test_같은_쪽이_반복되면_멈춘다() -> None:
+    """초당 1건 제한에서 무한 루프는 그날 수집 전체를 태운다."""
+    same = [item("005930", "1")]
+    client = FakeClient([same, same, same, same])
     program.fetch_board(client, "0")
     assert len(client.calls) == 2
 

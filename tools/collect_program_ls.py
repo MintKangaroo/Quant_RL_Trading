@@ -28,6 +28,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", default="data")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true",
+                        help="이미 받은 날도 다시 받는다 — 앞 회차가 불완전했을 때(정정본으로 얹힌다)")
     args = parser.parse_args(argv)
     load_env()
     clock = LiveClock()
@@ -37,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         print("장중이다 — 미완성 값이라 적지 않는다")
         return 0
     store = Store(root=Path(args.root))
-    if not args.dry_run and store.ingest_run_recorded(program.TABLE, program.run_id(day)):
+    if not args.dry_run and not args.force and store.ingest_run_recorded(program.TABLE, program.run_id(day)):
         print(f"{day}: 이미 받았다")
         return 0
     client = LSClient(credentials=LSCredentials.from_env(prefix="LS_"), clock=clock,
@@ -53,7 +55,8 @@ def main(argv: list[str] | None = None) -> int:
     active = sum(1 for r in rows if (r["buy_value"] or 0) + (r["sell_value"] or 0) > 0)
     print(f"{day}: {len(rows):,}행 · 프로그램 거래가 있던 종목 {active:,}")
     if not args.dry_run:
-        store.append(program.TABLE, rows, ingest_run_id=program.run_id(day), source=program.SOURCE)
+        run = program.run_id(day) + ("-refetch" if args.force else "")
+        store.append(program.TABLE, rows, ingest_run_id=run, source=program.SOURCE)
     return 0
 
 

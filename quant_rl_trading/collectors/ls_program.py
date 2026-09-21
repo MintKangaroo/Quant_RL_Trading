@@ -38,28 +38,43 @@ def _number(value: Any) -> float | None:
 
 
 def fetch_board(client: Any, gubun: str) -> list[dict[str, Any]]:
-    """한 시장의 전 종목. ``cts_idx`` 가 더 안 나아가거나 빈 쪽이 오면 끝이다."""
+    """한 시장의 전 종목. **연속조회는 본문 + 헤더를 같이 줘야 한다.**
+
+    2026-09-21 실측으로 조합을 확인했다(하나만으로는 첫 20행이 반복된다):
+
+        본문 cts_idx=0  · 헤더 tr_cont=N  → 삼성전자…현대모비스 (OutBlock.cts_idx=20)
+        본문 cts_idx=20 · 헤더 tr_cont=N  → **같은 쪽**
+        본문 cts_idx=0  · 헤더 tr_cont=Y  → **같은 쪽**
+        본문 cts_idx=20 · 헤더 tr_cont=Y  → LG전자…삼성중공업 (OutBlock.cts_idx=40)  ← 이것
+
+    즉 다음 쪽의 위치는 **응답 OutBlock 의 cts_idx** 가 들고, 헤더 ``tr_cont='Y'`` 는 "이어서" 라는 표시다.
+    """
     rows: dict[str, dict[str, Any]] = {}
-    cts: Any = " "
-    seen: set[str] = set()
+    cts, cont = 0, "N"
     for _ in range(MAX_PAGES):
         body = {f"{TR}InBlock": {
             "gubun": gubun, "gubun1": "1", "gubun2": "0", "shcode": "", "cts_idx": cts, "exchgubun": "K",
         }}
-        data = client.request_tr(PATH, TR, body)
+        data = client.request_tr(PATH, TR, body, tr_cont=cont, tr_cont_key="", with_headers=True)
         page = data.get(f"{TR}OutBlock1") or []
         if not page:
             break
+        fresh = 0
         for item in page:
             code = str(item.get("shcode") or "").strip()
             if code:
+                fresh += int(code not in rows)
                 rows[code] = item
         nxt = (data.get(f"{TR}OutBlock") or {}).get("cts_idx")
-        key = str(nxt).strip()
-        if not key or key in ("0", "") or key in seen:
+        header = (data.get("_cont") or {}).get("tr_cont", "N")
+        try:
+            nxt_i = int(str(nxt).strip())
+        except (TypeError, ValueError):
             break
-        seen.add(key)
-        cts = nxt
+        # 새 종목이 하나도 없으면 멈춘다 — 같은 쪽을 영원히 도는 것을 막는다(초당 1건 제한).
+        if str(header).upper() != "Y" or nxt_i <= cts or fresh == 0:
+            break
+        cts, cont = nxt_i, "Y"
     return list(rows.values())
 
 

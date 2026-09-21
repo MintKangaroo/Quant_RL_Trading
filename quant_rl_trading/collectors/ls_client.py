@@ -352,8 +352,15 @@ class LSClient:
         tr_cont: str = "N",
         tr_cont_key: str = "",
         count_health: bool = True,
+        with_headers: bool = False,
     ) -> dict[str, Any]:
-        """공통 TR 호출. port: LS_KR ls_client.py:199-309."""
+        """공통 TR 호출. port: LS_KR ls_client.py:199-309.
+
+        ``with_headers`` 면 응답 헤더의 연속조회 키를 ``_cont`` 로 끼워 돌려준다
+        (``{"tr_cont": "Y"|"N", "tr_cont_key": "..."}``). **LS 의 연속조회는 본문이 아니라 헤더다** —
+        t1636 은 본문 ``cts_idx`` 를 무시하고 늘 첫 20행을 준다(2026-09-21 실측). 기존 호출자를
+        건드리지 않으려고 기본값은 끈 채로 둔다.
+        """
         allow_paper = tr_cd in PAPER_ALLOWED_TR
         if not self.live_trading and not (allow_paper and self.credentials.usable()):
             return {"paper": True, "tr_cd": tr_cd, "echo": body}
@@ -406,6 +413,12 @@ class LSClient:
 
                 if count_health:
                     self._record_call(True)
+                if with_headers:
+                    data = dict(data)
+                    data["_cont"] = {
+                        "tr_cont": str(response.headers.get("tr_cont", "N")).strip(),
+                        "tr_cont_key": str(response.headers.get("tr_cont_key", "")).strip(),
+                    }
                 return data
 
             raise LSAPIError(f"TR {tr_cd} 재시도 소진 (토큰 재발급·한도 백오프 후에도 실패)")
