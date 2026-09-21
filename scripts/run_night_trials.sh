@@ -18,6 +18,15 @@ done
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')
 [ "${AVAIL}" -lt 3500 ] && exit 0
 
+# **연구 잠금** — 진단(스크래치 스크립트)을 돌리는 동안은 새 시행을 시작하지 않는다(2026-09-21 트랜스포머 사망).
+# 스크래치 진단은 도구 목록에 없어 위 pgrep 이 못 본다. 잠금 파일이 2시간 넘게 남아 있으면 버려진 것으로 본다.
+LOCK=logs/.research-lock
+if [ -f "${LOCK}" ] && [ -n "$(find "${LOCK}" -mmin -120 2>/dev/null)" ]; then
+    echo "$(date '+%F %T') 연구 잠금 중($(cat "${LOCK}")) — 건너뜀" >> logs/night-trials.log
+    exit 0
+fi
+pgrep -f "scratchpa[d]/.*\.py" > /dev/null && exit 0
+
 # **운영이 몰리는 창에는 아무것도 새로 시작하지 않는다.** 그 사이에 시행을 띄우면 수집·세션이 메모리와
 # CPU 를 나눠 쓰게 된다(2026-09-20 에 그렇게 OOM 이 났다). 이미 돌던 것은 nice 로 양보하며 계속 간다.
 #   08:30~09:10  아침 세션(08:40 모의계좌 주문)·KRX 보충

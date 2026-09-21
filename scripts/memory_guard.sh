@@ -33,6 +33,9 @@ fi
 
 # 희생 순서 — 재시작이 싼 것부터. (대괄호로 pgrep 자기매칭 회피)
 VICTIMS=(
+  # **스크래치 진단이 제일 먼저다** (2026-09-21). 트랜스포머 시행이 도는 중에 스크래치 진단을 같이 돌려
+  # 가용 240MB 로 26분 스래싱했고, 이 목록에 둘 다 없어 가드가 "내릴 것이 없다" 만 찍었다 — 시행은 죽었다.
+  "scratchpa[d]/.*\.py"       # Claude 세션의 일회성 진단 — 다시 돌리면 그만이다
   "trial_llm_analys[t]"        # agent_cache 덕에 재개가 공짜
   "trial_new_source[s]"        # 측정 재실행 싸다
   "backfill_ic_histor[y]"      # 작업 디렉터리에 중간 산출물이 남아 이어 돌 수 있다
@@ -40,6 +43,8 @@ VICTIMS=(
   "measure_headroo[m]"         # 순수 계산, 언제든 다시 잰다
   "measure_i[c].py"            # 세션 단위 재실행
   "compare_baselines_overnigh[t]" # 재실행 비싸지만 시스템 멈춤보단 낫다
+  "trial_(beta|index|overlay|cap|market|ranker_ens)[a-z_]*\.p[y]"  # 가벼운 시행 — 대기열이 다시 잡는다
+  "trial_price_transforme[r]"  # 몇 시간짜리 — 늦게 내린다(대기열이 처음부터 다시 돈다)
   "train_r[l].py"              # 체크포인트에서 잇는다 — 마지막 수단
 )
 
