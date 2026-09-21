@@ -3,7 +3,7 @@
 # 자원이 남으면 낮에도 돈다. 대신 운영 구간은 아래 창으로 비켜 간다. 30분마다 불러도 안전하다:
 #  · 이미 끝난 시행(로그에 '판정:')은 건너뛴다
 #  · 무거운 도구가 돌거나 가용 메모리가 모자라면 즉시 종료
-# 순서: Z → AD → AE(오버레이) → AF(상한 완화) → AC(트랜스포머, 몇 시간짜리) → AA(타깃 β 잔차).
+# 순서: Z → AD → AE(오버레이) → AF(상한 완화) → AC(트랜스포머, 몇 시간짜리) → AA(타깃 β 잔차) → AG(미장 검증).
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
@@ -76,4 +76,6 @@ fi
 
 # 시행 AA(랭커 타깃 β 잔차) — GBM 학습이라 트랜스포머와 겹치면 안 된다. AC 가 끝난 뒤에만(위에서 AC 가 돌면 이미 빠졌다).
 run_one "시행 AA" tools/trial_ranker_target_beta.py logs/trial-ranker-target-beta-AA.log || exit 0
+# 시행 AG(미장에서 '넓게 들고 하위만 뺀다' 검증) — GBM 학습이라 AA 뒤에 혼자 돈다.
+run_one "시행 AG" tools/trial_us_index_minus_losers.py logs/trial-us-index-minus-losers-AG.log || exit 0
 echo "$(date '+%F %T') 대기열 비었다 — 크론 두 줄 지울 것" >> logs/night-trials.log
