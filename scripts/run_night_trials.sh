@@ -6,12 +6,24 @@
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
+# **운영이 먼저다.** 연구 시행은 운영 작업이 도는 동안 시작하지 않는다 — 22:40 국장 수집 → 22:55 run_daily →
+# 23:05 shadow → 23:20 회계는 내일 세션의 입력이고, 미장 TWAP 조각(20분마다)은 shadow 주문이다.
 for tool in tools/diagnose_ic.py tools/backfill_ic_history.py tools/measure_ic.py tools/train_ranker.py \
-            tools/trial_ranker_sources.py tools/collect_program_ls.py; do
+            tools/trial_ranker_sources.py tools/collect_program_ls.py \
+            tools/run_daily.py tools/run_session.py tools/release_slices.py tools/backfill.py \
+            tools/refresh_accounting.py tools/collect_prices_ls.py tools/collect_indices_ls.py; do
     pgrep -f "${tool}" > /dev/null && exit 0
 done
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')
 [ "${AVAIL}" -lt 3500 ] && exit 0
+
+# **국장 저녁 체인 창(22:35~23:35)에는 아무것도 새로 시작하지 않는다.** 40분짜리 운영 구간이고,
+# 그 사이에 시행을 띄우면 수집·세션이 메모리와 CPU 를 나눠 쓰게 된다(2026-09-20 에 그렇게 OOM 이 났다).
+HM=$(date +%H%M)
+if [ "${HM}" -ge 2235 ] && [ "${HM}" -le 2335 ]; then
+    echo "$(date '+%F %T') 국장 저녁 체인 창 — 건너뜀" >> logs/night-trials.log
+    exit 0
+fi
 
 run_one() {  # $1=이름 $2=도구 $3=로그
     grep -q "^판정:" "$3" 2>/dev/null && return 0
@@ -29,13 +41,14 @@ run_one "시행 Z"  tools/trial_beta_megacap.py       logs/trial-beta-megacap-Z.
 run_one "시행 AD" tools/trial_index_minus_losers.py logs/trial-index-minus-losers-AD.log || exit 0
 run_one "시행 AE" tools/trial_overlay_extended.py   logs/trial-overlay-extended-AE.log   || exit 0
 
-# 시행 AC(트랜스포머)는 **5.8시간짜리**라 마지막이다. 시드 0 만(판정), 12스레드.
+# 시행 AC(트랜스포머)는 몇 시간짜리라 마지막이다. 시드 0 만(판정), **8스레드** — 12 코어 중 4 개는
+# 밤 운영(수집·세션·TWAP 조각)에 남긴다. 그만큼 느려지지만(약 7시간) 운영을 굶기지 않는다.
 # 시드 1·2(기록 항목)는 다른 밤에 따로 — 등록 문서 "비용 실측과 실행 순서".
 if ! grep -q "^판정:" logs/trial-price-transformer-AC.log 2>/dev/null    && ! pgrep -f tools/trial_price_transformer.py > /dev/null; then
-    echo "$(date '+%F %T') 시행 AC 시작 (가용 ${AVAIL}MB · 약 6시간)" >> logs/night-trials.log
+    echo "$(date '+%F %T') 시행 AC 시작 (가용 ${AVAIL}MB · 약 7시간, 8스레드)" >> logs/night-trials.log
     {
         echo "=== $(date '+%F %T') 시행 AC (seed 0, 12 threads) ==="
-        QUANT_RL_DUCKDB_MEMORY_LIMIT=1500MB nice -n 5 .venv/bin/python -u tools/trial_price_transformer.py             --save --no-extra-seeds --threads 12
+        QUANT_RL_DUCKDB_MEMORY_LIMIT=1500MB nice -n 5 .venv/bin/python -u tools/trial_price_transformer.py             --save --no-extra-seeds --threads 8
         echo "rc=$?"
     } >> logs/trial-price-transformer-AC.log 2>&1
     exit 0
