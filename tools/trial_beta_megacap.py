@@ -39,13 +39,13 @@ VARIANTS = ("Z0", "Z1", "Z2", "Z3", "Z4", "Z5")
 GATE_EXCESS, GATE_ASYM, GATE_MDD, GATE_T = -0.01, 0.05, 0.03, 2.0
 
 
-def k200_members(sessions: list[date]) -> dict[date, set[str]]:
+def k200_members(sessions: list[date], first_quarter: str = "2022Q2") -> dict[date, set[str]]:
     """분기말 스냅샷으로 잇는다(시행 P 와 같은 방식, 구간만 길다). 세션 S 는 S 이전 마지막 스냅샷을 쓴다."""
     from pykrx import stock
 
     from tools.backfill import load_env
     load_env()
-    quarters = pd.period_range("2022Q2", "2026Q2", freq="Q")
+    quarters = pd.period_range(first_quarter, "2026Q2", freq="Q")
     snaps: dict[date, set[str]] = {}
     for q in quarters:
         end = q.end_time.date()
