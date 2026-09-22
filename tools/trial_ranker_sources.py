@@ -36,13 +36,13 @@ from tools.trial_pooled import (  # noqa: E402
     TOP_N,
     _nw,
     daily_ic,
-    fit_gbm,
     load_kr,
     load_us,
     top_excess,
 )
 from tools.trial_pooled_deep import blocks_for  # noqa: E402
 from tools.trial_pooled_rank import rank_gauss  # noqa: E402
+from tools.trial_ranker_kit import fit  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/ranker-sources-round6-2026-09.md")
 TRIAL_PREFIX = "ranker-sources-round6-2026-09"
@@ -55,6 +55,8 @@ PRIMARY = {"G1": "KR", "G2": "KR", "G3": "US", "G4": "KR", "G5": "KR", "G6": "US
 OPEN_UTC = {"KR": timedelta(hours=0), "US": timedelta(hours=13, minutes=30)}
 CACHE = Path("data/_diag/ranker-sources")
 BOTTOM_SHARE = 0.10
+#: 대조·처리 모두 같은 시드들로 학습해 예측을 평균한다(2026-09-22 측정 전 정정 — 시행 AL: 시드만 바꿔도 상위 24 가 연 3.7%p 갈린다).
+SEEDS = (0, 1, 2)
 
 
 # --------------------------------------------------------------------------- 피처 조각 적재
@@ -131,14 +133,19 @@ def judge(group: str, kr: pd.DataFrame, us: pd.DataFrame, control: list[str], tr
     for i, (train_end, ps, pe) in enumerate(blocks, 1):
         train = pd.concat([kr[kr["session"] <= train_end], us[us["session"] <= train_end]], ignore_index=True)
         y = train["target"].to_numpy(np.float32)
-        m_c = fit_gbm(train[control].to_numpy(np.float32), y)
-        m_t = fit_gbm(train[treat].to_numpy(np.float32), y)
-        gains.append(dict(zip(treat, m_t.feature_importance(importance_type="gain"))))
+        Xc, Xt = train[control].to_numpy(np.float32), train[treat].to_numpy(np.float32)
+        m_c = [fit(Xc, y, seed=s) for s in SEEDS]
+        m_t = [fit(Xt, y, seed=s) for s in SEEDS]
+        gains.append(dict(zip(treat, m_t[0].feature_importance(importance_type="gain"))))
         for market, src in (("KR", kr), ("US", us)):
             te = src[(src["session"] >= ps) & (src["session"] <= pe)].copy()
-            te["control"] = m_c.predict(te[control].to_numpy(np.float32))
-            te["treat"] = m_t.predict(te[treat].to_numpy(np.float32))
-            preds[market].append(te[["entity_id", "session", "target", "control", "treat"]])
+            pc = [m.predict(te[control].to_numpy(np.float32)) for m in m_c]
+            pt = [m.predict(te[treat].to_numpy(np.float32)) for m in m_t]
+            te["control"], te["treat"] = np.mean(pc, axis=0), np.mean(pt, axis=0)
+            for s, a, b in zip(SEEDS, pc, pt, strict=True):
+                te[f"control_s{s}"], te[f"treat_s{s}"] = a, b
+            preds[market].append(te[["entity_id", "session", "target", "control", "treat",
+                                     *(f"{k}_s{s}" for s in SEEDS for k in ("control", "treat"))]])
         print(f"블록 {i}/{len(blocks)} 학습 ~{train_end} ({len(train):,}행) → 판정 {ps}~{pe}", flush=True)
 
     primary = PRIMARY[group]; other = "US" if primary == "KR" else "KR"
@@ -163,6 +170,8 @@ def judge(group: str, kr: pd.DataFrame, us: pd.DataFrame, control: list[str], tr
         f"② 상위{TOP_N} h5 z-수익 처리 {tp:+.4f} 대 대조 {tc:+.4f} {'○' if c2 else '×'}",
         f"③ 블록별 ΔIC {' '.join(f'{x:+.3f}' for x in bd)} · 최악 {np.nanmin(bd):+.3f} {'○' if c3 else '×'}",
         f"④ {other} 판정 {len(co)}세션 · ΔIC {delta_o.mean():+.4f} (NW t {_nw(delta_o,4):+.2f}) {'○' if c4 else '×'}",
+        "기록(기준 아님) ② 시드별 처리−대조 " + " · ".join(
+            f"s{s} {float(top_excess(d, f'treat_s{s}').mean()) - float(top_excess(d, f'control_s{s}').mean()):+.4f}" for s in SEEDS),
         f"기록(기준 아님) 하위 {BOTTOM_SHARE:.0%} z-수익 처리 {bp:+.4f} 대 대조 {bc:+.4f} · 상위80 처리 {w80['treat']:+.4f} 대 대조 {w80['control']:+.4f}",
         "피처 gain: " + " · ".join(f"{k} {v/gain.sum():.0%}" for k, v in gain.items()),
         f"판정: {verdict}",
