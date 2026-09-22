@@ -155,7 +155,8 @@ def main(argv: list[str] | None = None) -> int:
     del trad_frame
     end_moment = datetime.combine(sessions[-1], time(16), tzinfo=UTC)
     floor = float(store.config("selector.risk_floor_percentile", as_of=end_moment))
-    crisis_floor = float(store.config("exposure.crisis_momentum_floor", as_of=end_moment))
+    # 등록: crisis 문턱은 **현행값**(시행 R, 2026-09-07 발효). 판정 창 끝(2026-06-30)엔 아직 발효 전이라 지금 시점으로 읽는다.
+    crisis_floor = float(store.config("exposure.crisis_momentum_floor", as_of=datetime.now(UTC)))  # invariant-allow: wallclock — 등록이 정한 현행값
 
     fall_days = [d for d in sessions if d <= FALL[1]]
     rise_days = [d for d in sessions if d >= RISE[0]]
