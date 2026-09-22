@@ -17,7 +17,10 @@ for tool in tools/diagnose_ic.py tools/backfill_ic_history.py tools/measure_ic.p
             tools/trial_ranker_sources.py tools/collect_program_ls.py \
             tools/run_daily.py tools/run_session.py tools/release_slices.py tools/backfill.py \
             tools/refresh_accounting.py tools/collect_prices_ls.py tools/collect_indices_ls.py tools/collect_us_prices.py; do
-    pgrep -f "${tool}" > /dev/null && exit 0
+    if pgrep -f "${tool}" > /dev/null; then
+        echo "$(date '+%F %T') 운영 도구(${tool}) 도는 중 — 건너뜀" >> logs/night-trials.log
+        exit 0
+    fi
 done
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')
 [ "${AVAIL}" -lt 3500 ] && exit 0
@@ -29,7 +32,12 @@ if [ -f "${LOCK}" ] && [ -n "$(find "${LOCK}" -mmin -120 2>/dev/null)" ]; then
     echo "$(date '+%F %T') 연구 잠금 중($(cat "${LOCK}")) — 건너뜀" >> logs/night-trials.log
     exit 0
 fi
-pgrep -f "scratchpa[d]/.*\.py" > /dev/null && exit 0
+# **이 프로젝트의** 스크래치만 본다 — 다른 프로젝트의 Claude 세션 스크래치(9/22 13:30~ CTI-graph probe.py)까지 잡아
+# 대기열이 40분 넘게 기록 없이 멈췄다. 건너뛸 때는 이유를 적는다(조용한 종료는 못 찾는다).
+if pgrep -f "Project-Quant-RL-Trading/.*scratchpa[d]/.*\.py" > /dev/null; then
+    echo "$(date '+%F %T') 스크래치 진단 중 — 건너뜀" >> logs/night-trials.log
+    exit 0
+fi
 
 # **운영이 몰리는 창에는 아무것도 새로 시작하지 않는다.** 그 사이에 시행을 띄우면 수집·세션이 메모리와
 # CPU 를 나눠 쓰게 된다(2026-09-20 에 그렇게 OOM 이 났다). 이미 돌던 것은 nice 로 양보하며 계속 간다.
