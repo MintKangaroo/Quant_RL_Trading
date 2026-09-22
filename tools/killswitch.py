@@ -28,8 +28,10 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.executor import guards  # noqa: E402
+from quant_rl_trading.executor.action_journal import submission_times  # noqa: E402
 from quant_rl_trading.executor.orders import client_order_id  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
+from quant_rl_trading.risk import account as account_risk  # noqa: E402
 from quant_rl_trading.store import Store, overlay  # noqa: E402
 from tools.run_backtest import JOURNAL  # noqa: E402
 from tools.run_session import build_store  # noqa: E402
@@ -46,22 +48,32 @@ def open_store(sandbox: str) -> Store:
     return Store(root=layer.root)
 
 
-def unresolved(store: Store, now) -> list[str]:
-    """최근 3일 장부에서 마지막 상태가 미확정인 주문. sent 는 주문번호가 없을 때만(있으면 대사가 찾는다)."""
+def unresolved(store: Store, now) -> tuple[list[str], list[str]]:
+    """최근 3일 장부에서 마지막 상태가 미확정인 주문 — (오늘 거래일, 지난 거래일).
+
+    sent 는 주문번호가 없을 때만 센다(있으면 대사가 찾는다). **지난 거래일 것은 해제를 막지 않는다** — 국장·미장 지정가는
+    당일 유효라 장 마감에 소멸하고, 예산 계산(`risk.account`)도 같은 판단(`_broker_day_has_passed`)으로 뺀다. 그래도 목록에는
+    보인다: 상태 글자는 SC3 확인 없이는 바꾸지 않으므로(execution-safety.md), 사람이 증권사 기록과 맞춰 볼 수 있어야 한다.
+    """
     frame = store.get("orders", as_of=now, lookback=3)
     if frame.empty:
-        return []
+        return [], []
+    submitted = submission_times(store, as_of=now)
     last = frame.sort_values(["observed_at", "revision"]).groupby(["session_id", "entity_id", "slice_seq"]).tail(1)
-    out = []
-    for row in last.itertuples():
-        if row.status not in UNRESOLVED:
+    today, past = [], []
+    for record in last.to_dict(orient="records"):
+        status, reason = str(record["status"]), str(record.get("reason") or "")
+        if status not in UNRESOLVED:
             continue
-        if row.status == "sent" and str(row.reason or "").startswith(BROKER_ORDER_NO_PREFIX):
+        if status == "sent" and reason.startswith(BROKER_ORDER_NO_PREFIX):
             continue
-        oid = client_order_id(session=row.session_id, entity_id=row.entity_id, slice_seq=int(row.slice_seq))
-        out.append(f"{row.session_id} {row.entity_id} 조각 {int(row.slice_seq)} · {row.status} · {oid}"
-                   + (f" · {row.reason}" if row.reason else ""))
-    return out
+        session, entity, seq = str(record["session_id"]), str(record["entity_id"]), int(record["slice_seq"])
+        oid = client_order_id(session=session, entity_id=entity, slice_seq=seq)
+        line = f"{session} {entity} 조각 {seq} · {status} · {oid}" + (f" · {reason}" if reason else "")
+        gone = account_risk._broker_day_has_passed(
+            record, as_of=now, submitted=submitted.get(account_risk.key(session, entity, seq)))
+        (past if gone else today).append(line)
+    return today, past
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -84,10 +96,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"킬스위치: {state} — {reason or '(사유 없음)'} · 장부 {args.sandbox or '주 창고'}")
 
     if args.cmd == "status":
-        pending = unresolved(store, now)
-        print(f"미확정 주문 {len(pending)}건" + ("" if not pending else ":"))
+        pending, past = unresolved(store, now)
+        print(f"미확정 주문 — 오늘 거래일 {len(pending)}건" + ("" if not pending else ":"))
         for line in pending:
             print(f"  · {line}")
+        if past:
+            print(f"끝난 거래일 미확정 {len(past)}건 — 당일 유효라 이미 소멸, 예산·해제에 영향 없음(증권사 기록과 맞춰 볼 것):")
+            for line in past:
+                print(f"  · {line}")
         return 0
 
     if args.cmd == "engage":
@@ -99,9 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     if str(state) != "engaged":
         print("걸려 있지 않다 — 할 일이 없다.")
         return 0
-    pending = unresolved(store, now)
+    pending, past = unresolved(store, now)
     print("해제 전 체크리스트(런북 §4): ① 발동 원인 해소 ② 장부·계좌 보유 수량 일치 ③ 데이터 품질 게이트 ④ 미확정 주문 없음")
-    print(f"④ 미확정 주문 {len(pending)}건")
+    print(f"④ 오늘 거래일 미확정 주문 {len(pending)}건 (끝난 거래일 {len(past)}건은 소멸 — 막지 않는다)")
     for line in pending:
         print(f"  · {line}")
     if pending and not args.verified:

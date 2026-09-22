@@ -39,7 +39,7 @@ def stuck(seeded, monkeypatch):  # type: ignore[no-untyped-def]  # noqa: F811
 def test_status_는_미확정_주문을_보인다(stuck, capsys) -> None:  # type: ignore[no-untyped-def]
     assert cli.main(["status"]) == 0
     out = capsys.readouterr().out
-    assert "engaged" in out and "미확정 주문 1건" in out and "KR:A 조각 0 · submitting" in out
+    assert "engaged" in out and "오늘 거래일 1건" in out and "KR:A 조각 0 · submitting" in out
 
 
 def test_증거_없이는_해제되지_않는다(stuck) -> None:  # type: ignore[no-untyped-def]
@@ -57,3 +57,13 @@ def test_증거와_함께_해제하면_사유에_남는다(stuck) -> None:  # ty
     state, reason = guards.killswitch_state(stuck, as_of=LATER + timedelta(seconds=1))
     assert str(state) == "released"
     assert "t0425 전체 조회에 없음" in reason and "tester" in reason and "ReadTimeout" in reason
+
+
+def test_끝난_거래일의_미확정은_해제를_막지_않는다(stuck, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    """당일 유효 주문은 장 마감에 소멸한다 — 예산 계산(risk.account)과 같은 판단으로, 다음 거래일엔 증거 없이 풀린다."""
+    next_day = NOW + timedelta(days=1)   # 2026-08-13 목 10:00 KST
+    monkeypatch.setattr(cli, "LiveClock", lambda: ReplayClock(next_day))
+    assert cli.main(["status"]) == 0
+    assert "끝난 거래일 미확정 1건" in capsys.readouterr().out
+    assert cli.main(["release", "--confirm", "--by", "tester"]) == 0
+    assert str(guards.killswitch_state(stuck, as_of=next_day + timedelta(seconds=1))[0]) == "released"
