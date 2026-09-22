@@ -45,6 +45,8 @@ from tools.trial_pooled_rank import rank_gauss  # noqa: E402
 from tools.trial_ranker_kit import fit  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/ranker-sources-round6-2026-09.md")
+#: 시행 X 는 같은 도구·같은 판정으로 재지만 등록 문서가 따로다 — 해시·기록 이름을 그 문서로 찍는다.
+PROTOCOL_BY_GROUP = {"X": Path("docs/protocols/filing-text-embedding-2026-09.md")}
 TRIAL_PREFIX = "ranker-sources-round6-2026-09"
 MEASURE_FROM = date(2026, 10, 1)
 T_GATE = 2.0
@@ -189,14 +191,17 @@ def main(argv=None) -> int:
     parser.add_argument("--adopted", default="", help="이미 채택된 묶음(쉼표) — 대조에 누적")
     parser.add_argument("--smoke", type=int, default=0, help="세션 N개만 피처를 굽고 병합 확인, 판정 없음")
     parser.add_argument("--save", action="store_true", help="research_trials 에 기록(시행 소진)")
+    parser.add_argument("--top-margin", type=float, default=0.0, help="② 여유(처리 ≥ 대조 − 여유). 6차 0, 시행 X 0.01")
+    parser.add_argument("--other-floor", type=float, default=0.0, help="④ 다른 시장 ΔIC 하한. 6차 0, 시행 X −0.005")
     args = parser.parse_args(argv)
     now = datetime.now(UTC)  # invariant-allow: wallclock — 사전등록 시점 잠금·시행 기록 시각
     if not args.smoke and now.date() < MEASURE_FROM:
         print(f"판정은 {MEASURE_FROM} 이후에만 돈다(사전등록 '중간 들여다보기 금지'). 지금은 --smoke 만.", flush=True)
         return 2
-    digest = hashlib.sha256(PROTOCOL.read_bytes()).hexdigest()[:16]
+    protocol = PROTOCOL_BY_GROUP.get(args.group, PROTOCOL)
+    digest = hashlib.sha256(protocol.read_bytes()).hexdigest()[:16]
     adopted = [g for g in args.adopted.split(",") if g]
-    print(f"=== 시행 {args.group} — {PROTOCOL} (해시 {digest}) · 채택 누적 {adopted or '없음'} ===", flush=True)
+    print(f"=== 시행 {args.group} — {protocol} (해시 {digest}) · 채택 누적 {adopted or '없음'} ===", flush=True)
     store = Store(root=Path(args.root))
     kr, _ = load_kr(); us = load_us()
     kr = rank_gauss(kr, FEATS + ["target"]); us = rank_gauss(us, FEATS + ["target"])
@@ -220,11 +225,11 @@ def main(argv=None) -> int:
         return 0
     control = base + [c for g in adopted for c in GROUPS[g]]
     treat = control + list(GROUPS[args.group])
-    lines, verdict = judge(args.group, kr, us, control, treat)
+    lines, verdict = judge(args.group, kr, us, control, treat, top_margin=args.top_margin, other_floor=args.other_floor)
     print("\n" + "\n".join(lines), flush=True)
     if args.save:
         store.append("research_trials", [{
-            "entity_id": f"{TRIAL_PREFIX}:{args.group}", "valid_from": now, "observed_at": now,
+            "entity_id": ("filing-text-embedding-2026-09:X" if args.group == "X" else f"{TRIAL_PREFIX}:{args.group}"), "valid_from": now, "observed_at": now,
             "source": "trial_ranker_sources", "market": PRIMARY[args.group], "family": "ranker", "n_trials": 1,
             # **판정을 맨 앞에 박는다.** detail 은 900자에서 잘리는데 판정문은 원래 맨 끝
             # 줄이었다 — 피처가 늘어 gain 줄이 길어지면 잘려 나가고, 그러면 다음 묶음의
