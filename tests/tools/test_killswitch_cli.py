@@ -9,13 +9,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from tests.executor.test_pipeline_broker import (
+    FakeBroker,
+    seeded,  # noqa: F401 — fixture 재사용
+    targets,
+)
 
 from quant_rl_trading.broker import BrokerError
 from quant_rl_trading.executor import guards, pipeline
 from quant_rl_trading.executor.orders import client_order_id, session_id
 from quant_rl_trading.replay.clock import ReplayClock
-from tests.executor.test_pipeline_broker import FakeBroker, targets
-from tests.executor.test_pipeline_broker import seeded as _seeded  # noqa: F401 — fixture 재사용
 from tools import killswitch as cli
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)
@@ -23,14 +26,14 @@ LATER = NOW + timedelta(minutes=5)
 
 
 @pytest.fixture
-def stuck(_seeded, monkeypatch):  # type: ignore[no-untyped-def]
+def stuck(seeded, monkeypatch):  # type: ignore[no-untyped-def]  # noqa: F811
     """BrokerError 로 킬스위치가 걸리고 submitting 주문 하나가 남은 창고."""
     oid = client_order_id(session=session_id(as_of=NOW, market="KR"), entity_id="KR:A", slice_seq=0)
-    pipeline.run(_seeded, ReplayClock(NOW), as_of=NOW, market="KR", targets=targets(), holdings={},
+    pipeline.run(seeded, ReplayClock(NOW), as_of=NOW, market="KR", targets=targets(), holdings={},
                  equity=10_000_000.0, broker=FakeBroker(raises={oid: BrokerError("ReadTimeout")}))
-    monkeypatch.setattr(cli, "open_store", lambda sandbox: _seeded)
+    monkeypatch.setattr(cli, "open_store", lambda sandbox: seeded)
     monkeypatch.setattr(cli, "LiveClock", lambda: ReplayClock(LATER))
-    return _seeded
+    return seeded
 
 
 def test_status_는_미확정_주문을_보인다(stuck, capsys) -> None:  # type: ignore[no-untyped-def]
