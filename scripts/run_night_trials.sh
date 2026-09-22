@@ -4,7 +4,7 @@
 #  · 이미 끝난 시행(로그에 '판정:')은 건너뛴다
 #  · 무거운 도구가 돌거나 가용 메모리가 모자라면 즉시 종료
 # 순서(2026-09-22 밤): AI(국면 배합) → AJ(국면 원-핫) → AK(무너질 종목 분류기) → AL(불확실성 종목 수). 전부 GBM 이라 한 번에 하나.
-# 크론은 **23시~06시대만** 부른다(사용자 지시: 오늘 밤 운영 창 뒤). AI 는 낮에 메모리 부족으로 죽은 적이 있어 AVAIL 문턱을 지킨다.
+# 크론은 **10분마다 상시**(사용자 지시 9/22: 자원 여유가 되면 낮에도). AI 는 낮에 메모리 부족으로 죽은 적이 있어 AVAIL 문턱을 지킨다.
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 # glibc 아레나를 묶는다 — 여러 스레드가 아레나를 따로 잡으면 쓰고 난 메모리를 못 돌려줘 RSS 가 계속 는다
@@ -16,7 +16,7 @@ export MALLOC_ARENA_MAX=2
 for tool in tools/diagnose_ic.py tools/backfill_ic_history.py tools/measure_ic.py tools/train_ranker.py \
             tools/trial_ranker_sources.py tools/collect_program_ls.py \
             tools/run_daily.py tools/run_session.py tools/release_slices.py tools/backfill.py \
-            tools/refresh_accounting.py tools/collect_prices_ls.py tools/collect_indices_ls.py; do
+            tools/refresh_accounting.py tools/collect_prices_ls.py tools/collect_indices_ls.py tools/collect_us_prices.py; do
     pgrep -f "${tool}" > /dev/null && exit 0
 done
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')
