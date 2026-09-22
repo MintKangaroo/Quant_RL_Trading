@@ -50,7 +50,7 @@ MEASURE_FROM = date(2026, 10, 1)
 T_GATE = 2.0
 WORST_GATE = -0.03
 #: 주 시장 — 자료가 있는 쪽. 다른 시장은 ④(지지 않을 것)만 본다.
-PRIMARY = {"G1": "KR", "G2": "KR", "G3": "US", "G4": "KR", "G5": "KR", "G6": "US", "G7": "US", "X": "KR"}
+PRIMARY = {"G1": "KR", "G2": "KR", "G3": "US", "G4": "KR", "G5": "KR", "G6": "US", "G7": "US", "X": "KR", "W": "KR"}
 #: 세션 개장 직전(UTC). 국장 09:00 KST, 미장 09:30 ET(서머타임 무시 — 13:30 UTC 는 어느 쪽이든 개장 전이다).
 OPEN_UTC = {"KR": timedelta(hours=0), "US": timedelta(hours=13, minutes=30)}
 CACHE = Path("data/_diag/ranker-sources")
@@ -126,7 +126,10 @@ def bottom_excess(df: pd.DataFrame, col: str) -> pd.Series:
     return df.groupby("session").apply(one)
 
 
-def judge(group: str, kr: pd.DataFrame, us: pd.DataFrame, control: list[str], treat: list[str]) -> tuple[list[str], str]:
+def judge(group: str, kr: pd.DataFrame, us: pd.DataFrame, control: list[str], treat: list[str], *,
+          top_margin: float = 0.0, other_floor: float = 0.0) -> tuple[list[str], str]:
+    """6차 기준 넷. ``top_margin``(② 처리 ≥ 대조 − 여유)·``other_floor``(④ 다른 시장 ΔIC 하한)는 시행 W 가 자기 등록값으로 준다.
+    기본값 0 은 6차 등록 그대로다."""
     sessions = sorted(kr["session"].unique()); blocks = blocks_for(sessions)
     print(f"국장 {len(kr):,}행 · 미장 {len(us):,}행 · 판정 블록 {len(blocks)} · 대조 {len(control)}피처 · 처리 {len(treat)}피처", flush=True)
     preds = {"KR": [], "US": []}; gains = []
@@ -162,7 +165,7 @@ def judge(group: str, kr: pd.DataFrame, us: pd.DataFrame, control: list[str], tr
     ico_t, ico_c = daily_ic(do, "treat"), daily_ic(do, "control"); co = ico_t.index.intersection(ico_c.index)
     delta_o = ico_t.loc[co] - ico_c.loc[co]
     gain = pd.DataFrame(gains).mean().sort_values(ascending=False)
-    c1 = _nw(delta, 4) >= T_GATE; c2 = tp >= tc; c3 = float(np.nanmin(bd)) >= WORST_GATE; c4 = float(delta_o.mean()) >= 0
+    c1 = _nw(delta, 4) >= T_GATE; c2 = tp >= tc - top_margin; c3 = float(np.nanmin(bd)) >= WORST_GATE; c4 = float(delta_o.mean()) >= other_floor
     verdict = "채택" if (c1 and c2 and c3 and c4) else "기각"
     lines = [
         f"{group} 주 시장 {primary} 판정 {len(c)}세션 · 처리 IC {ic_t.mean():+.4f} (t {_nw(ic_t,4):+.2f}) 대 대조 {ic_c.mean():+.4f} (t {_nw(ic_c,4):+.2f})",

@@ -4,6 +4,11 @@
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 LOG="logs/text-features-$(date +%Y%m%d).log"
+# 원피처 굽기(diagnose_ic, 시행 W 선행 — 9/26 토 18:07~ 약 16시간)와 겹치면 건너뛴다. 9/25~30 이라 다른 날이 받는다.
+if pgrep -f "tools/diagnose_i[c].py" > /dev/null; then
+    echo "$(date '+%F %T') 원피처 굽기 중 — 이번 회차는 건너뛴다" >> "${LOG}"
+    exit 0
+fi
 {
     echo "=== $(date '+%F %T') 공시 임베딩 ==="
     QUANT_RL_DUCKDB_MEMORY_LIMIT=800MB nice -n 5 .venv/bin/python -u tools/build_text_features.py \

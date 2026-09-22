@@ -25,6 +25,13 @@ for tool in tools/diagnose_ic.py tools/backfill_ic_history.py tools/measure_ic.p
         exit 0
     fi
 done
+# **시행 AM(포트 분산) 판정이 먼저다** (2026-09-22). AM 이 채택되면 6차 ② 기준을 새 구성으로 다시 정의하는 정정을 측정 전에
+# 내야 하고, 둘 다 GBM 이라 머신을 나눌 수도 없다. AM 로그에 '판정:' 이 없으면 기다린다(10/2 02:07 크론이 AM 을 돌린다).
+if ! grep -q "^판정:" logs/trial-portfolio-variance-AM.log 2>/dev/null; then
+    echo "$(date '+%F %T') 시행 AM 판정 전 — 이번 회차는 건너뛴다" >> "${LOG}"
+    exit 0
+fi
+pgrep -f "tools/trial_portfolio_varianc[e]" > /dev/null && { echo "$(date '+%F %T') 시행 AM 도는 중 — 건너뛴다" >> "${LOG}"; exit 0; }
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')
 if [ "${AVAIL}" -lt 4500 ]; then
     echo "$(date '+%F %T') 가용 ${AVAIL}MB < 4500MB — 이번 회차는 건너뛴다" >> "${LOG}"
