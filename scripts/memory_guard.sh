@@ -45,7 +45,7 @@ VICTIMS=(
   "measure_headroo[m]"         # 순수 계산, 언제든 다시 잰다
   "measure_i[c].py"            # 세션 단위 재실행
   "compare_baselines_overnigh[t]" # 재실행 비싸지만 시스템 멈춤보단 낫다
-  "trial_(beta|index|overlay|cap|market|ranker_ens|ranker_target|ranker_market|regime|reverse|collapse|uncertainty|us_index)[a-z_]*\.p[y]"
+  "trial_(beta|index|overlay|cap|market|ranker_ens|ranker_target|ranker_market|regime|reverse|collapse|uncertainty|us_index|portfolio)[a-z_]*\.p[y]"
   # ↑ 2026-09-22: AA·AG·AH·AI·AJ·AK·AL 이 목록에 없어 11:56 가용 334MB 때 "내릴 연구 작업이 없다" 로 지나쳤다. 새 시행 도구는 여기에 이름을 더한다.  # 가벼운 시행 — 대기열이 다시 잡는다
   "trial_price_transforme[r]"  # 몇 시간짜리 — 늦게 내린다(대기열이 처음부터 다시 돈다)
   "train_r[l].py"              # 체크포인트에서 잇는다 — 마지막 수단
