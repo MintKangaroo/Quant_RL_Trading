@@ -167,6 +167,31 @@ def test_BrokerError_뒤에는_같은_주문을_다시_보내지_않는다(seede
     assert len(broker.submitted) == calls_after_first
 
 
+def test_BrokerError_의_내용이_킬스위치_사유와_주문_행에_남는다(seeded) -> None:
+    """2026-09-22 10:00:41 — 킬스위치는 걸렸는데 무엇이 실패했는지 어디에도 없었다. 원인을 적는다.
+
+    주문 행은 여전히 ``submitting``(나갔는지 모른다)이어야 한다 — 내용을 적는다고 상태를 확정 짓지 않는다.
+    """
+    from quant_rl_trading.executor import guards
+
+    order_id = _first_order_id()
+    broker = FakeBroker(raises={order_id: BrokerError("ReadTimeout — 응답 없음")})
+    pipeline.run(
+        seeded, ReplayClock(NOW), as_of=NOW, market="KR", targets=targets(),
+        holdings={}, equity=10_000_000.0, broker=broker,
+    )
+    state, reason = guards.killswitch_state(seeded, as_of=NOW + timedelta(minutes=1))
+    assert str(state) == "engaged"
+    assert order_id in reason and "ReadTimeout — 응답 없음" in reason and "KR:A" in reason
+
+    orders = seeded.get("orders", as_of=NOW + timedelta(minutes=1), lookback=3)
+    orders["oid"] = [client_order_id(session=a, entity_id=b, slice_seq=int(c))
+                     for a, b, c in zip(orders["session_id"], orders["entity_id"], orders["slice_seq"], strict=True)]
+    mine = orders[orders["oid"] == order_id].sort_values(["observed_at", "revision"])
+    assert mine.iloc[-1]["status"] == "submitting"
+    assert "ReadTimeout — 응답 없음" in mine.iloc[-1]["reason"]
+
+
 def test_RejectedOrder는_거부로_기록되고_다른_슬라이스는_계속_나간다(seeded) -> None:
     """확실히 안 나간 주문만 거부로 갈리고, 나머지 슬라이스는 막히지 않는다."""
     order_id = _first_order_id()

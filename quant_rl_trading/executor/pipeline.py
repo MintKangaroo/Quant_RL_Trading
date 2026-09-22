@@ -594,15 +594,23 @@ def _submit_orders_locked(
             if budget is not None and reservation is not None:
                 budget.reservations.pop(reservation.key, None)
             continue
-        except BrokerError:
+        except BrokerError as error:
             # 나갔는지 모른다 — 재전송 금지. "submitting" 을 최종 상태로 둔다.
+            # **오류 내용을 남긴다.** 2026-09-22 10:00:41 KR:005945 가 여기로 떨어졌는데 무엇이 실패했는지
+            # 어디에도 없어서, 증권사 주문 내역으로 "미도착" 은 확인했지만 원인(타임아웃·끊김·응답 파싱)은 끝내 몰랐다.
+            detail = f"{type(error).__name__}: {error}"[:300]
+            _record_submit_result(
+                store, clock, item, as_of=as_of, market=market,
+                status=STATUS_SUBMITTING, reason=f"전송 결과 미확정 — {detail}",
+            )
             guards.engage(
                 store,
                 as_of=clock.now(),
                 observed_at=clock.now(),
-                reason=f"주문 전송 결과 미확정: {item.order_id} — 대사 필요",
+                reason=f"주문 전송 결과 미확정: {item.order_id} ({item.order.entity_id}) — {detail} — 대사 필요",
                 by="submission-unknown",
             )
+            print(f"  ⚠️  전송 결과 미확정 {item.order.entity_id} slice {item.slice_seq}: {detail}", flush=True)
             continue
 
         acks.append(ack)

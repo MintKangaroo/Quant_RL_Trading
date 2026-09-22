@@ -74,15 +74,22 @@ VM 은 국내 리전(asia-northeast3)에 둔다. LS API 지연이 직접 슬리�
 ### 수동 발동·해제 절차
 
 ```bash
+# 상태 확인 — 사유와 미확정 주문(submitting · 주문번호 없는 sent · 취소/정정 미확정)을 같이 보인다
+.venv/bin/python tools/killswitch.py status                 # 기본 장부 data/_paper, --sandbox "" 면 주 창고
+
 # 발동
-python -m quant_rl_trading.executor.killswitch engage --reason "..."
+.venv/bin/python tools/killswitch.py engage --reason "..." --by 이름
 
-# 상태 확인
-python -m quant_rl_trading.executor.killswitch status
-
-# 해제 (확인 프롬프트 필수)
-python -m quant_rl_trading.executor.killswitch release --confirm
+# 해제 — --confirm 필수. 미확정 주문이 남아 있으면 증권사 기록으로 확인한 증거를 --verified 로 적어야 풀린다
+.venv/bin/python tools/killswitch.py release --confirm --by 이름 --verified "t0425 전체 조회에 없음 · 보유 수량 일치"
 ```
+
+(2026-09-22 전까지 여기 적혀 있던 `python -m quant_rl_trading.executor.killswitch` 는 존재하지 않는 모듈이었다.)
+
+**"전송 결과 미확정" 으로 걸렸을 때**(`by=submission-unknown`): 사유에 주문 ID·종목·오류 내용이 있다. 증권사 주문 내역(t0425,
+읽기 전용)에서 그 종목의 그날 주문을 찾는다. **없으면 미도착**이고, 있으면 체결·잔량을 장부와 맞춘다. 미확정 조각은 해제해도
+**다시 보내지 않는다**(설계) — 그리고 킬스위치가 걸려 있는 동안 `risk_blocked` 된 그날의 조각도 해제 뒤 자동으로 다시 나가지 않는다
+(`execution-safety.md` "킬스위치 해제 뒤 막힌 조각"). 그날 목표 비중은 다음 세션이 다시 계획한다.
 
 해제 전 체크리스트:
 - [ ] 발동 원인이 해소되었는가
