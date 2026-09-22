@@ -106,4 +106,5 @@ Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 | `docs/design/ls-api.md` | LS API 제약 확인 목록 |
 | `docs/milestones.md` | M1~M5, 완료 기준, 중단 기준 |
 | `docs/rl-postmortem.md` | RL 시도 전부 — 판마다 한 일·실패 이유·배운 것, 종합 결론 |
+| `docs/trials-postmortem.md` | 선정·랭커 시행 복기 — 날짜별 한 일·실패 이유·배운 것, 다음에 이렇게 한다 |
 | `START-HERE.md` | 전체 실행 순서, 부트스트랩 프롬프트 |
