@@ -315,3 +315,77 @@ def test_후보와_캘린더는_기본으로_펼쳐져_있다() -> None:
     for section in ("candidate-details", "calendar-details"):
         tag = re.search(rf"<details[^>]*id=\"{section}\"[^>]*>", template)
         assert tag and re.search(r"\sopen(\s|>)", tag.group(0)), section
+
+
+# -- 장중 대사 (2026-09-22) ----------------------------------------------------
+
+ACCOUNT_DRIVER = """
+fetchJson = async () => ({ data: ACCOUNT });
+const body = { live: true, data: TRADING };
+renderControlOverview(body);
+renderAccount(body).then(
+  () => { console.log("DUMP " + JSON.stringify(document.getElementById("control-reconciliation").innerHTML)); console.log("OK"); },
+  (error) => { console.log("FAIL " + error.message); process.exitCode = 1; }
+);
+"""
+
+
+def _reconciliation(tmp_path: Path, orders: list[dict]) -> str:
+    import re
+
+    ids = sorted(
+        set(re.findall(r'id="([^"]+)"', TEMPLATE.read_text()))
+        | set(re.findall(r'id="([^"]+)"', SCOPE_TEMPLATE.read_text()))
+    )
+    # 장부: 현금 100만 · A 100주@1,000. 계좌: 시가에 B 10주@1,000 을 샀다 — 장부는 15:45 대사 전.
+    trading = {
+        "market": "KR", "risk": {}, "orders": orders,
+        "kpis": {"nav": 1_100_000, "equity": 100_000, "cash_krw": 1_000_000, "positions": 1},
+        "positions": [{"entity_id": "KR:A", "quantity": 100, "price": 1000, "avg_price": 1000}],
+    }
+    account = {
+        "available": True, "mode": "paper", "net_asset": 1_100_000, "equity": 110_000, "cash": 990_000,
+        "unrealized": 0, "realized_today": 0, "positions": 2,
+        "holdings": [
+            {"entity_id": "KR:A", "quantity": 100, "value": 100_000, "unrealized": 0},
+            {"entity_id": "KR:B", "quantity": 10, "value": 10_000, "unrealized": 0},
+        ],
+    }
+    script = "\n".join([
+        HARNESS.replace("IDS", json.dumps(ids)),
+        # 상단 칸 렌더러는 querySelector 로 이전 값을 읽는다 — 공용 스텁엔 없어서 여기서만 붙인다.
+        "const __element = element; element = (id) => Object.assign(__element(id), { querySelector: () => null });",
+        (STATIC / "scope.js").read_text(),
+        (STATIC / "calendar.js").read_text(),
+        (STATIC / "candles.js").read_text(),
+        (STATIC / "trading.js").read_text().replace("runAll([loadTrading]);", ""),
+        ACCOUNT_DRIVER.replace("TRADING", json.dumps(trading)).replace("ACCOUNT", json.dumps(account)),
+    ])
+    path = tmp_path / "account.js"
+    path.write_text(script)
+    result = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=60)
+    assert "OK" in result.stdout, f"{result.stdout}\n{result.stderr}"
+    line = next(row for row in result.stdout.splitlines() if row.startswith("DUMP "))
+    return json.loads(line[len("DUMP "):])
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_장중_대사_전_체결은_불일치가_아니다(tmp_path: Path) -> None:
+    """계좌가 시가 체결을 먼저 반영하고 장부는 15:45 에 적는다 — 매수하는 날마다 critical 이 떴다."""
+    sent = [{"entity_id": "KR:B", "side": "buy", "quantity": 10, "limit_price": 1000, "status": "sent"}]
+    html = _reconciliation(tmp_path, sent)
+    assert "당일 체결 1건 대사 전" in html
+    assert "불일치" not in html
+    assert "현금 차 0" in html  # 대사 전 체결분을 걷어낸 차이
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_주문으로_설명_안_되는_차이는_여전히_불일치다(tmp_path: Path) -> None:
+    # 장부에 들어간(filled) 주문은 설명이 못 된다 · 방향이 반대인 주문도 못 된다.
+    for orders in (
+        [],
+        [{"entity_id": "KR:B", "side": "buy", "quantity": 10, "limit_price": 1000, "status": "filled"}],
+        [{"entity_id": "KR:B", "side": "sell", "quantity": 10, "limit_price": 1000, "status": "sent"}],
+        [{"entity_id": "KR:B", "side": "buy", "quantity": 5, "limit_price": 1000, "status": "sent"}],
+    ):
+        assert "수량 불일치 1건" in _reconciliation(tmp_path, orders), orders

@@ -98,11 +98,15 @@ function renderControlReconciliation(summary, reason = "") {
   if (!summary) { paint("unknown", "미측정", reason || "계좌 관측 상세 보기"); return; }
   const fmt = (v) => (v == null ? "—" : (v > 0 ? "+" : "") + num(Math.round(v)));
   const big = (d) => d && d.delta != null && Math.abs(d.delta) > 0.005 * Math.max(1, Math.abs(d.base || 1));
-  const detail = `총자산 차 ${fmt(summary.nav?.delta)} · 현금 차 ${fmt(summary.cash?.delta)} · ${summary.names}종목 대조`;
+  const pending = summary.pending || 0;
+  const detail = `총자산 차 ${fmt(summary.nav?.delta)} · 현금 차 ${fmt(summary.cash?.delta)}` +
+    `${pending ? " (대사 전 체결 제외)" : ""} · ${summary.names}종목 대조`;
   if (summary.mismatch > 0) {
     paint("critical", `수량 불일치 ${summary.mismatch}건`, detail);
   } else if (big(summary.nav) || big(summary.cash) || summary.positions === false) {
     paint("warning", "금액 차이 0.5% 초과", detail);
+  } else if (pending) {
+    paint("ok", `일치 · 당일 체결 ${pending}건 대사 전`, detail);
   } else {
     paint("ok", `${summary.names}종목 일치`, detail);
   }
@@ -817,30 +821,54 @@ async function renderAccount(tradingBody) {
   const acctBy = new Map((a.holdings || []).map((h) => [h.entity_id, h]));
   const ledgerBy = new Map((d.positions || []).map((p) => [p.entity_id, p]));
   const keys = [...new Set([...acctBy.keys(), ...ledgerBy.keys()])].sort();
-  let mismatch = 0;
+  // **장중엔 증권사가 앞서 있다.** 시가에 체결된 주문을 계좌는 바로 반영하지만 장부는 15:45 대사에서야
+  // 적는다 — 매수하는 날마다 수량 불일치 21건·현금 차 −3,792만이 critical 로 떴다(2026-09-22 09:1x).
+  // 장부에 아직 안 들어간 주문(risk/account.py RESERVING 과 같은 상태)으로 **방향과 크기가 설명되는** 차이만
+  // "대사 전" 으로 따로 센다. 설명 안 되는 차이(방향이 반대거나 주문보다 큼)는 그대로 불일치다.
+  const inflightStatus = new Set(["reserved", "paper", "submitting", "sent", "cancel_unknown", "modify_unknown"]);
+  const inflight = new Map();  // entity → { qty: 부호 붙은 미기장 수량, price }
+  for (const o of d.orders || []) {
+    if (!inflightStatus.has(o.status) || !o.quantity) continue;
+    const cur = inflight.get(o.entity_id) || { qty: 0, price: o.limit_price };
+    cur.qty += (o.side === "sell" ? -1 : 1) * o.quantity;
+    inflight.set(o.entity_id, cur);
+  }
+  let mismatch = 0, pending = 0, pendingCash = 0, pendingEquity = 0;
   let tbl = `<table style="margin-top:10px"><thead><tr><th>종목</th><th class="r">계좌 수량</th><th class="r">장부 수량</th><th class="r mobile-hide">계좌 평가손익</th><th></th></tr></thead><tbody>`;
   for (const key of keys) {
     const h = acctBy.get(key); const p = ledgerBy.get(key);
     const qa = h ? h.quantity : null; const ql = p ? p.quantity : null;
-    const ok = qa != null && ql != null && Math.round(qa) === Math.round(ql);
-    if (!ok) mismatch += 1;
+    const gap = Math.round(qa ?? 0) - Math.round(ql ?? 0);
+    const ok = qa != null && ql != null && gap === 0;
+    const open = inflight.get(key);
+    const explained = !ok && open && gap !== 0 && Math.sign(gap) === Math.sign(open.qty) && Math.abs(gap) <= Math.abs(open.qty);
+    if (explained) {
+      pending += 1;
+      pendingCash += gap * (open.price || 0);
+      pendingEquity += gap * (h && h.quantity ? h.value / h.quantity / haircut : (open.price || 0));
+    } else if (!ok) mismatch += 1;
+    const mark = ok ? `<td class="up">✓</td>` : explained ? `<td style="${muted}">대사 전</td>` : `<td class="down">✗ 불일치</td>`;
     tbl += `<tr><td>${(h && h.name) || (p && p.name) || key} <span style="font-size:11px;${muted}">${key}</span></td>
       <td class="r">${qa == null ? "—" : num(qa)}</td><td class="r">${ql == null ? "—" : num(ql)}</td>
-      <td class="r mobile-hide ${h ? tone(h.unrealized) : ""}">${h ? sgn(h.unrealized) : "—"}</td>
-      <td class="${ok ? "up" : "down"}">${ok ? "✓" : "✗ 불일치"}</td></tr>`;
+      <td class="r mobile-hide ${h ? tone(h.unrealized) : ""}">${h ? sgn(h.unrealized) : "—"}</td>${mark}</tr>`;
   }
   tbl += "</tbody></table>";
+  const pendingNote = pending ? ` · 당일 체결 ${pending}건은 15:45 대사 전` : "";
   const verdict = mismatch === 0
-    ? `<p class="up" style="margin:10px 0 4px;font-weight:600">종목·수량 ${keys.length}건 전부 일치 ✓</p>`
-    : `<p class="down" style="margin:10px 0 4px;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것</p>`;
+    ? `<p class="up" style="margin:10px 0 4px;font-weight:600">종목·수량 ${keys.length}건 ${pending ? "일치(대사 전 제외)" : "전부 일치"} ✓${pendingNote}</p>`
+    : `<p class="down" style="margin:10px 0 4px;font-weight:600">종목·수량 불일치 ${mismatch}건 — 대사(reconcile) 로그를 볼 것${pendingNote}</p>`;
+  // 상단 칸의 금액 판정도 대사 전 체결분(지정가 기준)을 걷어낸 차이로 한다. 표는 원래 숫자 그대로 둔다.
+  const net = (x, adj) => (x && x.delta != null ? { ...x, delta: x.delta - adj } : x);
   const legend = `<p class="note" style="margin-top:6px">
     총자산 = 계좌 추정순자산 vs 장부 NAV · 현금(정산 후) = 계좌 순자산 − 평가금액 (당일 예수금 ${won(a.cash)}, 차이는 미결제 매도대금) ·
     평가손익 = 현재가 − 평균 매입가 · 당일 실현손익의 계좌 쪽엔 장부 밖 청산(선행 잔고 6종목, 8/28)이 들어 있어 차이를 경고로 치지 않는다 ·
     계좌 값은 t0424(정규장 종가 기준)라 LS 앱의 시간외 현재가 기준 숫자와 조금 다르다 · 차이가 0.5% 를 넘으면 빨갛게 표시.</p>`;
   target.innerHTML = html + legend + verdict + tbl;
   renderControlReconciliation({
-    mismatch, names: keys.length,
-    nav: deltas["총자산"], cash: deltas["현금(정산 후)"], positions: cntOk,
+    mismatch, pending, names: keys.length,
+    nav: net(deltas["총자산"], pendingEquity - pendingCash),
+    cash: net(deltas["현금(정산 후)"], -pendingCash),
+    positions: cntOk || (mismatch === 0 && pending > 0),  // 종목 수 차이도 대사 전 체결로 다 설명될 때만 통과
   });
   const sub = document.getElementById("account-sub");
   if (sub) sub.textContent = `t0424 조회 · 모드 ${a.mode} · ${stampNow()} 기준`;
