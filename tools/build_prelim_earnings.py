@@ -46,8 +46,12 @@ def month(store: Store, period: pd.Period, *, now: datetime, dry_run: bool) -> t
     first = store.get(docs.DOCUMENTS, as_of=then, lookback=(then - start).days + 1, until=end, market="KR",
                       columns=["entity_id", "valid_from", "doc_id", "observed_at"])
     seen = {(r.entity_id, r.valid_from, str(r.doc_id)): r.observed_at for r in first.itertuples()}
+    have = store.get(TABLE, as_of=now, lookback=(now - start).days + 1, until=end, market="KR", columns=["doc_id"])
+    done = set(have["doc_id"].astype(str)) if not have.empty else set()
     rows, unparsed, missing = [], 0, 0
     for r in latest.itertuples():
+        if str(r.doc_id) in done:  # 이미 적재 — 늦게 받은 원문만 새로 넣는다
+            continue
         path = str(r.raw_path or "")
         if len(path) <= 1 or path == "None":
             missing += 1
@@ -66,7 +70,7 @@ def month(store: Store, period: pd.Period, *, now: datetime, dry_run: bool) -> t
             "sales_cur": p.sales_cur, "sales_base": p.sales_base, "op_cur": p.op_cur, "op_base": p.op_base,
         })
     if rows and not dry_run:
-        store.append(TABLE, rows, ingest_run_id=f"prelim-earnings-{period}", source="dart-prelim")
+        store.append(TABLE, rows, ingest_run_id=f"prelim-earnings-{period}-{now:%Y%m%d}", source="dart-prelim")
     return len(rows), unparsed, missing
 
 

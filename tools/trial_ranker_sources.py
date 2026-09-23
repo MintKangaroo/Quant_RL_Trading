@@ -224,6 +224,13 @@ def main(argv=None) -> int:
     if args.smoke:
         print("smoke 끝 — 판정은 하지 않았다.", flush=True)
         return 0
+    if args.group == "G8":
+        # 등록(G8 정정 1): 국장 판정 패널 행 중 잠정실적 창(60세션) 안에 든 비율 < 10% 면 보류(시행 미소진). 수익과 무관한 점검.
+        cover = float(kr["prelim_age"].ne(0.0).mean()) if "prelim_age" in kr.columns else 0.0
+        print(f"G8 커버리지 {cover:.0%} (관문 10%)", flush=True)
+        if cover < 0.10:
+            print("판정: 보류 — 커버리지 미달(원문 수집이 판정 창을 못 덮었다)", flush=True)
+            return 0
     control = base + [c for g in adopted for c in GROUPS[g]]
     treat = control + list(GROUPS[args.group])
     lines, verdict = judge(args.group, kr, us, control, treat, top_margin=args.top_margin, other_floor=args.other_floor)
