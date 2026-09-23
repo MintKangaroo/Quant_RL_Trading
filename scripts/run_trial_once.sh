@@ -9,7 +9,9 @@ grep -q "^판정:" "${LOG}" 2>/dev/null && exit 0
 if [ -n "${PRE}" ] && ! grep -q "측정 진행" "${PRE}" 2>/dev/null; then
     echo "$(date '+%F %T') 등록 전 점검을 통과하지 않았거나 아직 안 했다(${PRE}) — 돌리지 않는다" >> "${LOG}"; exit 0
 fi
-if pgrep -f "tools/(trial_|measure_ic|train_ranker|diagnose_ic)[a-z_]*\.py" > /dev/null; then
+# **파이썬 프로세스만 찾는다** — 이 스크립트는 인자로 tools/trial_*.py 를 받아 그냥 "tools/trial_" 로 찾으면 자기 자신이 잡힌다
+# (2026-09-23 20:07 AN 점검이 "다른 무거운 작업" 으로 건너뜀 — memory background-job-hygiene 의 pgrep 자기매칭).
+if pgrep -f "bin/python[^ ]* .*tools/(trial_|measure_ic|train_ranker|diagnose_ic)[a-z_]*\.py" > /dev/null; then
     echo "$(date '+%F %T') 다른 무거운 작업이 도는 중 — 건너뜀" >> "${LOG}"; exit 0
 fi
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')

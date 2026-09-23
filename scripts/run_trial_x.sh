@@ -11,7 +11,9 @@ W=$(grep -h "^판정:" logs/trial-raw-feature-ranker-W.log 2>/dev/null | tail -1
 if echo "${W}" | grep -q "채택"; then
     echo "$(date '+%F %T') 시행 W 채택 — 대조에 원피처를 넣는 배선이 필요하다. 자동으로 돌리지 않는다(사람 확인)" >> "${LOG}"; exit 0
 fi
-if pgrep -f "tools/(trial_|measure_ic|train_ranker|diagnose_ic)[a-z_]*\.py" > /dev/null; then
+# **파이썬 프로세스만 찾는다** — 이 스크립트는 인자로 tools/trial_*.py 를 받아 그냥 "tools/trial_" 로 찾으면 자기 자신이 잡힌다
+# (2026-09-23 20:07 AN 점검이 "다른 무거운 작업" 으로 건너뜀 — memory background-job-hygiene 의 pgrep 자기매칭).
+if pgrep -f "bin/python[^ ]* .*tools/(trial_|measure_ic|train_ranker|diagnose_ic)[a-z_]*\.py" > /dev/null; then
     echo "$(date '+%F %T') 다른 무거운 작업이 도는 중 — 건너뜀" >> "${LOG}"; exit 0
 fi
 AVAIL=$(free -m | awk '/^Mem:/{print $7}')
