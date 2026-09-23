@@ -200,9 +200,13 @@ def settlement_days_for(store: Store, *, market: str, as_of: datetime) -> int:
     주문가능현금이 바닥났다(2026-09-16 실측 $17.6k). 시장 키가 없으면 공용 키로 되돌아간다 —
     설정이 아직 안 심긴 창고에서도 옛 동작 그대로 돈다.
     """
-    key = f"execution.settlement_days_{market.lower()}"
+    # **이름을 리터럴로 쓴다.** 변수로 만든 이름(`key = f"..."`)은 캐시 지문 검사(tests/allocator/test_cache_config_scope)가
+    # 못 읽어 이 두 키를 "아무도 안 읽는 이름" 으로 잘못 봤다(2026-09-21~23 main 에서 실패). 지문엔 반드시 있어야 한다 —
+    # 9/21 에 KR 을 0 으로 바꿨다.
     try:
-        return int(store.config(key, as_of=as_of))
+        if market.upper() == "KR":
+            return int(store.config("execution.settlement_days_kr", as_of=as_of))
+        return int(store.config("execution.settlement_days_us", as_of=as_of))
     except Exception:  # noqa: BLE001 — 없는 키·미심김 둘 다 공용 키로 되돌린다
         return int(store.config("execution.settlement_days", as_of=as_of))
 
