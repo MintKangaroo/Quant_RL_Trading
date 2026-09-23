@@ -50,6 +50,28 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         echo "  시가총액 rc=$?"
     fi
 
+    # 1-0. 미장 환율·FINRA 공매도 — **2.5시간짜리 미장 시세보다 먼저** (2026-09-23). 뒤에 두었더니 매일 08:40~11:40
+    #      데이터 신뢰 칸이 "환율 · 미장 공매도 지연" 을 띄웠고 품질 게이트가 "매수 막힐 수 있음" 을 냈다. 둘 다 시세에
+    #      의존하지 않는다: FINRA 는 종목 기호로 ID 를 만들고(collectors/finra_short.py), 환율은 자기 표만 본다.
+    if [ "${MARKET}" = "US" ]; then
+        #      FINRA 일별 공매도 거래량(short_flow, flow_us 의 입력). 하루 한 파일이고
+        #      받은 날은 건너뛰므로 열흘 창으로 부르면 빠진 날만 채운다. 2026-08-18
+        #      백필 뒤 이 줄이 없어 8/19 부터 멈춰 있었다(2026-08-29 발견).
+        .venv/bin/python tools/backfill_finra.py \
+            --start "$(date -d '-10 days' +%F)" --end "$(date +%F)"
+        echo "  미장 공매도(FINRA) rc=$?"
+        #      공매도 잔고(kind=interest). 결제일(15일·말일) 뒤 10영업일이 지나야
+        #      공표된 것으로 보고 받는다 — 45일 창이면 결제일 셋이 들어와 공표
+        #      시각을 넘긴 것만 새로 채워진다. 받은 결제일은 건너뛴다.
+        .venv/bin/python tools/backfill_finra.py --kind interest \
+            --start "$(date -d '-45 days' +%F)" --end "$(date +%F)"
+        echo "  미장 공매도 잔고(FINRA) rc=$?"
+        .venv/bin/python tools/collect_fx.py
+        echo "  환율 rc=$?"
+        .venv/bin/python tools/collect_fx_yahoo.py
+        echo "  환율(Yahoo) rc=$?"
+    fi
+
     # 1-1. 미장 시세. **여기 없어서 매번 며칠씩 밀려 있었다** — 실측 2026-08-18
     #      국장 08-14 / 미장 08-12. 국장은 위 한 줄이 매일 받아 주는데 미장은
     #      받는 경로가 전체 백필뿐이라 사람이 기억할 때만 들어왔다.
@@ -156,18 +178,7 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         echo "  미장 시가총액 rc=$?"
         .venv/bin/python tools/collect_indices_us.py
         echo "  미장 지수(Yahoo) rc=$?"
-        #      FINRA 일별 공매도 거래량(short_flow, flow_us 의 입력). 하루 한 파일이고
-        #      받은 날은 건너뛰므로 열흘 창으로 부르면 빠진 날만 채운다. 2026-08-18
-        #      백필 뒤 이 줄이 없어 8/19 부터 멈춰 있었다(2026-08-29 발견).
-        .venv/bin/python tools/backfill_finra.py \
-            --start "$(date -d '-10 days' +%F)" --end "$(date +%F)"
-        echo "  미장 공매도(FINRA) rc=$?"
-        #      공매도 잔고(kind=interest). 결제일(15일·말일) 뒤 10영업일이 지나야
-        #      공표된 것으로 보고 받는다 — 45일 창이면 결제일 셋이 들어와 공표
-        #      시각을 넘긴 것만 새로 채워진다. 받은 결제일은 건너뛴다.
-        .venv/bin/python tools/backfill_finra.py --kind interest \
-            --start "$(date -d '-45 days' +%F)" --end "$(date +%F)"
-        echo "  미장 공매도 잔고(FINRA) rc=$?"
+        #      FINRA 공매도 두 줄은 1-0 으로 옮겼다(2026-09-23) — 시세에 의존하지 않는다.
     fi
 
     # 2-3. 기업행위 조정계수. **공시 단계 뒤에 와야 한다** — 후보를 그 표
@@ -228,8 +239,11 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #    (2026-08-14 발견). 백필 도구를 그대로 쓰되 창을 짧게 준다.
     #    인자 없이 부르면 "30일 전 ~ 어제" 다. 같은 구간 run_id 는 결정론적이라
     #    창고가 중복을 거부하므로 매일 다시 받아도 안전하다.
-    .venv/bin/python tools/collect_fx.py
-    echo "  환율 rc=$?"
-    .venv/bin/python tools/collect_fx_yahoo.py
-    echo "  환율(Yahoo) rc=$?"
+    #    미장 실행은 1-0 에서 이미 받았다 — 국장 실행만 여기서 받는다.
+    if [ "${MARKET}" != "US" ]; then
+        .venv/bin/python tools/collect_fx.py
+        echo "  환율 rc=$?"
+        .venv/bin/python tools/collect_fx_yahoo.py
+        echo "  환율(Yahoo) rc=$?"
+    fi
 } >>"${LOG}" 2>&1
