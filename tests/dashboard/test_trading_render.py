@@ -389,3 +389,14 @@ def test_주문으로_설명_안_되는_차이는_여전히_불일치다(tmp_pat
         [{"entity_id": "KR:B", "side": "buy", "quantity": 5, "limit_price": 1000, "status": "sent"}],
     ):
         assert "수량 불일치 1건" in _reconciliation(tmp_path, orders), orders
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_부분_체결의_남은_수량은_대사_전이다(tmp_path: Path) -> None:
+    """2026-09-23 10:24 KR:005300 — 39주 중 2주만 장부에 기록됐는데 계좌엔 더 체결돼 수량 불일치 1건이 critical 로 떴다."""
+    partial = [{"entity_id": "KR:B", "side": "buy", "quantity": 12, "fill_quantity": 2, "limit_price": 1000, "status": "partial"}]
+    html = _reconciliation(tmp_path, partial)
+    assert "당일 체결 1건 대사 전" in html and "불일치" not in html
+    # 남은 수량(10)이 차이(10)보다 작으면 설명이 안 된다
+    too_small = [{"entity_id": "KR:B", "side": "buy", "quantity": 5, "fill_quantity": 2, "limit_price": 1000, "status": "partial"}]
+    assert "수량 불일치 1건" in _reconciliation(tmp_path, too_small)

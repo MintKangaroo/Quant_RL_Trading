@@ -828,9 +828,13 @@ async function renderAccount(tradingBody) {
   const inflightStatus = new Set(["reserved", "paper", "submitting", "sent", "cancel_unknown", "modify_unknown"]);
   const inflight = new Map();  // entity → { qty: 부호 붙은 미기장 수량, price }
   for (const o of d.orders || []) {
-    if (!inflightStatus.has(o.status) || !o.quantity) continue;
+    // 부분 체결(partial)은 **남은 수량**이 아직 장부 밖이다 — 기록된 체결 뒤에 증권사가 나머지를 채웠을 수 있다
+    // (2026-09-23 10:24 KR:005300: 39주 중 2주만 장부, 계좌엔 39주 → 수량 불일치 1건 critical).
+    const open = o.status === "partial" ? Math.max(0, (o.quantity || 0) - (o.fill_quantity || 0))
+      : inflightStatus.has(o.status) ? (o.quantity || 0) : 0;
+    if (!open) continue;
     const cur = inflight.get(o.entity_id) || { qty: 0, price: o.limit_price };
-    cur.qty += (o.side === "sell" ? -1 : 1) * o.quantity;
+    cur.qty += (o.side === "sell" ? -1 : 1) * open;
     inflight.set(o.entity_id, cur);
   }
   let mismatch = 0, pending = 0, pendingCash = 0, pendingEquity = 0;
