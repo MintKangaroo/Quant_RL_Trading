@@ -64,6 +64,10 @@ TOKEN_LEEWAY = timedelta(seconds=60)
 #:   00040 = 매수완료 (2026-06-19 발견)
 #:   00463 = 취소완료 (2026-07-15 발견)
 OK_CODES = frozenset({"00000", "00039", "00040", "00463"})
+#: "조회가 계속 됩니다. 다음 또는 PaDn 을 누르십시오" — 실패가 아니라 **다음 쪽이 있다**는 뜻이다(모의 CSPAQ13700, 2026-09-23).
+#: 연속 조회를 요청한(``with_headers=True``) 호출에서만 성공으로 받는다 — 그 호출은 헤더의 연속 키로 다음 쪽을 이어 받는다.
+#: 연속 조회를 모르는 호출에 성공으로 주면 첫 쪽만 받고 조용히 끝나므로, 그쪽은 예전처럼 오류로 둔다.
+CONTINUE_CODES = frozenset({"00704"})
 
 #: 미발견 완료코드 대비 안전망. LS 응답이 "완료 되었습니다"/"완료되었습니다" 로
 #: 띄어쓰기가 달라 00463 을 놓쳤던 이력이 있어 공백을 지우고 비교한다.
@@ -398,7 +402,9 @@ class LSClient:
                     ) from error
 
                 rsp_cd = data.get("rsp_cd")
-                if rsp_cd and rsp_cd not in OK_CODES and not _is_completion(data):
+                if rsp_cd and rsp_cd not in OK_CODES and not _is_completion(data) and not (
+                    with_headers and rsp_cd in CONTINUE_CODES
+                ):
                     if rsp_cd == TOKEN_INVALID and attempt == 0:
                         self.invalidate_token()
                         continue

@@ -8,7 +8,7 @@ submission/action identity leaves the order unresolved.
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo
 
 from quant_rl_trading.collectors.market_hours import Market, local_time
@@ -38,11 +38,18 @@ def number(value: object) -> str:
 
 
 def accept(
-    store: Store, clock: Clock, message: dict, *, fingerprint: str, connected_at: datetime
+    store: Store, clock: Clock, message: dict, *, fingerprint: str, connected_at: datetime,
+    evidence: str = "SC3", require_full: bool = False, order_day: date | None = None,
 ) -> bool:
-    """Return True only for newly persisted, verified evidence. No broker calls."""
+    """Return True only for newly persisted, verified evidence. No broker calls.
+
+    ``evidence`` — 확인의 출처. 기본은 실시간 SC2/SC3. **모의계좌에서만** 주문체결내역 조회(CSPAQ13700)의 "취소확인" 행을
+    같은 규칙으로 받는다(`accept_inquiry_cancel`, docs/design/execution-safety.md 2026-09-23 절). 그때는 ``require_full`` —
+    취소 수량이 남은 수량과 **정확히 같을 때만**(주문이 완전히 닫힐 때만) 받는다.
+    """
     now = clock.now()
-    day = local_time(Market.KR, now).date()
+    # 실시간 SC3 는 "오늘" 수신만 받는다. 조회 증거(evidence != SC3)는 주문일을 명시해 지난 날도 확인할 수 있다.
+    day = order_day if (order_day is not None and evidence != "SC3") else local_time(Market.KR, now).date()
     if not fingerprint or local_time(Market.KR, connected_at).date() != day:
         raise ValueError("unpinned account or stream crossed trading date")
     header, body = message.get("header", {}), message.get("body", {})
@@ -82,6 +89,8 @@ def accept(
         "fingerprint": fingerprint,
         "time": raw_time,
     }
+    if evidence != "SC3":
+        proof["evidence"] = evidence
     store = store.execution_view()
     with account_lock(store.root):
         all_events = events(store, as_of=now)
@@ -154,6 +163,8 @@ def accept(
             remaining = ActionJournal(store, clock, None).restore(before).remaining_quantity
             if quantity > remaining:
                 raise ValueError("cancellation and recorded fills exceed original quantity")
+            if require_full and quantity != remaining:
+                raise ValueError("inquiry evidence must close the order exactly (cancel == remaining)")
         proof["intent_id"] = intent["event_id"]
         added = record(
             store,
@@ -167,3 +178,37 @@ def accept(
         )
         refresh_order_states(store, clock, order_ids={before.order_id})
         return added
+
+
+INQUIRY_EVIDENCE = "CSPAQ13700"
+
+
+def accept_inquiry_cancel(
+    store: Store, clock: Clock, row: dict, *, fingerprint: str, mode: str, day: date,
+) -> bool:
+    """주문체결내역(CSPAQ13700) 한 행 → 취소 확인 증거. **모의계좌 전용.**
+
+    모의투자 서버는 SC3 를 보내지 않는다(2026-09-23 실측: 주문감시 하루 종일 확인 0건, 조회로는 매번 "취소확인·체결 0").
+    그래서 매일 15:45 대사가 rc=1 을 냈다. 실계좌는 SC3 만 인정한다 — 조회 상태 코드의 최종성을 실계좌에서 확인하기 전까지.
+    검증은 SC3 와 **같은 함수**(`accept`)가 한다: 계좌 지문·주문일·종목·방향·원주문번호가 우리 전송 기록과 맞고, 취소 의도가 있고,
+    취소 수량이 남은 수량과 정확히 같아야 한다.
+    """
+    if mode != "paper":
+        raise ValueError("inquiry cancellation evidence is accepted for the paper account only")
+    if str(row.get("MrcTpNm", "")).strip() != "취소확인":
+        raise ValueError("not a cancellation confirmation row")
+    raw_time = str(row.get("OrdTime", "")).replace(":", "").strip()
+    if len(raw_time) != 6 or not raw_time.isdigit():
+        raise ValueError("invalid inquiry time")
+    message = {
+        "header": {"tr_cd": "SC3"},
+        "body": {
+            "orgordno": row.get("OrgOrdNo"), "ordno": row.get("OrdNo"), "shtnIsuno": str(row.get("IsuNo", "")),
+            # 조회 시각은 초까지만 온다 — 그 초의 **끝**으로 본다. 끝으로 안 보면 같은 초 안(밀리초 뒤)에 적힌 취소 의도보다
+            # 확인이 앞선 것으로 읽혀 거부된다(2026-09-23 실측 세 건). 확인 시각이 지금보다 늦을 수는 없다(accept 가 지킨다).
+            "bnstp": str(row.get("BnsTpCode", "")), "canccnfqty": row.get("OrdQty"), "exectime": raw_time + "999",
+        },
+    }
+    start = datetime.combine(day, datetime.min.time(), tzinfo=ZoneInfo("Asia/Seoul")).astimezone(UTC)
+    return accept(store, clock, message, fingerprint=fingerprint, connected_at=start,
+                  evidence=INQUIRY_EVIDENCE, require_full=True, order_day=day)

@@ -26,6 +26,10 @@ RC=0
             RC=$?
             ;;
         reconcile)
+            # 모의계좌는 SC3 를 받지 못한다 — 그날 취소를 주문체결내역 조회로 먼저 확인한다(execution-safety.md 2026-09-23).
+            # 거부·미발견은 미확정으로 남아 아래 대사가 그대로 rc 로 알린다. 이 줄의 rc 는 로그만.
+            .venv/bin/python tools/confirm_cancels_inquiry.py --sandbox "${SANDBOX}"
+            echo "cancel-inquiry rc=$?"
             .venv/bin/python tools/reconcile_fills.py --market KR --sandbox "${SANDBOX}"
             RC=$?
             # 주문별 대사 **뒤에** 스냅샷 대사로 잔여 드리프트를 청소한다. 이 순서라야
