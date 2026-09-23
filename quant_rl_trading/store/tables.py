@@ -650,6 +650,19 @@ _SPECS: dict[str, TableSpec] = {
             "임베딩은 계산일 뿐 새 사실이 아니다. 시행 X(filing-text-embedding-2026-09.md)의 랭커 피처."
         ),
     ),
+    "index_members": TableSpec(
+        name="index_members",
+        columns={
+            "market": pa.string(),
+            "index_id": pa.string(),    # KOSPI200 …
+        },
+        natural_key=("entity_id", "valid_from", "index_id"),
+        observation_lag_days=1,
+        doc=(
+            "지수 구성종목 스냅샷(거래일마다). valid_from = 그 세션 16:00, observed_at = 수집 시각. Z2 트랙의 후보 필터"
+            "(docs/design/portfolio-construction.md). 소스 pykrx(KRX 정보데이터시스템, 로그인 세션)."
+        ),
+    ),
     "prelim_earnings": TableSpec(
         name="prelim_earnings",
         columns={

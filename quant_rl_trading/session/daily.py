@@ -340,6 +340,15 @@ def run(
             return result
         # path 는 이미 자기서술적이다: "risk_parity:crisis" / "risk_parity:fallback".
         allocate_driver = path
+    elif params.baseline is Baseline.FLOAT_CAP:
+        # **Z2 트랙** (portfolio-construction.md) — 후보 안에서 유동시총 가중, 종목 상한. 보유 중 후보 밖 종목은 목표 0
+        # (아래 targets 가 파는 쪽으로 받는다 — 다른 베이스라인과 같다).
+        from quant_rl_trading.allocator.float_cap_baseline import allocate_float_cap
+
+        weights, allocate_driver = allocate_float_cap(
+            store, as_of=as_of, market=str(market), candidates=list(result.candidates),
+            limit=float(store.config("allocator.float_cap_limit", as_of=as_of)), cash_buffer=params.cash_buffer,
+        )
     else:
         weights = allocate(
             scores=scores,

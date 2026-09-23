@@ -43,6 +43,9 @@ class Baseline(StrEnum):
     # 낸다** — session/daily.py 가 이 값을 보고 allocate_risk_parity 로 간다
     # (allocator/risk_parity_baseline.py). 나머지 셋과 성격이 다르다.
     RISK_PARITY = "risk_parity"
+    # 유동시총 가중 + 종목 상한 — Z2 트랙(allocator/float_cap_baseline.py). 창고(시총·유동비율)를 타므로
+    # risk_parity 처럼 session/daily.py 가 분기한다. 상한은 `allocator.float_cap_limit`.
+    FLOAT_CAP = "float_cap"
 
 
 @dataclass(frozen=True)
@@ -80,6 +83,8 @@ def allocate(
     if not positive:
         return {}
 
+    if params.baseline is Baseline.FLOAT_CAP:
+        raise ValueError("float_cap 은 순수 allocate 로 못 낸다 — allocate_float_cap 을 써라")
     if params.baseline is Baseline.RISK_PARITY:
         # **순수 함수로는 못 낸다** — 공분산·섹터·하방 베타가 있어야 한다.
         # 호출부가 baseline 값을 보고 allocate_risk_parity 로 갔어야 한다.

@@ -32,6 +32,7 @@ DOCUMENTS = "documents"
 TURNOVER_WINDOW = 20
 #: 시가총액이 사는 표 (reporting.briefing 과 같은 이름을 쓴다)
 MARKET_STATS = "market_stats"
+INDEX_MEMBERS = "index_members"
 
 #: 부실 공시를 이 기간 안에 냈으면 매매 대상에서 뺀다. 관리종목 지정·불성실
 #: 공시는 한 번 나면 한동안 유효한 사실이다.
@@ -53,6 +54,8 @@ class FilterParams:
     top_turnover_rank: int = 0
     top_volume_rank: int = 0
     top_market_cap_rank: int = 0
+    #: Z2 트랙 — 이 지수의 구성종목 안에서만 고른다. 빈 문자열이면 끈다(`universe.index_members_kr`, 샌드박스 덮어쓰기로만 켠다).
+    index_members: str = ""
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime, market: str) -> FilterParams:
@@ -67,6 +70,7 @@ class FilterParams:
             top_turnover_rank=_rank_config(store, "top_turnover_rank", as_of=as_of),
             top_volume_rank=_rank_config(store, "top_volume_rank", as_of=as_of),
             top_market_cap_rank=_rank_config(store, "top_market_cap_rank", as_of=as_of),
+            index_members=_index_config(store, market=market, as_of=as_of),
         )
 
     def effective_floor(self, *, market: str, equity: float) -> float:
@@ -79,6 +83,15 @@ class FilterParams:
         if market != "KR" or equity <= 0 or self.capacity_multiple <= 0:
             return self.min_turnover
         return max(self.min_turnover, self.capacity_multiple * equity)
+
+
+def _index_config(store: Store, *, market: str, as_of: datetime) -> str:
+    """지수 구성 필터. **없거나 'none' 이면 끔** — 실전 창고엔 이 키가 없고, Z2 샌드박스가 덮어쓰기로만 켠다."""
+    try:
+        value = str(store.config(f"universe.index_members_{market.lower()}", as_of=as_of) or "")
+    except ConfigNotFound:
+        return ""
+    return "" if value.lower() in ("", "none") else value
 
 
 def _rank_config(store: Store, name: str, *, as_of: datetime) -> int:
@@ -218,7 +231,40 @@ def tradable_universe(
         store, kept, dropped,
         as_of=as_of, market=market, params=params, turnover=turnover, prices=recent,
     )
+    kept = _apply_index_members(store, kept, dropped, as_of=as_of, market=market, index=params.index_members)
     return FilterResult(kept=tuple(sorted(kept)), dropped=dropped)
+
+
+#: 지수 구성 스냅샷을 찾는 창(달력일). 연휴·수집 사고를 넘기되, 너무 오래된 구성으로 고르지 않게.
+INDEX_MEMBERS_LOOKBACK_DAYS = 10
+
+
+def _apply_index_members(
+    store: Store, kept: list[str], dropped: dict[str, str], *, as_of: datetime, market: str, index: str
+) -> list[str]:
+    """Z2 트랙 — 후보를 **지수 구성종목 안으로** 좁힌다(docs/design/portfolio-construction.md). ``index`` 가 비면 안 한다.
+
+    스냅샷이 없으면 **후보를 비운다** — 순위 하한과 반대 규칙이다. 순위 하한은 관측이 없으면 거르지 않지만(수집 사고가
+    유니버스를 비우지 않게), 이 필터는 켜져 있다는 것 자체가 "지수 안에서만" 이라는 약속이라 조용히 전체로 넓히면 그
+    약속이 거짓이 된다. 그 날은 사지 않는 편이 맞다.
+    """
+    if not index or not kept:
+        return kept
+    frame = store.get(
+        INDEX_MEMBERS, as_of=as_of, lookback=INDEX_MEMBERS_LOOKBACK_DAYS, until=as_of, market=market,
+        columns=["entity_id", "valid_from", "index_id"],
+    )
+    frame = frame[frame["index_id"] == index] if not frame.empty else frame
+    if frame.empty:
+        for entity in kept:
+            dropped[entity] = f"{index} 구성 스냅샷 없음"
+        return []
+    latest = frame[frame["valid_from"] == frame["valid_from"].max()]
+    members = set(latest["entity_id"].astype(str))
+    for entity in kept:
+        if entity not in members:
+            dropped[entity] = f"{index} 구성 밖"
+    return [entity for entity in kept if entity in members]
 
 
 def _apply_rank_caps(

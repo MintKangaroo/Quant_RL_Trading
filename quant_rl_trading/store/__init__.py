@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from collections.abc import Mapping, Sequence
@@ -54,6 +55,33 @@ THREADS_ENV = "QUANT_RL_DUCKDB_THREADS"
 DEFAULT_MEMORY_LIMIT = "2GB"
 #: 스레드마다 자기 버퍼를 든다. 12 스레드는 12배로 부푼다.
 DEFAULT_THREADS = "4"
+
+
+#: 샌드박스 전용 설정 덮어쓰기 파일(docs/design/portfolio-construction.md "Z2 트랙"). **샌드박스 루트에만** 둔다 —
+#: 실전 창고(data/)에 이 파일이 있으면 거부한다. 설정 표를 읽는 모든 길(Store.config · 두 캐시 래퍼)이 Store.get 을
+#: 지나므로 여기 한 곳에 건다. 값은 as_of 시점 발효로 붙어 그 시점의 어떤 창고 값보다 뒤에 선다.
+OVERRIDES_FILE = "config-overrides.yaml"
+
+
+def _with_overrides(frame: pd.DataFrame, root: Path, *, as_of: datetime) -> pd.DataFrame:
+    path = Path(root) / OVERRIDES_FILE
+    if not path.exists():
+        return frame
+    if Path(root).resolve() == DEFAULT_ROOT.resolve():
+        raise StoreError(f"실전 창고에 설정 덮어쓰기 파일이 있다({path}) — 샌드박스 전용이다")
+    import yaml
+
+    overrides = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not overrides:
+        return frame
+    rows = pd.DataFrame(
+        [{"entity_id": str(key), "valid_from": as_of, "observed_at": as_of, "value_json": json.dumps(value)}
+         for key, value in overrides.items()]
+    )
+    if frame.empty:
+        return rows
+    # 같은 이름의 창고 행을 지우지 않는다 — 발효 시점(as_of)이 가장 늦어 resolve 가 이 값을 고른다.
+    return pd.concat([frame, rows.astype({"valid_from": frame["valid_from"].dtype})], ignore_index=True)
 
 
 class Store:
@@ -103,7 +131,7 @@ class Store:
         문자열 컬럼이 메모리의 대부분을 차지하기 때문이다. 어느 행이 남는지는
         바뀌지 않는다 — 정정본 선택은 프루닝 전에 끝난다.
         """
-        return reader.query(
+        frame = reader.query(
             self._cursor(),
             self.root,
             table,
@@ -114,6 +142,9 @@ class Store:
             columns=columns,
             market=market,
         )
+        if table == _config.CONFIG_TABLE:
+            frame = _with_overrides(frame, self.root, as_of=as_of)
+        return frame
 
     def latest_by_entity(
         self,
@@ -335,6 +366,7 @@ __all__ = [
     "NaiveTimestamp",
     "SchemaViolation",
     "Store",
+    "OVERRIDES_FILE",
     "StoreError",
     "UnknownTable",
     "append",

@@ -580,6 +580,7 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     # 환경 규격 — 슬롯 수·에피소드 길이·비중 상한·자본·정책금리 계열.
     "allocator.baseline",
     "allocator.cash_buffer",
+    "allocator.float_cap_limit",
     "allocator.env.cache_carry_sessions",
     "allocator.env.cache_equity",
     "allocator.env.initial_capital",
