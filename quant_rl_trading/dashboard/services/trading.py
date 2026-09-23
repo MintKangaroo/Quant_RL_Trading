@@ -882,8 +882,12 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     filled: dict[str, dict[str, Any]] = {}
     if not trades.empty:
         for row in trades.to_dict(orient="records"):
-            # 백테스트 체결의 order_id 는 "{세션}|{종목}|{방향}" 이다.
-            key = f"{str(row['order_id']).split('|')[0]}|{row['entity_id']}"
+            # 백테스트 체결의 order_id 는 "{세션}|{종목}|{방향}" 이고, 브로커 체결은 "{세션}|{종목}|{조각}#{누적수량}" 이다.
+            # **브로커 체결은 조각 단위로 맞춘다.** 종목 단위로 맞추면 09:20 에 체결된 조각 0 이 10:00 에 낸 조각 1 에도
+            # 붙어, 아직 장부에 없는 조각이 "filled" 로 보였고 대사 칸이 수량 불일치 13건을 critical 로 띄웠다(2026-09-23 10:14).
+            parts = str(row["order_id"]).split("|")
+            slice_part = parts[2].split("#")[0] if len(parts) >= 3 else ""
+            key = f"{parts[0]}|{row['entity_id']}" + (f"|{slice_part}" if slice_part.isdigit() else "")
             filled[key] = {
                 "price": float(row["price"]),
                 "quantity": float(row["quantity"]),
@@ -904,7 +908,9 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     for row in ordered.head(ORDER_ROWS).to_dict(orient="records"):
         session = str(row["session_id"])
         key = f"{session}|{row['entity_id']}"
-        match = filled.get(key)
+        match = filled.get(f"{key}|{int(row['slice_seq'])}") if "slice_seq" in row and pd.notna(row["slice_seq"]) else None
+        if match is None:
+            match = filled.get(key)  # 백테스트 체결(조각 없는 order_id)
         rows.append(
             {
                 "time": pd.Timestamp(row["valid_from"]).isoformat(),
