@@ -46,13 +46,14 @@ from tools.trial_ranker_kit import fit  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/ranker-sources-round6-2026-09.md")
 #: 시행 X 는 같은 도구·같은 판정으로 재지만 등록 문서가 따로다 — 해시·기록 이름을 그 문서로 찍는다.
-PROTOCOL_BY_GROUP = {"X": Path("docs/protocols/filing-text-embedding-2026-09.md")}
+PROTOCOL_BY_GROUP = {"X": Path("docs/protocols/filing-text-embedding-2026-09.md"),
+                     "G8": Path("docs/protocols/ranker-sources-g8-prelim-earnings-2026-09.md")}
 TRIAL_PREFIX = "ranker-sources-round6-2026-09"
 MEASURE_FROM = date(2026, 10, 1)
 T_GATE = 2.0
 WORST_GATE = -0.03
 #: 주 시장 — 자료가 있는 쪽. 다른 시장은 ④(지지 않을 것)만 본다.
-PRIMARY = {"G1": "KR", "G2": "KR", "G3": "US", "G4": "KR", "G5": "KR", "G6": "US", "G7": "US", "X": "KR", "W": "KR"}
+PRIMARY = {"G1": "KR", "G2": "KR", "G3": "US", "G4": "KR", "G5": "KR", "G6": "US", "G7": "US", "G8": "KR", "X": "KR", "W": "KR"}
 #: 세션 개장 직전(UTC). 국장 09:00 KST, 미장 09:30 ET(서머타임 무시 — 13:30 UTC 는 어느 쪽이든 개장 전이다).
 OPEN_UTC = {"KR": timedelta(hours=0), "US": timedelta(hours=13, minutes=30)}
 CACHE = Path("data/_diag/ranker-sources")

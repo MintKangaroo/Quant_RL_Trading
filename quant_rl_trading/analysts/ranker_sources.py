@@ -31,6 +31,8 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "G7": ("form4_sell_60", "form4_sellers_20", "form4_buy_60"),
     # X (시행 X, filing-text-embedding-2026-09.md) — 공시 원문 임베딩의 주성분 3개. 국장만(DART 원문).
     "X": ("text_pc1", "text_pc2", "text_pc3"),
+    # G8 (2026-09-23 추가, 사용자 승인) — 국장 잠정실적 서프라이즈(PEAD). G6 의 국장 짝. 표는 prelim_earnings.
+    "G8": ("prelim_op_surprise", "prelim_sales_yoy", "prelim_age"),
 }
 
 #: G1 — ADV120 이 필요하므로 달력일로 넉넉히.
@@ -233,7 +235,12 @@ def accounting_quality(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     분기 복원·TTM 은 fundamental Analyst 와 **같은 함수**를 쓴다(공시 전 재무는 store.get 이 막는다).
     """
     from quant_rl_trading.analysts.fundamental import (
-        FLOW_METRICS, FUNDAMENTALS, SOURCE_BY_MARKET, STOCK_METRICS, to_quarterly, trailing_twelve_months,
+        FLOW_METRICS,
+        FUNDAMENTALS,
+        SOURCE_BY_MARKET,
+        STOCK_METRICS,
+        to_quarterly,
+        trailing_twelve_months,
     )
 
     raw = analyst.store.get(FUNDAMENTALS, as_of=as_of, lookback=FUND_LOOKBACK_DAYS, market=str(analyst.market))
@@ -409,9 +416,70 @@ def filing_embedding(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     return mean.replace([np.inf, -np.inf], np.nan).dropna(how="all")
 
 
+# --------------------------------------------------------------------------- G8 국장 잠정실적 서프라이즈
+
+#: 60세션 + 여유. 발표 효과의 창을 넘은 공시는 결측이다(등록).
+PRELIM_LOOKBACK_DAYS = 120
+PRELIM_MAX_SESSIONS = 60
+#: 같은 분기의 연결·별도가 며칠 차로 따로 나오는 경우 — 이 안이면 연결을 쓴다.
+PRELIM_SAME_PERIOD_DAYS = 5
+
+
+def prelim_surprise(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G8. 개장 전까지 공시된 가장 최근 잠정실적 한 건(연결 우선, 정정은 정정 시각에 갈아끼움).
+
+    - ``prelim_op_surprise`` = (당기 − 전년동기 영업이익) / 공시 전 마지막 세션의 시가총액
+    - ``prelim_sales_yoy``   = 매출액 전년동기대비 증감률(%) — 원문 칸이 아니라 두 값으로 계산(형식마다 자리가 다르다)
+    - ``prelim_age``         = 공시 뒤 지난 세션 수(0~60). 넘으면 세 피처 모두 결측.
+    """
+    rows = analyst.store.get("prelim_earnings", as_of=as_of, lookback=PRELIM_LOOKBACK_DAYS, market=str(analyst.market))
+    if rows.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=PRELIM_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    sessions = _session_index(prices)
+    if len(sessions) < 5:
+        return pd.DataFrame()
+    rows = rows.sort_values(["observed_at", "valid_from"])
+    picked = []
+    for _entity, g in rows.groupby("entity_id"):
+        latest = g["valid_from"].max()
+        recent = g[g["valid_from"] >= latest - pd.Timedelta(days=PRELIM_SAME_PERIOD_DAYS)]
+        cons = recent[recent["basis"] == "consolidated"]
+        picked.append((cons if not cons.empty else recent).iloc[-1])
+    last = pd.DataFrame(picked)
+    last["day"] = pd.to_datetime(last["valid_from"]).dt.tz_convert("Asia/Seoul").dt.date
+    pos = np.searchsorted(np.array(sessions), last["day"].to_numpy(), side="left")
+    last["ago"] = len(sessions) - 1 - pos
+    last = last[(pos < len(sessions)) & (last["ago"] <= PRELIM_MAX_SESSIONS)].copy()
+    if last.empty:
+        return pd.DataFrame()
+    caps = analyst.store.get("market_stats", as_of=as_of, lookback=PRELIM_LOOKBACK_DAYS, market=str(analyst.market),
+                             columns=["entity_id", "valid_from", "metric", "value"])
+    caps = caps[caps["metric"] == "market_cap"] if not caps.empty else caps
+    cap_before = {}
+    if not caps.empty:
+        caps = caps.assign(day=pd.to_datetime(caps["valid_from"]).dt.tz_convert("Asia/Seoul").dt.date).sort_values("day")
+        by_entity = {e: g for e, g in caps.groupby("entity_id")}
+        for r in last.itertuples():
+            g = by_entity.get(r.entity_id)
+            before = g[g["day"] < r.day] if g is not None else None
+            if before is not None and not before.empty:
+                cap_before[r.entity_id] = float(before["value"].iloc[-1])
+    last = last.set_index("entity_id")
+    raw = pd.DataFrame(index=last.index)
+    cap = pd.Series(cap_before).reindex(raw.index)
+    raw["prelim_op_surprise"] = (last["op_cur"] - last["op_base"]) / cap.where(cap > 0)
+    base = last["sales_base"].abs()
+    raw["prelim_sales_yoy"] = (last["sales_cur"] - last["sales_base"]) / base.where(base > 0) * 100.0
+    raw["prelim_age"] = last["ago"].astype(float)
+    return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
 BUILDERS = {
     "G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling,
-    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading, "X": filing_embedding,
+    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading, "G8": prelim_surprise, "X": filing_embedding,
 }
 
 

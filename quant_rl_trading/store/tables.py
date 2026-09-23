@@ -650,6 +650,25 @@ _SPECS: dict[str, TableSpec] = {
             "임베딩은 계산일 뿐 새 사실이 아니다. 시행 X(filing-text-embedding-2026-09.md)의 랭커 피처."
         ),
     ),
+    "prelim_earnings": TableSpec(
+        name="prelim_earnings",
+        columns={
+            "market": pa.string(),
+            "doc_id": pa.string(),
+            "basis": pa.string(),       # consolidated | separate (자회사 실적은 넣지 않는다)
+            "amended": pa.bool_(),      # [기재정정] — 정정 공시의 관측 시각에 새 값으로 갈아끼운다
+            "sales_cur": pa.float64(),  # 원
+            "sales_base": pa.float64(), # 전년동기, 원
+            "op_cur": pa.float64(),
+            "op_base": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "doc_id"),
+        observation_lag_days=1,
+        doc=(
+            "DART 영업(잠정)실적 원문에서 읽은 당기·전년동기 매출액·영업이익. valid_from·observed_at 은 원 공시(documents)의 값을 "
+            "그대로 옮긴다 — 파싱은 계산일 뿐 새 사실이 아니다(document_embeddings 와 같은 규칙). 6차 G8 의 입력."
+        ),
+    ),
     # 종목별 프로그램매매(국장) — 사용자 제안(2026-09-20). **과거 이력을 주는 소스가 없다**: LS t1637 은 당일
     # 분 단위, t1636 은 당일 순위뿐이고 KRX 정보데이터시스템은 로그인 세션을 요구한다(자동 수집은 약관 위반).
     # 그래서 2026-09-21 부터 매일 쌓는다. 판정 가능한 표본(200세션)은 2027 여름이다.
