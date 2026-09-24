@@ -39,6 +39,7 @@ from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.replay.events import EventLog, payload_hash
+from quant_rl_trading.selector import cadence as cadence_module
 from quant_rl_trading.selector import exposure
 from quant_rl_trading.selector import pipeline as selector_pipeline
 from quant_rl_trading.store import mode as store_mode
@@ -280,7 +281,25 @@ def run(
     allocate_driver = str(params.baseline)
     rl_params = LiveParams.from_store(store, as_of=as_of)
     policy_decision: PolicyDecision | None = None
-    if rl_params.active_for(store_mode.of(store.root).code):
+    # **재조정 주기** (selector.md §5 7번, 시행 AO). 보유일엔 명단도 상대 비중도 안 바꾼다 — 지금 보유의 평가금액
+    # 비중을 그대로 목표로 둔다. 노출 배수만 아래에서 매일 따른다. 선정은 위에서 돌았고 기록만 남는다.
+    cadence = cadence_module.for_session(store, as_of=as_of, market=market)
+    held_weights = {
+        entity: quantity * prices[entity] / equity
+        for entity, quantity in holdings.items()
+        if quantity > 0 and prices.get(entity, 0.0) > 0
+    }
+    holding_day = not cadence.rebalance and bool(held_weights)
+    held_exposure: float | None = None
+    if holding_day:
+        # 지금 비중은 직전 노출 배수가 이미 곱해진 값이다. 배수 전으로 되돌려 두면 아래 exposure.apply 가
+        # 새 배수/옛 배수 비율로 보유 전체를 같이 줄이거나 늘린다.
+        held_exposure = exposure.held_scale(store, as_of=as_of, market=market)
+        base = held_exposure if held_exposure and held_exposure > 0 else 1.0
+        weights = {entity: value / base for entity, value in held_weights.items()}
+        allocate_driver = "hold:cadence"
+        result.notes.append(cadence.describe())
+    elif rl_params.active_for(store_mode.of(store.root).code):
         from quant_rl_trading.allocator import live as live_rl
 
         # **정책이 목표 비중을 낸다** (M4 → 모의계좌). 룰 베이스라인 자리에
@@ -419,6 +438,8 @@ def run(
         allocate_driver,
         {
             "weights": {name: round(value, 6) for name, value in weights.items()},
+            # 재조정일인가 — 단계를 따로 두지 않는다(단계 순서가 곧 설계다). 보유일이면 driver 가 hold:cadence.
+            "cadence": cadence.describe(),
             **({"policy": policy_decision.as_dict()} if policy_decision is not None else {}),
         },
     )
@@ -429,6 +450,12 @@ def run(
     # 정확히 그 모양이다(코드는 있는데 아무도 안 부른다). 실제로 이 자리에서
     # 한 번 그랬다.
     weights = scaled
+
+    # 보유일에 노출 배수도 그대로면 **주문 0.** 목표 = 지금 보유라 사이징에 넘기면 주 단위 반올림이 1주씩 판다.
+    if holding_day and (held_exposure is None or abs(decision.scale - held_exposure) < 1e-9):
+        log.record("execute", "executor", {"orders": [], "blocked_by": None, "notes": ["보유일 — 명단·노출 불변"]})
+        log.flush()
+        return result
 
     # 3. 집행. 보유 중인데 목표에서 빠진 종목도 넣는다 — 안 넣으면 팔 기회가
     #    영영 오지 않는다.

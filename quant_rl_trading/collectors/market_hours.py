@@ -165,7 +165,12 @@ def previous_trading_day(market: Market, day: date) -> date:
     override = _OVERRIDES[market]
     cursor = day
     while True:
-        session = calendar.previous_session(cursor.isoformat()).date()
+        # ``previous_session`` 은 세션만 받는다 — 휴장일(추석 2026-09-24)에 부르면 NotSessionError 로 죽는다.
+        # 그날 15:45 정산 대조가 그렇게 rc=1 을 냈다. 휴장일이면 그 이전 세션으로 바로 간다.
+        if calendar.is_session(cursor.isoformat()):
+            session = calendar.previous_session(cursor.isoformat()).date()
+        else:
+            session = calendar.date_to_session(cursor.isoformat(), direction="previous").date()
         # 라이브러리가 건너뛴 구간에 예외 세션이 있으면 그쪽이 더 가깝다.
         nearer = [d for d in override.extra_sessions if session < d < cursor]
         candidate = max(nearer) if nearer else session

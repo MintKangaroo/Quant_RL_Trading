@@ -646,6 +646,9 @@ CONFIG_INDEPENDENT = frozenset(
     {
         "exposure.regime_confirm_sessions",
         "selector.exit_rank",
+        # 재조정 주기(selector/cadence.py) — 보유일엔 보유를 드는 세션 결정이다. 캐시는 보유를 모른다.
+        "selector.rebalance_every",
+        "selector.rebalance_anchor",
         # 정책을 어느 장부에 끼우나 — 세션(allocator/live.py)만 읽는다. 환경은 모른다.
         "allocator.rl.checkpoint",
         "allocator.rl.modes",

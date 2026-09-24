@@ -225,6 +225,12 @@ selector:
   # 가중치 갱신(주간 IC --save·재학습)은 이 세션 수에 걸쳐 직전 값과 선형으로 섞는다 (selector.md §6). 0 이면 즉시 교체.
   # 2026-09-13 갱신이 미장 fundamental 0→0.797 로 상위24 를 통째로 바꿔 보유 17종목이 전량 매도됐다.
   weight_blend_sessions: 5
+  # 재조정 주기 (selector.md §5 7번, 시행 AO 2026-09-24 채택 C10). anchor 부터 그 시장 거래일을 세어 k mod every == 0 인 날만
+  # 다시 고르고, 그 사이엔 보유를 그대로 든다(노출 배수만 매일 따른다). 매일 고르면 점수의 매일 흔들림이 곧 매매다 —
+  # 원천 넷 평균 연 +6.0% → +12.2%, 회전 34 → 21. 미장은 재지 않았다 → 1(매일). anchor 전 날짜는 매일(과거 백테스트 불변).
+  rebalance_every: 10
+  rebalance_every_us: 1
+  rebalance_anchor: "2026-09-28"
   population: 64
   generations: 40
   # 적합도 페널티 둘. **기준은 연율화 샤프 1.0**(진짜로 좋은 전략)이다 —

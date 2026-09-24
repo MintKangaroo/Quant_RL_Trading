@@ -150,3 +150,14 @@ def test_no_extra_sessions_yet() -> None:
     무언가 들어간다면 새 실측 근거가 붙어야 한다.
     """
     assert not _OVERRIDES[Market.KR].extra_sessions
+
+
+def test_휴장일에_불러도_직전_거래일을_준다() -> None:
+    """추석(2026-09-24~26) 당일 15:45 정산 대조가 NotSessionError 로 rc=1 을 냈다."""
+    from datetime import date as _date
+
+    from quant_rl_trading.collectors.market_hours import Market as _Market, previous_trading_day as _prev
+
+    assert _prev(_Market.KR, _date(2026, 9, 24)) == _date(2026, 9, 23)
+    assert _prev(_Market.KR, _date(2026, 9, 27)) == _date(2026, 9, 23)
+    assert _prev(_Market.KR, _date(2026, 9, 28)) == _date(2026, 9, 23)

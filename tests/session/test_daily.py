@@ -307,3 +307,49 @@ def test_알파가_0종이면_세션이_사유를_들고_나온다(fund) -> None
     assert result.candidates == ()
     # 국장은 멀쩡하다. 사유가 시장을 넘어 새면 정상인 쪽까지 경보가 뜬다.
     assert daily.run(fund, ReplayClock(NOW), as_of=NOW, market="KR").fault == ""
+
+
+def _holding_day(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from quant_rl_trading.selector import cadence
+
+    monkeypatch.setattr(
+        cadence, "for_session", lambda store, *, as_of, market: cadence.Cadence(rebalance=False, every=10, index=3)
+    )
+
+
+def test_보유일엔_후보에서_빠진_보유도_팔지_않고_주문이_없다(fund_with_orphan, monkeypatch) -> None:
+    """재조정 주기(시행 AO): 보유일엔 명단을 안 바꾼다. 노출 배수도 그대로면 주문 0 —
+    목표 = 지금 보유를 사이징에 넘기면 주 단위 반올림이 1주씩 판다."""
+    _holding_day(monkeypatch)
+    result = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR", holdings={ORPHAN: 100},
+    )
+    assert set(result.weights) == {ORPHAN}
+    assert not result.orders
+
+
+def test_보유일에_노출이_바뀌면_보유만_같이_줄인다(fund_with_orphan, monkeypatch) -> None:
+    """국면 노출은 10세션을 기다리지 않는다. 명단·상대 비중은 그대로, 크기만 새 배수/옛 배수."""
+    from quant_rl_trading.selector import exposure
+
+    _holding_day(monkeypatch)
+    monkeypatch.setattr(exposure, "held_scale", lambda store, *, as_of, market: 2.0)
+    result = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR", holdings={ORPHAN: 100},
+    )
+    assert set(result.weights) == {ORPHAN}
+    assert result.orders
+    assert all(item.order.entity_id == ORPHAN and item.order.side is Side.SELL for item in result.orders)
+
+
+def test_재조정일은_평소대로_고른다(fund_with_orphan, monkeypatch) -> None:
+    from quant_rl_trading.selector import cadence
+
+    monkeypatch.setattr(
+        cadence, "for_session", lambda store, *, as_of, market: cadence.Cadence(rebalance=True, every=10, index=10)
+    )
+    result = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR", holdings={ORPHAN: 100},
+    )
+    assert ORPHAN not in result.weights
+    assert result.candidates
