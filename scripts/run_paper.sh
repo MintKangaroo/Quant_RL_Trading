@@ -21,9 +21,17 @@ RC=0
     export QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2
     case "${STEP}" in
         session)
+            # **오늘이 국장 휴장이면 주문을 내지 않는다** (2026-09-24 추석). 세션은 직전 거래일 데이터로 결정하고 **오늘** 주문을
+            # 내는데, 휴장일엔 증권사가 전부 "모의투자 영업일이 아닙니다"(01410)로 거부했다. 해가 없었지만 로그가 거부로 가득 차고
+            # 그 세션의 주문은 '거부' 로 적혀 다음 거래일에 다시 나가지 않는다. 다음 거래일 08:40 이 직전 거래일로 새로 결정한다.
+            if ! .venv/bin/python -c "import sys; from datetime import datetime; from zoneinfo import ZoneInfo; from quant_rl_trading.collectors.market_hours import Market, is_trading_day; sys.exit(0 if is_trading_day(Market.KR, datetime.now(ZoneInfo('Asia/Seoul')).date()) else 1)"; then
+                echo "오늘은 국장 휴장이다 — 주문을 내지 않는다"
+                RC=0
+            else
             .venv/bin/python tools/run_session.py --market KR \
                 --sandbox "${SANDBOX}" --live-broker --capital "${CAPITAL}"
             RC=$?
+            fi
             ;;
         reconcile)
             # 모의계좌는 SC3 를 받지 못한다 — 그날 취소를 주문체결내역 조회로 먼저 확인한다(execution-safety.md 2026-09-23).
