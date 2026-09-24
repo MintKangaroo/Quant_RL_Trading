@@ -47,4 +47,7 @@
 
 ## 모델 해시 (--freeze 뒤 적는다)
 
-(비어 있음)
+학습 ~2026-06-23 · 2,716,565행 · 피처 ['chart', 'event', 'flow', 'fundamental', 'regime', 'risk'] · 타깃 y5 rank-gauss
+- `AQ-loop-s0` c6eec8a81bece063
+- `AQ-loop-s1` 05c3d22044fb788a
+- `AQ-loop-s2` 2ff76e3f2846aff8

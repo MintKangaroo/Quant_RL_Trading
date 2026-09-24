@@ -37,4 +37,10 @@ IC 로는 안 보이는 모양이다. 그 창(2023-02~2026-06)은 이미 봤다 
 
 ## 모델 해시 (--freeze 뒤 적는다)
 
-(비어 있음)
+학습 ~2026-06-23 · 3,645,243행 · 대조 ['chart', 'event', 'flow', 'fundamental', 'regime', 'risk', 'is_us'] · 처리 +['insider_sell_60', 'insider_net_60', 'form4_sell_60', 'form4_sellers_20', 'form4_buy_60']
+- `AR-control-s0` 995e8e63ecfecef0
+- `AR-control-s1` abcf5456d405e164
+- `AR-control-s2` 7488a0fc11ca93ca
+- `AR-treat-s0` ba7cc4fe549c2859
+- `AR-treat-s1` 93f68515735204e4
+- `AR-treat-s2` 1f244207d4663ce4
