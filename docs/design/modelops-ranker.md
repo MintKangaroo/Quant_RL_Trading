@@ -43,8 +43,8 @@ M5 완료 기준 넷 중 남은 하나는 "Analyst 별 성과 귀속이 **가중
   새 열은 남기되 `usable_from` 을 비워 실전이 안 집는다(옛 열 유지). 게이트 결과는 학습 탭에 적는다.
 - 6차 학습(ranker-sources-round6)이 채택되면 `FEATURES` 가 바뀐 `ranker-v0.2.0` 열이 생긴다. 게이트는 같다.
 - **같은 개봉 때 함께 심사하는 사전등록 후보**(2026-09-24 등록, 창 2026-07-01~11-13, 판정 11/23 이후): 시행 AQ(72종목+C10,
-  `docs/protocols/breadth72-forward-2026-09.md`) · 시행 AR(내부자 G4+G7, `docs/protocols/insider-forward-2026-09.md`). 금고는 한 번만 연다 —
-  이 둘을 따로 열지 않는다.
+  `docs/protocols/breadth72-forward-2026-09.md`) · 시행 AR(내부자 G4+G7, `docs/protocols/insider-forward-2026-09.md`) · 시행 AS(원피처 랭커 = 시행 W,
+  `docs/protocols/raw-feature-vault-2026-09.md`, 9/25 추가). 금고는 한 번만 연다 — 이 셋을 따로 열지 않는다.
 - 개봉 전엔 재학습 없음. "낡았다" 는 경보가 떠도 11월까지 옛 열로 간다 — 그것이 홀드아웃의 값이다.
 
 ## 배선 (설계 뒤 코드 — 순서)

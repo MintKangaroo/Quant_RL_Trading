@@ -4,6 +4,7 @@
 
 - AR(docs/protocols/insider-forward-2026-09.md): 6차 패널(국장+미장 한 모델, is_us)로 {대조, 대조+G4+G7} × 시드 0·1·2.
 - AQ(docs/protocols/breadth72-forward-2026-09.md): 확장 패널 국장 루프 GBM(시행 L 규격) × 시드 0·1·2 — 원천 ②③④.
+- AS(docs/protocols/raw-feature-vault-2026-09.md): 시행 W 의 처리(원피처 35 + is_us) × 시드 0·1·2. 대조는 AR 대조 모델과 같은 규격이라 다시 굽지 않는다.
 
 학습 자료는 금고 전(2026-06-30)까지, 라벨이 금고 가격에 닿는 마지막 5세션은 퍼지한다. 모델 문자열의 sha256 을 두 등록 문서
 "모델 해시" 절에 적는다 — 판정 때 다시 학습하지 않고 이 파일을 읽는다. 판정부(--judge)는 금고 개봉(2026-11-23) 전에
@@ -31,7 +32,8 @@ from tools.trial_ranker_kit import PURGE, fit, judge_panel  # noqa: E402
 from tools.trial_ranker_sources import GROUPS, attach, build_panel  # noqa: E402
 
 OUT = Path("data/_diag/vault-reviews")
-PROTOCOLS = {"AR": Path("docs/protocols/insider-forward-2026-09.md"), "AQ": Path("docs/protocols/breadth72-forward-2026-09.md")}
+PROTOCOLS = {"AR": Path("docs/protocols/insider-forward-2026-09.md"), "AQ": Path("docs/protocols/breadth72-forward-2026-09.md"),
+             "AS": Path("docs/protocols/raw-feature-vault-2026-09.md")}
 SEEDS = (0, 1, 2)
 INSIDER = ("G4", "G7")
 
@@ -79,6 +81,42 @@ def freeze_ar(store: Store) -> list[str]:
     return rows
 
 
+def freeze_as() -> list[str]:
+    from tools.trial_raw_feature_ranker import raw_features
+
+    import pandas as pd
+
+    kr, _ = load_kr()
+    us = load_us()
+    kr = rank_gauss(kr, FEATS + ["target"])
+    us = rank_gauss(us, FEATS + ["target"])
+    kr["is_us"], us["is_us"] = 0.0, 1.0
+    raw_cols: list[str] = []
+    frames = []
+    for market, frame in (("KR", kr), ("US", us)):
+        feats, cols = raw_features(market, keys=frame[["entity_id", "session"]].drop_duplicates())
+        raw_cols += [c for c in cols if c not in raw_cols]
+        frames.append(attach(frame, feats, cols))
+        del feats
+    for frame in frames:  # 그 시장에 없는 원피처는 0(순위 중앙) — W 등록 규칙
+        for c in raw_cols:
+            if c not in frame.columns:
+                frame[c] = 0.0
+    treat = raw_cols + ["is_us"]
+    sessions = sorted(set(frames[0]["session"]) | set(frames[1]["session"]))
+    train_end = sessions[-PURGE - 1]
+    data = pd.concat([f[(f["session"] <= train_end) & f["target"].notna()][[*treat, "target"]] for f in frames], ignore_index=True)
+    del frames
+    y = data["target"].to_numpy(np.float32)
+    X = data[treat].to_numpy(np.float32)
+    rows = [f"학습 ~{train_end} · {len(data):,}행 · 처리 원피처 {len(raw_cols)}개 + is_us · 대조 = AR-control-s0~2(같은 규격)"]
+    for s in SEEDS:
+        digest = _save(fit(X, y, seed=s), f"AS-treat-s{s}")
+        rows.append(f"- `AS-treat-s{s}` {digest}")
+        print(rows[-1], flush=True)
+    return rows
+
+
 def freeze_aq() -> list[str]:
     panel, sessions = judge_panel()
     train_end = sessions[-PURGE - 1]
@@ -95,13 +133,19 @@ def freeze_aq() -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--freeze", action="store_true")
+    parser.add_argument("--trials", default="AQ,AR", help="얼릴 시행(쉼표). 이미 해시가 적힌 시행은 거부한다")
     args = parser.parse_args(argv)
     if not args.freeze:
         parser.error("--freeze 만 있다 (판정부는 금고 개봉 전에 따로 커밋)")
     OUT.mkdir(parents=True, exist_ok=True)
     store = Store(root=Path("data"))
-    _record("AQ", freeze_aq())
-    _record("AR", freeze_ar(store))
+    trials = [t for t in args.trials.split(",") if t]
+    if "AQ" in trials:
+        _record("AQ", freeze_aq())
+    if "AR" in trials:
+        _record("AR", freeze_ar(store))
+    if "AS" in trials:
+        _record("AS", freeze_as())
     return 0
 
 
