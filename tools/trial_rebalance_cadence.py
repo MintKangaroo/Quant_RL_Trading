@@ -30,7 +30,7 @@ from tools.trial_selection_ranker import _scores  # noqa: E402
 from tools.trial_selection_smoothing import pick_mult  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/rebalance-cadence-2026-10.md")
-MEASURE_FROM = date(2026, 10, 2)
+MEASURE_FROM = date(2026, 9, 24)  # 당김(사용자 지시 9/24, 추석 휴장 — 예산 잠금이었지 자료 잠금이 아니다)
 AM_LOG = Path("logs/trial-portfolio-variance-AM.log")
 N, EXIT_MULT = 24, 3
 CADENCES = {"C1": 1, "C5": 5, "C10": 10}

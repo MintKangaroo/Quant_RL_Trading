@@ -35,7 +35,7 @@ from tools.trial_ranker_kit import (  # noqa: E402
 )
 
 PROTOCOL = Path("docs/protocols/lambdarank-top24-2026-10.md")
-MEASURE_FROM = date(2026, 10, 17)
+MEASURE_FROM = date(2026, 9, 24)  # 당김(사용자 지시 9/24, 추석 휴장 — 예산 잠금이었지 자료 잠금이 아니다)
 SEEDS = (0, 1, 2)
 TOP = 24
 OVERLAP_STOP = 0.90

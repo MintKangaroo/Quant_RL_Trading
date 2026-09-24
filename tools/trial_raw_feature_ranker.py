@@ -37,7 +37,7 @@ from tools.trial_ranker_sources import (  # noqa: E402
 )
 
 PROTOCOL = Path("docs/protocols/raw-feature-ranker-2026-09.md")
-MEASURE_FROM = date(2026, 10, 11)
+MEASURE_FROM = date(2026, 9, 24)  # 당김(사용자 지시 9/24, 추석 휴장 — 예산 잠금이었지 자료 잠금이 아니다)
 ROUND6 = ("G1", "G2", "G3", "G4", "G5", "G6", "G7")
 RAW_DIRS = {"KR": Path("data/_diag"), "US": Path("data/_diag/w-us")}
 ANALYSTS = {"KR": ("chart", "event", "flow_kr", "fundamental", "regime", "risk"),

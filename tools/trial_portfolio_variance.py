@@ -39,7 +39,7 @@ from tools.trial_selection_ranker import _scores  # noqa: E402
 from tools.trial_selection_smoothing import pick_mult  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/portfolio-variance-2026-10.md")
-MEASURE_FROM = date(2026, 10, 1)
+MEASURE_FROM = date(2026, 9, 24)  # 당김(사용자 지시 9/24, 추석 휴장 — 예산 잠금이었지 자료 잠금이 아니다)
 CACHE = Path("data/_diag/portfolio-variance")
 SEEDS = (0, 1, 2)
 EXIT_MULT = 3

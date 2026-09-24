@@ -49,7 +49,7 @@ PROTOCOL = Path("docs/protocols/ranker-sources-round6-2026-09.md")
 PROTOCOL_BY_GROUP = {"X": Path("docs/protocols/filing-text-embedding-2026-09.md"),
                      "G8": Path("docs/protocols/ranker-sources-g8-prelim-earnings-2026-09.md")}
 TRIAL_PREFIX = "ranker-sources-round6-2026-09"
-MEASURE_FROM = date(2026, 10, 1)
+MEASURE_FROM = date(2026, 9, 24)  # 당김(사용자 지시 9/24, 추석 휴장 — 예산 잠금이었지 자료 잠금이 아니다)
 T_GATE = 2.0
 WORST_GATE = -0.03
 #: 주 시장 — 자료가 있는 쪽. 다른 시장은 ④(지지 않을 것)만 본다.
