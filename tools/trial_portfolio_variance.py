@@ -32,10 +32,10 @@ from tools.trial_ranker_kit import (  # noqa: E402
     judge_panel,
     market_data,
     record,
+    scores_chunked,
     summarize,
     walk,
 )
-from tools.trial_selection_ranker import _scores  # noqa: E402
 from tools.trial_selection_smoothing import pick_mult  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/portfolio-variance-2026-10.md")
@@ -108,7 +108,7 @@ def stage_judge(save: bool) -> int:
     sessions = list(pd.read_pickle(CACHE / "sessions.pkl"))  # invariant-allow: data-access — loop 단계 캐시
     sources = {f"loop{s}": pd.read_pickle(CACHE / f"loop-seed{s}.pkl") for s in SEEDS}  # invariant-allow: data-access — loop 단계 캐시
     start = min(p["session"].min() for p in sources.values())
-    live = _scores(store, "ranker", sessions).astype("float32").stack().rename("pred").reset_index()
+    live = scores_chunked(store, "ranker", sessions).stack().rename("pred").reset_index()
     live.columns = ["session", "entity_id", "pred"]
     sources = {"live": live[live["session"] >= start][["entity_id", "session", "pred"]], **sources}
     ret, bench, trad = market_data(store, sessions)

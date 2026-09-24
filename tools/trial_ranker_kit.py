@@ -196,3 +196,28 @@ def record(store: Store, *, entity: str, source: str, family: str, digest: str, 
         "family": family, "n_trials": 1, "protocol_hash": digest,
         "detail": (f"{verdict} | " + " | ".join(lines))[:900],
     }], ingest_run_id=f"{source}-{now:%Y%m%dT%H%M%S}")
+
+
+def scores_chunked(store, analyst: str, sessions: list[date], *, chunk_days: int = 120) -> pd.DataFrame:
+    """signals 에서 Analyst 하나의 점수 표(세션 × 종목)를 **기간을 나눠** 읽는다.
+
+    `trial_selection_ranker._scores` 는 4년치 전 Analyst 행을 한 번에 읽은 뒤 거른다 — 2026-09-24 시행 AM 판정이 RSS 5.3GB 로
+    메모리 가드에 내려졌다. 같은 as_of·같은 정정본 선택 규칙으로 창만 나눈다(`lookback`·`until` 은 valid_from 창이다 — store.get).
+    """
+    now = datetime.combine(sessions[-1], time(16, 0), tzinfo=UTC)
+    parts = []
+    start = sessions[0]
+    while start <= sessions[-1]:
+        end = min(start + timedelta(days=chunk_days), sessions[-1] + timedelta(days=1))
+        until = datetime.combine(end, time(0, 0), tzinfo=UTC)
+        f = store.get("signals", as_of=now, lookback=(now - datetime.combine(start, time(0, 0), tzinfo=UTC)).days + 1,
+                      until=until, market="KR", columns=["entity_id", "valid_from", "observed_at", "analyst", "score"])
+        f = f[(f["analyst"] == analyst) & (f["valid_from"] < until)]
+        f = f[f["valid_from"] >= datetime.combine(start, time(0, 0), tzinfo=UTC)]
+        if not f.empty:
+            f = f.sort_values("observed_at").groupby(["entity_id", "valid_from"], as_index=False).tail(1)
+            f["session"] = f["valid_from"].dt.date
+            parts.append(f.pivot_table(index="session", columns="entity_id", values="score", aggfunc="last").astype("float32"))
+        del f
+        start = end
+    return pd.concat(parts).sort_index() if parts else pd.DataFrame()

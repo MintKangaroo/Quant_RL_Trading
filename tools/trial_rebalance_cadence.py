@@ -25,8 +25,13 @@ from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from tools.trial_overlay import ANN, ONE_WAY_COST  # noqa: E402
 from tools.trial_portfolio_variance import CACHE, SEEDS  # noqa: E402
-from tools.trial_ranker_kit import SPAN, market_data, record, summarize  # noqa: E402
-from tools.trial_selection_ranker import _scores  # noqa: E402
+from tools.trial_ranker_kit import (  # noqa: E402
+    SPAN,
+    market_data,
+    record,
+    scores_chunked,
+    summarize,
+)
 from tools.trial_selection_smoothing import pick_mult  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/rebalance-cadence-2026-10.md")
@@ -78,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
     sessions = list(pd.read_pickle(CACHE / "sessions.pkl"))  # invariant-allow: data-access — AM loop 캐시
     sources = {f"loop{s}": pd.read_pickle(CACHE / f"loop-seed{s}.pkl") for s in SEEDS}  # invariant-allow: data-access — AM loop 캐시
     start = min(p["session"].min() for p in sources.values())
-    live = _scores(store, "ranker", sessions).astype("float32").stack().rename("pred").reset_index()
+    live = scores_chunked(store, "ranker", sessions).stack().rename("pred").reset_index()
     live.columns = ["session", "entity_id", "pred"]
     sources = {"live": live[live["session"] >= start][["entity_id", "session", "pred"]], **sources}
     ret, bench, trad = market_data(store, sessions)
