@@ -59,7 +59,7 @@ def round6_verdicts(store: Store) -> dict[str, str]:
     return out
 
 
-def raw_features(market: str, *, smoke: bool = False) -> tuple[pd.DataFrame, list[str]]:
+def raw_features(market: str, *, smoke: bool = False, keys: pd.DataFrame | None = None) -> tuple[pd.DataFrame, list[str]]:
     """여섯 Analyst 의 원피처를 한 표로. 열 이름 앞에 Analyst 를 붙여 시장 간 같은 이름이 섞이지 않게 한다.
 
     smoke 에서만, 넓은 미장 캐시가 아직 없으면 옛 캐시(data/_diag)로 **배선만** 본다. 판정은 넓은 캐시가 없으면 멈춘다."""
@@ -74,6 +74,11 @@ def raw_features(market: str, *, smoke: bool = False) -> tuple[pd.DataFrame, lis
         f = pd.read_pickle(base / f"features-{a}-{market}.pkl")  # invariant-allow: data-access — 진단 캐시(창고 아님)
         f["session"] = pd.to_datetime(f["session"]).dt.date
         feats = [c for c in f.columns if c not in ("entity_id", "session")]
+        # **판정 패널에 있는 행만 남기고 float32 로.** 넓은 미장 캐시는 Analyst 마다 1천만 행이라 여섯을 바깥 병합하면
+        # RSS 6.7GB 로 커널 OOM 에 죽었다(2026-09-24 21:55). 어차피 attach 가 패널 기준 왼쪽 병합이라 결과는 같다.
+        if keys is not None:
+            f = f.merge(keys, on=["entity_id", "session"], how="inner")
+        f[feats] = f[feats].astype("float32")
         f = f.rename(columns={c: f"raw_{a}_{c}" for c in feats})
         cols += [f"raw_{a}_{c}" for c in feats]
         merged = f if merged is None else merged.merge(f, on=["entity_id", "session"], how="outer")
@@ -110,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     raw_cols: list[str] = []
     frames = {}
     for market, frame in (("KR", kr), ("US", us)):
-        feats, cols = raw_features(market, smoke=args.smoke)
+        feats, cols = raw_features(market, smoke=args.smoke, keys=frame[["entity_id", "session"]].drop_duplicates())
         raw_cols += [c for c in cols if c not in raw_cols]
         hit = frame.merge(feats[["entity_id", "session"]], on=["entity_id", "session"], how="inner")
         print(f"{market}: 원피처 {len(cols)}개 · {feats['session'].min()}~{feats['session'].max()} · "
