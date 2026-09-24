@@ -39,6 +39,8 @@ MEASURE_FROM = date(2026, 9, 24)  # 당김(사용자 지시 9/24, 추석 휴장 
 SEEDS = (0, 1, 2)
 TOP = 24
 OVERLAP_STOP = 0.90
+#: 등록 정정(2026-09-24): AO 가 C10 을 채택 — 대조·처리 둘 다 10세션 재조정.
+REBALANCE_EVERY = 10
 GATE_MEAN, GATE_REGIME, GATE_MDD, GATE_TURN = 0.02, -0.01, 0.02, 1.2
 
 
@@ -106,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         t = walk_rank(panel, sessions, bl, s)
         overlaps.append(top_overlap(t, c))
         for name, pred in ((f"ctrl{s}", c), (f"rank{s}", t)):
-            daily, extra = portfolio(pred, ret, trad)
+            daily, extra = portfolio(pred, ret, trad, every=REBALANCE_EVERY)
             rows[name] = {**summarize(daily, bench, pred.merge(y, on=["entity_id", "session"])), **extra}
             series[name] = daily
 

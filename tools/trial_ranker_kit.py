@@ -101,14 +101,30 @@ def market_data(store: Store, sessions: list[date]) -> tuple[pd.DataFrame, pd.Se
 
 def portfolio(score: pd.DataFrame, ret: pd.DataFrame, trad: dict[date, set[str]], *,
               n_of: Callable[[date, pd.Series], int] | None = None,
-              exclude: dict[date, set[str]] | None = None) -> tuple[pd.Series, dict[str, float]]:
-    """EMA5 평활·완충 3N·동일가중(시행 AB·AA 와 같다). N 은 날마다 n_of 가 정하고(기본 24), exclude 는 그날 후보에서 뺀다."""
+              exclude: dict[date, set[str]] | None = None,
+              every: int = 1) -> tuple[pd.Series, dict[str, float]]:
+    """EMA5 평활·완충 3N·동일가중(시행 AB·AA 와 같다). N 은 날마다 n_of 가 정하고(기본 24), exclude 는 그날 후보에서 뺀다.
+
+    ``every`` — 재조정 주기(세션). 1 이면 매일(기본, 지금까지의 모든 시행과 같다). 시행 AO(2026-09-24)가 10 을 채택했다 —
+    재조정일이 아닌 날은 어제 비중이 드리프트한 채로 든다(`trial_rebalance_cadence.book` 과 같은 규칙).
+    """
     wide = score.pivot_table(index="session", columns="entity_id", values="pred").sort_index().ewm(span=SPAN).mean()
     held: list[str] = []
     prev = None
     out, turns, ns = {}, [], []
+    step = -1
     for day in wide.index:
         if day not in ret.index:
+            continue
+        step += 1
+        if every > 1 and prev is not None and step % every != 0:
+            w = prev
+            dr = ret.loc[day].reindex(w.index).fillna(0.0)
+            out[day] = float((w * dr).sum())
+            turns.append(0.0)
+            ns.append(len(w))
+            drift = w * (1 + dr)
+            prev = drift / drift.sum() if drift.sum() > 0 else w
             continue
         row = wide.loc[day].dropna()
         ok = trad.get(day)
