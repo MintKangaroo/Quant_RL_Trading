@@ -60,7 +60,11 @@ def main(argv: list[str] | None = None) -> int:
          "있음" if rl_on else "0%",
          (f"정책 {Path(checkpoint).name} · 모드 {modes}" if rl_on
           else f"정책 체크포인트 비어 있음 = 꺼짐. allocator.baseline: {baseline}(룰)")),
-        ("지도학습", "0%", "LightGBM 랭커 2회 기각. 코드에 안 들어감"),
+        # **가중치 표에서 읽는다** — 문구를 박아 두면 낡는다(9/3 랭커 채택 뒤에도 "2회 기각" 이 3주 떠 있었다).
+        ("지도학습",
+         "있음" if "ranker" in active else "0%",
+         ("LightGBM 랭커(시행 L, 2026-06-30 학습 열)가 종목 선정 가중치를 받는다" if "ranker" in active
+          else "랭커가 가중치를 못 받았다(관찰 모드 또는 IC 관문 미달)")),
         ("비지도학습",
          "있음" if baseline == "risk_parity" else "0%",
          ("리스크 패리티(팩터 공분산)가 비중을 정한다" if baseline == "risk_parity"
