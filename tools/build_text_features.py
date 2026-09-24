@@ -78,11 +78,16 @@ def embed_month(store: Store, period: pd.Period, *, mean: np.ndarray, components
     # **수집 대상 유형만 본다.** 수집기(collect_filing_texts)가 받지 않는 유형까지 '미수집' 으로 세면
     # 그 달은 영원히 막힌다 — 원문이 영영 안 올 유형이기 때문이다.
     frame = frame[(frame["source"] == docs.SOURCE) & (frame["doc_type"].isin(DEFAULT_TYPES))]
+    # 공시마다 **마지막 정정본**만 본다 — 수집기는 원문 경로·"원문 없음" 표식을 정정본으로 덧붙인다(append-only).
+    frame = frame.sort_values("observed_at").drop_duplicates("doc_id", keep="last")
     within = frame["valid_from"].dt.to_period("M") == period
     path = frame["raw_path"].fillna("").astype(str)
+    # **"원문 없음" 표식(docs.NO_TEXT)은 미수집이 아니다.** DART 가 파일이 없다고 답한 공시(status 014)라 영영 안 온다.
+    # 길이 1 이라 미수집으로 세면 그 달은 영원히 막힌다 — 2026-09-25 에 18개월 전부가 그렇게 0건으로 끝났다.
+    no_text = path == docs.NO_TEXT
     # **원문이 덜 모인 달은 건너뛴다.** 한 번 적재하면 실행 id 가 남아 다시 안 도는데,
     # 그때 빠진 공시는 영영 빠진다(그 달만 정보가 얇아져 판정이 그 달에서 조용히 약해진다).
-    missing = int((within & (path.str.len() <= 1)).sum()) + int((within & (path == "None")).sum())
+    missing = int((within & ~no_text & ((path.str.len() <= 1) | (path == "None"))).sum())
     if missing and not force:
         print(f"{period}: 원문 미수집 {missing:,}건 — 건너뜀(완비 뒤 다시 돌려라, --force 로 강행 가능)", flush=True)
         return 0
