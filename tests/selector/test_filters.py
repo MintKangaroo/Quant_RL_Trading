@@ -330,3 +330,24 @@ def test_참조표에는_창을_걸지_않는다() -> None:
     from quant_rl_trading.selector import candidates
 
     assert candidates.SECTOR_LOOKBACK_DAYS is None
+
+
+def test_시총_자료_이상은_시총_순위에서_빠진다(seeded) -> None:
+    """미장 market_cap 에 ETN·우선주가 모회사 시총을 달고 들어온다(2026-09-25 AKTX 1.57조 달러). 시총 ÷ 거래대금(일)로 거른다."""
+    full = _run(seeded)
+    assert len(full) >= 2
+    good, bad = full.kept[0], full.kept[1]
+    day = SESSIONS[-2]  # 시총은 until=as_of 창으로 읽는다 — as_of 당일 행은 창 밖
+    rows = [
+        {"entity_id": e, "valid_from": day, "observed_at": day, "source": "test", "market": "KR",
+         "metric": "market_cap", "value": v}
+        for e, v in ((good, 1.0e9), (bad, 1.0e18))
+    ]
+    seeded.append("market_stats", rows, ingest_run_id="cap-seed")
+
+    capped = _ranked(seeded, top_market_cap_rank=10, max_cap_turnover_days=3000.0)
+
+    assert bad not in capped.kept and good in capped.kept
+    assert capped.dropped[bad] == "시총 자료 이상(시총/거래대금)"
+    # 끄면(0) 예전과 같다 — 큰 시총이 그대로 순위에 든다.
+    assert bad in _ranked(seeded, top_market_cap_rank=10).kept

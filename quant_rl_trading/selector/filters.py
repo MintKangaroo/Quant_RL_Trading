@@ -54,6 +54,10 @@ class FilterParams:
     top_turnover_rank: int = 0
     top_volume_rank: int = 0
     top_market_cap_rank: int = 0
+    #: 시총 자료 이상 거르기 — 시가총액 ÷ 20일 평균 거래대금(일)이 이보다 크면 시총 순위에서 뺀다. 0 이면 끔
+    #: (`universe.max_cap_turnover_days`). 미장 market_cap 에 ETN·우선주·유닛이 모회사 시총을 달고 들어온다
+    #: (2026-09-25 실측: AKTX 1.57조 달러·BNKD 비율 1,277만 일). 실제 기업은 대부분 1,000 일 아래다.
+    max_cap_turnover_days: float = 0.0
     #: Z2 트랙 — 이 지수의 구성종목 안에서만 고른다. 빈 문자열이면 끈다(`universe.index_members_kr`, 샌드박스 덮어쓰기로만 켠다).
     index_members: str = ""
 
@@ -70,6 +74,7 @@ class FilterParams:
             top_turnover_rank=_rank_config(store, "top_turnover_rank", as_of=as_of),
             top_volume_rank=_rank_config(store, "top_volume_rank", as_of=as_of),
             top_market_cap_rank=_rank_config(store, "top_market_cap_rank", as_of=as_of),
+            max_cap_turnover_days=float(_rank_config(store, "max_cap_turnover_days", as_of=as_of)),
             index_members=_index_config(store, market=market, as_of=as_of),
         )
 
@@ -297,7 +302,16 @@ def _apply_rank_caps(
         volume = prices.loc[volume.index].groupby("entity_id")["volume"].mean()
         caps.append(("거래량 순위 밖", params.top_volume_rank, volume))
     if params.top_market_cap_rank > 0:
-        caps.append(("시총 순위 밖", params.top_market_cap_rank, _market_caps(store, as_of=as_of, market=market)))
+        market_caps = _market_caps(store, as_of=as_of, market=market)
+        if params.max_cap_turnover_days > 0 and not market_caps.empty:
+            days = market_caps / turnover.reindex(market_caps.index)
+            bogus = set(days[days > params.max_cap_turnover_days].index)
+            for entity in kept:
+                if entity in bogus:
+                    dropped[entity] = "시총 자료 이상(시총/거래대금)"
+            kept = [entity for entity in kept if entity not in bogus]
+            market_caps = market_caps.drop(index=list(bogus & set(market_caps.index)))
+        caps.append(("시총 순위 밖", params.top_market_cap_rank, market_caps))
     for reason, limit, series in caps:
         ranked = series.reindex(kept).dropna()
         if ranked.empty:
