@@ -87,6 +87,11 @@ universe:
   # 미장 증권 종류 필터(collectors/us_symbols.py, 2026-09-25). 명단이 시세에서 유도돼 채권(TMUSL)·우선주(AGNCL)·ETN(BNKD)·
   # 상품 ETF(USCI)가 섞여 합성 점수·시총 상위에 올랐다. 보통주·ADR·이름뿐인 보통주(other)만 남긴다. 국장은 키 없음(끔).
   instrument_types_us: [common, adr, other]
+  # 동전주 하한(2026-09-26 진단): 거래대금 상위에 역분할·펌프앤덤프 동전주(SMX·WHLR·VCIG…)가 섞여 "거래대금 1,000 동일가중" 이 연 −19% 였다.
+  # 가격 $5 미만·시총 $3억 미만 제외, 시총을 모르는 종목(ADR 등)은 20일 평균 거래대금 $1,000만 이상만. 국장은 키 없음(끔).
+  min_price_us: 5.0
+  min_market_cap_us: 300000000
+  min_turnover_no_cap_us: 10000000
   # **자본에서 유도하는 유동성 하한의 배수** (portfolio-construction.md §부록).
   # 실효 하한 = max(min_turnover_20d_kr, turnover_capacity_multiple × 자본).
   #

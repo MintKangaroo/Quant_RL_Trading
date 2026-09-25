@@ -58,6 +58,11 @@ class FilterParams:
     #: (`universe.max_cap_turnover_days`). 미장 market_cap 에 ETN·우선주·유닛이 모회사 시총을 달고 들어온다
     #: (2026-09-25 실측: AKTX 1.57조 달러·BNKD 비율 1,277만 일). 실제 기업은 대부분 1,000 일 아래다.
     max_cap_turnover_days: float = 0.0
+    #: 동전주 하한(미장, 2026-09-26) — 거래대금만으로는 역분할·펌프앤덤프 동전주(SMX·WHLR…)가 통과했다. 0 이면 끔.
+    #: 가격 < min_price 면 뺀다. 시총이 있으면 < min_market_cap 이면 빼고, 시총이 없으면(ADR 등) 거래대금 ≥ min_turnover_no_cap 이어야 남긴다.
+    min_price: float = 0.0
+    min_market_cap: float = 0.0
+    min_turnover_no_cap: float = 0.0
     #: 남길 증권 종류(`universe.instrument_types_{market}`, 예: 미장 common·adr·other). 비면 끔.
     #: 명단이 시세에서 유도돼 채권·우선주·ETN·펀드가 섞인다(collectors/us_symbols.py).
     instrument_types: tuple[str, ...] = ()
@@ -80,6 +85,9 @@ class FilterParams:
             max_cap_turnover_days=float(_rank_config(store, "max_cap_turnover_days", as_of=as_of)),
             index_members=_index_config(store, market=market, as_of=as_of),
             instrument_types=_instrument_config(store, market=market, as_of=as_of),
+            min_price=_market_float(store, "min_price", market=market, as_of=as_of),
+            min_market_cap=_market_float(store, "min_market_cap", market=market, as_of=as_of),
+            min_turnover_no_cap=_market_float(store, "min_turnover_no_cap", market=market, as_of=as_of),
         )
 
     def effective_floor(self, *, market: str, equity: float) -> float:
@@ -101,6 +109,14 @@ def _index_config(store: Store, *, market: str, as_of: datetime) -> str:
     except ConfigNotFound:
         return ""
     return "" if value.lower() in ("", "none") else value
+
+
+def _market_float(store: Store, name: str, *, market: str, as_of: datetime) -> float:
+    """`universe.{name}_{market}` — 없으면 0(끔). 국장·옛 as_of 는 키가 없다."""
+    try:
+        return float(store.config(f"universe.{name}_{market.lower()}", as_of=as_of) or 0.0)
+    except ConfigNotFound:
+        return 0.0
 
 
 def _instrument_config(store: Store, *, market: str, as_of: datetime) -> tuple[str, ...]:
@@ -247,6 +263,8 @@ def tradable_universe(
             continue
         kept.append(entity)
 
+    kept = _apply_penny_floor(store, kept, dropped, as_of=as_of, market=market, params=params,
+                              turnover=turnover, last_close=last_close)
     kept = _apply_rank_caps(
         store, kept, dropped,
         as_of=as_of, market=market, params=params, turnover=turnover, prices=recent,
@@ -254,6 +272,30 @@ def tradable_universe(
     kept = _apply_index_members(store, kept, dropped, as_of=as_of, market=market, index=params.index_members)
     kept = _apply_instrument_types(store, kept, dropped, as_of=as_of, market=market, allowed=params.instrument_types)
     return FilterResult(kept=tuple(sorted(kept)), dropped=dropped)
+
+
+def _apply_penny_floor(store: Store, kept: list[str], dropped: dict[str, str], *, as_of: datetime, market: str,
+                       params: FilterParams, turnover: pd.Series, last_close: pd.Series) -> list[str]:
+    """동전주 하한(미장). 셋 다 0 이면 아무것도 안 한다."""
+    if not kept or (params.min_price <= 0 and params.min_market_cap <= 0 and params.min_turnover_no_cap <= 0):
+        return kept
+    caps = _market_caps(store, as_of=as_of, market=market) if params.min_market_cap > 0 or params.min_turnover_no_cap > 0 else pd.Series(dtype=float)
+    out = []
+    for entity in kept:
+        price = float(last_close.get(entity, 0.0))
+        if params.min_price > 0 and price < params.min_price:
+            dropped[entity] = "동전주(가격 하한)"
+            continue
+        cap = caps.get(entity)
+        if cap is not None and not pd.isna(cap):
+            if params.min_market_cap > 0 and float(cap) < params.min_market_cap:
+                dropped[entity] = "동전주(시총 하한)"
+                continue
+        elif params.min_turnover_no_cap > 0 and float(turnover.get(entity, 0.0)) < params.min_turnover_no_cap:
+            dropped[entity] = "동전주(시총 없음·거래대금 하한)"
+            continue
+        out.append(entity)
+    return out
 
 
 #: 증권 종류 스냅샷을 찾는 창(달력일). 연휴·수집 사고를 넘기되 너무 오래된 명단으로 고르지 않게.

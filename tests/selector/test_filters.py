@@ -369,3 +369,19 @@ def test_증권_종류_필터는_보통주만_남기고_스냅샷이_없으면_�
     r = _ranked(seeded, instrument_types=("common",))
     assert keep in r.kept and drop not in r.kept
     assert r.dropped[drop] == "증권 종류 note"
+
+
+def test_동전주_하한은_가격과_시총으로_거른다(seeded) -> None:
+    """미장 동전주(2026-09-26 진단) — 가격 하한·시총 하한·시총 없으면 거래대금 하한. 0 이면 예전과 같다."""
+    full = _run(seeded)
+    assert _ranked(seeded, min_price=0.0, min_market_cap=0.0, min_turnover_no_cap=0.0).kept == full.kept
+    r = _ranked(seeded, min_price=1e12)
+    assert r.kept == () and set(r.dropped.values()) >= {"동전주(가격 하한)"}
+    day = SESSIONS[-2]
+    small, big = full.kept[0], full.kept[1]
+    seeded.append("market_stats", [
+        {"entity_id": e, "valid_from": day, "observed_at": day, "source": "t", "market": "KR", "metric": "market_cap", "value": v}
+        for e, v in ((small, 1.0e6), (big, 1.0e12))
+    ], ingest_run_id="caps-penny")
+    r = _ranked(seeded, min_market_cap=3.0e8)
+    assert small not in r.kept and big in r.kept and r.dropped[small] == "동전주(시총 하한)"
