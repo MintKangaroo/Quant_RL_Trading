@@ -319,10 +319,13 @@ def _apply_rank_caps(
             # 적으면 수집 사고가 조용히 유니버스를 비운다.
             continue
         survivors = set(ranked.nlargest(limit).index)
+        # **관측이 있는 날, 관측이 없는 종목은 순위 밖이다.** 예전엔 그런 종목을 통과시켰는데, 미장 시총 상위 500 을
+        # 켜자 시총이 없는 ETF·우선주 약 1,000개가 같이 들어와 "상위 500" 이 1,493 이 됐다(2026-09-25 G1 트랙 첫 세션).
+        # 시리즈가 통째로 비면(수집 사고) 위에서 이미 건너뛴다 — 그 보호는 그대로다.
         for entity in kept:
-            if entity in ranked.index and entity not in survivors:
-                dropped[entity] = reason
-        kept = [entity for entity in kept if entity not in ranked.index or entity in survivors]
+            if entity not in survivors:
+                dropped[entity] = reason if entity in ranked.index else f"{reason}(관측 없음)"
+        kept = [entity for entity in kept if entity in survivors]
     return kept
 
 

@@ -122,6 +122,11 @@ TAG_CHAIN: tuple[tuple[str, str], ...] = (
     ("dei", "EntityCommonStockSharesOutstanding"),
     ("us-gaap", "CommonStockSharesOutstanding"),
     ("us-gaap", "CommonStockSharesIssued"),
+    # **마지막 칸 — 분기 희석 가중평균 주식수(2026-09-25).** 다중 클래스 기업 일부(META·V·MA)는 위 셋을 클래스 축으로만 내
+    # companyfacts 에서 통째로 빠진다 — 그래서 미장 시총 상위에 META 가 없었다(G1 트랙). 가중평균은 기간 값이라 발행주식수와
+    # 1~2% 다르지만(희석분·기간 평균) 틀린 시총이 아니라 가까운 시총이다. **분기(60~120일) 사실만** 쓴다 — 누적(YTD) 평균이 같은
+    # end 에 섞이면 없던 정정이 생긴다.
+    ("us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding"),
 )
 
 #: companyfacts 가 발행주식수에 쓰는 단위. 다른 단위가 오면 그 사실은 버린다.
@@ -408,6 +413,10 @@ def share_facts(payload: Mapping[str, Any]) -> list[ShareFact]:
                 continue
             end = _as_date(item.get("end"))
             filed = _as_date(item.get("filed"))
+            start = _as_date(item.get("start"))
+            if start is not None and end is not None and not 60 <= (end - start).days <= 120:
+                # 기간 사실(가중평균)은 분기만 — 누적(YTD)·연간 평균은 같은 end 에 다른 값을 만든다.
+                continue
             value = item.get("val")
             if end is None or filed is None or not isinstance(value, (int, float)):
                 continue

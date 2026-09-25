@@ -606,3 +606,17 @@ def test_창_경계의_세션도_적재된다(store: Any) -> None:
     caps = store.get("market_stats", as_of=now, lookback=800, market=str(Market.US))
     caps = caps[caps["metric"] == MARKET_CAP]
     assert set(caps["valid_from"].dt.date) == set(sessions), "경계 세션이 빠졌다"
+
+
+def test_다중_클래스_기업은_분기_희석_가중평균으로_잡힌다() -> None:
+    """META·V·MA 는 발행주식수 태그를 클래스 축으로만 내 companyfacts 에서 빠진다(2026-09-25 G1 트랙). 분기 가중평균만 쓴다."""
+    from quant_rl_trading.collectors.us_shares import share_facts
+
+    tag = "WeightedAverageNumberOfDilutedSharesOutstanding"
+    payload = {"facts": {"us-gaap": {tag: {"units": {"shares": [
+        {"start": "2026-04-01", "end": "2026-06-30", "val": 2_560_000_000, "filed": "2026-07-30", "form": "10-Q"},
+        {"start": "2026-01-01", "end": "2026-06-30", "val": 2_570_000_000, "filed": "2026-07-30", "form": "10-Q"},  # 누적(YTD)
+    ]}}}}}
+    facts = share_facts(payload)
+    assert [(f.end, f.value, f.revision) for f in facts] == [(date(2026, 6, 30), 2_560_000_000.0, 0)]
+    assert facts[0].tag == f"us-gaap:{tag}"
