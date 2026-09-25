@@ -44,6 +44,19 @@ def capped(weights: pd.Series, limit: float) -> pd.Series:
     return w
 
 
+def _one_per_company(cap: pd.Series) -> pd.Series:
+    """같은 회사의 여러 클래스(같은 시총 · 티커 접두 관계)에서 하나만 남긴다."""
+    drop: set[str] = set()
+    for _, group in cap.groupby(cap.values):
+        names = list(group.index)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                ta, tb = str(a).partition(":")[2], str(b).partition(":")[2]
+                if ta and tb and (tb.startswith(ta) or ta.startswith(tb)):
+                    drop.add(b if len(tb) >= len(ta) else a)
+    return cap.drop(index=sorted(drop))
+
+
 def allocate_float_cap(
     store: Store, *, as_of: datetime, market: str, candidates: Sequence[str], limit: float, cash_buffer: float,
 ) -> tuple[dict[str, float], str]:
@@ -57,6 +70,10 @@ def allocate_float_cap(
     cap = (caps.sort_values("valid_from").groupby("entity_id")["value"].last().astype(float)
            if not caps.empty else pd.Series(dtype=float))
     cap = cap[cap > 0]
+    # **같은 회사의 두 클래스는 하나로 센다.** 미장 시총은 회사 합계 주식수로 만들어 GOOG·GOOGL 이 **똑같은** 회사 시총을
+    # 받는다(us_shares "못 하는 것"). 둘 다 두면 알파벳이 두 번 들어가 11.7%(SPY 약 7%)가 됐다(2026-09-25 G1 트랙 시험).
+    # 시총이 정확히 같고 **티커가 한쪽의 앞부분인** 종목(GOOG ⊂ GOOGL)만 한 회사로 보고 이름순 첫 하나를 남긴다.
+    cap = _one_per_company(cap.sort_index())
     budget = 1.0 - cash_buffer
     if len(cap) < MIN_CAPPED:
         return {e: budget / len(names) for e in names}, "float_cap:equal_fallback"

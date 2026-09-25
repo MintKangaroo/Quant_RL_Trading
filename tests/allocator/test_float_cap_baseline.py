@@ -47,3 +47,16 @@ def test_시총을_모르면_동일가중으로_물러선다(store) -> None:  # 
     _caps(store, {"KR:0": 100.0}, {})
     w, path = allocate_float_cap(store, as_of=NOW, market="KR", candidates=names, limit=0.10, cash_buffer=0.0)
     assert path == "float_cap:equal_fallback" and w["KR:3"] == pytest.approx(1 / 6)
+
+
+def test_같은_회사_두_클래스는_한_번만_센다(store) -> None:  # type: ignore[no-untyped-def]
+    """미장 시총은 회사 합계라 GOOG·GOOGL 이 같은 값을 받는다 — 둘 다 두면 알파벳이 두 번(2026-09-25 G1 트랙 11.7%)."""
+    names = ["US:GOOG", "US:GOOGL"] + [f"US:X{i}" for i in range(8)]
+    when = NOW - timedelta(days=1)
+    store.append("market_stats", [
+        {"entity_id": e, "valid_from": when, "observed_at": when, "source": "t", "market": "US", "metric": "market_cap",
+         "value": 4000.0 if e.startswith("US:GOOG") else 100.0 + i}
+        for i, e in enumerate(names)
+    ], ingest_run_id="caps", source="t")
+    w, _ = allocate_float_cap(store, as_of=NOW, market="US", candidates=names, limit=0.5, cash_buffer=0.0)
+    assert "US:GOOG" in w and "US:GOOGL" not in w
