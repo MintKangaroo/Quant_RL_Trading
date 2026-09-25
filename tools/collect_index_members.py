@@ -37,6 +37,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default="data")
     parser.add_argument("--days", type=int, default=1)
+    parser.add_argument("--step", type=int, default=1, help="거래일 N 개마다 하나(백필은 5 = 주 1회 — 구성은 정기변경 때만 바뀐다)")
+    parser.add_argument("--sleep", type=float, default=0.0, help="호출 사이 초 — KRX 가 연속 호출을 막는다(2026-09-25 264회 뒤 빈 응답)")
+    parser.add_argument("--backfill", action="store_true",
+                        help="과거 채우기 — observed_at = 그 세션 시각(구성종목은 그날 공개된 사실이다; EDGAR·DART 백필과 같은 관행)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     load_env()
@@ -54,18 +58,25 @@ def main(argv: list[str] | None = None) -> int:
         probe -= timedelta(days=1)
     store = Store(root=Path(args.root))
     failed = 0
-    for day in sorted(days):
+    import time as _time
+
+    days = sorted(days)[::-1][:: max(1, args.step)][::-1]  # 가장 최근 세션을 기준으로 N 개마다
+    for day in days:
+        if args.backfill and store.ingest_run_recorded(TABLE, f"index-members-KOSPI200-{day:%Y%m%d}-bf"):
+            continue
+        if args.sleep:
+            _time.sleep(args.sleep)
         for name, code in INDICES.items():
             codes = stock.get_index_portfolio_deposit_file(code, day.strftime("%Y%m%d"))
             if len(codes) < 150:  # K200 은 200종목 — 적게 오면 소스 사고다. 적지 않고 rc 로 알린다.
                 print(f"{day} {name}: {len(codes)}종목 — 비정상, 적지 않는다", flush=True)
                 failed += 1
                 continue
-            observed = clock.now()
+            observed = session_timestamp(day) if args.backfill else clock.now()
             rows = [{"entity_id": f"KR:{c}", "valid_from": session_timestamp(day), "observed_at": observed,
                      "source": "pykrx", "market": "KR", "index_id": name} for c in codes]
             if not args.dry_run:
-                store.append(TABLE, rows, ingest_run_id=f"index-members-{name}-{day:%Y%m%d}", source="pykrx")
+                store.append(TABLE, rows, ingest_run_id=f"index-members-{name}-{day:%Y%m%d}{'-bf' if args.backfill else ''}", source="pykrx")
             print(f"{day} {name}: {len(rows)}종목" + (" (dry-run)" if args.dry_run else ""), flush=True)
     return 1 if failed else 0
 
