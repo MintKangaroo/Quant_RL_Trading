@@ -1070,7 +1070,19 @@ def _chart(cid: str | None, alt: str) -> str:
     )
 
 
-def _performance_section(perf: Any, title: str, chart_cid: str | None = None) -> str:
+def _holiday_note(perf: Any, market: str, report_day: date | None) -> str:
+    """브리핑 기준일에 그 시장이 쉬었으면 "휴장 · 숫자는 마지막 거래일" 을 말한다(사용자 지적 2026-09-26, 추석).
+
+    성과 숫자는 마지막 회계 스냅샷(= 마지막 거래일 종가)이라 쉬는 날 메일에도 그대로 실린다. "당일 수익률" 이라 적으면 쉰 날 움직인 것처럼 읽힌다.
+    """
+    if perf is None or not getattr(perf, "measured", False) or report_day is None:
+        return ""
+    if not _is_closed(market, report_day):
+        return ""
+    return f"{report_day.month}/{report_day.day} 휴장 — 아래 숫자는 마지막 거래일 {perf.session.month}/{perf.session.day} 종가 기준"
+
+
+def _performance_section(perf: Any, title: str, chart_cid: str | None = None, *, holiday: str = "") -> str:
     """성과 카드 — 총자산을 크게, 그 아래 2×2(자산 증감·당일 수익률 / 총 수익금·총 수익률).
 
     ## 자산 증감과 수익률을 반드시 가른다 ⭐
@@ -1118,10 +1130,11 @@ def _performance_section(perf: Any, title: str, chart_cid: str | None = None) ->
     # 전일 NAV 는 총자산 줄 아래로 옮긴다(칸 안에 두면 두 줄로 접혔다).
     change_sub = flow if perf.previous_nav is not None else (perf.note or "직전 스냅샷 없음")
     since = f"{perf.since.strftime('%m-%d')} 이후 · TWR" if perf.since else "TWR 누적"
+    day_label = f"{perf.session.month}/{perf.session.day} 수익률" if holiday else "당일 수익률"
     rows = (
         "<tr>"
         + _stat("자산 증감", won_signed(perf.nav_change), color=_color(perf.nav_change), sub=change_sub)
-        + _stat("당일 수익률", _pct(perf.daily_return), color=_color(perf.daily_return), sub="TWR · 입출금 제외")
+        + _stat(day_label, _pct(perf.daily_return), color=_color(perf.daily_return), sub="TWR · 입출금 제외")
         + "</tr><tr>"
         + _stat("총 수익금", won_signed(perf.total_pnl), color=_color(perf.total_pnl), sub="원금 대비")
         + _stat("총 수익률", _pct(perf.cumulative_return), color=_color(perf.cumulative_return), sub=since)
@@ -1150,7 +1163,8 @@ def _performance_section(perf: Any, title: str, chart_cid: str | None = None) ->
         f'line-height:1.45;padding:8px 4px 0;border-top:1px solid {LINE};margin-top:4px">{trades}</div>'
     )
     chart = _chart(chart_cid, f"{title} 누적 수익·일간 수익률 차트")
-    return _card(head + hero + chart + grid + foot)
+    band = _band(holiday, ink=WARN_INK, bg=WARN_BG) if holiday else ""
+    return _card(head + band + hero + chart + grid + foot)
 
 
 #: 칸 제목에 **시장을 적는다.** 제목이 "성과" 뿐이면 두 칸 중 어느 것이 국장인지 모른다
@@ -1169,18 +1183,24 @@ def _performance_block(briefing: Briefing, charts: frozenset[str] = frozenset())
     def pick(code: str) -> str | None:
         return CID[code] if CID[code] in charts else None
 
-    return _performance_section(briefing.performance, KR_TITLE, pick("KR")) + _performance_section(
-        getattr(briefing, "performance_us", None), US_TITLE, pick("US")
+    day = report_date(briefing)
+    us = getattr(briefing, "performance_us", None)
+    return _performance_section(briefing.performance, KR_TITLE, pick("KR"),
+                                holiday=_holiday_note(briefing.performance, "KR", day)) + _performance_section(
+        us, US_TITLE, pick("US"), holiday=_holiday_note(us, "US", day)
     )
 
 
 def _performance_lines(briefing: Briefing) -> list[str]:
-    return _performance_section_lines(briefing.performance, KR_TITLE) + _performance_section_lines(
-        getattr(briefing, "performance_us", None), US_TITLE
+    day = report_date(briefing)
+    us = getattr(briefing, "performance_us", None)
+    return _performance_section_lines(briefing.performance, KR_TITLE,
+                                      holiday=_holiday_note(briefing.performance, "KR", day)) + _performance_section_lines(
+        us, US_TITLE, holiday=_holiday_note(us, "US", day)
     )
 
 
-def _performance_section_lines(perf: Any, title: str) -> list[str]:
+def _performance_section_lines(perf: Any, title: str, *, holiday: str = "") -> list[str]:
     """텍스트 대체본. **HTML 과 같은 사실을 말한다** — 한쪽만 정직하면
     이미지·스타일이 막힌 클라이언트에서 다른 메일이 된다."""
     if perf is None:
@@ -1188,6 +1208,8 @@ def _performance_section_lines(perf: Any, title: str) -> list[str]:
     won, won_signed = _money_fns(perf)
     mode = MODE_LABEL.get(perf.mode, perf.mode)
     lines = [f"== 성과 · {title} · {mode} =="]
+    if holiday and perf.measured:
+        lines.append(f"  ⚠ {holiday}")
     if not perf.measured:
         lines += ["  " + (perf.note or "회계 스냅샷이 아직 없다 — 성과를 잴 수 없다"), ""]
         return lines
@@ -1205,7 +1227,7 @@ def _performance_section_lines(perf: Any, title: str) -> list[str]:
             f"({won(perf.previous_nav)} → {won(perf.nav)}, {flow})"
         )
     lines.append(f"  당일 손익 {won_signed(perf.pnl)} (자산 증감 − 입출금)")
-    lines.append(f"  당일 수익률 {_pct(perf.daily_return)} (TWR — 입출금은 수익이 아니다)")
+    lines.append(f"  {'%d/%d 수익률' % (perf.session.month, perf.session.day) if holiday else '당일 수익률'} {_pct(perf.daily_return)} (TWR — 입출금은 수익이 아니다)")
     lines.append(
         f"  총 수익률 {_pct(perf.cumulative_return)} (TWR 누적"
         + (f", {perf.since.isoformat()} 이후" if perf.since else "")

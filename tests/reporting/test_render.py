@@ -1382,3 +1382,18 @@ def test_곡선이_없으면_차트를_굽지_않는다() -> None:
     from quant_rl_trading.reporting import charts
 
     assert charts.render_pngs({}) == {}
+
+
+def test_국장이_쉰_날엔_성과_칸이_휴장이라고_말한다() -> None:
+    """2026-09-26 사용자 지적: 추석(9/24~26)에 온 메일이 9/23 하루치 변동을 "당일 수익률" 로 보여줬다."""
+    from datetime import date as _date
+
+    from quant_rl_trading.reporting.render import _holiday_note, _performance_section
+
+    perf = _perf(session=_date(2026, 9, 23), previous_session=_date(2026, 9, 22))
+    note = _holiday_note(perf, "KR", _date(2026, 9, 25))
+    assert "휴장" in note and "9/23" in note
+    html = _performance_section(perf, "국장 (KRW)", holiday=note)
+    assert "휴장" in html and "9/23 수익률" in html and "당일 수익률" not in html
+    # 장이 선 날은 그대로
+    assert _holiday_note(perf, "KR", _date(2026, 9, 23)) == ""
