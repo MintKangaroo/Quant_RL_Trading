@@ -58,16 +58,17 @@ def market_state(store: Store, sessions: list[date], crisis_floor: float) -> pd.
     return pd.Series(out)
 
 
-def fit(X: np.ndarray, y: np.ndarray, *, objective: str = "regression", seed: int = 0):
-    """시행 L 의 하이퍼파라미터. objective·seed 만 인자다."""
+def fit(X: np.ndarray, y: np.ndarray, *, objective: str = "regression", seed: int = 0, min_data: int = 2000):
+    """시행 L 의 하이퍼파라미터. objective·seed 만 인자다(min_data 는 우주가 작은 시행 BC 가 500 으로 줄인다)."""
     import lightgbm as lgb
-    params = dict(objective=objective, num_leaves=7, min_data_in_leaf=2000, learning_rate=0.03, bagging_fraction=0.8,
+    params = dict(objective=objective, num_leaves=7, min_data_in_leaf=min_data, learning_rate=0.03, bagging_fraction=0.8,
                   bagging_freq=1, feature_fraction=1.0, lambda_l2=1.0, verbose=-1, seed=seed, num_threads=6)
     return lgb.train(params, lgb.Dataset(X, y), num_boost_round=300)
 
 
 def walk(panel: pd.DataFrame, sessions: list[date], feats: list[str], target: str, bl: list[tuple[int, int]],
-         *, objective: str = "regression", seeds: tuple[int, ...] = (0,), label: str = "") -> pd.DataFrame:
+         *, objective: str = "regression", seeds: tuple[int, ...] = (0,), label: str = "",
+         min_data: int = 2000) -> pd.DataFrame:
     """워크포워드 예측(entity_id, session, pred[, pred_se]). 학습은 블록 시작 − 퍼지까지만. 시드가 여럿이면 평균과 표준편차."""
     parts = []
     for first, last in bl:
@@ -77,7 +78,7 @@ def walk(panel: pd.DataFrame, sessions: list[date], feats: list[str], target: st
         if train.empty or test.empty:
             continue
         X, y = train[feats].to_numpy(np.float32), train[target].to_numpy(np.float32)
-        preds = np.stack([fit(X, y, objective=objective, seed=s).predict(test[feats].to_numpy(np.float32)) for s in seeds])
+        preds = np.stack([fit(X, y, objective=objective, seed=s, min_data=min_data).predict(test[feats].to_numpy(np.float32)) for s in seeds])
         test["pred"] = preds.mean(axis=0)
         if len(seeds) > 1:
             test["pred_se"] = preds.std(axis=0, ddof=1)
@@ -205,10 +206,11 @@ def mark(ok: bool) -> str:
     return "○" if ok else "×"
 
 
-def record(store: Store, *, entity: str, source: str, family: str, digest: str, verdict: str, lines: list[str]) -> None:
+def record(store: Store, *, entity: str, source: str, family: str, digest: str, verdict: str, lines: list[str],
+           market: str = "KR") -> None:
     now = datetime.now(UTC)  # invariant-allow: wallclock — 시행 기록 시각
     store.append("research_trials", [{
-        "entity_id": entity, "valid_from": now, "observed_at": now, "source": source, "market": "KR",
+        "entity_id": entity, "valid_from": now, "observed_at": now, "source": source, "market": market,
         "family": family, "n_trials": 1, "protocol_hash": digest,
         "detail": (f"{verdict} | " + " | ".join(lines))[:900],
     }], ingest_run_id=f"{source}-{now:%Y%m%dT%H%M%S}")
