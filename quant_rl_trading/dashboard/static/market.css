@@ -171,7 +171,9 @@
    높이를 그대로 두면 봉만 눌린다 — 실측 2026-08-21 화면에서 세로로 찌그러져
    보였다. 가져간 만큼(32px 칸 + 12px 간격) 돌려주고, 봉이 원래 쓰던 108px 을
    그대로 갖게 한다. 여기를 고칠 때는 `candles.js` 의 `rsiH` 와 같이 본다. */
-.chart.mini { height: 164px; }
+/* 2026-09-26: RSI 칸을 32→48px 로 키우면서 16px 을 더 돌려준다. */
+.chart.mini { height: 180px; }
+.index-panel-rsi { font-size: 10.5px; }
 
 /* 시장 폭 — 숫자 다섯 칸과 막대 하나. */
 .breadth {

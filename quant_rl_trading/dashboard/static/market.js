@@ -337,7 +337,10 @@ function panelNums(panel) {
     : null;
   const rsiTag = rsi === null || rsi === undefined
     ? ""
-    : `<span class="mono sub tiny index-panel-rsi">RSI ${dec(rsi, 1)}</span>`;
+    // `.tiny` 를 달면 안 된다 — sheet.css 가 주석용 `.tiny` 를 기본으로 숨겨서
+    // 이 숫자가 한 번도 화면에 안 떴다(2026-09-26 발견).
+    : `<span class="mono sub index-panel-rsi${rsi >= 70 || rsi <= 30 ? " warn-text" : ""}"
+        title="RSI ${esc(String(panel.rsi_period || 14))} — 70 위 과열 · 30 아래 침체">RSI ${dec(rsi, 1)}</span>`;
   return `<span class="mono index-panel-close">${panel ? dec(panel.close, 2) : "—"}</span>
     <span class="mono ${panel ? signClass(panel.change) : ""}">${panel ? signed(panel.change) : "—"}</span>
     ${rsiTag}`;

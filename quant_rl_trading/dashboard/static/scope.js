@@ -52,6 +52,7 @@ const BASE = {
 };
 
 const charts = {};
+const chartObservers = {};
 
 /* 차트 테마 — 축·격자·글자를 토큰으로. 각 화면이 AXIS 를 안 펴면 ECharts 기본
    (#E0E6F1 흰 격자·#6E7079 축)이 그대로 나와 검은 시트 위에서 혼자 밝았다
@@ -83,6 +84,18 @@ function ensureSheetTheme() {
 }
 
 function chart(id) {
+  // **요소가 바뀌었으면 인스턴스도 새로.** 화면이 innerHTML 로 같은 id 의 요소를
+  // 다시 만들면(마켓 패널의 봉 전환·60초 폴링) 캐시된 인스턴스는 떨어져 나간 옛
+  // 요소에 그리고, 새 요소는 빈 칸으로 남는다 — 주봉 버튼을 누르면 차트가
+  // 사라졌다(2026-09-26 실측). 요소는 그대로인데 `el.innerHTML = ""` 로 안쪽
+  // 캔버스만 지워진 경우도 같다 — 그때는 요소가 비어 있다.
+  const current = charts[id];
+  const host = document.getElementById(id);
+  if (current && (current.isDisposed() || current.getDom() !== host || (host && !host.firstChild))) {
+    if (!current.isDisposed()) current.dispose();
+    if (chartObservers[id]) chartObservers[id].disconnect();
+    delete charts[id];
+  }
   if (!charts[id]) {
     ensureSheetTheme();
     const el = document.getElementById(id);
@@ -91,7 +104,8 @@ function chart(id) {
     // 먼저 잰 폭으로 남아 칸 밖으로 넘친다(2026-09-02 트레이딩 탭 실측). 컨테이너를
     // 직접 관찰해 다시 잰다. window resize 만으로는 이 경우를 못 잡는다.
     if (window.ResizeObserver) {
-      new ResizeObserver(() => { if (charts[id]) charts[id].resize(); }).observe(el);
+      chartObservers[id] = new ResizeObserver(() => { if (charts[id]) charts[id].resize(); });
+      chartObservers[id].observe(el);
     }
   }
   return charts[id];

@@ -642,3 +642,19 @@ def test_모르는_봉은_거부한다(client) -> None:
     """화면 버튼과 서버가 아는 이름이 갈리면 조용히 빈 화면이 된다."""
     response = client.get("/api/market/chart?entity=KR:IDX:KOSPI&market=KR&interval=3M")
     assert response.status_code == 400
+
+
+def test_봉을_바꿔도_RSI_줄이_따라온다(desk) -> None:
+    """RSI 가 일봉 첫 그림에만 실려 있어서 주봉·분봉 버튼을 누르면 RSI 칸이
+    통째로 사라졌다(2026-09-26). 전환 응답도 같은 모양으로 RSI 를 싣는다 —
+    창이 모자라면 None 으로(0·50 으로 채우지 않는다)."""
+    from quant_rl_trading.dashboard.services import market as service
+
+    for interval in ("1D", "1W", "5m"):
+        data = service.panel_candles(
+            desk, as_of=NOW, lookback=30, market="KR",
+            entity_id="KR:IDX:KOSPI", interval=interval,
+        )
+        assert data["rsi_period"] > 0
+        assert len(data["rsi"]) == len(data["sessions"])
+        assert all(v is None for v in data["rsi"])   # 시험 창은 기간보다 짧다

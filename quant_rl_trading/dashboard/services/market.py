@@ -760,6 +760,10 @@ def panel_candles(
         "closes": [],
         "volume": [],
         "ma": {},
+        # 봉을 바꿔도 RSI 칸이 남게 여기서도 싣는다(2026-09-26 — 일봉에만 있어 주봉·분봉으로 가면 칸이 사라졌다).
+        # 기간은 일봉과 같은 ``reporting.rsi_period`` 를 **그 봉 단위로** 센다 — 주봉 RSI14 는 14주다.
+        "rsi": [],
+        "rsi_period": int(store.config("reporting.rsi_period", as_of=as_of)),
         "has_ohlc": False,
         "close": None,
         "change": None,
@@ -791,6 +795,7 @@ def panel_candles(
                 "closes": closes,
                 "volume": data["volume"],
                 "ma": data["ma"],
+                "rsi": wilder_rsi_series(pd.Series(closes, dtype=float), base["rsi_period"]),
                 "has_ohlc": bool(data["ohlc"]),
             }
         )
@@ -874,6 +879,7 @@ def panel_candles(
             "closes": closes,
             "volume": volume,
             "ma": _ma(closes),
+            "rsi": wilder_rsi_series(pd.Series(closes, dtype=float), base["rsi_period"]),
             "has_ohlc": candles,
             "close": closes[-1],
             "change": (closes[-1] / closes[-2] - 1.0) if len(closes) >= 2 else None,

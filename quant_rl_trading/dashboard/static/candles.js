@@ -145,9 +145,14 @@ function candleOption(c, opts) {
     const rsi = (c.rsi || []).filter((v) => v !== null && v !== undefined);
     const hasRsi = rsi.length >= 2;
     const bottomPad = 18;
-    // 봉이 세로를 다 먹고 RSI 는 아래 32px 만 쓴다. 비율로 나누면 패널이
+    // 봉이 세로를 다 먹고 RSI 는 아래 고정 픽셀만 쓴다. 비율로 나누면 패널이
     // 낮을 때 봉이 먼저 눌린다 — 봉을 보러 온 화면이다.
-    const rsiH = 32;
+    // 32px 였을 때는 선이 납작한 회색 실처럼 보여 "RSI 가 없다" 는 요청이 왔다
+    // (2026-09-26). 48px 로 키우고 이름·지금 값을 칸 안에 적는다. 여기를 고치면
+    // market.css 의 `.chart.mini` 높이도 같이 본다.
+    const rsiH = 48;
+    const rsiLast = rsi.length ? rsi[rsi.length - 1] : null;
+    const rsiName = `RSI ${c.rsi_period || 14}`;
     const grid = hasRsi
       ? [
           { left: 46, right: 8, top: 8, bottom: bottomPad + rsiH + 12 },
@@ -180,7 +185,9 @@ function candleOption(c, opts) {
       // 봉 쪽 축은 눈금을 감춘다 — 날짜는 아래 RSI 칸에서 한 번만 적는다.
       xAxis: [
         { ...xAxisBase, gridIndex: 0, axisLabel: { show: false } },
-        { ...xAxisBase, gridIndex: 1, axisLabel },
+        // 좁은 패널에서 날짜 라벨 넷이 서로 붙었다 — 셋 정도만 찍는다.
+        { ...xAxisBase, gridIndex: 1,
+          axisLabel: { ...axisLabel, interval: Math.max(0, Math.ceil((c.sessions || []).length / 3) - 1) } },
       ],
       yAxis: [
         { type: "value", scale: true, ...AXIS, gridIndex: 0 },
@@ -196,6 +203,17 @@ function candleOption(c, opts) {
         },
       ],
       tooltip: { ...BASE.tooltip, formatter: candleTooltipFormatter(c, o.label || "") },
+      // **칸 이름과 지금 값을 칸 바로 위 틈(12px)에 적는다.** 선 끝(endLabel)에
+      // 적던 값은 미니 패널의 오른쪽 여백 8px 에 잘려 "|" 하나로 보였고, 칸
+      // 안에 두면 RSI 가 60 을 넘을 때 선과 겹친다.
+      graphic: [{
+        type: "text", left: 50, bottom: bottomPad + rsiH + 1, silent: true,
+        style: {
+          text: rsiLast === null ? rsiName : `${rsiName}  ${dec(rsiLast, 1)}`,
+          fill: rsiLast !== null && (rsiLast >= 70 || rsiLast <= 30) ? COLOR.warn : COLOR.muted,
+          font: "10px 'IBM Plex Mono', monospace",
+        },
+      }],
       series: [
         bars,
         {
@@ -203,7 +221,7 @@ function candleOption(c, opts) {
           data: c.rsi, showSymbol: false, smooth: false,
           // **손익 색을 안 쓴다.** RSI 70 이 이익이고 30 이 손실인 것이
           // 아니다 — 변동성 지수에 색을 안 쓰는 것과 같은 이유다.
-          lineStyle: { width: 1, color: COLOR.muted },
+          lineStyle: { width: 1.2, color: COLOR.text, opacity: 0.8 },
           // 못 잰 앞머리는 잇지 않는다. 이으면 없는 값이 있는 것처럼 보인다.
           connectNulls: false,
           markLine: {
@@ -215,13 +233,12 @@ function candleOption(c, opts) {
             },
             data: [{ yAxis: 30 }, { yAxis: 70 }],
           },
-          // **지금 값을 선 끝에 적는다.** 그래프만 있고 숫자가 없으면
-          // "지금 몇인가" 를 눈대중으로 읽어야 한다 — 그러라고 만든 칸이
-          // 아니다.
-          endLabel: {
-            show: true, color: COLOR.muted, fontSize: 10,
-            formatter: (p) => (p.value === null || p.value === undefined
-              ? "" : `RSI ${dec(p.value, 1)}`),
+          // 과열(70 위)·침체(30 아래) 구간을 옅게 깐다. 손익 색이 아니라 주의
+          // 색이다 — 과열이 이익이 아니듯 침체도 손실이 아니다.
+          markArea: {
+            silent: true,
+            itemStyle: { color: COLOR.warn, opacity: 0.07 },
+            data: [[{ yAxis: 70 }, { yAxis: 100 }], [{ yAxis: 0 }, { yAxis: 30 }]],
           },
         },
       ],

@@ -393,7 +393,8 @@ tbody tr:hover td { background: #0c0c0c; }
   .alert { white-space: normal; overflow-wrap: anywhere; }
   /* 차트는 손에서 낮게. 마켓 지수 타일 7개가 세로로 쌓이면 페이지가 16,000px 였다. */
   .chart { height: 170px; }
-  .chart.mini { height: 120px; }
+  /* RSI 칸 48px 을 빼고도 봉이 60px 은 남게(2026-09-26). */
+  .chart.mini { height: 150px; }
   .chart.tall, .market-col .chart.tall { height: 240px; }
   .index-panel { padding: 4px 0 2px; border-left: 0; border-top: 1px solid var(--border); }
   /* 패널 머리글 터치 여백 */
