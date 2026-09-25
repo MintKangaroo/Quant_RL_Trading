@@ -18,7 +18,7 @@ from quant_rl_trading.selector import constraints as constraints_module
 from quant_rl_trading.selector import filters as filters_module
 from quant_rl_trading.selector import ksic
 from quant_rl_trading.selector.candidates import Candidate, SelectionParams, SelectionTrace
-from quant_rl_trading.selector.combine import combined_scores
+from quant_rl_trading.selector.combine import combined_scores, missing_as_zero
 from quant_rl_trading.selector.weights import weight_census
 
 if TYPE_CHECKING:
@@ -112,7 +112,7 @@ def run(
 
     # 2. 합성 점수
     signals = store.get(SIGNALS, as_of=as_of, entity=kept, lookback=5)
-    scores = combined_scores(signals, weights)
+    scores = combined_scores(signals, weights, missing_as_zero=missing_as_zero(store, as_of=as_of, market=market))
     trace.stage("scored", len(scores))
     if scores.empty:
         if not signals.empty:

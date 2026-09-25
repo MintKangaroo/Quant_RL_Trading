@@ -18,7 +18,7 @@ flow_kr 은 수급이 관측된 종목만 의견을 낸다. 그 종목을 "중�
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
 import pandas as pd
@@ -43,7 +43,7 @@ class Contribution:
 
 
 def combined_scores(
-    signals: pd.DataFrame, weights: Mapping[str, float]
+    signals: pd.DataFrame, weights: Mapping[str, float], *, missing_as_zero: Collection[str] = ()
 ) -> pd.Series:
     """종목별 합성 점수.
 
@@ -61,6 +61,20 @@ def combined_scores(
             .groupby(["entity_id", "analyst"], as_index=False)
             .tail(1)
         )
+
+    # **예외 — 결측을 중립 0 으로 분모에 남기는 Analyst** (selector.md §1, 시행 AT 2026-09-25). 미장 fundamental 은 외국 발행사
+    # (40-F·20-F)에 구조적으로 없다. 분모에서 빼면 그 종목은 랭커 점수 하나가 합성 점수가 되고, 척도가 넓은 랭커(±0.70)가
+    # 척도가 좁은 fundamental(σ 0.19)과 평균된 종목보다 위로 가 상위 24 를 독차지했다(24/24). 신뢰도는 그날 그 Analyst 의
+    # 중앙값 — 그 Analyst 가 그날 아무 종목에도 점수를 안 냈으면(고장) 채우지 않는다.
+    for analyst in missing_as_zero:
+        present = frame[frame["analyst"] == analyst]
+        if present.empty:
+            continue
+        missing = sorted(set(frame["entity_id"]) - set(present["entity_id"]))
+        if missing:
+            filler = pd.DataFrame({"entity_id": missing, "analyst": analyst, "score": 0.0,
+                                   "confidence": float(present["confidence"].astype(float).median())})
+            frame = pd.concat([frame, filler], ignore_index=True)
 
     # 벡터 매핑 — 람다 map 은 17만 행에서 0.3초를 먹었다(2026-08-28 프로파일).
     frame["weight"] = frame["analyst"].map(dict(weights)).fillna(0.0).astype(float)
@@ -96,3 +110,17 @@ def contributions(
         for row in rows.to_dict(orient="records")
     ]
     return tuple(sorted(out, key=lambda item: abs(item.share), reverse=True))
+
+
+def missing_as_zero(store, *, as_of, market: str | None) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
+    """결측을 0 으로 두는 Analyst 목록 — `selector.missing_as_zero`(시장 접미사 `_us`). 키가 없으면 없음(옛 동작)."""
+    from quant_rl_trading.selector.candidates import market_config
+    from quant_rl_trading.store.errors import ConfigNotFound
+
+    try:
+        value = market_config(store, "selector.missing_as_zero", as_of=as_of, market=market)
+    except ConfigNotFound:
+        return ()
+    if not value or str(value).lower() in ("none", "[]"):
+        return ()
+    return tuple(str(v) for v in (value if isinstance(value, (list, tuple)) else [value]))

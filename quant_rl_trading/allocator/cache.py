@@ -264,7 +264,9 @@ class SessionReader:
             SIGNALS, as_of=as_of, entity=list(entities), lookback=5
         )
         alpha = analyst_weights(self.store, as_of=as_of, market=self.market)
-        combined = combined_scores(frame, alpha)
+        from quant_rl_trading.selector.combine import missing_as_zero
+
+        combined = combined_scores(frame, alpha, missing_as_zero=missing_as_zero(self.store, as_of=as_of, market=self.market))
         return (
             {str(key): float(value) for key, value in combined.items()},
             latest_signals(frame),

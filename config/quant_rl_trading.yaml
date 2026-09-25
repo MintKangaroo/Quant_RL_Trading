@@ -231,6 +231,11 @@ selector:
   rebalance_every: 10
   rebalance_every_us: 1
   rebalance_anchor: "2026-09-28"
+  # 결측을 중립 0 으로 분모에 남기는 Analyst (selector.md §1 예외, 시행 AT 2026-09-25 채택 M1). 미장 fundamental 은 외국 발행사에
+  # 구조적으로 없어, 분모에서 빼면 랭커 점수 하나만으로 상위 24 를 독차지했다(24/24) — 결측 0 이면 연 −5.0→+1.0%(3/3 시드).
+  # 국장은 재지 않았다 → 없음(flow_kr 의 "의견 없음 ≠ 중립" 규칙 유지).
+  missing_as_zero: []
+  missing_as_zero_us: [fundamental]
   population: 64
   generations: 40
   # 적합도 페널티 둘. **기준은 연율화 샤프 1.0**(진짜로 좋은 전략)이다 —
