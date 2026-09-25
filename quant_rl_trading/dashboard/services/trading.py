@@ -326,6 +326,19 @@ def combined_payload(
 # -- KPI -----------------------------------------------------------------------
 
 
+def _close_pending(context: Context, curve: pd.DataFrame) -> bool:
+    """오늘이 그 시장의 거래일이고, 오늘 회계 스냅샷(nav_daily)이 아직 없다 — 장 마감 뒤 실시간 값을 종가로 쓸 수 있는 구간."""
+    market = Market(str(context.market).upper())
+    tz = SPECS[market].timezone
+    today = pd.Timestamp(context.as_of).tz_convert(tz).date()
+    if not is_trading_day(market, today):
+        return False
+    if curve.empty:
+        return True
+    last = pd.to_datetime(curve["valid_from"]).dt.tz_convert(tz).dt.date.max()
+    return bool(last < today)
+
+
 def _live_valuation(context: Context, valuation: Any) -> dict[str, Any]:
     """장중 시세로 다시 계산한 총자산. **회계가 아니라 화면용이다.**
 
@@ -492,8 +505,14 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         #
         # 수집이 따라잡으면 `nav` 와 실시간이 같아지므로, 그 뒤에도 이 값을
         # 써서 틀리는 경우는 없다.
+        #
+        # **단, 오늘 종가가 아직 장부에 안 들어온 거래일에만이다** (2026-09-25 추석 휴장 실측). 마지막 체결가는
+        # 정규장 종가가 아니다 — 시간외 단일가·대체거래소(NXT, ~20:00) 체결이 섞여 거래소 종가와 종목마다 ±1% 다르다.
+        # 휴장일에 이 값을 "종가" 로 쓰자 9/23 저녁 체결분 21종목 차이가 "오늘 수익금 +960,590" 으로 떴다.
+        # 휴장일이거나 오늘 스냅샷이 이미 있으면 회계 값(창고 종가)을 쓴다.
         "live_is_close": (
             live.get("session_open") is False and live["nav"] is not None
+            and _close_pending(context, curve)
         ),
         # **오늘 손익의 장중 판.** `today_pnl` 은 마지막 회계 스냅샷(=직전
         # 세션 종가)까지의 확정 손익이라 장중에 안 움직인다. 그것과 지금

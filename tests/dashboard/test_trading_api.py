@@ -395,3 +395,20 @@ def test_체결_건수는_목록_길이가_아니다(desk_client) -> None:
     # 매수뿐이면 실현손익은 0 이 아니라 null 이다 — 0 은 "본전" 으로 읽힌다.
     assert perf["realized_pnl"] is None
 
+
+
+def test_휴장일이나_오늘_스냅샷_뒤엔_실시간을_종가로_안_쓴다() -> None:
+    """마지막 체결가는 거래소 종가가 아니다(시간외·NXT). 2026-09-25 추석에 9/23 저녁 체결 차이가 '오늘 수익금 +960,590' 으로 떴다."""
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from quant_rl_trading.dashboard.services.trading import _close_pending
+
+    def ctx(ts: str) -> SimpleNamespace:
+        return SimpleNamespace(market="KR", as_of=pd.Timestamp(ts))
+
+    curve = pd.DataFrame({"valid_from": [pd.Timestamp("2026-09-23 16:00", tz="Asia/Seoul")]})
+    assert _close_pending(ctx("2026-09-25 15:34+09:00"), curve) is False     # 추석 휴장
+    assert _close_pending(ctx("2026-09-23 17:00+09:00"), curve) is False     # 오늘 스냅샷이 이미 있다
+    assert _close_pending(ctx("2026-09-28 15:45+09:00"), curve) is True      # 거래일, 오늘 스냅샷 전
