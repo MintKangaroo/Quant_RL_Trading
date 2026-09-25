@@ -663,6 +663,21 @@ _SPECS: dict[str, TableSpec] = {
             "(docs/design/portfolio-construction.md). 소스 pykrx(KRX 정보데이터시스템, 로그인 세션)."
         ),
     ),
+    "exposure_actions": TableSpec(
+        name="exposure_actions",
+        columns={
+            "market": pa.string(),
+            "source": pa.string(),      # 행동을 낸 학습 부품(예: hmm-v1) — 여러 부품이 한 표에 나란히 적는다
+            "scale": pa.float64(),      # 노출 배수 k ∈ [0.3, 1]
+            "detail": pa.string(),      # 상태 확률 등(JSON) — 설명용, 결정에 안 쓴다
+        },
+        natural_key=("entity_id", "valid_from", "source"),
+        observation_lag_days=1,
+        doc=(
+            "AI v2 L2/L3 노출 행동(docs/design/ai-architecture-v2.md). 학습 부품이 **세션 전에** 계산해 적고, `session/daily.run` 은 "
+            "`exposure.source` 가 그 부품일 때 **읽기만** 한다(불변식 6 — 집행 안에 AI 없음). entity_id = 시장, valid_from = 그 세션 기준 시각."
+        ),
+    ),
     "instrument_types": TableSpec(
         name="instrument_types",
         columns={

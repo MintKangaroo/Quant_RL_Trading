@@ -353,3 +353,18 @@ def test_재조정일은_평소대로_고른다(fund_with_orphan, monkeypatch) -
     )
     assert ORPHAN not in result.weights
     assert result.candidates
+
+
+def test_학습_노출_행동을_읽기만_한다(fund, monkeypatch) -> None:
+    """AI v2: 학습 부품이 세션 전에 적은 노출 배수를 daily 가 그대로 쓴다(불변식 6 — 집행 안에 AI 없음). 없으면 규칙으로 물러선다."""
+    from quant_rl_trading.selector import exposure
+
+    monkeypatch.setattr(exposure, "source_config", lambda store, *, as_of: "hmm-v1")
+    monkeypatch.setattr(exposure, "learned_decision",
+                        lambda store, *, as_of, market, source: exposure.ExposureDecision(scale=0.5, driver="learned:hmm-v1"))
+    result = daily.run(fund, ReplayClock(NOW), as_of=NOW, market="KR")
+    assert sum(result.weights.values()) <= 0.5 + 1e-9
+
+    monkeypatch.setattr(exposure, "learned_decision", lambda store, *, as_of, market, source: None)
+    fallback = daily.run(fund, ReplayClock(NOW), as_of=NOW, market="KR", run_id="fb")
+    assert any("규칙 노출로 물러섰다" in n for n in fallback.notes)

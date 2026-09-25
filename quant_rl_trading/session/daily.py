@@ -411,6 +411,15 @@ def run(
             ],
         )
     else:
+        decision = None
+        source = exposure.source_config(store, as_of=as_of)
+        if source != "rule":
+            # **AI v2 — 학습 부품의 노출 행동을 읽기만 한다**(ai-architecture-v2.md L3 실전 경로, 불변식 6). 계산은 세션 전에
+            # `tools/v2_hmm_daily.py` 같은 부품이 창고에 적어 둔다. 없으면 규칙으로 물러서고 그 사실을 남긴다.
+            decision = exposure.learned_decision(store, as_of=as_of, market=market, source=source)
+            if decision is None:
+                result.notes.append(f"학습 노출({source}) 행동이 없다 — 규칙 노출로 물러섰다")
+    if decision is None:
         decision = exposure.decide(
             store,
             as_of=as_of,

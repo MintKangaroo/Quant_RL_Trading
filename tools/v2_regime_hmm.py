@@ -116,6 +116,20 @@ def run(closes: pd.Series, k: int) -> pd.DataFrame:
     return out
 
 
+def latest(closes: pd.Series, k: int) -> np.ndarray:
+    """마지막 세션의 필터 확률만 — `run` 과 같은 규칙(그 달 첫 세션 전까지 적합, 직전 60세션으로 필터를 데운 뒤 그 달을 거른다).
+    매일 도는 행동 계산용이라 한 번만 적합한다(`run` 은 달마다 적합해 느리다)."""
+    f = features(closes)
+    x_all = f.to_numpy()
+    months = pd.PeriodIndex(pd.to_datetime(pd.Series(f.index)), freq="M")
+    idx = np.flatnonzero(months == months[-1])
+    first = idx[0]
+    params = fit(x_all[:first], k)
+    _, warm = filtered(x_all[max(0, first - 60):first], params)
+    p, _ = filtered(x_all[idx], params, warm)
+    return p[-1]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--market", required=True, choices=sorted(INDEX))

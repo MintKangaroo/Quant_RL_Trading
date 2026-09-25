@@ -58,6 +58,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pandas as pd
 
+from quant_rl_trading.store.errors import ConfigNotFound
+
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
@@ -392,3 +394,34 @@ def apply(weights: dict[str, float], decision: ExposureDecision) -> dict[str, fl
     if decision.scale >= 1.0:
         return dict(weights)
     return {entity: value * decision.scale for entity, value in weights.items()}
+
+
+# --------------------------------------------------------------------------- AI v2 — 학습 부품이 적은 노출 행동
+
+ACTIONS = "exposure_actions"
+#: 행동을 찾는 창(달력일). 연휴를 넘기되 너무 오래된 행동을 쓰지 않게.
+ACTION_LOOKBACK_DAYS = 10
+
+
+def source_config(store: Store, *, as_of: datetime) -> str:
+    """`exposure.source` — "rule"(기본, 옛 동작) 또는 학습 부품 이름(예: hmm-v1). 샌드박스 덮어쓰기로만 켠다."""
+    try:
+        value = str(store.config("exposure.source", as_of=as_of) or "rule")
+    except ConfigNotFound:
+        return "rule"
+    return value or "rule"
+
+
+def learned_decision(store: Store, *, as_of: datetime, market: str, source: str) -> ExposureDecision | None:
+    """학습 부품이 **세션 전에** 적어 둔 노출 배수를 읽는다. 없으면 None — 호출자가 규칙으로 물러선다(이유를 남긴다)."""
+    frame = store.get(ACTIONS, as_of=as_of, lookback=ACTION_LOOKBACK_DAYS, market=market,
+                      columns=["entity_id", "valid_from", "observed_at", "source", "scale"])
+    if frame.empty:
+        return None
+    rows = frame[(frame["source"] == source) & (frame["entity_id"].astype(str) == str(market))]
+    if rows.empty:
+        return None
+    latest = rows.sort_values(["valid_from", "observed_at"]).iloc[-1]
+    scale = float(latest["scale"])
+    return ExposureDecision(scale=min(1.0, max(FLOOR, scale)), driver=f"learned:{source}",
+                            notes=[f"{source} 노출 {scale:.2f} ({pd.Timestamp(latest['valid_from']).date()})"])
