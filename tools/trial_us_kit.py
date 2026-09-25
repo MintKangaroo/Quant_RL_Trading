@@ -57,6 +57,12 @@ def build(store: Store) -> None:
     keep = in_universe.stack()
     keep = keep[keep].reset_index()
     keep.columns = ["session", "entity_id", "_"]
+    # 실전과 같게 **보통주·ADR 만**(universe.instrument_types_us, 2026-09-25). 증권 종류는 사실상 바뀌지 않으므로 수집 첫날 스냅샷을
+    # 과거에도 쓴다 — 한계로 등록 문서에 적었다.
+    kinds = store.get("instrument_types", as_of=datetime.now(UTC), lookback=10, market="US",  # invariant-allow: wallclock — 최신 분류
+                      columns=["entity_id", "instrument", "test_issue"])
+    ok = set(kinds[kinds["instrument"].isin(["common", "adr", "other"]) & ~kinds["test_issue"].astype(bool)]["entity_id"])
+    keep = keep[keep["entity_id"].isin(ok)]
     panel = load_scores(keep[["entity_id", "session"]])
     panel["has_fund"] = panel["fundamental"].notna()
     panel["fund_raw"] = panel["fundamental"].astype(float)
