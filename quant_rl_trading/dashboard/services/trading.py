@@ -29,7 +29,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -42,7 +42,14 @@ from quant_rl_trading.allocator.baseline import AllocatorParams
 from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.selector.combine import contributions
-from quant_rl_trading.collectors.market_hours import SPECS, Market, is_regular_session, is_trading_day
+from quant_rl_trading.collectors.market_hours import (
+    SPECS,
+    Market,
+    is_regular_session,
+    is_trading_day,
+    previous_trading_day,
+    trading_days,
+)
 from quant_rl_trading.selector.weights import analyst_weights
 from quant_rl_trading.store import Store
 from quant_rl_trading.store import mode as mode_module
@@ -326,6 +333,23 @@ def combined_payload(
 # -- KPI -----------------------------------------------------------------------
 
 
+def _market_day(context: Context) -> dict[str, Any]:
+    """오늘이 그 시장의 거래일인가 — 휴장이면 화면이 "휴장" 이라고 말한다(사용자 요청 2026-09-25, 추석).
+
+    휴장일에 "오늘 수익금 0" · "매수 막힐 수 있음" 만 보이면 고장인지 쉬는 날인지 못 가른다.
+    """
+    market = Market(str(context.market).upper())
+    today = pd.Timestamp(context.as_of).tz_convert(SPECS[market].timezone).date()
+    open_today = is_trading_day(market, today)
+    ahead = trading_days(market, today + timedelta(days=1), today + timedelta(days=20))
+    return {
+        "trading_day": open_today,
+        "today": today.isoformat(),
+        "last_session": (today if open_today else previous_trading_day(market, today)).isoformat(),
+        "next_session": ahead[0].isoformat() if ahead else None,
+    }
+
+
 def _close_pending(context: Context, curve: pd.DataFrame) -> bool:
     """오늘이 그 시장의 거래일이고, 오늘 회계 스냅샷(nav_daily)이 아직 없다 — 장 마감 뒤 실시간 값을 종가로 쓸 수 있는 구간."""
     market = Market(str(context.market).upper())
@@ -488,6 +512,7 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
             else live["change"]
         ),
         "live_session_open": live.get("session_open"),
+        "market_day": _market_day(context),
         # **장이 끝나면 마지막 체결가가 곧 오늘 종가다.**
         #
         # 위 `nav` 는 창고의 종가로 선다. 그런데 일봉 수집은 장이 끝난 뒤에야

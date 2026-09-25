@@ -400,3 +400,21 @@ def test_부분_체결의_남은_수량은_대사_전이다(tmp_path: Path) -> N
     # 남은 수량(10)이 차이(10)보다 작으면 설명이 안 된다
     too_small = [{"entity_id": "KR:B", "side": "buy", "quantity": 5, "fill_quantity": 2, "limit_price": 1000, "status": "partial"}]
     assert "수량 불일치 1건" in _reconciliation(tmp_path, too_small)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_휴장일엔_오늘_수익_칸이_휴장이라고_말한다(tmp_path: Path) -> None:
+    """사용자 요청 2026-09-25(추석): 휴장일에 "오늘 수익금 0" 만 보이면 고장인지 쉬는 날인지 못 가른다."""
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    kpis = trading["data"]["kpis"]
+    kpis["live_session_open"] = False
+    kpis["live_is_close"] = False
+    kpis["market_day"] = {"trading_day": False, "today": "2026-09-25",
+                          "last_session": "2026-09-23", "next_session": "2026-09-28"}
+
+    kpi_html = "".join(_render(tmp_path, trading, chart).values())
+
+    assert "휴장" in kpi_html
+    assert "9/23(수)" in kpi_html and "9/28(월)" in kpi_html

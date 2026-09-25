@@ -19,9 +19,24 @@ function controlState(label, value, detail, state = "unknown", id = "", href = "
     <small>${href ? `<a href="${controlEsc(href)}">${controlEsc(detail)}</a>` : controlEsc(detail)}</small></div>`;
 }
 
+/** 휴장 표시(사용자 요청 2026-09-25). 서버 `kpis.market_day` 에서 온다 — 달력을 화면이 따로 두면 두 곳이 어긋난다. */
+let latestMarketDay = null;
+function shortDay(iso) {
+  if (!iso) return "—";
+  const d = new Date(`${iso}T00:00:00`);
+  return `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]})`;
+}
+function isHoliday() {
+  return latestMarketDay !== null && latestMarketDay.trading_day === false;
+}
+function holidayNote() {
+  return `휴장 · 마지막 종가 ${shortDay(latestMarketDay.last_session)} · 다음 개장 ${shortDay(latestMarketDay.next_session)}`;
+}
+
 function renderControlOverview(body) {
   const target = document.getElementById("control-overview");
   if (!target) return;
+  latestMarketDay = body.data.kpis?.market_day || null;
   const risk = body.data.market === "ALL" ? null : body.data.risk;
   const stopped = risk?.killswitch?.engaged === true;
   const historical = body.live !== true;
@@ -36,7 +51,7 @@ function renderControlOverview(body) {
   if (typeof latestFreshness !== "undefined" && latestFreshness) renderControlFreshness(latestFreshness);
   const budget = document.getElementById("control-budget");
   if (budget) budget.textContent = risk && Number.isFinite(risk.drawdown) && risk.bands?.hard > 0
-    ? `리스크 예산 ${pct(Math.abs(risk.drawdown) / risk.bands.hard, 1)} 사용 · 현재낙폭 ${pct(risk.drawdown)} / 한도 ${pct(risk.bands.hard, 0)} · 회계 기준`
+    ? `${isHoliday() ? "휴장 · " : ""}리스크 예산 ${pct(Math.abs(risk.drawdown) / risk.bands.hard, 1)} 사용 · 현재낙폭 ${pct(risk.drawdown)} / 한도 ${pct(risk.bands.hard, 0)} · 회계 기준`
     : "리스크 예산 미측정 · 회계 관측 확인 필요";
 }
 
@@ -49,7 +64,10 @@ function renderControlOrders() {
   if (target.querySelector("strong")?.textContent === "과거 조회") return;
   const has = (id, cls) => document.getElementById(id)?.classList.contains(cls);
   let state = "ok", value = "가능", detail = "킬스위치 꺼짐 · 데이터·대사 정상";
-  if (has("control-reconciliation", "is-critical")) {
+  if (isHoliday()) {
+    // 휴장일엔 주문 자체가 없다. 데이터 지연 경고는 쉬는 날이라 당연히 뜬다 — 그걸 "매수 막힐 수 있음" 으로 보이면 고장처럼 읽힌다.
+    state = "unknown"; value = "휴장"; detail = `오늘 주문 없음 · 다음 개장 ${shortDay(latestMarketDay.next_session)}`;
+  } else if (has("control-reconciliation", "is-critical")) {
     state = "critical"; value = "점검 필요"; detail = "장부와 계좌 수량이 다르다 — 대사 칸 확인";
   } else if (has("control-data", "is-warning")) {
     state = "warning"; value = "매수 막힐 수 있음"; detail = "데이터 지연 — 품질 게이트가 신규 매수를 막는다";
@@ -278,6 +296,7 @@ function stampNow() {
 
 function renderKpis(body) {
   const k = body.data.kpis;
+  latestMarketDay = k?.market_day || null;
   const risk = body.data.risk;
   const e = body.data.equity;
   const s = body.data.system;
@@ -342,9 +361,14 @@ function renderKpis(body) {
           ? `현금 $${num(Math.round(k.cash_usd || 0))}`
           : `현금 ${num(Math.round(k.cash_krw))}`),
     // 수익 4종. LS_KR 화면에서 가장 먼저 읽던 자리라 앞으로 당겼다.
-    kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
+    // 휴장일엔 "0" 대신 "휴장" — 0 은 "안 움직였다" 로 읽힌다(사용자 요청 2026-09-25).
+    isHoliday()
+      ? kpi("오늘 수익금", "휴장", holidayNote(), false, { unit: "" })
+      : kpi("오늘 수익금", signed(todayPnl), todayPnlNote(k, signed, useLive), false,
         { unit: unitCode(), tone: tone(todayPnl) }),
-    kpi("오늘 수익률", pct(todayReturn), todayFoot, false, { tone: tone(todayReturn) }),
+    isHoliday()
+      ? kpi("오늘 수익률", "휴장", holidayNote(), false)
+      : kpi("오늘 수익률", pct(todayReturn), todayFoot, false, { tone: tone(todayReturn) }),
     kpi("총 수익금", signed(totalPnl),
         `원금 ${k.principal ? num(Math.round(k.principal)) : "—"} 대비 · ${useLive ? (liveOn ? "장중 참고" : closeBadge) : closeBadge}`
         + (simpleReturn === null ? "" : ` · ${pct(simpleReturn)}`), false,
