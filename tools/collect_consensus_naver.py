@@ -5,13 +5,16 @@
     .venv/bin/python tools/collect_consensus_naver.py --limit 20 # 배관 확인
 
 종목당 요청 1건, 0.25초 간격 — 2,800종목이면 12분 안팎. 받은 날은 건너뛴다(run id).
-장 마감 뒤(17:30 크론)에 돈다. 페이지 실패는 세고 계속 간다 — 한 종목이 전체를 막지 않는다.
+장 마감 뒤(17:30 크론)에 돈다. 종목 실패는 세고 계속 간다 — 한 종목이 전체를 막지 않는다.
+다만 실패 비율이 `collectors.consensus_max_fail_ratio` 를 넘으면 사유를 적고 rc=1 로 나간다
+(2026-09-11~ 원본 주소가 바뀌어 전 종목이 실패했는데 크론 로그엔 rc 가 안 남아 2주를 몰랐다).
 """
 from __future__ import annotations
 
 import argparse
 import sys
 import time as time_module
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -23,10 +26,20 @@ import httpx  # noqa: E402
 from quant_rl_trading.collectors import naver_consensus as nc  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
-from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
 
+FAIL_RATIO_KEY = "collectors.consensus_max_fail_ratio"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 INTERVAL_SEC = 0.25
+
+
+def max_fail_ratio(store: Store, now: datetime) -> float:
+    try:
+        return float(store.config(FAIL_RATIO_KEY, as_of=now))
+    except ConfigNotFound as missing:
+        raise SystemExit(
+            f"설정 {FAIL_RATIO_KEY} 이 창고에 없다 — tools/seed_config.py --apply 로 심어라 ({missing})"
+        ) from missing
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,6 +57,7 @@ def main(argv: list[str] | None = None) -> int:
         here = now.astimezone(__import__("zoneinfo").ZoneInfo("Asia/Seoul")).date()
         days = trading_days(Market.KR, here - timedelta(days=14), here)
         day = days[-1] if days else here
+    fail_ratio = max_fail_ratio(store, now)
     run_id = nc.run_id_for(day, limit=args.limit)
     if store.ingest_run_recorded(nc.CONSENSUS, run_id):
         print(f"{day} 컨센서스는 이미 받았다 — 할 일 없음"); return 0
@@ -60,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         for i, code in enumerate(codes, 1):
             try:
                 r = client.get(nc.URL.format(code=code)); r.raise_for_status()
-                parsed = nc.parse_main_page(r.text)
+                parsed = nc.parse_integration(r.json())
             except Exception as error:  # noqa: BLE001 — 한 종목이 전체를 막지 않는다
                 fails += 1
                 if fails <= 5:
@@ -76,7 +90,11 @@ def main(argv: list[str] | None = None) -> int:
             time_module.sleep(INTERVAL_SEC)
     written = store.append(nc.CONSENSUS, rows, ingest_run_id=run_id, source=nc.SOURCE) if rows else 0
     print(f"완료 — 적재 {written}행 · 커버리지 없음 {empty} · 실패 {fails} / {len(codes)}", flush=True)
-    return 0 if fails < max(10, len(codes) // 10) else 1
+    reason = nc.fail_verdict(fails, len(codes), max_fail_ratio=fail_ratio)
+    if reason:
+        print(f"실패(rc=1) — {reason}", file=sys.stderr, flush=True)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

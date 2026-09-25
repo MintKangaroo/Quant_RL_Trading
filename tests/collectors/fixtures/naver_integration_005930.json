@@ -1,0 +1,124 @@
+{
+ "stockEndType": "stock",
+ "itemCode": "005930",
+ "stockName": "삼성전자",
+ "totalInfos": [
+  {
+   "code": "lastClosePrice",
+   "key": "전일",
+   "value": "276,500"
+  },
+  {
+   "code": "openPrice",
+   "key": "시가",
+   "value": "282,500",
+   "compareToPreviousPrice": {
+    "code": "2",
+    "text": "상승",
+    "name": "RISING"
+   }
+  },
+  {
+   "code": "highPrice",
+   "key": "고가",
+   "value": "286,500",
+   "compareToPreviousPrice": {
+    "code": "2",
+    "text": "상승",
+    "name": "RISING"
+   }
+  },
+  {
+   "code": "lowPrice",
+   "key": "저가",
+   "value": "280,750",
+   "compareToPreviousPrice": {
+    "code": "2",
+    "text": "상승",
+    "name": "RISING"
+   }
+  },
+  {
+   "code": "accumulatedTradingVolume",
+   "key": "거래량",
+   "value": "30,566,764"
+  },
+  {
+   "code": "accumulatedTradingValue",
+   "key": "대금",
+   "value": "8조 6,782억"
+  },
+  {
+   "code": "marketValue",
+   "key": "시총",
+   "value": "1,674조 9,588억"
+  },
+  {
+   "code": "foreignRate",
+   "key": "외인소진율",
+   "value": "46.55%"
+  },
+  {
+   "code": "highPriceOf52Weeks",
+   "key": "52주 최고",
+   "value": "380,000"
+  },
+  {
+   "code": "lowPriceOf52Weeks",
+   "key": "52주 최저",
+   "value": "82,400"
+  },
+  {
+   "code": "per",
+   "key": "PER",
+   "value": "12.85배",
+   "valueDesc": "2026.06."
+  },
+  {
+   "code": "eps",
+   "key": "EPS",
+   "value": "22,292원",
+   "valueDesc": "2026.06."
+  },
+  {
+   "code": "cnsPer",
+   "key": "추정PER",
+   "value": "5.98배"
+  },
+  {
+   "code": "cnsEps",
+   "key": "추정EPS",
+   "value": "47,922원"
+  },
+  {
+   "code": "pbr",
+   "key": "PBR",
+   "value": "3.33배",
+   "valueDesc": "2026.06."
+  },
+  {
+   "code": "bps",
+   "key": "BPS",
+   "value": "86,052원",
+   "valueDesc": "2026.06."
+  },
+  {
+   "code": "dividendYieldRatio",
+   "key": "배당수익률",
+   "value": "0.58%",
+   "valueDesc": "2025.12."
+  },
+  {
+   "code": "dividend",
+   "key": "주당배당금",
+   "value": "1,668원",
+   "valueDesc": "2025.12."
+  }
+ ],
+ "consensusInfo": {
+  "itemCode": "005930",
+  "createDate": "2026-09-23",
+  "recommMean": "4.00",
+  "priceTargetMean": "493,864"
+ }
+}
