@@ -351,3 +351,21 @@ def test_시총_자료_이상은_시총_순위에서_빠진다(seeded) -> None:
     assert capped.dropped[bad] == "시총 자료 이상(시총/거래대금)"
     # 끄면(0) 예전과 같다 — 큰 시총이 그대로 순위에 든다.
     assert bad in _ranked(seeded, top_market_cap_rank=10).kept
+
+
+def test_증권_종류_필터는_보통주만_남기고_스냅샷이_없으면_거르지_않는다(seeded) -> None:
+    """미장 명단에 채권·우선주·ETF 가 섞인다(2026-09-25 TMUSL). 수집 사고로 스냅샷이 없으면 명단을 비우지 않는다."""
+    full = _run(seeded)
+    assert len(full) >= 2
+    keep, drop = full.kept[0], full.kept[1]
+    assert _ranked(seeded, instrument_types=("common",)).kept == full.kept   # 스냅샷 없음 → 그대로
+    day = SESSIONS[-2]
+    seeded.append("instrument_types", [
+        {"entity_id": keep, "valid_from": day, "observed_at": day, "source": "t", "market": "KR", "name": "X Common Stock",
+         "instrument": "common", "test_issue": False},
+        {"entity_id": drop, "valid_from": day, "observed_at": day, "source": "t", "market": "KR", "name": "X 6% Notes due 2069",
+         "instrument": "note", "test_issue": False},
+    ], ingest_run_id="it")
+    r = _ranked(seeded, instrument_types=("common",))
+    assert keep in r.kept and drop not in r.kept
+    assert r.dropped[drop] == "증권 종류 note"

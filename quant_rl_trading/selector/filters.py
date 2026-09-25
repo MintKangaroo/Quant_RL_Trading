@@ -58,6 +58,9 @@ class FilterParams:
     #: (`universe.max_cap_turnover_days`). 미장 market_cap 에 ETN·우선주·유닛이 모회사 시총을 달고 들어온다
     #: (2026-09-25 실측: AKTX 1.57조 달러·BNKD 비율 1,277만 일). 실제 기업은 대부분 1,000 일 아래다.
     max_cap_turnover_days: float = 0.0
+    #: 남길 증권 종류(`universe.instrument_types_{market}`, 예: 미장 common·adr·other). 비면 끔.
+    #: 명단이 시세에서 유도돼 채권·우선주·ETN·펀드가 섞인다(collectors/us_symbols.py).
+    instrument_types: tuple[str, ...] = ()
     #: Z2 트랙 — 이 지수의 구성종목 안에서만 고른다. 빈 문자열이면 끈다(`universe.index_members_kr`, 샌드박스 덮어쓰기로만 켠다).
     index_members: str = ""
 
@@ -76,6 +79,7 @@ class FilterParams:
             top_market_cap_rank=_rank_config(store, "top_market_cap_rank", as_of=as_of),
             max_cap_turnover_days=float(_rank_config(store, "max_cap_turnover_days", as_of=as_of)),
             index_members=_index_config(store, market=market, as_of=as_of),
+            instrument_types=_instrument_config(store, market=market, as_of=as_of),
         )
 
     def effective_floor(self, *, market: str, equity: float) -> float:
@@ -97,6 +101,17 @@ def _index_config(store: Store, *, market: str, as_of: datetime) -> str:
     except ConfigNotFound:
         return ""
     return "" if value.lower() in ("", "none") else value
+
+
+def _instrument_config(store: Store, *, market: str, as_of: datetime) -> tuple[str, ...]:
+    """증권 종류 필터. 키가 없거나 비면 끔(국장·옛 as_of)."""
+    try:
+        value = store.config(f"universe.instrument_types_{market.lower()}", as_of=as_of)
+    except ConfigNotFound:
+        return ()
+    if not value:
+        return ()
+    return tuple(str(v) for v in (value if isinstance(value, (list, tuple)) else [value]))
 
 
 def _rank_config(store: Store, name: str, *, as_of: datetime) -> int:
@@ -237,7 +252,34 @@ def tradable_universe(
         as_of=as_of, market=market, params=params, turnover=turnover, prices=recent,
     )
     kept = _apply_index_members(store, kept, dropped, as_of=as_of, market=market, index=params.index_members)
+    kept = _apply_instrument_types(store, kept, dropped, as_of=as_of, market=market, allowed=params.instrument_types)
     return FilterResult(kept=tuple(sorted(kept)), dropped=dropped)
+
+
+#: 증권 종류 스냅샷을 찾는 창(달력일). 연휴·수집 사고를 넘기되 너무 오래된 명단으로 고르지 않게.
+INSTRUMENT_LOOKBACK_DAYS = 10
+
+
+def _apply_instrument_types(
+    store: Store, kept: list[str], dropped: dict[str, str], *, as_of: datetime, market: str, allowed: tuple[str, ...]
+) -> list[str]:
+    """보통주·ADR 만 남긴다(미장). **스냅샷이 없으면 거르지 않는다** — 수집 사고가 명단을 비우면 안 되고(순위 하한과 같은 규칙),
+    이 필터 이전의 과거 as_of 도 옛 동작 그대로 돈다. 스냅샷에 없는 종목(상폐·개명 — 2026-09-25 에 10/6,570)은 뺀다."""
+    if not allowed or not kept:
+        return kept
+    frame = store.get(
+        "instrument_types", as_of=as_of, lookback=INSTRUMENT_LOOKBACK_DAYS, until=as_of, market=market,
+        columns=["entity_id", "valid_from", "instrument", "test_issue"],
+    )
+    if frame.empty:
+        return kept
+    latest = frame[frame["valid_from"] == frame["valid_from"].max()].set_index("entity_id")
+    ok = set(latest.index[latest["instrument"].isin(allowed) & ~latest["test_issue"].astype(bool)])
+    for entity in kept:
+        if entity not in ok:
+            kind = latest["instrument"].get(entity)
+            dropped[entity] = f"증권 종류 {kind}" if kind is not None else "증권 종류 명단 밖"
+    return [entity for entity in kept if entity in ok]
 
 
 #: 지수 구성 스냅샷을 찾는 창(달력일). 연휴·수집 사고를 넘기되, 너무 오래된 구성으로 고르지 않게.

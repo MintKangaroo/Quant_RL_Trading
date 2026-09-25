@@ -84,6 +84,9 @@ universe:
   # 소액 시절엔 이 상수가 전부였는데, 자본이 커지면 아래 배수가 이것을 넘어선다.
   min_turnover_20d_kr: 500000000     # 원
   min_turnover_20d_us: 1000000       # 달러
+  # 미장 증권 종류 필터(collectors/us_symbols.py, 2026-09-25). 명단이 시세에서 유도돼 채권(TMUSL)·우선주(AGNCL)·ETN(BNKD)·
+  # 상품 ETF(USCI)가 섞여 합성 점수·시총 상위에 올랐다. 보통주·ADR·이름뿐인 보통주(other)만 남긴다. 국장은 키 없음(끔).
+  instrument_types_us: [common, adr, other]
   # **자본에서 유도하는 유동성 하한의 배수** (portfolio-construction.md §부록).
   # 실효 하한 = max(min_turnover_20d_kr, turnover_capacity_multiple × 자본).
   #

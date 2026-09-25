@@ -663,6 +663,21 @@ _SPECS: dict[str, TableSpec] = {
             "(docs/design/portfolio-construction.md). 소스 pykrx(KRX 정보데이터시스템, 로그인 세션)."
         ),
     ),
+    "instrument_types": TableSpec(
+        name="instrument_types",
+        columns={
+            "market": pa.string(),
+            "name": pa.string(),        # 정식 증권명
+            "instrument": pa.string(),  # common | adr | etf | etn | fund | preferred | note | warrant | right | unit | other
+            "test_issue": pa.bool_(),
+        },
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=1,
+        doc=(
+            "미장 증권 종류 스냅샷(수집일마다) — Nasdaq Trader 심볼 디렉터리. 명단(universe)이 시세에서 유도돼 채권·우선주·ETN·펀드가 섞이므로 "
+            "셀렉터 필터(`universe.instrument_types_us`)가 보통주·ADR 만 남긴다. 분류 규칙은 collectors/us_symbols.py."
+        ),
+    ),
     "prelim_earnings": TableSpec(
         name="prelim_earnings",
         columns={

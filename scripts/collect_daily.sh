@@ -168,6 +168,10 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         .venv/bin/python tools/backfill.py \
             --market US --table universe --sessions "${SESSIONS}"
         echo "  미장 명단 rc=$?"
+        #      증권 종류(보통주·ADR vs 채권·우선주·ETF·펀드) — Nasdaq Trader 심볼 디렉터리. 셀렉터 필터
+        #      `universe.instrument_types_us` 가 읽는다(2026-09-25, collectors/us_symbols.py). 실패해도 필터는 직전 스냅샷(10일)을 쓴다.
+        QUANT_RL_DUCKDB_MEMORY_LIMIT=500MB .venv/bin/python tools/collect_us_symbols.py
+        echo "  미장 증권 종류 rc=$?"
         .venv/bin/python tools/backfill.py --market US --table shares-sec
         echo "  미장 상장주식수 rc=$?"
         #      **--sessions 를 반드시 준다.** 없으면 5년 전 구간을 다시 훑는데,
