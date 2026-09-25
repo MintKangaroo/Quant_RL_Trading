@@ -67,11 +67,21 @@ def main(argv: list[str] | None = None) -> int:
         if args.sleep:
             _time.sleep(args.sleep)
         for name, code in INDICES.items():
-            codes = stock.get_index_portfolio_deposit_file(code, day.strftime("%Y%m%d"))
+            try:
+                codes = stock.get_index_portfolio_deposit_file(code, day.strftime("%Y%m%d"))
+            except Exception as exc:  # KRX 가 막으면 JSON 대신 HTML 이 와 여기서 터진다(2026-09-25 밤)
+                print(f"{day} {name}: 조회 실패 — {type(exc).__name__}", flush=True)
+                codes = []
             if len(codes) < 150:  # K200 은 200종목 — 적게 오면 소스 사고다. 적지 않고 rc 로 알린다.
                 print(f"{day} {name}: {len(codes)}종목 — 비정상, 적지 않는다", flush=True)
                 failed += 1
+                streak = locals().get("streak", 0) + 1
+                if streak >= 3:
+                    # **연속 3번이면 멈춘다.** 막힌 동안 계속 두드리면 차단이 길어진다(9/25 오후 200회 연속 빈 응답).
+                    print(f"연속 {streak}회 실패 — KRX 차단으로 보고 멈춘다(다음 예약에 다시)", flush=True)
+                    return 1
                 continue
+            streak = 0
             observed = session_timestamp(day) if args.backfill else clock.now()
             rows = [{"entity_id": f"KR:{c}", "valid_from": session_timestamp(day), "observed_at": observed,
                      "source": "pykrx", "market": "KR", "index_id": name} for c in codes]
