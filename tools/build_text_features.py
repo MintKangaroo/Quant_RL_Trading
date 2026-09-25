@@ -79,7 +79,11 @@ def embed_month(store: Store, period: pd.Period, *, mean: np.ndarray, components
     # 그 달은 영원히 막힌다 — 원문이 영영 안 올 유형이기 때문이다.
     frame = frame[(frame["source"] == docs.SOURCE) & (frame["doc_type"].isin(DEFAULT_TYPES))]
     # 공시마다 **마지막 정정본**만 본다 — 수집기는 원문 경로·"원문 없음" 표식을 정정본으로 덧붙인다(append-only).
+    # 다만 **observed_at 은 첫 관측(공시가 목록에 뜬 시각)** 이다. 마지막 정정본의 observed_at 은 원문을 내려받은 시각
+    # (2026-09)이라 그대로 옮기면 과거 세션에서 임베딩이 하나도 안 보인다 — 2026-09-25 시행 X 첫 측정이 그렇게 피처 0행이었다.
+    frame = frame.assign(first_seen=frame.groupby("doc_id")["observed_at"].transform("min"))
     frame = frame.sort_values("observed_at").drop_duplicates("doc_id", keep="last")
+    frame["observed_at"] = np.minimum(frame["first_seen"], public_at(frame["valid_from"]))
     within = frame["valid_from"].dt.to_period("M") == period
     path = frame["raw_path"].fillna("").astype(str)
     # **"원문 없음" 표식(docs.NO_TEXT)은 미수집이 아니다.** DART 가 파일이 없다고 답한 공시(status 014)라 영영 안 온다.
@@ -114,13 +118,55 @@ def embed_month(store: Store, period: pd.Period, *, mean: np.ndarray, components
     return len(rows)
 
 
+def public_at(valid_from: pd.Series) -> pd.Series:
+    """DART 공시를 **누구나 알 수 있었던 시각** — 접수일 **다음 날 08:00 KST**(다음 세션 개장 전).
+
+    공시 목록은 2026-09 에 한꺼번에 백필돼 observed_at 이 수집 시각(공시 뒤 81~596일)이다. 그걸 옮기면 과거 세션에서
+    임베딩이 하나도 안 보인다(2026-09-25 시행 X 첫 측정 = 피처 0행). 공시는 접수일에 공개되므로 백필 관행(EDGAR 재무와 같다)대로
+    공개 시각을 쓰되, 접수 시각(장중·장후)을 모르므로 **하루 늦춰** 같은 날 개장 세션이 보지 못하게 한다.
+    """
+    local = pd.to_datetime(valid_from).dt.tz_convert("Asia/Seoul").dt.normalize()
+    return (local + pd.Timedelta(days=1, hours=8)).dt.tz_convert(pd.to_datetime(valid_from).dt.tz)
+
+
+def restamp(store: Store, *, market: str, dry_run: bool) -> int:
+    """이미 적재된 임베딩을 **공시 공개 시각**(첫 관측과 `public_at` 중 이른 쪽)으로 다시 적는다(append-only 정정본). 임베딩은 다시 계산하지 않는다.
+
+    2026-09-25 첫 적재는 observed_at 을 원문 수집 시각(2026-09)으로 옮겨, 과거 as_of 에서 전부 안 보였다.
+    """
+    now = LiveClock().now()
+    span = (now.date() - pd.Timestamp("2024-10-01").date()).days
+    emb = store.get(TABLE, as_of=now, lookback=span, market=market)
+    if emb.empty:
+        print("임베딩이 없다", flush=True)
+        return 1
+    meta = store.get(docs.DOCUMENTS, as_of=now, lookback=span + 45, market=market,
+                     columns=["doc_id", "observed_at"])
+    first = meta.groupby(meta["doc_id"].astype(str))["observed_at"].min()
+    emb = emb.sort_values("observed_at").drop_duplicates("doc_id", keep="last").copy()
+    new_seen = pd.concat([emb["doc_id"].astype(str).map(first), public_at(emb["valid_from"])], axis=1).min(axis=1)
+    todo = emb[new_seen.notna() & (new_seen < emb["observed_at"])].copy()
+    todo["observed_at"] = new_seen[todo.index]
+    lag = (emb["observed_at"] - new_seen).dt.days
+    print(f"임베딩 {len(emb):,}건 · 다시 적을 것 {len(todo):,}건 · 원 공시 못 찾음 {int(new_seen.isna().sum()):,}건 · "
+          f"지연 중앙값 {lag.median():.0f}일", flush=True)
+    if todo.empty or dry_run:
+        return 0
+    cols = ["entity_id", "valid_from", "observed_at", "source", "market", "doc_id", "doc_type", "model_id", "pca_id", "pc1", "pc2", "pc3"]
+    rows = todo[cols].to_dict(orient="records")
+    for start in range(0, len(rows), 5000):
+        store.append(TABLE, rows[start:start + 5000], ingest_run_id=f"text-embed-restamp-{market}-{start // 5000:03d}", source="text-embed")
+    print(f"적재 {len(rows):,}건", flush=True)
+    return 0
+
+
 def run_id(period: pd.Period, market: str) -> str:
     return f"text-embed-{market}-{period}-{REVISION[:8]}"
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=("pca", "embed"), required=True)
+    parser.add_argument("--stage", choices=("pca", "embed", "restamp"), required=True)
     parser.add_argument("--root", default="data")
     parser.add_argument("--market", default="KR")
     parser.add_argument("--start", default="2025-01", help="YYYY-MM (embed)")
@@ -134,6 +180,8 @@ def main(argv=None) -> int:
     import torch
 
     torch.set_num_threads(args.threads)
+    if args.stage == "restamp":
+        return restamp(Store(root=Path(args.root)), market=args.market, dry_run=args.dry_run)
     if args.stage == "pca":
         sample = Path(args.sample) if args.sample else sorted(SAMPLE_DIR.glob("sample-*.npz"))[-1]
         fit_pca(sample, MODEL_DIR / "text-pca.npz")
