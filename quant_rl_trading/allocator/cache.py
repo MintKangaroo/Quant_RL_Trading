@@ -583,6 +583,7 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     "allocator.baseline",
     "allocator.cash_buffer",
     "allocator.float_cap_limit",
+    "allocator.float_cap_min_coverage",
     "allocator.env.cache_carry_sessions",
     "allocator.env.cache_equity",
     "allocator.env.initial_capital",

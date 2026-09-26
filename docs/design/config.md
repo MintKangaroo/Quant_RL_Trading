@@ -162,6 +162,17 @@ exposure:                      # 노출 제어 (selector/exposure.py)
 
 selector:
   exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
+
+collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내보내는 문턱
+  consensus_max_fail_ratio: 0.10   # 국장 컨센서스(tools/collect_consensus_naver.py) 종목 실패 비율.
+                                   # 넘으면 사유를 적고 rc=1. 평소 실패는 ~5%(2,800 중 ~135 —
+                                   # 없는 코드·신규 종목). 2026-09-11 원본 주소가 바뀌어 100% 가
+                                   # 실패했는데 rc 가 0 이라 2주를 몰랐다
+
+allocator:                     # 유동시총 가중(float_cap — Z2·미장 G1 트랙). portfolio-construction.md "Z2 트랙"
+  float_cap_limit: 0.10        # 한 종목 상한. 샌드박스 덮어쓰기로 켠다
+  float_cap_min_coverage: 0.8  # 후보 중 시총을 아는 비율이 이보다 낮으면 동일가중으로 물러선다.
+                               # 아는 몇 종목에만 예산을 다 실으면 나머지가 목표 0 = 이유 없는 전량 매도다 (2026-09-26)
 ```
 
 ---
