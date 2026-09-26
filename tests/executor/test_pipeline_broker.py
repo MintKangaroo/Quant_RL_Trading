@@ -209,6 +209,58 @@ def test_RejectedOrder는_거부로_기록되고_다른_슬라이스는_계속_�
     assert any(ack.order_id != order_id and ack.sent for ack in result.acks)
 
 
+def test_거부_사유가_주문_행에_남는다(seeded) -> None:
+    """2026-09-23 KR 세션 — rejected 70건의 reason 이 전부 빈 문자열이었고,
+    진짜 사유(``rsp_cd=01410 모의투자 영업일이 아닙니다``)는 릴리스 로그에만
+    있었다. 로그는 순환 삭제되고 장부는 남는다."""
+    order_id = _first_order_id()
+    detail = "rsp_cd=01410 msg=모의투자 영업일이 아닙니다"
+    broker = FakeBroker(raises={order_id: RejectedOrder(detail)})
+
+    pipeline.run(
+        seeded, ReplayClock(NOW), as_of=NOW, market="KR", targets=targets(),
+        holdings={}, equity=10_000_000.0, broker=broker,
+    )
+
+    orders = seeded.get("orders", as_of=NOW + timedelta(minutes=1), lookback=3)
+    orders["oid"] = [client_order_id(session=a, entity_id=b, slice_seq=int(c))
+                     for a, b, c in zip(orders["session_id"], orders["entity_id"],
+                                        orders["slice_seq"], strict=True)]
+    mine = orders[orders["oid"] == order_id].sort_values(["observed_at", "revision"])
+    assert mine.iloc[-1]["status"] == "rejected"
+    assert detail in str(mine.iloc[-1]["reason"])
+
+
+def test_전송하지_않은_Ack_의_사유도_장부에_남는다(seeded) -> None:
+    """``live_trading`` 이 꺼져 안 나간 것과 거래소가 막은 것은 다른 사건이다.
+    구분하려면 응답 코드·메시지가 장부에 있어야 한다."""
+
+    @dataclass
+    class NotLiveBroker:
+        def submit(self, order: PlannedOrder, *, as_of: datetime) -> Ack:
+            return Ack(
+                order_id=order.order_id, accepted=True, sent=False,
+                rsp_cd="00000", rsp_msg="execution.live_trading 꺼짐 — 전송하지 않았다",
+            )
+
+        def cancel(self, *, broker_order_no: str, entity_id: str, quantity: int) -> Ack:
+            return Ack(order_id=broker_order_no, accepted=True, sent=False)
+
+        def modify(
+            self, *, broker_order_no: str, entity_id: str, quantity: int, price: float
+        ) -> Ack:
+            return Ack(order_id=broker_order_no, accepted=True, sent=False)
+
+    pipeline.run(
+        seeded, ReplayClock(NOW), as_of=NOW, market="KR", targets=targets(),
+        holdings={}, equity=10_000_000.0, broker=NotLiveBroker(),
+    )
+
+    orders = seeded.get("orders", as_of=NOW + timedelta(minutes=1), lookback=3)
+    latest = orders.sort_values(["observed_at", "revision"]).iloc[-1]
+    assert "live_trading" in str(latest["reason"]) and "rsp_cd=00000" in str(latest["reason"])
+
+
 # -- 킬스위치는 브로커까지 가지도 못하게 막는다 -----------------------------------
 
 

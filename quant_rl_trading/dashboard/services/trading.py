@@ -435,7 +435,8 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
     as_of = context.as_of
     equity = valuation.equity_kr + valuation.equity_us * valuation.fx_rate
     nav = valuation.nav
-    reflection = executor_pipeline.action_reflection_rate(store, as_of=as_of)
+    detail = executor_pipeline.action_reflection_detail(store, as_of=as_of)
+    reflection = detail.rate
     floor = float(store.config("allocator.action_reflection_floor", as_of=as_of))
 
     previous = ledger_module.previous_session_snapshot(
@@ -579,6 +580,10 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
         "exposure": equity / nav if nav > 0 else None,
         "action_reflection": reflection,
         "action_reflection_floor": floor,
+        # 미측정(시세 없는 보유 종목 등)으로 계산에서 뺀 행 수. 경고 문구가
+        # "무엇을 빼고 센 값인지" 를 말할 수 있어야 한다.
+        "action_reflection_measured": detail.measured,
+        "action_reflection_skipped": detail.skipped,
         "positions": len([p for p in context.book.positions.values() if p.quantity > 0]),
     }
 
@@ -662,6 +667,11 @@ def alerts(kpi: dict[str, Any], risk_state: dict[str, Any]) -> list[dict[str, st
                     f"액션 반영률 {reflection * 100:.0f}% — "
                     f"하한 {kpi['action_reflection_floor'] * 100:.0f}% 미만이면 "
                     "RL 이 아니라 룰 시스템이다"
+                    + (
+                        f" (미측정 {kpi['action_reflection_skipped']}행 제외)"
+                        if kpi.get("action_reflection_skipped")
+                        else ""
+                    )
                 ),
             }
         )

@@ -426,8 +426,10 @@ def run(
         average_nav=sum(navs) / len(navs) if navs else 0.0,
         requested=requested,
         filled=filled,
+        # 잴 수 없으면(전부 미측정) 0 으로 적는다 — 요약 서식은 float 만 받는다.
         action_reflection=executor_pipeline.action_reflection_rate(
             store, as_of=last, lookback=(end - start).days + 1
-        ),
+        )
+        or 0.0,
     )
     return result

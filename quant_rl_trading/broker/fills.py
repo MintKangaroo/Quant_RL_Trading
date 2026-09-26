@@ -328,10 +328,14 @@ def _sync_fills_locked(
         outcome.order_id.split("|")[0] for outcome in outcomes
         if outcome.state is not FillState.UNKNOWN
     }
-    weights_module.refresh(store, clock, as_of=as_of, sessions=sessions)
     from quant_rl_trading.executor.action_journal import refresh_order_states
 
+    # **주문 상태를 먼저 갱신한다.** 실현비중 갱신은 회계 전체(NAV·시세)를
+    # 훑으므로 시세 결손 하나로 예외가 날 수 있다. 예전엔 그게 먼저여서,
+    # 터지면 trades 는 적혔는데 주문 상태는 낡은 채로 남았다 — 대사 도구가
+    # 죽을 때마다 주문이 영원히 "전송됨" 으로 보였다.
     refresh_order_states(store, clock, order_ids={item.order_id for item in pending})
+    weights_module.refresh(store, clock, as_of=as_of, sessions=sessions)
     return SyncResult(tuple(outcomes), written)
 
 

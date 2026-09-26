@@ -270,7 +270,55 @@ def test_액션_반영률을_계산한다(seeded) -> None:
     )
 
     rate = action_reflection_rate(seeded, as_of=NOW)
-    assert 0.0 <= rate <= 1.0
+    assert rate is not None and 0.0 <= rate <= 1.0
+
+
+def _realized(store, rows) -> None:  # type: ignore[no-untyped-def]
+    store.append(
+        "realized_weights",
+        [
+            {
+                "entity_id": entity, "valid_from": NOW, "observed_at": NOW,
+                "source": "test", "market": "KR", "session_id": "KR-2026-08-12",
+                "target_weight": target, "realized_weight": realized,
+            }
+            for entity, target, realized in rows
+        ],
+        ingest_run_id=f"rw-{len(rows)}-{rows[0][0]}",
+    )
+
+
+def test_미측정_한_행이_반영률을_0으로_만들지_않는다(seeded) -> None:
+    """**시세가 끊긴 종목 하나로 경고가 한 달을 헛울렸다** (2026-08~09).
+
+    못 판 종목의 realized_weight 는 None(모름)이다. 그걸 "반영 실패" 로 세면
+    나머지 23종목이 목표대로 집행돼도 반영률이 0% 로 떠서, CLAUDE.md 의
+    재발방지 경고가 30일 내내 거짓으로 울린다.
+    """
+    _realized(seeded, [("KR:A", 0.1, 0.1), ("KR:B", 0.1, 0.1), ("KR:Z", 0.1, None)])
+
+    detail = pipeline.action_reflection_detail(seeded, as_of=NOW)
+    assert detail.rate == pytest.approx(1.0)  # 잰 두 종목은 목표대로 집행됐다
+    assert (detail.measured, detail.skipped) == (2, 1)  # 몇 건 뺐는지 알 수 있다
+
+
+def test_전부_미측정이면_0이_아니라_모름이다(seeded) -> None:
+    """0.0 은 "RL 이 덮였다" 로 읽힌다. 잴 수 없었던 것과 구분한다."""
+    _realized(seeded, [("KR:A", 0.1, None), ("KR:B", 0.1, None)])
+
+    detail = pipeline.action_reflection_detail(seeded, as_of=NOW)
+    assert detail.rate is None
+    assert (detail.measured, detail.skipped) == (0, 2)
+    assert action_reflection_rate(seeded, as_of=NOW) is None
+
+
+def test_집행이_덮였으면_반영률은_여전히_낮다(seeded) -> None:
+    """미측정을 빼는 것이 "낮은 반영률을 숨긴다" 로 번지지 않는다."""
+    _realized(seeded, [("KR:A", 0.1, 0.0), ("KR:B", 0.1, 0.1), ("KR:Z", 0.1, None)])
+
+    detail = pipeline.action_reflection_detail(seeded, as_of=NOW)
+    assert detail.rate == pytest.approx(0.5)
+    assert detail.skipped == 1
 
 
 # -- 상장폐지 보유 데드락 ------------------------------------------------------------

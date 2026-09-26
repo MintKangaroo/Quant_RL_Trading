@@ -209,7 +209,11 @@ def run(
     # 슬리피지만큼 더 올려 낼 수 있어서 그 여유다. 사이징은 기준가로 예산을 재서 약 1% 가 어긋났고, 분할의 마지막 조각이
     # 매 세션 "insufficient unreserved cash" 로 막혔다(7세션 중 4, 세션당 2~6백만원 미집행). 예산을 그 비율로 줄여 맞춘다.
     slip = float(store.config("execution.max_slippage", as_of=as_of))
-    fee = float(store.config(f"accounting.fee_{str(market).lower()}", as_of=as_of))
+    # 키는 리터럴로 — 동적 이름이면 RL 캐시 지문 검사(test_cache_config_scope)가 읽는 설정을 못 본다.
+    fee = float(
+        store.config("accounting.fee_us", as_of=as_of) if str(market).upper() == "US"
+        else store.config("accounting.fee_kr", as_of=as_of)
+    )
     cushion = (1.0 + slip) ** 2 * (1.0 + fee)
     sized, skipped = size_orders(
         targets=targets,
@@ -595,9 +599,15 @@ def _submit_orders_locked(
         try:
             ack = broker.submit(item, as_of=execution_time)
         except RejectedOrder as error:
+            # **거부 사유를 장부에 남긴다.** 2026-09-23 KR 세션에서 70건이
+            # rejected 로 적혔는데 reason 이 전부 빈 문자열이었고, 진짜 사유
+            # (`rsp_cd=01410 모의투자 영업일이 아닙니다`)는 릴리스 로그에만
+            # 있었다. 로그는 순환 삭제되고 장부는 남는다 — 사유가 장부에 없으면
+            # 한 달 뒤엔 "왜 다 거부됐는지" 를 아무도 말할 수 없다.
             acks.append(Ack(order_id=item.order_id, accepted=False, sent=False, rsp_msg=str(error)))
             _record_submit_result(
-                store, clock, item, as_of=as_of, market=market, status=STATUS_REJECTED
+                store, clock, item, as_of=as_of, market=market, status=STATUS_REJECTED,
+                reason=f"거부 — {error}"[:300],
             )
             if budget is not None and reservation is not None:
                 budget.reservations.pop(reservation.key, None)
@@ -641,8 +651,22 @@ def _submit_orders_locked(
                 STATUS_REJECTED if not ack.accepted else STATUS_SENT if ack.sent else STATUS_PAPER
             ),
             broker_order_no=ack.broker_order_no if ack.sent else None,
+            # 미전송(paper·live_trading 꺼짐)·거부 Ack 의 응답 메시지도 장부로
+            # 옮긴다. 전송된 건은 reason 칸이 broker_order_no 몫이다(위 참조) —
+            # 대사·예산이 그 열쇠로 주문을 찾으므로 그쪽이 먼저다.
+            reason=("" if ack.sent else _ack_reason(ack)),
         )
     return acks
+
+
+def _ack_reason(ack: Ack) -> str:
+    """Ack 의 응답 코드·메시지를 장부에 적을 한 줄로."""
+    parts = []
+    if ack.rsp_cd:
+        parts.append(f"rsp_cd={ack.rsp_cd}")
+    if ack.rsp_msg:
+        parts.append(str(ack.rsp_msg))
+    return " ".join(parts)[:300]
 
 
 def _record_submit_result(
@@ -717,20 +741,67 @@ def record_realized_weights(
     return store.append(REALIZED_WEIGHTS, rows, ingest_run_id=run_id, source=SOURCE)
 
 
-def action_reflection_rate(store: Store, *, as_of: datetime, lookback: int = 30) -> float:
+@dataclass(frozen=True)
+class ReflectionDetail:
+    """반영률 한 번의 계산 결과. **뺀 행 수를 같이 들고 다닌다.**
+
+    숫자만 돌려주면 "0% 경고" 가 무엇 때문인지 화면에서 알 수 없다.
+    """
+
+    #: 측정 가능한 행이 하나도 없으면 None ("모름"). 0.0 과 다르다.
+    rate: float | None
+    #: 계산에 쓴 행 수.
+    measured: int
+    #: realized_weight 가 비어 계산에서 뺀 행 수.
+    skipped: int
+
+    @property
+    def entities_note(self) -> str:
+        if not self.skipped:
+            return ""
+        return f"미측정 {self.skipped}행 제외 (측정 {self.measured}행)"
+
+
+def action_reflection_detail(
+    store: Store, *, as_of: datetime, lookback: int = 30
+) -> ReflectionDetail:
     """**액션 반영률** — RL 이 낸 결정 중 실제로 집행된 비율.
 
     선행 프로젝트가 룰로 전락한 유력 원인은 안전장치가 RL 출력을 덮어쓴
     것이다. **30% 미만이면 그건 RL 이 아니라 룰 시스템이다** (CLAUDE.md).
     M4 전에도 계산해 둔다 — 룰 베이스라인에서도 같은 방식으로 덮이기 때문이다.
+
+    ## 미측정 행은 빼고 센다
+
+    예전엔 창 안에 ``realized_weight`` 가 비어 있는 행이 **하나라도** 있으면
+    0.0 을 돌려줬다. 그런데 시세가 끊긴 종목(거래정지·상장폐지) 하나를 들고
+    있으면 `record_realized_weights` 가 그 종목에 None 을 남긴다. 그래서
+    2026-08~09 에 못 파는 종목 하나 때문에 반영률이 **30일 내내 0%** 로 떠서
+    CLAUDE.md 의 재발방지 경고가 한 달을 헛울렸다.
+
+    미측정은 "반영 실패" 가 아니라 "모름" 이다. 그 행만 분자·분모에서 빼고,
+    **전부 모름일 때만** ``rate=None`` 으로 돌려준다 — 그때도 0.0 이 아니다.
+    0.0 이면 "RL 이 덮였다" 로 읽히는데 실제로는 잴 수 없었던 것이다.
     """
     frame = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=lookback)
     if frame.empty:
-        return 0.0
-    if frame["realized_weight"].isna().any():
-        return 0.0  # 미측정을 반영률 성공으로 승인하지 않는다.
-    target = frame["target_weight"].abs().sum()
+        return ReflectionDetail(None, 0, 0)
+    missing = frame["realized_weight"].isna()
+    skipped = int(missing.sum())
+    usable = frame[~missing]
+    if usable.empty:
+        return ReflectionDetail(None, 0, skipped)
+    target = usable["target_weight"].abs().sum()
     if target <= 0:
-        return 0.0
-    matched = 1.0 - (frame["target_weight"] - frame["realized_weight"]).abs().sum() / target
-    return max(0.0, min(1.0, float(matched)))
+        return ReflectionDetail(0.0, int(len(usable)), skipped)
+    matched = 1.0 - (usable["target_weight"] - usable["realized_weight"]).abs().sum() / target
+    return ReflectionDetail(
+        max(0.0, min(1.0, float(matched))), int(len(usable)), skipped
+    )
+
+
+def action_reflection_rate(
+    store: Store, *, as_of: datetime, lookback: int = 30
+) -> float | None:
+    """:func:`action_reflection_detail` 의 비율만. 잴 수 없으면 None."""
+    return action_reflection_detail(store, as_of=as_of, lookback=lookback).rate

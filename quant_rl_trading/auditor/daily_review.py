@@ -29,7 +29,7 @@ from typing import Any
 
 from quant_rl_trading.accounting import performance as performance_module
 from quant_rl_trading.executor import pipeline as executor_pipeline
-from quant_rl_trading.replay.cache import AgentCache, CacheKey, features_hash
+from quant_rl_trading.replay.cache import CACHE_TABLE, AgentCache, CacheKey, features_hash
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.store import Store
 from quant_rl_trading.store import mode as store_mode
@@ -77,6 +77,11 @@ TOOL = {
 }
 
 
+def _run_id(entity: str, as_of: datetime, digest: str) -> str:
+    """리뷰 한 편의 실행 id — (에이전트, 대상, 세션, 사실 지문). `reviews` 와 `agent_cache` 가 같이 쓴다."""
+    return f"{AGENT}-{entity}-{as_of:%Y%m%dT%H%M%S}-{digest}"
+
+
 def _session_moment(session: Any, fallback: datetime) -> datetime:
     """회계 세션 날짜 → 그날 장 마감(15:40 KST). 없으면 호출 시각."""
     from datetime import date, time
@@ -115,10 +120,18 @@ def gather_facts(store: Store, *, as_of: datetime, market: str) -> dict[str, Any
         "note": perf.get("note"),
     }
     try:
-        reflection = executor_pipeline.action_reflection_rate(store, as_of=as_of)
-        facts["action_reflection_rate"] = round(reflection, 4) if reflection is not None else None
+        detail = executor_pipeline.action_reflection_detail(store, as_of=as_of)
+        facts["action_reflection_rate"] = (
+            round(detail.rate, 4) if detail.rate is not None else None
+        )
+        # 미측정 행 수를 같이 남긴다 — 낮은 반영률이 "덮였다" 인지 "못 쟀다" 인지
+        # 리뷰 본문이 구분할 수 있어야 한다.
+        facts["action_reflection_measured"] = detail.measured
+        facts["action_reflection_skipped"] = detail.skipped
     except Exception as exc:  # 반영률은 부가 정보다 — 없어도 리뷰는 쓴다
         facts["action_reflection_rate"] = None
+        facts["action_reflection_measured"] = None
+        facts["action_reflection_skipped"] = None
         logger.info("반영률을 못 읽었다: %s", exc)
     facts["benchmark"] = _benchmark_move(store, as_of=as_of, market=market)
     return facts
@@ -199,7 +212,15 @@ class DailyReviewer:
             skipped = {"tone": "quiet", "headline": "API 키가 없어 리뷰를 쓰지 않았다", "body": ""}
             return self._record(entity, as_of, facts, skipped, digest, status="skipped_no_key")
         output = self._ask(facts, as_of=as_of)
-        cache.put(key, output, ingest_run_id=f"{AGENT}-{entity}-{as_of:%Y%m%dT%H%M%S}")
+        # 캐시 행의 자연키에는 features_hash 가 들어간다 — 실행 id 도 그래야 한다.
+        # 세션만으로 id 를 만들었더니, 휴장일 재실행이 같은 세션의 **달라진 사실**로
+        # 왔을 때 캐시는 못 맞히고(digest 가 다르다) 실행 id 만 부딪혀
+        # DuplicateIngestRun 으로 죽었다 — LLM 값은 이미 치른 뒤였다 (2026-09-23/24).
+        run_id = _run_id(entity, as_of, digest)
+        if self.store.ingest_run_recorded(CACHE_TABLE, run_id):
+            logger.info("%s 캐시 행은 이미 적재됐다 — 다시 쓰지 않는다", run_id)
+        else:
+            cache.put(key, output, ingest_run_id=run_id)
         return self._record(entity, as_of, facts, output, digest, status="written")
 
     # -- LLM --------------------------------------------------------------------
@@ -266,7 +287,7 @@ class DailyReviewer:
             "tone": str(output.get("tone") or "quiet"), "model": self.model,
             "features_hash": digest, "status": status,
         }
-        run_id = f"{AGENT}-{entity}-{as_of:%Y%m%dT%H%M%S}-{digest}"
+        run_id = _run_id(entity, as_of, digest)
         if not self.store.ingest_run_recorded(TABLE, run_id):
             self.store.append(TABLE, [row], ingest_run_id=run_id)
         return {**row, "facts": facts}

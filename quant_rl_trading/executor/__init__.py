@@ -45,6 +45,8 @@ from quant_rl_trading.executor.orders import (
 )
 from quant_rl_trading.executor.pipeline import (
     ExecutionResult,
+    ReflectionDetail,
+    action_reflection_detail,
     action_reflection_rate,
     record_orders,
     record_realized_weights,
@@ -70,12 +72,14 @@ __all__ = [
     "OpenOrder",
     "OrderStatus",
     "PlannedOrder",
+    "ReflectionDetail",
     "Sized",
     "SizingParams",
     "Skipped",
     "SliceParams",
     "SupervisionResult",
     "Target",
+    "action_reflection_detail",
     "action_reflection_rate",
     "apply_fill",
     "check_circuit_breaker",
