@@ -370,3 +370,29 @@ def test_슬리브_곡선_끝은_카드_숫자와_같다(warehouse) -> None:
     assert got is not None and card is not None
     assert got.index[-1] == pytest.approx(card.index_value)
     assert got.daily[-1] == pytest.approx(0.05) and got.currency == USD
+
+
+def test_한_종목의_조각_부분체결이_여러_건이어도_실현손익은_곱해지지_않는다(warehouse) -> None:
+    """브로커 체결 order_id 는 ``세션|종목|조각#누적`` 이다. 예전 키(앞머리|종목)가 한 세션·종목의 체결을 하나로 접어,
+    마지막 체결의 손익이 **모든 체결 행에** 붙고 합계가 체결 수만큼 곱해졌다(9/16 KR:100700 매도 16건, 2026-09-26 점검)."""
+    warehouse.append("capital_flows", [flow(DAY1, 10_000_000.0)], ingest_run_id="flows")
+    warehouse.append("nav_daily", [nav_row(DAY1), nav_row(DAY2)], ingest_run_id="nav")
+    entity = "KR:100700"
+    warehouse.append("trades", [trade(DAY1, entity, "buy", 30.0, 1_000.0, f"KR-2026-03-01|{entity}|0#30")],
+                     ingest_run_id="buy")
+    sells = [  # 조각 0 에서 두 번, 조각 1 에서 한 번 — 체결가가 다 다르다
+        trade(DAY2, entity, "sell", 10.0, 1_100.0, f"KR-2026-03-02|{entity}|0#10"),
+        trade(DAY2 + timedelta(minutes=5), entity, "sell", 10.0, 1_050.0, f"KR-2026-03-02|{entity}|0#20"),
+        trade(DAY2 + timedelta(minutes=9), entity, "sell", 10.0, 990.0, f"KR-2026-03-02|{entity}|1#10"),
+    ]
+    warehouse.append("trades", sells, ingest_run_id="sells")
+
+    perf = performance.daily(warehouse, as_of=LATER)
+    # 10×100 + 10×50 + 10×(−10) = 1,400. 옛 키면 마지막 체결(−100)이 세 번 = −300 이었다.
+    assert perf.realized_pnl == pytest.approx(1_400.0)
+    assert sorted(f.realized_pnl for f in perf.fills) == pytest.approx([-100.0, 500.0, 1_000.0])
+
+    by_order = performance.realized_by_order(performance.realized_by_trade(warehouse, as_of=LATER))
+    assert by_order[f"KR-2026-03-02|{entity}|0"]["realized_pnl"] == pytest.approx(1_500.0)
+    assert by_order[f"KR-2026-03-02|{entity}|1"]["realized_pnl"] == pytest.approx(-100.0)
+    assert by_order[f"KR-2026-03-02|{entity}"]["realized_pnl"] == pytest.approx(1_400.0)

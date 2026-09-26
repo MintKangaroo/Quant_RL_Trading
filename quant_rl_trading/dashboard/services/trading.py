@@ -929,19 +929,21 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
             # 백테스트 체결의 order_id 는 "{세션}|{종목}|{방향}" 이고, 브로커 체결은 "{세션}|{종목}|{조각}#{누적수량}" 이다.
             # **브로커 체결은 조각 단위로 맞춘다.** 종목 단위로 맞추면 09:20 에 체결된 조각 0 이 10:00 에 낸 조각 1 에도
             # 붙어, 아직 장부에 없는 조각이 "filled" 로 보였고 대사 칸이 수량 불일치 13건을 critical 로 띄웠다(2026-09-23 10:14).
-            parts = str(row["order_id"]).split("|")
-            slice_part = parts[2].split("#")[0] if len(parts) >= 3 else ""
-            key = f"{parts[0]}|{row['entity_id']}" + (f"|{slice_part}" if slice_part.isdigit() else "")
-            filled[key] = {
-                "price": float(row["price"]),
-                "quantity": float(row["quantity"]),
-                "fee": float(row["fee"]),
-                "tax": float(row["tax"]),
-            }
+            #
+            # **한 조각의 부분 체결 여러 행을 합친다**(2026-09-26 점검). 예전엔 덮어써서 마지막 체결 한 번의 수량·가격만
+            # 남았다 — 전량 체결된 조각이 "partial" 로, 체결가가 마지막 한 건 값으로 보였다. 가격은 수량 가중 평균.
+            base, piece = performance_module.order_keys(str(row["order_id"]), str(row["entity_id"]))
+            key = piece or base
+            acc = filled.setdefault(key, {"price": 0.0, "quantity": 0.0, "fee": 0.0, "tax": 0.0, "value": 0.0})
+            acc["quantity"] += float(row["quantity"])
+            acc["value"] += float(row["quantity"]) * float(row["price"])
+            acc["fee"] += float(row["fee"])
+            acc["tax"] += float(row["tax"])
+            acc["price"] = acc["value"] / acc["quantity"] if acc["quantity"] else float(row["price"])
 
     if frame.empty:
         return []
-    realized = _realized_by_trade(store, as_of)
+    realized = performance_module.realized_by_order(_realized_by_trade(store, as_of))
     names = _names(store, as_of=as_of, entities=sorted(set(frame["entity_id"])))
     rows: list[dict[str, Any]] = []
     ordered = frame.sort_values(["valid_from", "observed_at"], ascending=False)
@@ -955,6 +957,15 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
         match = filled.get(f"{key}|{int(row['slice_seq'])}") if "slice_seq" in row and pd.notna(row["slice_seq"]) else None
         if match is None:
             match = filled.get(key)  # 백테스트 체결(조각 없는 order_id)
+        # 실현손익도 체결과 같은 단위로 — 조각 체결이 있으면 그 조각만, 백테스트 체결(조각 없음)이면 세션·종목 합.
+        # 조각 체결이 없는 조각에 세션 합을 붙이면 안 판 조각이 판 것처럼 보인다.
+        piece_key = f"{key}|{int(row['slice_seq'])}" if "slice_seq" in row and pd.notna(row["slice_seq"]) else None
+        if piece_key and piece_key in filled:
+            realized_row = realized.get(piece_key) or {}
+        elif match is not None:
+            realized_row = realized.get(key) or {}
+        else:
+            realized_row = {}
         rows.append(
             {
                 "time": pd.Timestamp(row["valid_from"]).isoformat(),
@@ -984,10 +995,11 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
                 "fill_price": match["price"] if match else None,
                 "fill_quantity": match["quantity"] if match else None,
                 "cost": (match["fee"] + match["tax"]) if match else None,
-                # **매도에만 붙는다.** 매수에 0 을 넣으면 "본전" 으로 읽힌다.
-                "realized_pnl": (realized.get(key) or {}).get("realized_pnl"),
-                "realized_rate": (realized.get(key) or {}).get("realized_rate"),
-                "currency": (realized.get(key) or {}).get("currency"),
+                # **매도에만 붙는다.** 매수에 0 을 넣으면 "본전" 으로 읽힌다. 조각 단위가 있으면 그 조각의 합, 없으면
+                # (백테스트 체결) 세션·종목 합.
+                "realized_pnl": realized_row.get("realized_pnl"),
+                "realized_rate": realized_row.get("realized_rate"),
+                "currency": realized_row.get("currency"),
                 "target_weight": float(row["target_weight"]),
                 "session_id": session,
                 # 체결 지연은 실거래에서만 잰다. 0 으로 채우면 "빠르다" 로 읽힌다.

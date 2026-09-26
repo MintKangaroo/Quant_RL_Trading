@@ -232,8 +232,10 @@ def realized_by_trade(store: Store, *, as_of: datetime) -> dict[str, dict[str, A
     수익률의 분모는 **취득원가**(평단 × 수량)다. 매도대금으로 나누면 손실이
     난 거래에서 분모가 작아져 손실률이 실제보다 작아 보인다.
 
-    키는 ``"{주문번호 앞머리}|{종목}"`` 이다 — 백테스트 체결의 ``order_id``
-    는 ``"{세션}|{종목}|{방향}"`` 이라 앞머리가 세션이 된다.
+    **키는 체결 한 행**(``trade_key``)이다. 예전 키 ``"{주문번호 앞머리}|{종목}"`` 는 브로커 체결
+    (``"{세션}|{종목}|{조각}#{누적}"``)을 세션·종목 하나로 접어, 마지막 체결의 손익만 남긴 채 그 값이 그 종목의
+    **모든 체결 행에** 붙었다 — 합계가 체결 건수만큼 곱해졌다(9/16 KR:100700 ×16, 2026-09-26 점검). 주문·세션 단위
+    합계가 필요하면 ``realized_by_order`` 로 접는다.
     """
     frame = store.get(ledger.TRADES, as_of=as_of)
     if frame.empty:
@@ -268,13 +270,47 @@ def realized_by_trade(store: Store, *, as_of: datetime) -> dict[str, dict[str, A
         if side is not Side.SELL:
             continue
         realized = book.realized_pnl.get(currency, 0.0) - before
-        key = f"{str(row['order_id']).split('|')[0]}|{entity}"
-        out[key] = {
+        out[trade_key(row)] = {
             "realized_pnl": realized,
             "realized_rate": (realized / basis) if basis else None,
+            "basis": basis,
             "currency": currency,
+            "order_id": str(row["order_id"]),
+            "entity_id": entity,
         }
     return out
+
+
+def trade_key(row: Any) -> str:
+    """체결 한 행의 키 — 창고가 행마다 붙이는 ``row_hash``. 없으면 주문번호·종목·시각."""
+    value = row.get("row_hash") if hasattr(row, "get") else None
+    if value is not None and str(value) not in ("", "nan", "None"):
+        return str(value)
+    return f"{row['order_id']}|{row['entity_id']}|{row['valid_from']}"
+
+
+def order_keys(order_id: str, entity: str) -> tuple[str, str | None]:
+    """체결의 ``order_id`` 에서 (세션|종목, 세션|종목|조각). 백테스트 체결(``세션|종목|방향``)은 조각 키가 없다."""
+    parts = str(order_id).split("|")
+    base = f"{parts[0]}|{entity}"
+    piece = parts[2].split("#")[0] if len(parts) >= 3 else ""
+    return base, (f"{base}|{piece}" if piece.isdigit() else None)
+
+
+def realized_by_order(realized: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """체결별 실현손익을 **조각**(세션|종목|조각)과 **세션·종목**(세션|종목) 단위로 합친다. 수익률 = 손익 합 ÷ 취득원가 합."""
+    sums: dict[str, dict[str, Any]] = {}
+    for item in realized.values():
+        base, piece = order_keys(item["order_id"], item["entity_id"])
+        for key in (base, piece):
+            if key is None:
+                continue
+            acc = sums.setdefault(key, {"realized_pnl": 0.0, "basis": 0.0, "currency": item["currency"]})
+            acc["realized_pnl"] += item["realized_pnl"]
+            acc["basis"] += item["basis"]
+    for acc in sums.values():
+        acc["realized_rate"] = (acc["realized_pnl"] / acc["basis"]) if acc["basis"] else None
+    return sums
 
 
 def fills(store: Store, *, as_of: datetime, session: date) -> list[Fill]:
@@ -303,8 +339,7 @@ def fills(store: Store, *, as_of: datetime, session: date) -> list[Fill]:
     rows: list[Fill] = []
     for row in ledger._ordered(frame):
         entity = str(row["entity_id"])
-        key = f"{str(row['order_id']).split('|')[0]}|{entity}"
-        match = realized.get(key) or {}
+        match = realized.get(trade_key(row)) or {}
         rows.append(
             Fill(
                 entity_id=entity,
