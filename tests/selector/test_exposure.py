@@ -350,3 +350,25 @@ def test_밴드보다_확실히_작은_차이는_여전히_유지한다() -> Non
 
     assert decision.scale == 0.6
     assert decision.driver == "deadband"
+
+
+class _ActionStore:
+    """exposure_actions 한 행만 돌려주는 창고."""
+
+    def __init__(self, valid_from: datetime, scale: float) -> None:
+        self._row = {"entity_id": "KR", "valid_from": valid_from, "observed_at": valid_from,
+                     "source": "hmm-v1", "scale": scale}
+
+    def get(self, table: str, **kwargs: object) -> pd.DataFrame:  # noqa: ARG002
+        return pd.DataFrame([self._row])
+
+
+def test_학습_노출은_그_세션의_행동만_쓴다() -> None:
+    """22:50 부품이 죽으면 창(10일) 안의 금요일 행동이 월·화·수에 조용히 쓰였다(2026-09-26 감사) — HMM vs V6 비교가 오염된다.
+    세션 시각과 같은 시각에 적힌 행동만 쓰고, 낡았으면 None(호출자가 규칙으로 물러서며 그 사실을 남긴다)."""
+    from quant_rl_trading.selector.exposure import learned_decision
+
+    same = learned_decision(_ActionStore(NOW, 0.8), as_of=NOW, market="KR", source="hmm-v1")  # type: ignore[arg-type]
+    assert same is not None and same.scale == pytest.approx(0.8)
+    stale = learned_decision(_ActionStore(NOW - timedelta(days=3), 0.8), as_of=NOW, market="KR", source="hmm-v1")  # type: ignore[arg-type]
+    assert stale is None

@@ -52,7 +52,7 @@ import json
 from collections.abc import Sequence
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -401,6 +401,10 @@ def apply(weights: dict[str, float], decision: ExposureDecision) -> dict[str, fl
 ACTIONS = "exposure_actions"
 #: 행동을 찾는 창(달력일). 연휴를 넘기되 너무 오래된 행동을 쓰지 않게.
 ACTION_LOOKBACK_DAYS = 10
+#: **그 세션의 행동만 쓴다.** 부품은 행동을 세션과 같은 시각(`snapshot_moment`)으로 적는다 — 그보다 이만큼 넘게 오래됐으면
+#: 다른 세션의 행동이다. 예전엔 창 안의 최신 행을 날짜 검사 없이 써서, 22:50 부품이 죽으면 금요일 배수로 월·화·수를 돌았다
+#: (2026-09-26 감사). 연휴에 같은 세션이 반복되면 as_of 도 그 세션이라 여전히 맞는다.
+ACTION_MAX_AGE = timedelta(hours=12)
 
 
 def source_config(store: Store, *, as_of: datetime) -> str:
@@ -422,6 +426,8 @@ def learned_decision(store: Store, *, as_of: datetime, market: str, source: str)
     if rows.empty:
         return None
     latest = rows.sort_values(["valid_from", "observed_at"]).iloc[-1]
+    if pd.Timestamp(latest["valid_from"]) < pd.Timestamp(as_of) - ACTION_MAX_AGE:
+        return None   # 낡은 행동 — 호출자가 "행동이 없다 — 규칙으로 물러섰다" 를 남긴다
     scale = float(latest["scale"])
     return ExposureDecision(scale=min(1.0, max(FLOOR, scale)), driver=f"learned:{source}",
                             notes=[f"{source} 노출 {scale:.2f} ({pd.Timestamp(latest['valid_from']).date()})"])

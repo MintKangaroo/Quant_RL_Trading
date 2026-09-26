@@ -418,7 +418,7 @@ def run(
             # `tools/v2_hmm_daily.py` 같은 부품이 창고에 적어 둔다. 없으면 규칙으로 물러서고 그 사실을 남긴다.
             decision = exposure.learned_decision(store, as_of=as_of, market=market, source=source)
             if decision is None:
-                result.notes.append(f"학습 노출({source}) 행동이 없다 — 규칙 노출로 물러섰다")
+                result.notes.append(f"학습 노출({source}) 행동이 없거나 이 세션 것이 아니다 — 규칙 노출로 물러섰다")
     if decision is None:
         decision = exposure.decide(
             store,
