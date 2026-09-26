@@ -20,4 +20,7 @@ S&P500 규칙 국면 "bear" 세션(174)에서 상위 24 선정(C10)이 SPY 를 �
 
 ## 모델 해시 (--freeze 뒤 적는다)
 
-(비어 있음)
+학습 ~2026-06-12 · 958,636행 · 피처 ['chart', 'event', 'flow', 'fundamental', 'regime', 'risk'] · 타깃 y5 rank-gauss(미장 거래대금 상위 1,000 · 보통주·ADR)
+- `BD-loop-s0` a928bbbc0178a196
+- `BD-loop-s1` 55b7e31dccbf3384
+- `BD-loop-s2` bb3016f0c8304a7c

@@ -1,10 +1,11 @@
-"""시행 AQ·AR — 홀드아웃 11월 개봉 때 심사할 모델을 **지금 얼린다**.
+"""시행 AQ·AR·AS·BD — 홀드아웃 11월 개봉 때 심사할 모델을 **지금 얼린다**.
 
     .venv/bin/python tools/trial_insider_forward.py --freeze
 
 - AR(docs/protocols/insider-forward-2026-09.md): 6차 패널(국장+미장 한 모델, is_us)로 {대조, 대조+G4+G7} × 시드 0·1·2.
 - AQ(docs/protocols/breadth72-forward-2026-09.md): 확장 패널 국장 루프 GBM(시행 L 규격) × 시드 0·1·2 — 원천 ②③④.
 - AS(docs/protocols/raw-feature-vault-2026-09.md): 시행 W 의 처리(원피처 35 + is_us) × 시드 0·1·2. 대조는 AR 대조 모델과 같은 규격이라 다시 굽지 않는다.
+- BD(docs/protocols/us-regime-switch-vault-2026-11.md): 미장 루프 GBM(시행 AT 패널) × 시드 0·1·2 — `--freeze --trials BD`.
 
 학습 자료는 금고 전(2026-06-30)까지, 라벨이 금고 가격에 닿는 마지막 5세션은 퍼지한다. 모델 문자열의 sha256 을 두 등록 문서
 "모델 해시" 절에 적는다 — 판정 때 다시 학습하지 않고 이 파일을 읽는다. 판정부(--judge)는 금고 개봉(2026-11-23) 전에
@@ -33,7 +34,8 @@ from tools.trial_ranker_sources import GROUPS, attach, build_panel  # noqa: E402
 
 OUT = Path("data/_diag/vault-reviews")
 PROTOCOLS = {"AR": Path("docs/protocols/insider-forward-2026-09.md"), "AQ": Path("docs/protocols/breadth72-forward-2026-09.md"),
-             "AS": Path("docs/protocols/raw-feature-vault-2026-09.md")}
+             "AS": Path("docs/protocols/raw-feature-vault-2026-09.md"),
+             "BD": Path("docs/protocols/us-regime-switch-vault-2026-11.md")}
 SEEDS = (0, 1, 2)
 INSIDER = ("G4", "G7")
 
@@ -130,6 +132,26 @@ def freeze_aq() -> list[str]:
     return rows
 
 
+def freeze_bd(store: Store) -> list[str]:
+    """시행 BD — 미장 루프 GBM(시행 AT 와 같은 패널·피처·y5 rank-gauss) × 시드 0·1·2, 금고 전까지 학습.
+
+    판정 때 이 모델로 금고 창 점수를 내고, AT M1 합성(fundamental 결측 처리)은 판정부가 그 점수 위에서 한다.
+    """
+    from tools.trial_us_index_minus_losers import FEATS as US_FEATS
+    from tools.trial_us_kit import us_panel
+
+    panel, sessions, _, _ = us_panel(store)
+    train_end = sessions[-PURGE - 1]
+    train = panel[(panel["session"] <= train_end) & panel["y5"].notna()]
+    X, y = train[US_FEATS].to_numpy(np.float32), train["y5"].to_numpy(np.float32)
+    rows = [f"학습 ~{train_end} · {len(train):,}행 · 피처 {list(US_FEATS)} · 타깃 y5 rank-gauss(미장 거래대금 상위 1,000 · 보통주·ADR)"]
+    for s in SEEDS:
+        digest = _save(fit(X, y, seed=s), f"BD-loop-s{s}")
+        rows.append(f"- `BD-loop-s{s}` {digest}")
+        print(rows[-1], flush=True)
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--freeze", action="store_true")
@@ -146,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
         _record("AR", freeze_ar(store))
     if "AS" in trials:
         _record("AS", freeze_as())
+    if "BD" in trials:
+        _record("BD", freeze_bd(store))
     return 0
 
 

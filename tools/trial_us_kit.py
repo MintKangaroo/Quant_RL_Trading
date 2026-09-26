@@ -42,6 +42,12 @@ def build(store: Store) -> None:
     if (CACHE / f"pred-seed{SEEDS[-1]}.pkl").exists():
         return
     CACHE.mkdir(parents=True, exist_ok=True)
+    panel, sessions, close, bench_close = us_panel(store)
+    _walk_and_cache(panel, sessions, close, bench_close)
+
+
+def us_panel(store: Store) -> tuple[pd.DataFrame, list, pd.DataFrame, pd.Series]:
+    """AT 와 같은 미장 패널(거래대금 상위 1,000 · 보통주·ADR · FEATS rank-gauss · y5). 시행 BD 가 금고 전 모델을 얼릴 때도 이것을 쓴다."""
     now = datetime.combine(JUDGE_END, time(23), tzinfo=UTC)
     span = (JUDGE_END - JUDGE_START).days + 60
     prices = read_prices(store, as_of=now, lookback=span + 40, columns=["close", "volume"], adjusted=True, market="US")
@@ -75,6 +81,10 @@ def build(store: Store) -> None:
     panel = panel[(panel["session"] >= JUDGE_START) & (panel["session"] <= JUDGE_END)]
     panel = rank_gauss(panel, [*FEATS, "y5"])
     sessions = sorted(panel["session"].unique())
+    return panel, sessions, close, bench_close
+
+
+def _walk_and_cache(panel: pd.DataFrame, sessions: list, close: pd.DataFrame, bench_close: pd.Series) -> None:
     bl, start = [], MIN_TRAIN + PURGE
     while start + BLOCK <= len(sessions):
         bl.append((start, start + BLOCK - 1))
