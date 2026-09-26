@@ -32,6 +32,16 @@ def main(argv: list[str] | None = None) -> int:
     load_env()
     clock = LiveClock()
     now = clock.now()
+    # **휴장일엔 쓰지 않는다**(2026-09-26 점검). 크론이 월~금이라 추석 9/24·9/25 에도 돌았고, 사실이 조금만 달라도 LLM 을
+    # 다시 불러 값을 치렀다(리뷰할 새 세션이 없는데). --dry-run 은 사실 확인용이라 막지 않는다.
+    from zoneinfo import ZoneInfo
+
+    from quant_rl_trading.collectors.market_hours import Market, is_trading_day
+
+    tz = ZoneInfo("Asia/Seoul" if args.market == "KR" else "America/New_York")
+    if not args.dry_run and not is_trading_day(Market(args.market), now.astimezone(tz).date()):
+        print(f"오늘({now.astimezone(tz).date()})은 {args.market} 휴장이다 — 리뷰하지 않는다")
+        return 0
     facts_store = Store(root=Path(args.store))
     store = build_store(args.data_root)
     if args.dry_run:

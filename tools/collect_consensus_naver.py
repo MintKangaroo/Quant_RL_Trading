@@ -47,16 +47,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default="data")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--day", help="YYYY-MM-DD (기본: 오늘 이전 마지막 거래일)")
+    parser.add_argument("--allow-stale", action="store_true",
+                        help="--day 가 기본 세션보다 과거여도 받는다. 원본은 '지금 값' 만 주므로 과거 사실로 적히는 것은 오늘 스냅샷이다")
     args = parser.parse_args(argv)
     clock = LiveClock(); now = clock.now()
     store = Store(root=Path(args.root))
     from datetime import date, timedelta
-    if args.day:
-        day = date.fromisoformat(args.day)
-    else:
-        here = now.astimezone(__import__("zoneinfo").ZoneInfo("Asia/Seoul")).date()
-        days = trading_days(Market.KR, here - timedelta(days=14), here)
-        day = days[-1] if days else here
+    here = now.astimezone(__import__("zoneinfo").ZoneInfo("Asia/Seoul")).date()
+    days = trading_days(Market.KR, here - timedelta(days=14), here)
+    default_day = days[-1] if days else here
+    day = date.fromisoformat(args.day) if args.day else default_day
+    if day < default_day and not args.allow_stale:
+        # **원본은 날짜를 받지 않는다 — 지금 값만 준다**(2026-09-26 점검). 과거 --day 로 받으면 오늘 스냅샷이 그날 사실로 적혀
+        # 평평한 가짜 이력이 되고 IC 측정이 그것을 진짜로 읽는다. 백필이 아니라 point-in-time 원본이 필요한 일이다.
+        print(f"--day {day} 는 기본 세션 {default_day} 보다 과거다 — 원본이 과거 값을 주지 않아 오늘 스냅샷이 과거 사실이 된다. "
+              "정말 필요하면 --allow-stale", file=sys.stderr)
+        return 2
     fail_ratio = max_fail_ratio(store, now)
     run_id = nc.run_id_for(day, limit=args.limit)
     if store.ingest_run_recorded(nc.CONSENSUS, run_id):
