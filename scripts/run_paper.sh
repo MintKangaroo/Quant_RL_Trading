@@ -24,9 +24,17 @@ RC=0
             # **오늘이 국장 휴장이면 주문을 내지 않는다** (2026-09-24 추석). 세션은 직전 거래일 데이터로 결정하고 **오늘** 주문을
             # 내는데, 휴장일엔 증권사가 전부 "모의투자 영업일이 아닙니다"(01410)로 거부했다. 해가 없었지만 로그가 거부로 가득 차고
             # 그 세션의 주문은 '거부' 로 적혀 다음 거래일에 다시 나가지 않는다. 다음 거래일 08:40 이 직전 거래일로 새로 결정한다.
-            if ! .venv/bin/python -c "import sys; from datetime import datetime; from zoneinfo import ZoneInfo; from quant_rl_trading.collectors.market_hours import Market, is_trading_day; sys.exit(0 if is_trading_day(Market.KR, datetime.now(ZoneInfo('Asia/Seoul')).date()) else 1)"; then
+            #
+            # **판정은 10(거래일)·11(휴장)로만 답한다**(2026-09-26 점검). 예전엔 `if ! python` 이라 import 오류·venv 손상도
+            # 종료코드 1 = "휴장" 으로 읽혀 거래일에 주문 없이 rc=0 으로 끝날 수 있었다. 그 밖의 값은 판정 실패로 rc=3.
+            .venv/bin/python -c "import sys; from datetime import datetime; from zoneinfo import ZoneInfo; from quant_rl_trading.collectors.market_hours import Market, is_trading_day; sys.exit(10 if is_trading_day(Market.KR, datetime.now(ZoneInfo('Asia/Seoul')).date()) else 11)"
+            DAY=$?
+            if [ "${DAY}" -eq 11 ]; then
                 echo "오늘은 국장 휴장이다 — 주문을 내지 않는다"
                 RC=0
+            elif [ "${DAY}" -ne 10 ]; then
+                echo "⚠️ 휴장 판정 실패(rc=${DAY}) — 주문을 내지 않았다. 원인을 고친 뒤 손으로 다시 돌릴 것"
+                RC=3
             else
             .venv/bin/python tools/run_session.py --market KR \
                 --sandbox "${SANDBOX}" --live-broker --capital "${CAPITAL}"
@@ -47,9 +55,12 @@ RC=0
             .venv/bin/python tools/reconcile_snapshot.py --market KR --sandbox "${SANDBOX}" --apply
             echo "snapshot rc=$?"
             # 정산금액 대조 — 오늘 정산(D+2)된 세션의 체결 합계를 LS 거래내역과 맞춘다.
-            # 불일치는 rc=1 로 로그에 남기되 주문대사 rc 를 덮지 않는다(원인 조사는 사람 몫).
+            # 불일치는 주문대사 rc 를 덮지 않지만 **묻히지도 않게** 한다(2026-09-26 점검): 주문대사가 0 인데 정산이
+            # 틀리면 최종 rc=4. 예전엔 로그에만 남아 9/24 크래시·9/25 불일치가 최종 rc=0 이었다.
             .venv/bin/python tools/settlement_check.py --market KR --sandbox "${SANDBOX}"
-            echo "settlement rc=$?"
+            SETTLE=$?
+            echo "settlement rc=${SETTLE}"
+            if [ "${RC}" -eq 0 ] && [ "${SETTLE}" -ne 0 ]; then RC=4; fi
             ;;
         *)
             echo "모르는 단계: ${STEP} (session|reconcile)"; RC=2

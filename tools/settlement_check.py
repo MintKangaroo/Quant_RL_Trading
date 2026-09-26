@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd  # noqa: E402
 
 from quant_rl_trading.collectors.ls_client import PATH_ACCNO, LSAPIError  # noqa: E402
-from quant_rl_trading.collectors.market_hours import Market, previous_trading_day  # noqa: E402
+from quant_rl_trading.collectors.market_hours import Market, is_trading_day, previous_trading_day  # noqa: E402
 from quant_rl_trading.dashboard.services.account import _client  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
@@ -115,13 +115,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sandbox", default="data/_paper")
     parser.add_argument("--settle", default=None, help="정산일 (기본: 오늘)")
     args = parser.parse_args(argv)
-    load_env()
     now = LiveClock().now()
+    market = Market(args.market)
+    settle = date.fromisoformat(args.settle) if args.settle else now.astimezone(KST).date()
+    if not is_trading_day(market, settle):
+        # **휴장일엔 정산이 없다**(2026-09-26 점검). 추석 9/24 는 여기서 NotSessionError 로 죽었고, 9/25 는 브로커 0 ↔ 장부
+        # 4,928만원을 "불일치" 로 냈다 — 9/22 체결의 실제 정산일은 다음 거래일(9/28)이다. 거짓 경보는 진짜 불일치를 묻는다.
+        print(f"정산일 {settle} 은 {market.value} 거래일이 아니다 — 대조할 정산이 없다")
+        return 0
+    load_env()
     source = build_store(None)
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
-    market = Market(args.market)
-    settle = date.fromisoformat(args.settle) if args.settle else now.astimezone(KST).date()
     session = trade_session_for(settle, market)
     tolerance = float(store.config("execution.settlement_tolerance", as_of=now))
     trades = store.get("trades", as_of=now, lookback=12)
