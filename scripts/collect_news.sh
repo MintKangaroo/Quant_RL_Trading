@@ -22,5 +22,8 @@ LOG="logs/news-$(date +%Y%m).log"
     ulimit -v 8388608
     QUANT_RL_DUCKDB_MEMORY_LIMIT=512MB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/collect_news.py --market "${MARKET}" --limit "${LIMIT}"
-    echo "rc=$?"
+    RC=$?
+    echo "rc=${RC}"
 } >>"${LOG}" 2>&1
+# 블록 마지막이 echo 면 스크립트 rc 는 늘 0 이다 — 크론이 보는 값은 이것 하나다(2026-09-26 점검).
+exit "${RC:-1}"

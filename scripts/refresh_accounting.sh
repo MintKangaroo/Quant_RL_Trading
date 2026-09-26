@@ -16,6 +16,7 @@ cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 MARKET="${1:-KR}"
 LOG="logs/accounting-$(date +%Y%m).log"
 
+RC=0
 {
     echo "=== $(date '+%F %T') market=${MARKET} ==="
     # data/_paper: 모의계좌 장부. 세션이 다음 날 아침에 돌아 그날 NAV 가 하루 늦게 적혔다
@@ -24,6 +25,10 @@ LOG="logs/accounting-$(date +%Y%m).log"
         QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
             .venv/bin/python tools/refresh_accounting.py \
                 --market "${MARKET}" --root "${ROOT}"
-        echo "  rc=$?"
+        STEP=$?
+        echo "  ${ROOT} rc=${STEP}"
+        [ "${STEP}" -ne 0 ] && RC="${STEP}"
     done
 } >>"${LOG}" 2>&1
+# 블록 마지막이 echo 면 스크립트 rc 는 늘 0 이다 — 크론이 보는 값은 이것 하나다(2026-09-26 점검). 장부 하나라도 실패하면 그 rc.
+exit "${RC}"

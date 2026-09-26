@@ -23,6 +23,20 @@ LOG="logs/collect-$(date +%Y%m).log"
 export QUANT_RL_DUCKDB_MEMORY_LIMIT="${QUANT_RL_DUCKDB_MEMORY_LIMIT:-2GB}"
 export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
 
+# **단계 rc 를 모은다**(2026-09-26 점검). 예전엔 블록 끝이 echo 라 전 단계가 실패해도 스크립트 rc=0 이었고, 15분 뒤
+# run_daily 가 어제 자료로 돌았다(pipeline-must-run-after-data 의 재발 경로). 시세·지수(핵심)가 실패하면 rc=1 로 알린다.
+# 거시·FINRA 같은 부가 단계는 한 달에 몇 번 흔들려서, rc 로 올리면 rc=1 이 기본값이 되어 경보가 죽는다 — 요약 줄에만 모은다.
+CORE_FAILED=""
+AUX_FAILED=""
+step_rc() {
+    echo "  $1 rc=$2"
+    [ "$2" -eq 0 ] && return 0
+    case "$1" in
+        "시세·유니버스"|"미장 시세"|"미장 일봉"|지수*|"미장 지수(Yahoo)") CORE_FAILED="${CORE_FAILED} [$1]" ;;
+        *) AUX_FAILED="${AUX_FAILED} [$1]" ;;
+    esac
+}
+
 {
     echo "=== $(date '+%F %T') market=${MARKET} sessions=${SESSIONS} ==="
 
@@ -35,7 +49,7 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #    미장은 바로 아래 1-1 의 전용 증분 도구가 받는다.
     if [ "${MARKET}" = "KR" ]; then
         .venv/bin/python tools/backfill.py --market "${MARKET}" --sessions "${SESSIONS}"
-        echo "  시세·유니버스 rc=$?"
+        step_rc "시세·유니버스" $?
 
         # 상장주식수·시가총액. **위 한 줄에 안 딸려 온다** — `--table` 을 안 주면
         # 시세와 유니버스 둘뿐이고 `shares` 패널(OPENAPI_PANELS)은 따로 불러야
@@ -47,7 +61,7 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         # 없다고 말하는 문구라 원인을 엉뚱한 데서 찾게 된다.
         .venv/bin/python tools/backfill.py \
             --market "${MARKET}" --table shares --sessions "${SESSIONS}"
-        echo "  시가총액 rc=$?"
+        step_rc "시가총액" $?
     fi
 
     # 1-0. 미장 환율·FINRA 공매도 — **2.5시간짜리 미장 시세보다 먼저** (2026-09-23). 뒤에 두었더니 매일 08:40~11:40
@@ -59,17 +73,17 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         #      백필 뒤 이 줄이 없어 8/19 부터 멈춰 있었다(2026-08-29 발견).
         .venv/bin/python tools/backfill_finra.py \
             --start "$(date -d '-10 days' +%F)" --end "$(date +%F)"
-        echo "  미장 공매도(FINRA) rc=$?"
+        step_rc "미장 공매도(FINRA)" $?
         #      공매도 잔고(kind=interest). 결제일(15일·말일) 뒤 10영업일이 지나야
         #      공표된 것으로 보고 받는다 — 45일 창이면 결제일 셋이 들어와 공표
         #      시각을 넘긴 것만 새로 채워진다. 받은 결제일은 건너뛴다.
         .venv/bin/python tools/backfill_finra.py --kind interest \
             --start "$(date -d '-45 days' +%F)" --end "$(date +%F)"
-        echo "  미장 공매도 잔고(FINRA) rc=$?"
+        step_rc "미장 공매도 잔고(FINRA)" $?
         .venv/bin/python tools/collect_fx.py
-        echo "  환율 rc=$?"
+        step_rc "환율" $?
         .venv/bin/python tools/collect_fx_yahoo.py
-        echo "  환율(Yahoo) rc=$?"
+        step_rc "환율(Yahoo)" $?
     fi
 
     # 1-1. 미장 시세. **여기 없어서 매번 며칠씩 밀려 있었다** — 실측 2026-08-18
@@ -103,14 +117,14 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     if [ "${MARKET}" = "US" ]; then
         .venv/bin/python tools/collect_us_prices.py \
             --sessions "${SESSIONS}" ${US_TOP:+--top "${US_TOP}"}
-        echo "  미장 시세 rc=$?"
+        step_rc "미장 시세" $?
     fi
 
     # 2. 수급. **날짜축(KRX)이다** — 종목축(LS)은 991종목을 한 종목씩 받아
     #    하루에 4시간이 든다. 이쪽은 주체별 한 콜씩, 전 종목이 한 번에 온다.
     if [ "${MARKET}" = "KR" ]; then
         .venv/bin/python tools/backfill.py --market KR --table flows --sessions "${SESSIONS}"
-        echo "  수급 rc=$?"
+        step_rc "수급" $?
     fi
 
     # 2-1. DART 공시. **여기 없어서 유니버스 필터가 눈을 감고 있었다** —
@@ -134,7 +148,7 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     if [ "${MARKET}" = "KR" ]; then
         .venv/bin/python tools/backfill.py \
             --market KR --table documents-dart --sessions "${DART_DAYS:-7}"
-        echo "  공시 rc=$?"
+        step_rc "공시" $?
     fi
 
     # 2-2. 미장 상장주식수·시가총액. **국장에는 없는 단계다** — 국장은 KRX
@@ -160,28 +174,28 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         #      명단은 백필 때만 갱신돼서, **새로 상장된 종목이 영영 안 들어왔다.**
         #      실측: 시세 6,647종목인데 명단은 2026-08-12 에 멈춰 있었다.
         .venv/bin/python tools/collect_us_prices.py --sessions "${SESSIONS}"
-        echo "  미장 일봉 rc=$?"
+        step_rc "미장 일봉" $?
         #      **`--sessions` 를 준다.** 안 주면 5년(약 1,250세션)을 통째로
         #      훑는다 — 매일 도는 자리에 둘 물건이 아니다. 짧은 창에서는
         #      **상폐 판정을 건너뛴다**(근거가 창 밖이라 오인한다). 상폐는
         #      아래 주 1회 전체 창이 맡는다.
         .venv/bin/python tools/backfill.py \
             --market US --table universe --sessions "${SESSIONS}"
-        echo "  미장 명단 rc=$?"
+        step_rc "미장 명단" $?
         #      증권 종류(보통주·ADR vs 채권·우선주·ETF·펀드) — Nasdaq Trader 심볼 디렉터리. 셀렉터 필터
         #      `universe.instrument_types_us` 가 읽는다(2026-09-25, collectors/us_symbols.py). 실패해도 필터는 직전 스냅샷(10일)을 쓴다.
         QUANT_RL_DUCKDB_MEMORY_LIMIT=500MB .venv/bin/python tools/collect_us_symbols.py
-        echo "  미장 증권 종류 rc=$?"
+        step_rc "미장 증권 종류" $?
         .venv/bin/python tools/backfill.py --market US --table shares-sec
-        echo "  미장 상장주식수 rc=$?"
+        step_rc "미장 상장주식수" $?
         #      **--sessions 를 반드시 준다.** 없으면 5년 전 구간을 다시 훑는데,
         #      prices 는 관측지연을 선언하지 않아 창을 좁혀도 파티션을 전부
         #      연다 — 그 비용이 매일 붙는다. 백필은 인자 없이 따로 돌린다.
         .venv/bin/python tools/backfill.py \
             --market US --table market-cap --sessions "${SESSIONS}"
-        echo "  미장 시가총액 rc=$?"
+        step_rc "미장 시가총액" $?
         .venv/bin/python tools/collect_indices_us.py
-        echo "  미장 지수(Yahoo) rc=$?"
+        step_rc "미장 지수(Yahoo)" $?
         #      FINRA 공매도 두 줄은 1-0 으로 옮겼다(2026-09-23) — 시세에 의존하지 않는다.
     fi
 
@@ -205,9 +219,9 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         rm -f "${SCAN}"
         .venv/bin/python tools/scan_corporate_actions.py \
             --daily --market KR --out "${SCAN}"
-        echo "  기업행위 스캔 rc=$?"
+        step_rc "기업행위 스캔" $?
         .venv/bin/python tools/backfill_adj_factor.py --scan "${SCAN}" --market KR --daily
-        echo "  기업행위 적재 rc=$?"
+        step_rc "기업행위 적재" $?
     fi
 
     # 3. 지수. **여기 없어서 조용히 낡아 있었다** — fx 와 같은 사고다.
@@ -223,19 +237,19 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
         for PANEL in indices-krx indices-board; do
             .venv/bin/python tools/backfill.py \
                 --market KR --table "${PANEL}" --sessions "${SESSIONS}"
-            echo "  지수(${PANEL}) rc=$?"
+            step_rc "지수(${PANEL})" $?
         done
         # 오늘 지수는 KRX 가 내일 오후에야 준다 — LS t1511 로 오늘 종가를 먼저 적는다.
         # 없으면 23:05 shadow 의 벤치마크가 매일 null 로 시작한다.
         .venv/bin/python tools/collect_indices_ls.py
-        echo "  지수(LS t1511) rc=$?"
+        step_rc "지수(LS t1511)" $?
     fi
 
     # 4. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이
     #    그날 것을 잡는다. 미장 지수(S&P500·나스닥)도 여기서 같이 들어온다
     #    (collect_macro 의 IndexCollector). 역시 가격지수다.
     .venv/bin/python tools/collect_macro.py
-    echo "  거시 rc=$?"
+    step_rc "거시" $?
 
     # 5. 환율. **여기 없으면 회계가 멈춘다** — NAV 는 환율 없이 계산을 거부한다
     #    (accounting). 예전에 fx 가 0행이라 회계가 테스트 위에서만 돌던 적이
@@ -246,8 +260,17 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     #    미장 실행은 1-0 에서 이미 받았다 — 국장 실행만 여기서 받는다.
     if [ "${MARKET}" != "US" ]; then
         .venv/bin/python tools/collect_fx.py
-        echo "  환율 rc=$?"
+        step_rc "환율" $?
         .venv/bin/python tools/collect_fx_yahoo.py
-        echo "  환율(Yahoo) rc=$?"
+        step_rc "환율(Yahoo)" $?
     fi
 } >>"${LOG}" 2>&1
+RC=0
+{
+    [ -n "${AUX_FAILED}" ] && echo "  부가 단계 실패:${AUX_FAILED} (rc 에는 안 올린다)"
+    if [ -n "${CORE_FAILED}" ]; then
+        echo "  ⚠️ 핵심 단계 실패:${CORE_FAILED} → rc=1"
+    fi
+} >>"${LOG}" 2>&1
+[ -n "${CORE_FAILED}" ] && RC=1
+exit "${RC}"

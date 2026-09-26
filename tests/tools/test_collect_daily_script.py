@@ -36,7 +36,7 @@ exit 0
 """
 
 
-def _run(tmp_path: Path, market: str, *, fail_on: str = "") -> list[str]:
+def _run(tmp_path: Path, market: str, *, fail_on: str = "", expect_rc: int = 0) -> list[str]:
     """스크립트를 실제로 돌리고, 파이썬에 넘어간 인자줄을 순서대로 돌려준다."""
     stub = tmp_path / ".venv" / "bin" / "python"
     stub.parent.mkdir(parents=True, exist_ok=True)
@@ -55,7 +55,8 @@ def _run(tmp_path: Path, market: str, *, fail_on: str = "") -> list[str]:
     )
 
     env = {**os.environ, "RECORD": str(record), "FAIL_ON": fail_on}
-    subprocess.run(["bash", str(script), market], env=env, check=True, timeout=60)
+    done = subprocess.run(["bash", str(script), market], env=env, timeout=60)
+    assert done.returncode == expect_rc
     return record.read_text(encoding="utf-8").splitlines() if record.exists() else []
 
 
@@ -129,3 +130,12 @@ def test_격리할_경로가_불명확하면_셸을_실행하지_않는다(
     monkeypatch.setattr(subprocess, "run", unexpected)
     with pytest.raises(AssertionError, match="unisolated"):
         _run(tmp_path / "sandbox", "KR")
+
+
+def test_핵심_단계가_실패하면_rc_가_말한다(tmp_path: Path) -> None:
+    """블록 끝이 echo 라 전 단계가 실패해도 rc=0 이었다 — 15분 뒤 run_daily 가 어제 자료로 돈다(2026-09-26 점검).
+    시세(핵심)가 실패하면 rc=1, 거시(부가)만 실패하면 rc=0 — 부가 단계까지 올리면 rc=1 이 기본값이 되어 경보가 죽는다."""
+    _run(tmp_path, "KR", fail_on="tools/backfill.py", expect_rc=1)
+    _run(tmp_path / "aux", "KR", fail_on="tools/collect_macro.py", expect_rc=0)
+    assert "부가 단계 실패: [거시]" in (tmp_path / "aux" / "logs").joinpath(
+        next(p.name for p in (tmp_path / "aux" / "logs").iterdir())).read_text(encoding="utf-8")

@@ -18,15 +18,21 @@ mkdir -p logs
 
 {
     echo "=== $(date '+%F %T') ==="
-    if ! .venv/bin/python -c "
+    # 판정은 10(열렸다)·11(둘 다 휴장)로만 답한다 — `if ! python` 이면 import 오류도 "휴장" 이 되어 메일이 조용히 안 나간다
+    # (2026-09-26 점검). 판정이 실패하면 **보낸다** — 휴장일 헛메일 한 통이 거래일 메일 누락보다 싸다.
+    .venv/bin/python -c "
 import sys
 from datetime import date, timedelta
 from quant_rl_trading.collectors.market_hours import Market, is_trading_day
 y = date.today() - timedelta(days=1)
-sys.exit(0 if any(is_trading_day(m, y) for m in (Market.KR, Market.US)) else 1)
-"; then
+sys.exit(10 if any(is_trading_day(m, y) for m in (Market.KR, Market.US)) else 11)
+"
+    DAY=$?
+    if [ "${DAY}" -eq 11 ]; then
         echo "어제는 국장·미장 모두 휴장 — 보내지 않는다"
         exit 0
+    elif [ "${DAY}" -ne 10 ]; then
+        echo "⚠️ 휴장 판정 실패(rc=${DAY}) — 보내는 쪽으로 진행한다"
     fi
     # **기준일이 맞을 때까지 기다린다** (사용자 요청 2026-08-28 — "최신 데이터인지 두 번 검증해야
     # 한다"). 늦은 것이 있으면 마감 직후 소스(LS·Yahoo)로 다시 받고 07:10 까지 2분마다 재검사.
@@ -46,5 +52,8 @@ sys.exit(0 if any(is_trading_day(m, y) for m in (Market.KR, Market.US)) else 1)
     done
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/send_briefing.py --send --store data/_paper --sleeve-store data/_shadow   # 성과: 국장 모의계좌(08-28~) + 미장 shadow 달러 슬리브(09-02~)
-    echo "rc=$?"
+    RC=$?
+    echo "rc=${RC}"
 } >>"${LOG}" 2>&1
+# 블록 마지막이 echo 면 스크립트 rc 는 늘 0 이다 — 크론이 보는 값은 이것 하나다(2026-09-26 점검).
+exit "${RC:-1}"

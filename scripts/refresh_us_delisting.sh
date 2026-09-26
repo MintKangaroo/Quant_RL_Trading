@@ -26,5 +26,8 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
     echo "=== $(date '+%F %T') 미장 상폐 판정 (전체 창) ==="
     # --sessions 를 **주지 않는다.** 그것이 이 스크립트의 존재 이유다.
     .venv/bin/python tools/backfill.py --market US --table universe
-    echo "  rc=$?"
+    RC=$?
+    echo "  rc=${RC}"
 } >>"${LOG}" 2>&1
+# 블록 마지막이 echo 면 스크립트 rc 는 늘 0 이다 — 크론이 보는 값은 이것 하나다(2026-09-26 점검).
+exit "${RC:-1}"

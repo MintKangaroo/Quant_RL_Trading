@@ -16,14 +16,24 @@ cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 DEADLINE="${US_WAIT_DEADLINE:-13:30}"
 INTERVAL="${US_WAIT_INTERVAL:-300}"
 
+# 0 = 준비됨 · 1 = 아직 · 2 = 판정 실패. **판정이 죽으면 준비된 것이 아니다**(2026-09-26 점검) — 예전엔 plan_recovery 가
+# 크래시해 출력이 비면 grep 이 못 찾아 "준비됨" 으로 읽었다. 로그가 거짓말을 하며 낡은 시세로 세션이 돌 수 있었다.
 ready() {
-    QUANT_RL_DUCKDB_MEMORY_LIMIT=400MB .venv/bin/python tools/plan_recovery.py --market US 2>/dev/null \
-        | grep -q "NEED collect   US 시세" && return 1
+    local out rc
+    out=$(QUANT_RL_DUCKDB_MEMORY_LIMIT=400MB .venv/bin/python tools/plan_recovery.py --market US 2>&1)
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        echo "  $(date '+%T') 시세 판정 실패(rc=${rc}): $(printf '%s' "${out}" | tail -1)"
+        return 2
+    fi
+    printf '%s' "${out}" | grep -q "NEED collect   US 시세" && return 1
     return 0
 }
 
 while true; do
-    if ready; then
+    ready
+    STATE=$?
+    if [ "${STATE}" -eq 0 ]; then
         echo "  $(date '+%T') 미장 시세 준비됨"
         exit 0
     fi

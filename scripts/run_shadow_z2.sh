@@ -5,8 +5,10 @@
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 LOG="logs/shadow-z2-$(date +%Y%m).log"
-for _ in $(seq 1 40); do
-    pgrep -f "tools/run_session.py --market KR$" > /dev/null || pgrep -f "tools/run_session.py --market KR --capital" > /dev/null || break
+# 대기 패턴은 forward·hmm 과 같게 넓힌다 — 예전 패턴(`--market KR$`·`--market KR --capital`)은 샌드박스 세션
+# (`--market KR --sandbox …`)을 못 봐서 9/28 부터 장부 넷과 겹쳐 돌 수 있었다(2026-09-26 점검).
+for _ in $(seq 1 60); do
+    pgrep -f "bin/python[^ ]* tools/run_session.py --market KR" > /dev/null || break
     sleep 30
 done
 {
@@ -14,5 +16,8 @@ done
     ulimit -v 16777216
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/run_session.py --market KR --sandbox data/_z2_shadow
-    echo "rc=$?"
+    RC=$?
+    echo "rc=${RC}"
 } >> "${LOG}" 2>&1
+# 블록 마지막이 echo 면 스크립트 rc 는 늘 0 이다 — 크론이 보는 값은 이것 하나다(2026-09-26 점검).
+exit "${RC:-1}"
