@@ -4,14 +4,16 @@
     .venv/bin/python tools/collect_index_members.py --days 10    # 최근 거래일 10개(처음 한 번)
 
 pykrx(KRX 정보데이터시스템)가 **로그인 세션**을 요구한다 — `.env` 의 KRX_ID/KRX_PW(backfill 과 같다). 장중엔 부르지 않는다(완성 세션만).
-관측 시각은 실제 수집 시각이다. 같은 세션을 두 번 받아도 실행 id 가 세션 날짜라 한 번만 적힌다.
+관측 시각은 실제 수집 시각이다. 실행 id 가 (지수, 세션) 이라 같은 세션은 한 번만 적힌다 —
+이미 받은 세션은 "이미 기록됨 — 건너뜀" 을 적고 rc=0 으로 넘어간다(휴장일엔 마지막 완성 세션이
+어제와 같아서, 예전엔 DuplicateIngestRun 으로 크론이 죽었다).
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -31,6 +33,11 @@ from tools.collect_indices_ls import completed_session, session_timestamp  # noq
 
 TABLE = "index_members"
 INDICES = {"KOSPI200": "1028"}
+
+
+def run_id_for(name: str, day: date, *, backfill: bool = False) -> str:
+    """실행 id — 지수·세션 하나에 하나. 백필은 접미사로 갈린다(observed_at 규칙이 다르다)."""
+    return f"index-members-{name}-{day:%Y%m%d}{'-bf' if backfill else ''}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -62,11 +69,19 @@ def main(argv: list[str] | None = None) -> int:
 
     days = sorted(days)[::-1][:: max(1, args.step)][::-1]  # 가장 최근 세션을 기준으로 N 개마다
     for day in days:
-        if args.backfill and store.ingest_run_recorded(TABLE, f"index-members-KOSPI200-{day:%Y%m%d}-bf"):
+        done = run_id_for("KOSPI200", day, backfill=True)
+        if args.backfill and store.ingest_run_recorded(TABLE, done):
             continue
         if args.sleep:
             _time.sleep(args.sleep)
         for name, code in INDICES.items():
+            run_id = run_id_for(name, day, backfill=args.backfill)
+            # 휴장일엔 '마지막 완성 세션' 이 어제와 같다 — 같은 run id 로 다시 쓰면
+            # append-only 창고가 DuplicateIngestRun 으로 튕겨 크론이 죽었다 (2026-09-23/24).
+            # 이미 받은 세션은 알리고 건너뛴다(rc=0) — 받을 게 없는 것은 실패가 아니다.
+            if not args.dry_run and store.ingest_run_recorded(TABLE, run_id):
+                print(f"{day} {name}: 이미 기록됨 — 건너뜀", flush=True)
+                continue
             try:
                 codes = stock.get_index_portfolio_deposit_file(code, day.strftime("%Y%m%d"))
             except Exception as exc:  # KRX 가 막으면 JSON 대신 HTML 이 와 여기서 터진다(2026-09-25 밤)
@@ -86,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
             rows = [{"entity_id": f"KR:{c}", "valid_from": session_timestamp(day), "observed_at": observed,
                      "source": "pykrx", "market": "KR", "index_id": name} for c in codes]
             if not args.dry_run:
-                store.append(TABLE, rows, ingest_run_id=f"index-members-{name}-{day:%Y%m%d}{'-bf' if args.backfill else ''}", source="pykrx")
+                store.append(TABLE, rows, ingest_run_id=run_id, source="pykrx")
             print(f"{day} {name}: {len(rows)}종목" + (" (dry-run)" if args.dry_run else ""), flush=True)
     return 1 if failed else 0
 
