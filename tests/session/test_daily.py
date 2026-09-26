@@ -368,3 +368,25 @@ def test_학습_노출_행동을_읽기만_한다(fund, monkeypatch) -> None:
     monkeypatch.setattr(exposure, "learned_decision", lambda store, *, as_of, market, source: None)
     fallback = daily.run(fund, ReplayClock(NOW), as_of=NOW, market="KR", run_id="fb")
     assert any("규칙 노출로 물러섰다" in n for n in fallback.notes)
+
+
+def test_보유일에_노출_기록이_없어도_위기면_줄인다(fund_with_orphan, monkeypatch) -> None:
+    """직전 노출 기록(저널)이 없을 때 예전엔 "노출 불변" 으로 주문 0 이었다 — 연휴·후보 0 세션 뒤 첫 보유일에 국면이 crisis 로
+    떨어져도 장부가 그대로 폭락을 맞는다(2026-09-26 감사). 기록이 없으면 1.0 으로 보고 **줄이는 쪽만** 집행한다 — 사지는 않는다."""
+    from quant_rl_trading.selector import exposure
+
+    _holding_day(monkeypatch)
+    monkeypatch.setattr(exposure, "held_scale", lambda store, *, as_of, market: None)
+    monkeypatch.setattr(exposure, "decide", lambda store, **kw: exposure.ExposureDecision(scale=0.3, driver="regime:crisis"))
+    result = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR", holdings={ORPHAN: 100},
+    )
+    assert result.orders
+    assert all(item.order.side is Side.SELL for item in result.orders)
+
+    # 배수가 1.0 이면(줄일 것이 없으면) 기록이 없어도 주문 0 — 옛 동작 그대로.
+    monkeypatch.setattr(exposure, "decide", lambda store, **kw: exposure.ExposureDecision(scale=1.0, driver="regime:bull"))
+    calm = daily.run(
+        fund_with_orphan, ReplayClock(NOW), as_of=NOW, market="KR", holdings={ORPHAN: 100}, run_id="calm",
+    )
+    assert not calm.orders

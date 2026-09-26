@@ -461,7 +461,15 @@ def run(
     weights = scaled
 
     # 보유일에 노출 배수도 그대로면 **주문 0.** 목표 = 지금 보유라 사이징에 넘기면 주 단위 반올림이 1주씩 판다.
-    if holding_day and (held_exposure is None or abs(decision.scale - held_exposure) < 1e-9):
+    #
+    # **직전 배수 기록이 없으면(None) 1.0 으로 보고 줄이는 쪽만 집행한다**(2026-09-26 감사). 예전엔 None 이면 무조건 주문 0 이라,
+    # 연휴·후보 0 세션 뒤 첫 보유일에 국면이 crisis 로 떨어져도 장부가 100% 로 폭락을 맞았다. 보유 평가액으로 역산하는 안은
+    # 버렸다 — 현금이 많은 장부(미장 슬리브 95% 현금)에선 역산 배수가 작게 나와 보유일에 수십 배 **매수**를 낸다. 1.0 가정은
+    # 실제 배수가 더 낮았다면 조금 더 줄일 뿐 사지는 않는다. 이 세션이 exposure 를 적으므로 다음 날부터는 기록을 읽는다.
+    unchanged = (
+        decision.scale >= 1.0 - 1e-9 if held_exposure is None else abs(decision.scale - held_exposure) < 1e-9
+    )
+    if holding_day and unchanged:
         log.record("execute", "executor", {"orders": [], "blocked_by": None, "notes": ["보유일 — 명단·노출 불변"]})
         log.flush()
         return result
