@@ -35,7 +35,10 @@ WARN_AVAIL_MB=700
 # 멈춰도 되는 작업. **전부 이어받기가 되는 것들이다** — build_rl_cache 는 구운
 # 세션을 건너뛰고 이어받고, 백필은 ingest_run 으로 막힌다. 대시보드·수집은
 # 여기 없다. 그건 멈추면 화면이 낡거나 그날 데이터가 빈다.
-STOPPABLE='build_rl_cache\.py|backfill_ic_history\.py|backfill_signals\.py|train_rl\.py|run_grid\.py|verify_oracle_canary\.py'
+# **연구 도구를 넣는다**(2026-09-26 점검). 8월 목록 그대로라 9/24 22:30 사용 9.4GB 에서 "멈출 수 있는 작업이 없다" 만 찍었다 —
+# 그때 돌던 것은 시행 도구였다. 시행(trial_*)·원피처 캐시(diagnose_ic)는 대기열·크론이 다시 잡는다. 운영 부품(v2_hmm_daily·
+# measure_ic 주간·run_session)은 넣지 않는다 — 멈추면 그날 기록이 빈다.
+STOPPABLE='trial_[a-z_]+\.py|diagnose_ic\.py|build_rl_cache\.py|backfill_ic_history\.py|backfill_signals\.py|train_rl\.py|run_grid\.py|verify_oracle_canary\.py'
 
 used_mb() { awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print int((t-a)/1024)}' /proc/meminfo; }
 avail_mb() { awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo; }
@@ -53,7 +56,9 @@ stop_one() {
     ps -eo pid,rss,cmd --sort=-rss --no-headers \
       | grep -E "$STOPPABLE" \
       | grep -v grep \
-      | awk -v me="$$" -v pat="$STOPPABLE" '
+      | PAT="$STOPPABLE" awk -v me="$$" '
+          # 패턴은 ENVIRON 으로 받는다 — -v 는 백슬래시를 이스케이프로 풀어 "\." 마다 경고를 찍었다(2026-09-26).
+          BEGIN { pat = ENVIRON["PAT"] }
           $1 == me { next }
           {
             script = "?"
@@ -66,7 +71,7 @@ stop_one() {
   # SIGTERM 이다. SIGKILL 로 죽이면 쓰다 만 parquet 이 남을 수 있는데,
   # 이 작업들은 임시 파일 → os.replace 라 TERM 이면 깨끗하게 끝난다.
   kill -TERM "$pid" 2>/dev/null || return 1
-  echo "MEM_STOP :: ${used}MB 사용 — ${name##*/}(pid ${pid} · ${rss}MB) 를 멈췄다. 이어받기 되는 작업이다"
+  echo "$(date '+%F %T') MEM_STOP :: ${used}MB 사용 — ${name##*/}(pid ${pid} · ${rss}MB) 를 멈췄다. 이어받기 되는 작업이다"
   return 0
 }
 
@@ -104,7 +109,7 @@ while true; do
     fi
     stalled=$(( NOW - LAST_MOVE[$name] ))
     if [ "$stalled" -gt "$limit" ]; then
-      echo "STALL :: ${name} 이 도는데 로그가 $((stalled/60))분째 안 커진다 — $(tail -1 "$path" 2>/dev/null | head -c 140)"
+      echo "$(date '+%F %T') STALL :: ${name} 이 도는데 로그가 $((stalled/60))분째 안 커진다 — $(tail -1 "$path" 2>/dev/null | head -c 140)"
       LAST_MOVE[$name]=$NOW
     fi
   done
@@ -113,14 +118,14 @@ while true; do
   used=$(used_mb)
   if [ "$used" -ge "$STOP_USED_MB" ]; then
     # 한 번에 하나. 다음 순회에서 다시 재고, 그래도 넘으면 또 하나 멈춘다.
-    stop_one || echo "MEM_STOP :: ${used}MB 사용 — 멈출 수 있는 작업이 없다. $(ps -eo rss,cmd --sort=-rss --no-headers | awk 'NR==1{printf "최대 %dMB %s", $1/1024, $2}')"
+    stop_one || echo "$(date '+%F %T') MEM_STOP :: ${used}MB 사용 — 멈출 수 있는 작업이 없다. $(ps -eo rss,cmd --sort=-rss --no-headers | awk 'NR==1{printf "최대 %dMB %s", $1/1024, $2}')"
     LOW_MEM_AT=$NOW
     continue
   fi
 
   avail=$(avail_mb)
   if [ "$avail" -lt "$WARN_AVAIL_MB" ] && [ $(( NOW - LOW_MEM_AT )) -gt 900 ]; then
-    echo "MEM_LOW :: 가용 ${avail}MB · 사용 ${used}MB (정지선 ${STOP_USED_MB}MB) — $(ps -eo rss,cmd --sort=-rss --no-headers | awk 'NR==1{printf "최대 %dMB %s", $1/1024, $2}')"
+    echo "$(date '+%F %T') MEM_LOW :: 가용 ${avail}MB · 사용 ${used}MB (정지선 ${STOP_USED_MB}MB) — $(ps -eo rss,cmd --sort=-rss --no-headers | awk 'NR==1{printf "최대 %dMB %s", $1/1024, $2}')"
     LOW_MEM_AT=$NOW
   fi
 done
