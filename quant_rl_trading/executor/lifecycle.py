@@ -247,9 +247,11 @@ def decide(
             reason=f"최대 재시도({params.max_retries}회) 소진",
         )
 
-    # 원 기준가 대비 상한 — orders.limit_price 와 같은 계산으로 맞춘다.
+    # 원 기준가 대비 상한 — orders.limit_price 와 같은 계산으로 맞춘다. **시장을 넘긴다**(2026-09-26 점검): 기본값 KR 이면
+    # 미장 상한이 원화 호가단위표로 반올림돼(151.50 → 151.0) 정상 시세가 "상한 초과 — 포기" 로 읽혔다.
+    market = "US" if str(order.entity_id).startswith("US:") else "KR"
     cap = orders_module.limit_price(
-        reference=order.reference_price, side=order.side, max_slippage=params.max_slippage
+        reference=order.reference_price, side=order.side, max_slippage=params.max_slippage, market=market
     )
     if order.side is Side.BUY:
         exceeded = market_price > cap
@@ -261,7 +263,6 @@ def decide(
     # KR:023160 재호가 25,975원(50원 단위 위반) → LS rsp_cd 01403 "호가단위를 확인하세요",
     # 세 차례 전부 실패해 잔량이 장 끝까지 남았다. cap 은 orders.limit_price 가 이미
     # 반올림했으므로, 시세 쪽만 상한을 넘지 않는 방향(매수 내림·매도 올림)으로 옮긴다.
-    market = "US" if str(order.entity_id).startswith("US:") else "KR"
     new_price = orders_module.round_to_tick(new_price, side=order.side, market=market)
     # 같은 가격으로는 정정하지 않는다 — LS 가 01441("정정가격이 원주문가격과 같습니다") 로 거부하고
     # 재시도 횟수만 소진된다(2026-09-08 실측 KR:005945). 시세가 안 움직였으면 기다리는 것이 맞다.

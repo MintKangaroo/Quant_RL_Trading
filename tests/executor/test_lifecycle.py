@@ -305,3 +305,14 @@ def test_시세가_지정가와_같으면_정정하지_않고_기다린다() -> 
     same, action = lifecycle.decide(order, market_price=60_000.0, now=now, params=params)
     assert action.type is ActionType.WAIT
     assert same.retry_count == 0 and same.limit_price == 60_000.0
+
+
+def test_미장_재호가_상한은_달러_호가단위로_잰다():
+    """상한 계산이 market 을 안 넘겨 원화 호가단위표로 반올림됐다 — 151.50 × 1.005 = 152.26 이 1원 단위 152.0 이 되고,
+    152.10 시세가 "상한 초과 — 포기" 로 읽혔다(2026-09-26 점검). 미장은 센트 단위다."""
+    from dataclasses import replace as dc_replace
+
+    order = dc_replace(make_order(reference_price=151.50, limit_price=151.50), entity_id="US:AAPL")
+    _, action = decide(order, now=NOW + timedelta(seconds=300), market_price=152.10, params=PARAMS)
+    assert action.type is ActionType.REPRICE
+    assert action.order.limit_price == pytest.approx(152.10)
