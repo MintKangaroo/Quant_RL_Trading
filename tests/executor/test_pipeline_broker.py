@@ -242,3 +242,27 @@ def test_전송_배선_후에도_실현_비중_기록은_유지된다(seeded) ->
     assert result.planned
     stored = seeded.get("realized_weights", as_of=NOW)
     assert len(stored) == 1
+
+
+
+def test_사이징_예산은_계좌_예약과_같은_식으로_깎인다(seeded, monkeypatch) -> None:  # type: ignore[no-untyped-def]  # noqa: F811
+    """사이징은 기준가로 예산을 재고 계좌 예약은 지정가(기준가 × (1+슬리피지)) × (1+슬리피지, 추격 여유) × (1+수수료)로 잡아
+    약 1% 가 어긋났다 — 현금이 빠듯한 세션마다 분할의 마지막 조각이 "insufficient unreserved KRW cash" 로 막혔다
+    (7세션 중 4, 2026-09-26 점검). 사이징에 넘기는 주문가능금액을 같은 비율로 줄인다."""
+    from quant_rl_trading.executor import pipeline as pipeline_module
+
+    seen: dict[str, float] = {}
+    original = pipeline_module.size_orders
+
+    def spy(**kwargs):  # type: ignore[no-untyped-def]
+        seen["cash"] = kwargs["cash"]
+        return original(**kwargs)
+
+    monkeypatch.setattr(pipeline_module, "size_orders", spy)
+    pipeline.run(
+        seeded, ReplayClock(NOW), as_of=NOW, market="KR", targets=targets(), holdings={},
+        equity=10_000_000.0, cash=1_000_000.0, broker=FakeBroker(),
+    )
+    slip = float(seeded.config("execution.max_slippage", as_of=NOW))
+    fee = float(seeded.config("accounting.fee_kr", as_of=NOW))
+    assert seen["cash"] == pytest.approx(1_000_000.0 / ((1 + slip) ** 2 * (1 + fee)))

@@ -203,12 +203,20 @@ def run(
     sizing_params = SizingParams.from_store(store, as_of=as_of, fx_rate=fx_rate, market=market)
     # ``cash`` 는 주문가능금액이다. NAV 로 대신하면 미결제 대금까지 쓸 수 있게
     # 되고, 그 길로 이 저장소는 레버리지 2.83배까지 갔다 (accounting.md §1).
+    #
+    # **예산을 예약과 같은 식으로 잰다**(2026-09-26 점검). 계좌 예약(risk/account.for_order + budget.check)은 매수 한 주를
+    # 지정가 × (1+슬리피지) × (1+수수료)로 잡는다 — 지정가가 이미 기준가 × (1+슬리피지)이고, 추격(chase_orders)이 지정가 대비
+    # 슬리피지만큼 더 올려 낼 수 있어서 그 여유다. 사이징은 기준가로 예산을 재서 약 1% 가 어긋났고, 분할의 마지막 조각이
+    # 매 세션 "insufficient unreserved cash" 로 막혔다(7세션 중 4, 세션당 2~6백만원 미집행). 예산을 그 비율로 줄여 맞춘다.
+    slip = float(store.config("execution.max_slippage", as_of=as_of))
+    fee = float(store.config(f"accounting.fee_{str(market).lower()}", as_of=as_of))
+    cushion = (1.0 + slip) ** 2 * (1.0 + fee)
     sized, skipped = size_orders(
         targets=targets,
         holdings=holdings,
         equity=equity,
         params=sizing_params,
-        cash=cash,
+        cash=(cash / cushion) if cash is not None else None,
     )
     if liquidation_only:
         held_back = [item for item in sized if item.side is Side.BUY]
