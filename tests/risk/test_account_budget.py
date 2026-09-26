@@ -530,3 +530,33 @@ def test_previous_day_missing_broker_id_is_backlog(fund):
     seoul_today = NOW.astimezone(ZoneInfo("Asia/Seoul")).date()
     assert missing_broker_ids(fund, as_of=NOW, market="KR") == 1
     assert missing_broker_ids(fund, as_of=NOW, market="KR", venue_day=seoul_today) == 0
+
+
+def test_limit_config_missing_blocks_buys_but_not_liquidating_sells(fund, monkeypatch):
+    """2026-09-26 점검: 한도 설정 키 하나(killswitch.drawdown_trigger)가 없으면 account.read 전체가 실패해 **매도까지** 막혔다 —
+    킬스위치 청산이 필요한 날 한 주도 못 판다. 한도를 모르면 매수만 막고, 매도는 재고 검사만 받는다."""
+    from quant_rl_trading.store import Store
+    from quant_rl_trading.store.errors import ConfigNotFound
+
+    fund.append(
+        "trades",
+        [{
+            "entity_id": "KR:A", "valid_from": NOW - timedelta(days=1), "observed_at": NOW - timedelta(days=1),
+            "source": "test", "market": "KR", "side": "buy", "quantity": 10.0, "price": 1000.0,
+            "currency": "KRW", "fee": 0.0, "tax": 0.0, "order_id": "seed",
+        }],
+        ingest_run_id="held",
+    )
+    original = Store.config
+
+    def missing(self, name, *, as_of):  # type: ignore[no-untyped-def]
+        if name == "killswitch.drawdown_trigger":
+            raise ConfigNotFound(name)
+        return original(self, name, as_of=as_of)
+
+    monkeypatch.setattr(Store, "config", missing)
+    broker = Broker()
+    sold = send(fund, broker, intent(side=Side.SELL, quantity=5))
+    assert sold[0].accepted and len(broker.calls) == 1
+    bought = send(fund, broker, intent(entity="KR:B", quantity=1, seq=1))
+    assert not bought[0].accepted and len(broker.calls) == 1

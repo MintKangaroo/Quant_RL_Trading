@@ -15,6 +15,7 @@ from quant_rl_trading.executor.orders import PlannedOrder, client_order_id
 from quant_rl_trading.replay.clock import Clock
 from quant_rl_trading.risk.budget import Budget, Limits, Reservation
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.errors import ConfigNotFound
 
 RESERVING = frozenset(
     {"reserved", "paper", "submitting", "sent", "cancel_unknown", "modify_unknown"}
@@ -91,13 +92,23 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
     store = store.execution_view()
     rates = Rates.from_store(store, as_of=as_of)
     book = ledger.build_book(store, as_of=as_of, rates=rates)
-    limits = Limits(
-        max_position=float(store.config("allocator.max_position_weight", as_of=as_of)),
-        max_exposure=float(store.config("risk.max_gross_exposure", as_of=as_of)),
-        max_positions=int(store.config("risk.max_positions", as_of=as_of)),
-        max_daily_loss=float(store.config("risk.max_daily_loss", as_of=as_of)),
-        max_drawdown=float(store.config("killswitch.drawdown_trigger", as_of=as_of)),
-    )
+    # **한도 설정을 못 읽어도 매도는 막지 않는다**(2026-09-26 점검). 예전엔 여기서 난 ConfigNotFound 가 read 전체를 실패시켜
+    # 호출부가 budget=None → **매수·매도 구분 없이** 전부 risk_blocked 였다 — 킬스위치 청산이 필요한 날 설정 키 하나가 빠지면
+    # 한 주도 못 판다. 한도를 모르면 매수만 막고(valuation_error), 매도는 재고 검사(Budget.check)만 받는다.
+    # 장부(build_book)를 못 만들면 재고를 모르므로 그때는 여전히 전부 막는다 — 없는 주식을 팔 수는 없다.
+    limits_error = ""
+    try:
+        limits = Limits(
+            max_position=float(store.config("allocator.max_position_weight", as_of=as_of)),
+            max_exposure=float(store.config("risk.max_gross_exposure", as_of=as_of)),
+            max_positions=int(store.config("risk.max_positions", as_of=as_of)),
+            max_daily_loss=float(store.config("risk.max_daily_loss", as_of=as_of)),
+            max_drawdown=float(store.config("killswitch.drawdown_trigger", as_of=as_of)),
+        )
+    except (ConfigNotFound, LookupError, ValueError) as exc:
+        limits = Limits(max_position=math.nan, max_exposure=math.nan, max_positions=0,
+                        max_daily_loss=math.nan, max_drawdown=math.nan)
+        limits_error = f"risk limits unavailable: {exc}"
     budget = Budget(
         nav=0,
         fx=0,
@@ -126,8 +137,10 @@ def read(store: Store, clock: Clock, *, as_of: datetime) -> Budget:
             )
             for market, currency in (("KR", "KRW"), ("US", "USD"))
         }
-    except (LookupError, ValueError) as exc:
+    except (ConfigNotFound, LookupError, ValueError) as exc:
         budget.valuation_error = str(exc)
+    if limits_error:
+        budget.valuation_error = "; ".join(x for x in (budget.valuation_error, limits_error) if x)
     orders = store.get("orders", as_of=as_of)
     if orders.empty:
         return budget
