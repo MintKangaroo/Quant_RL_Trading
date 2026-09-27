@@ -28,13 +28,12 @@ export QUANT_RL_DUCKDB_THREADS="${QUANT_RL_DUCKDB_THREADS:-2}"
 # 거시·FINRA 같은 부가 단계는 한 달에 몇 번 흔들려서, rc 로 올리면 rc=1 이 기본값이 되어 경보가 죽는다 — 요약 줄에만 모은다.
 CORE_FAILED=""
 AUX_FAILED=""
+# 등급은 **호출하는 줄이 인자로 밝힌다**(step_rc 이름 rc core). 이름 문자열로 가르면 단계 이름을 한 글자만 바꿔도 조용히
+# 부가로 내려가 rc=1 이 안 뜬다 — 실패가 안 보이는 쪽으로 틀린다(2026-09-27).
 step_rc() {
     echo "  $1 rc=$2"
     [ "$2" -eq 0 ] && return 0
-    case "$1" in
-        "시세·유니버스"|"미장 시세"|"미장 일봉"|지수*|"미장 지수(Yahoo)") CORE_FAILED="${CORE_FAILED} [$1]" ;;
-        *) AUX_FAILED="${AUX_FAILED} [$1]" ;;
-    esac
+    if [ "${3:-}" = "core" ]; then CORE_FAILED="${CORE_FAILED} [$1]"; else AUX_FAILED="${AUX_FAILED} [$1]"; fi
 }
 
 {
@@ -49,7 +48,7 @@ step_rc() {
     #    미장은 바로 아래 1-1 의 전용 증분 도구가 받는다.
     if [ "${MARKET}" = "KR" ]; then
         .venv/bin/python tools/backfill.py --market "${MARKET}" --sessions "${SESSIONS}"
-        step_rc "시세·유니버스" $?
+        step_rc "시세·유니버스" $? core
 
         # 상장주식수·시가총액. **위 한 줄에 안 딸려 온다** — `--table` 을 안 주면
         # 시세와 유니버스 둘뿐이고 `shares` 패널(OPENAPI_PANELS)은 따로 불러야
@@ -117,7 +116,7 @@ step_rc() {
     if [ "${MARKET}" = "US" ]; then
         .venv/bin/python tools/collect_us_prices.py \
             --sessions "${SESSIONS}" ${US_TOP:+--top "${US_TOP}"}
-        step_rc "미장 시세" $?
+        step_rc "미장 시세" $? core
     fi
 
     # 2. 수급. **날짜축(KRX)이다** — 종목축(LS)은 991종목을 한 종목씩 받아
@@ -174,7 +173,7 @@ step_rc() {
         #      명단은 백필 때만 갱신돼서, **새로 상장된 종목이 영영 안 들어왔다.**
         #      실측: 시세 6,647종목인데 명단은 2026-08-12 에 멈춰 있었다.
         .venv/bin/python tools/collect_us_prices.py --sessions "${SESSIONS}"
-        step_rc "미장 일봉" $?
+        step_rc "미장 일봉" $? core
         #      **`--sessions` 를 준다.** 안 주면 5년(약 1,250세션)을 통째로
         #      훑는다 — 매일 도는 자리에 둘 물건이 아니다. 짧은 창에서는
         #      **상폐 판정을 건너뛴다**(근거가 창 밖이라 오인한다). 상폐는
@@ -195,7 +194,7 @@ step_rc() {
             --market US --table market-cap --sessions "${SESSIONS}"
         step_rc "미장 시가총액" $?
         .venv/bin/python tools/collect_indices_us.py
-        step_rc "미장 지수(Yahoo)" $?
+        step_rc "미장 지수(Yahoo)" $? core
         #      FINRA 공매도 두 줄은 1-0 으로 옮겼다(2026-09-23) — 시세에 의존하지 않는다.
     fi
 
@@ -237,12 +236,12 @@ step_rc() {
         for PANEL in indices-krx indices-board; do
             .venv/bin/python tools/backfill.py \
                 --market KR --table "${PANEL}" --sessions "${SESSIONS}"
-            step_rc "지수(${PANEL})" $?
+            step_rc "지수(${PANEL})" $? core
         done
         # 오늘 지수는 KRX 가 내일 오후에야 준다 — LS t1511 로 오늘 종가를 먼저 적는다.
         # 없으면 23:05 shadow 의 벤치마크가 매일 null 로 시작한다.
         .venv/bin/python tools/collect_indices_ls.py
-        step_rc "지수(LS t1511)" $?
+        step_rc "지수(LS t1511)" $? core
     fi
 
     # 4. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이
