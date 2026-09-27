@@ -27,35 +27,37 @@ def _z(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     return ((df[cols] - g.transform("mean")) / g.transform("std").replace(0, np.nan)).clip(-5, 5).fillna(0.0)
 
 
-def load_kr() -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_kr(*, cache: Path = CACHE) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(홀드아웃 전, 전체) 국장 점수 패널. ``cache`` 는 금고 판정부(tools/vault_judge.py)가 금고 창 캐시를 가리킬 때만 바꾼다."""
     frames = []
     for name, col in (("chart", "chart"), ("event", "event"), ("flow_kr", "flow"), ("fundamental", "fundamental"), ("regime", "regime"), ("risk", "risk")):
-        f = pd.read_pickle(CACHE / f"scores-{name}-KR.pkl"); f["session"] = pd.to_datetime(f["session"]).dt.date
+        f = pd.read_pickle(cache / f"scores-{name}-KR.pkl"); f["session"] = pd.to_datetime(f["session"]).dt.date
         frames.append(f.rename(columns={"score": col})[["entity_id", "session", col]])
     df = frames[0]
     for f in frames[1:]:
         df = df.merge(f, on=["entity_id", "session"], how="outer")
-    t = pd.read_pickle(CACHE / "targets-KR-h5.pkl"); t["session"] = pd.to_datetime(t["session"]).dt.date
+    t = pd.read_pickle(cache / "targets-KR-h5.pkl"); t["session"] = pd.to_datetime(t["session"]).dt.date
     df = df.merge(t, on=["entity_id", "session"], how="inner"); df["market"] = "KR"
     return df[df["session"] < HOLDOUT], df
 
 
-def load_us() -> pd.DataFrame:
+def load_us(*, work: Path = US_WORK, holdout: date | None = HOLDOUT) -> pd.DataFrame:
+    """미장 점수 패널. ``work``·``holdout`` 은 금고 판정부만 바꾼다(holdout=None 이면 자르지 않는다)."""
     parts = []
     # ic-history 작업 파일(창고가 아니다) — backfill_ic_history 의 work 디렉터리와 같은 규약.
     for name, col in (("chart", "chart"), ("event", "event"), ("flow_us", "flow"), ("fundamental", "fundamental"), ("regime", "regime"), ("risk", "risk")):
-        fs = sorted(glob.glob(str(US_WORK / f"scores-{name}-0*.parquet")))  # invariant-allow: data-access — 창고가 아닌 작업 파일
+        fs = sorted(glob.glob(str(work / f"scores-{name}-0*.parquet")))  # invariant-allow: data-access — 창고가 아닌 작업 파일
         f = pd.concat([pd.read_parquet(x) for x in fs], ignore_index=True)  # invariant-allow: data-access — 창고가 아닌 작업 파일
         parts.append(f.rename(columns={"score": col})[["entity_id", "session", col]])
     df = parts[0]
     for f in parts[1:]:
         df = df.merge(f, on=["entity_id", "session"], how="outer")
-    tf = sorted(glob.glob(str(US_WORK / "targets-*.parquet")))  # invariant-allow: data-access — 창고가 아닌 작업 파일
+    tf = sorted(glob.glob(str(work / "targets-*.parquet")))  # invariant-allow: data-access — 창고가 아닌 작업 파일
     t = pd.concat([pd.read_parquet(x) for x in tf], ignore_index=True)  # invariant-allow: data-access — 창고가 아닌 작업 파일
     t = t.groupby(["entity_id", "session"], as_index=False)["target"].mean()
     df = df.merge(t, on=["entity_id", "session"], how="inner"); df["market"] = "US"
     df["session"] = pd.to_datetime(df["session"]).dt.date
-    return df[df["session"] < HOLDOUT]
+    return df[df["session"] < holdout] if holdout else df
 
 
 def fit_ridge(X: np.ndarray, y: np.ndarray) -> np.ndarray:

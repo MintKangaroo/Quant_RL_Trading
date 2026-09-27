@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -27,10 +28,15 @@ MIN_TRAIN, BLOCK, PURGE = 150, 20, 5
 N, EXIT_MULT, SPAN = 24, 3, 5
 
 
-def judge_panel() -> tuple[pd.DataFrame, list[date]]:
-    """확장 패널의 판정 구간(2022-07~2026-06), 피처·y5 rank-gauss 까지. y20·y60 은 뺀다."""
-    panel = load_panel(CACHE)
-    panel = panel[(panel["session"] >= JUDGE_START) & (panel["session"] <= JUDGE_END)]
+def judge_panel(*, cache: Path = CACHE, start: date = JUDGE_START,
+                end: date = JUDGE_END) -> tuple[pd.DataFrame, list[date]]:
+    """확장 패널의 판정 구간(기본 2022-07~2026-06), 피처·y5 rank-gauss 까지. y20·y60 은 뺀다.
+
+    ``cache``·``start``·``end`` 는 **금고 판정부(tools/vault_judge.py)만** 바꾼다 — 금고 창(2026-07~11) 패널은
+    따로 굽고(`data/_diag/vault-window`) 규칙은 여기 것을 그대로 쓴다. 기본값은 지금까지의 모든 시행과 같다.
+    """
+    panel = load_panel(cache)
+    panel = panel[(panel["session"] >= start) & (panel["session"] <= end)]
     panel = panel.drop(columns=[c for c in ("y20", "y60") if c in panel.columns])
     panel = rank_gauss(panel, [*FEATS, "y5"])
     return panel, sorted(panel["session"].unique())
@@ -87,14 +93,15 @@ def walk(panel: pd.DataFrame, sessions: list[date], feats: list[str], target: st
     return pd.concat(parts, ignore_index=True)
 
 
-def market_data(store: Store, sessions: list[date]) -> tuple[pd.DataFrame, pd.Series, dict[date, set[str]]]:
-    """t+1→t+2 수익, 벤치마크, 거래가능 명단 — 시행 AA 와 같다."""
+def market_data(store: Store, sessions: list[date], *,
+                cache: Path = CACHE) -> tuple[pd.DataFrame, pd.Series, dict[date, set[str]]]:
+    """t+1→t+2 수익, 벤치마크, 거래가능 명단 — 시행 AA 와 같다. ``cache`` 는 금고 판정부만 바꾼다(judge_panel 과 같은 사정)."""
     wide = _prices(store, sessions)
     ret = (wide.shift(-2) / wide.shift(-1) - 1.0)
     ret = ret.where(ret.abs() <= MAX_MOVE)
     idx = _index(store, sessions)
     bench = (idx.shift(-2) / idx.shift(-1) - 1.0)
-    trad_frame = pd.read_pickle(CACHE / "tradable-KR.pkl")  # invariant-allow: data-access — 작업 캐시
+    trad_frame = pd.read_pickle(cache / "tradable-KR.pkl")  # invariant-allow: data-access — 작업 캐시
     trad_frame["session"] = pd.to_datetime(trad_frame["session"]).dt.date
     trad = {day: set(part["entity_id"]) for day, part in trad_frame.groupby("session")}
     return ret, bench, trad
@@ -207,13 +214,15 @@ def mark(ok: bool) -> str:
 
 
 def record(store: Store, *, entity: str, source: str, family: str, digest: str, verdict: str, lines: list[str],
-           market: str = "KR") -> None:
+           market: str = "KR", run_tag: str = "") -> None:
+    """시행 1행. ``run_tag`` 는 **한 실행이 여러 행을 적을 때** 붙인다 — run id 가 초 단위라 꼬리표 없이는
+    같은 초의 두 번째 행이 중복으로 거부된다(금고 판정부가 시행 넷을 한 번에 적는다)."""
     now = datetime.now(UTC)  # invariant-allow: wallclock — 시행 기록 시각
     store.append("research_trials", [{
         "entity_id": entity, "valid_from": now, "observed_at": now, "source": source, "market": market,
         "family": family, "n_trials": 1, "protocol_hash": digest,
         "detail": (f"{verdict} | " + " | ".join(lines))[:900],
-    }], ingest_run_id=f"{source}-{now:%Y%m%dT%H%M%S}")
+    }], ingest_run_id=f"{source}{'-' + run_tag if run_tag else ''}-{now:%Y%m%dT%H%M%S}")
 
 
 def scores_chunked(store, analyst: str, sessions: list[date], *, chunk_days: int = 120) -> pd.DataFrame:

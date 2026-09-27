@@ -59,11 +59,12 @@ def round6_verdicts(store: Store) -> dict[str, str]:
     return out
 
 
-def raw_features(market: str, *, smoke: bool = False, keys: pd.DataFrame | None = None) -> tuple[pd.DataFrame, list[str]]:
+def raw_features(market: str, *, smoke: bool = False, keys: pd.DataFrame | None = None,
+                 base: Path | None = None) -> tuple[pd.DataFrame, list[str]]:
     """여섯 Analyst 의 원피처를 한 표로. 열 이름 앞에 Analyst 를 붙여 시장 간 같은 이름이 섞이지 않게 한다.
 
     smoke 에서만, 넓은 미장 캐시가 아직 없으면 옛 캐시(data/_diag)로 **배선만** 본다. 판정은 넓은 캐시가 없으면 멈춘다."""
-    base = RAW_DIRS[market]
+    base = base or RAW_DIRS[market]
     if not (base / f"features-{ANALYSTS[market][0]}-{market}.pkl").exists():
         if not smoke:
             raise SystemExit(f"{base} 에 원피처 캐시가 없다 — scripts/bake_w_us_wide.sh 가 먼저다")

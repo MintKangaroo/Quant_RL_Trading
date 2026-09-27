@@ -46,10 +46,15 @@ def build(store: Store) -> None:
     _walk_and_cache(panel, sessions, close, bench_close)
 
 
-def us_panel(store: Store) -> tuple[pd.DataFrame, list, pd.DataFrame, pd.Series]:
-    """AT 와 같은 미장 패널(거래대금 상위 1,000 · 보통주·ADR · FEATS rank-gauss · y5). 시행 BD 가 금고 전 모델을 얼릴 때도 이것을 쓴다."""
-    now = datetime.combine(JUDGE_END, time(23), tzinfo=UTC)
-    span = (JUDGE_END - JUDGE_START).days + 60
+def us_panel(store: Store, *, start=JUDGE_START, end=JUDGE_END,
+             work_dirs: tuple[Path, ...] | None = None) -> tuple[pd.DataFrame, list, pd.DataFrame, pd.Series]:
+    """AT 와 같은 미장 패널(거래대금 상위 1,000 · 보통주·ADR · FEATS rank-gauss · y5). 시행 BD 가 금고 전 모델을 얼릴 때도 이것을 쓴다.
+
+    ``start``·``end``·``work_dirs`` 는 **금고 판정부(tools/vault_judge.py)만** 바꾼다 — 금고 창(2026-07~11)의 점수 조각은
+    따로 굽고(`data/_diag/vault-window/ic-history-us`) 규칙은 여기 것을 그대로 쓴다. 기본값은 AT·AU~AY 와 같다.
+    """
+    now = datetime.combine(end, time(23), tzinfo=UTC)
+    span = (end - start).days + 60
     prices = read_prices(store, as_of=now, lookback=span + 40, columns=["close", "volume"], adjusted=True, market="US")
     prices["day"] = pd.to_datetime(prices["valid_from"]).dt.date
     close = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
@@ -58,7 +63,7 @@ def us_panel(store: Store) -> tuple[pd.DataFrame, list, pd.DataFrame, pd.Series]
     bench_close = close.pop(BENCH)
     volume = volume.drop(columns=[BENCH], errors="ignore")
     dv = (close * volume).rolling(20, min_periods=10).mean()
-    dv = dv[(dv.index >= JUDGE_START) & (dv.index <= JUDGE_END)]
+    dv = dv[(dv.index >= start) & (dv.index <= end)]
     in_universe = dv.rank(axis=1, ascending=False) <= UNIVERSE
     keep = in_universe.stack()
     keep = keep[keep].reset_index()
@@ -69,7 +74,7 @@ def us_panel(store: Store) -> tuple[pd.DataFrame, list, pd.DataFrame, pd.Series]
                       columns=["entity_id", "instrument", "test_issue"])
     ok = set(kinds[kinds["instrument"].isin(["common", "adr", "other"]) & ~kinds["test_issue"].astype(bool)]["entity_id"])
     keep = keep[keep["entity_id"].isin(ok)]
-    panel = load_scores(keep[["entity_id", "session"]])
+    panel = load_scores(keep[["entity_id", "session"]], **({"work_dirs": work_dirs} if work_dirs else {}))
     panel["has_fund"] = panel["fundamental"].notna()
     panel["fund_raw"] = panel["fundamental"].astype(float)
     fwd = close.shift(-H) / close - 1.0
@@ -78,7 +83,7 @@ def us_panel(store: Store) -> tuple[pd.DataFrame, list, pd.DataFrame, pd.Series]
     y.columns = ["session", "entity_id", "y5"]
     panel = panel.merge(y, on=["entity_id", "session"], how="left")
     panel["market"] = "US"
-    panel = panel[(panel["session"] >= JUDGE_START) & (panel["session"] <= JUDGE_END)]
+    panel = panel[(panel["session"] >= start) & (panel["session"] <= end)]
     panel = rank_gauss(panel, [*FEATS, "y5"])
     sessions = sorted(panel["session"].unique())
     return panel, sessions, close, bench_close
@@ -107,13 +112,21 @@ def _walk_and_cache(panel: pd.DataFrame, sessions: list, close: pd.DataFrame, be
         pd.concat(parts[s], ignore_index=True).to_pickle(CACHE / f"pred-seed{s}.pkl")
 
 
-def scores(seed: int) -> pd.DataFrame:
-    """M1 합성 점수(세션 × 종목) — AT 채택 규칙, 실전 척도."""
-    p = pd.read_pickle(CACHE / f"pred-seed{seed}.pkl")  # invariant-allow: data-access — 작업 캐시
+def m1_scores(p: pd.DataFrame) -> pd.DataFrame:
+    """M1 합성 점수(세션 × 종목) — AT 채택 규칙, 실전 척도. ``p`` = entity_id·session·pred·fund_raw·has_fund.
+
+    시행 BD 의 금고 판정부가 얼린 모델의 예측으로 같은 합성을 해야 해서 `scores` 에서 떼어 놓았다(규칙을 두 번 적지 않는다).
+    """
+    p = p.copy()
     p["rank"] = p.groupby("session")["pred"].transform(
         lambda x: np.tanh(((x.rank() - 0.5) / x.count() - 0.5) * 2.0 * np.sqrt(3.0) / 2.0))
     p["c"] = combine("M1", p["fund_raw"], p["has_fund"], p["rank"])
     return p.pivot_table(index="session", columns="entity_id", values="c").sort_index()
+
+
+def scores(seed: int) -> pd.DataFrame:
+    """M1 합성 점수(세션 × 종목) — AT 채택 규칙, 실전 척도."""
+    return m1_scores(pd.read_pickle(CACHE / f"pred-seed{seed}.pkl"))  # invariant-allow: data-access — 작업 캐시
 
 
 def market() -> tuple[pd.DataFrame, pd.Series]:
@@ -158,15 +171,20 @@ def summarize(daily: pd.Series, bench: pd.Series, extra: dict) -> dict:
     return {**m, **extra}
 
 
-def spx_regime(store: Store, sessions: list, crisis_floor: float) -> pd.Series:
-    """세션별 S&P500 국면(regime.classify, 실전 RegimeAnalyst 와 같은 400일 창)."""
+def spx_regime(store: Store, sessions: list, crisis_floor: float, *, before: bool = False) -> pd.Series:
+    """세션별 S&P500 국면(regime.classify, 실전 RegimeAnalyst 와 같은 400일 창).
+
+    ``before=True`` 면 **그 세션 종가를 빼고**(전날까지) 분류한다 — 개장 전에 알 수 있던 국면이다. 시행 BD 등록의
+    "그 세션 개장 전 국면" 과 진단(`tools/diag_us_regime_breakdown.py`)이 같은 읽기다.
+    """
     end = datetime.combine(sessions[-1], time(23), tzinfo=UTC)
-    idx = store.get("indices", as_of=end, lookback=(sessions[-1] - JUDGE_START).days + LOOKBACK_DAYS + 10, market="US",
+    idx = store.get("indices", as_of=end, lookback=(sessions[-1] - sessions[0]).days + LOOKBACK_DAYS + 10, market="US",
                     columns=["entity_id", "valid_from", "close"])
     idx = idx[idx["entity_id"] == SPX].assign(day=lambda f: pd.to_datetime(f["valid_from"]).dt.date)
     closes = idx.groupby("day")["close"].last().sort_index()
     out = {}
     for day in sessions:
-        window = closes[(closes.index > day - timedelta(days=LOOKBACK_DAYS)) & (closes.index <= day)]
+        upper = closes.index < day if before else closes.index <= day
+        window = closes[(closes.index > day - timedelta(days=LOOKBACK_DAYS)) & upper]
         out[day] = classify(window, crisis_floor=crisis_floor)
     return pd.Series(out)

@@ -60,13 +60,17 @@ def top_caps(store: Store, now: datetime, span: int) -> pd.DataFrame:
     return f.pivot_table(index="day", columns="entity_id", values="value", aggfunc="last").sort_index()
 
 
-def load_scores(keep: pd.DataFrame) -> pd.DataFrame:
-    """두 작업 디렉터리의 점수 조각을 읽자마자 (종목, 세션) 상위 1,000 으로 걸러 잇는다."""
+def load_scores(keep: pd.DataFrame, *, work_dirs: tuple[Path, ...] = WORK_DIRS) -> pd.DataFrame:
+    """작업 디렉터리의 점수 조각을 읽자마자 (종목, 세션) 상위 1,000 으로 걸러 잇는다.
+
+    ``work_dirs`` 는 금고 판정부(tools/vault_judge.py)가 금고 창 조각(`data/_diag/vault-window/ic-history-us`)을
+    가리킬 때만 바꾼다.
+    """
     parts = []
     key = keep.set_index(["entity_id", "session"]).index
     for name, col in SOURCES:
         chunks = []
-        for work in WORK_DIRS:
+        for work in work_dirs:
             for path in sorted(glob.glob(str(work / f"scores-{name}-0*.parquet"))):  # invariant-allow: data-access — 작업 파일
                 f = pd.read_parquet(path, columns=["entity_id", "session", "score"])  # invariant-allow: data-access — 작업 파일
                 f["session"] = pd.to_datetime(f["session"]).dt.date
