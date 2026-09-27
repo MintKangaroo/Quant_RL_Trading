@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     store = Store(root=Path(args.root))
     total = [0, 0, 0]
     for period in pd.period_range(args.start, end, freq="M"):
-        got = month(store, period, now=now, dry_run=args.dry_run, tag=f"{now:%Y%m%d}")
+        got = month(store, period, now=now, dry_run=args.dry_run, tag=f"{now:%Y%m%dT%H%M%S}")  # 초까지 — 같은 날(UTC) 재실행 충돌 방지(2026-09-28)
         total = [a + b for a, b in zip(total, got, strict=True)]
         print(f"{period}: 적재 {got[0]} · 금액 없음 {got[1]} · 원문 없음 {got[2]}", flush=True)
     print(f"합계 적재 {total[0]} · 금액 없음 {total[1]} · 원문 없음 {total[2]}" + (" (dry-run)" if args.dry_run else ""))
