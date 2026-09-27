@@ -49,8 +49,14 @@ class Result:
 
 
 def simulate(targets: pd.DataFrame, ret: pd.DataFrame, bench: pd.Series, cost: float, policy: Policy, *,
-             k_min: float = 0.30, extra: Callable[[object], dict] | None = None) -> Result:
-    """targets: 세션 × 종목 목표 비중(합 1, 주식만) · ret: t+1→t+2 수익 · bench: 같은 규약의 벤치 수익."""
+             k_min: float = 0.30, extra: Callable[[object], dict] | None = None,
+             observe: Callable[[State, float, bool, float], None] | None = None) -> Result:
+    """targets: 세션 × 종목 목표 비중(합 1, 주식만) · ret: t+1→t+2 수익 · bench: 같은 규약의 벤치 수익.
+
+    `observe(state, k, b, r)` 는 그날 수익이 확정된 **뒤** 불린다 — 온라인 학습(밴딧)이 보상을 받는 자리다.
+    그 수익은 t+1→t+2 구간이라 **t+2 세션 전에는 알 수 없다**. 학습 쪽에서 지연(`tools/v2_bandit.FEEDBACK_LAG`)을
+    반드시 걸어야 하고, 걸지 않으면 미래를 본다. 시뮬레이터는 넘겨 주기만 하고 지연을 대신 걸어 주지 않는다.
+    """
     days = [d for d in targets.index if d in ret.index]
     prev: pd.Series | None = None          # 지금 비중(주식, 현금은 1 − 합)
     nav, peak = 1.0, 1.0
@@ -83,6 +89,8 @@ def simulate(targets: pd.DataFrame, ret: pd.DataFrame, bench: pd.Series, cost: f
         r = float((w * dr).sum() - cost * t)
         out[day], ks[day], rb[day] = r, k, bool(b)
         turns.append(t)
+        if observe is not None:
+            observe(state, k, bool(b), r)
         nav *= 1 + r
         peak = max(peak, nav)
         d = w * (1 + dr)
