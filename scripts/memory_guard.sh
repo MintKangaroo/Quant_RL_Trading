@@ -38,6 +38,7 @@ VICTIMS=(
   "Project-Quant-RL-Trading/.*scratchpa[d]/.*\.py"  # 이 프로젝트 Claude 세션의 일회성 진단 — 다른 프로젝트 세션의 스크래치는 건드리지 않는다(9/22)
   "pytes[t]"                   # 테스트 — 다시 돌리면 그만이다. 18:36 에 커밋 전 불변식 테스트가 가용을
                                # 514MB 로 끌어내려 가드가 9시간짜리 트랜스포머를 내렸다(2026-09-21)
+  "final_round_control[s]"     # 마지막 모델 회차 대조군 굽기 — 패널 조각·(군,시드) 예측이 파일로 남아 재개가 거의 공짜다
   "trial_llm_analys[t]"        # agent_cache 덕에 재개가 공짜
   "trial_new_source[s]"        # 측정 재실행 싸다
   "backfill_ic_histor[y]"      # 작업 디렉터리에 중간 산출물이 남아 이어 돌 수 있다
@@ -48,8 +49,14 @@ VICTIMS=(
   "trial_(beta|index|overlay|cap|market|ranker_ens|ranker_target|ranker_market|regime|reverse|collapse|uncertainty|us_index|us_missing|us_selection|us_index_tilt|kr_index_tilt|kr_valueup|largecap|portfolio|rebalance|lambdarank|temporal|insider)[a-z_]*\.p[y]"
   # ↑ 2026-09-22: AA·AG·AH·AI·AJ·AK·AL 이 목록에 없어 11:56 가용 334MB 때 "내릴 연구 작업이 없다" 로 지나쳤다. 새 시행 도구는 여기에 이름을 더한다.  # 가벼운 시행 — 대기열이 다시 잡는다
   "trial_raw_featur[e]"        # 시행 W — GBM 3시드, 대기열·크론이 다시 잡는다
+  # ↓ 2026-09-27: 위 `trial_(...)` 줄은 `trial_final_*` 셋을 **하나도 못 잡는다** — 대안이 `trial_` 바로 뒤를
+  #   요구해서 사이에 낀 `final_` 에 걸려 빗나간다(BG 담당이 매칭 시험으로 찾았다). 셋을 비용 순서로 따로 적는다.
+  #   (같은 시각에 두 에이전트가 각자 줄을 더해 중복이 생겼다 — 여기서 한 번에 정리했다.)
+  "trial_final_lambdaran[k]"   # 시행 BF — GBM 계열, 다시 돌리면 그만이다(대조군 예측은 캐시에 있다)
   "diagnose_i[c].py"           # 원피처 캐시 굽기 — Analyst 파일 단위로 이미 구운 것은 건너뛰므로 이어 구울 수 있다
   "trial_price_transforme[r]"  # 몇 시간짜리 — 늦게 내린다(대기열이 처음부터 다시 돈다)
+  "trial_final_transforme[r]"  # 시행 BE — 몇 시간짜리, 내리면 처음부터 다시 돈다
+  "trial_final_residual_r[l]"  # 시행 BG — 학습 몇 시간(파일럿은 짧다), 대조군 캐시는 남는다
   "train_r[l].py"              # 체크포인트에서 잇는다 — 마지막 수단
 )
 
