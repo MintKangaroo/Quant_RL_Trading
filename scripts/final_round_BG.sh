@@ -69,6 +69,7 @@ echo "$(date '+%F %T') 가용 ${AVAIL}MB — 시행 BG(${MARKETS}) 시작" >> "$
     #   r 0.02 → 508,000 (이 설계로는 못 닿는다 — 그때는 '예산 미달' 이지 '기각' 이 아니다)
     # **위 ①이 찍은 '필요 그래디언트 스텝' 이 이 값보다 훨씬 크면 결과를 '기각' 으로 읽지 않는다** —
     # 예산을 안 찍고 "안 배운다" 를 말하지 않는다(rl-postmortem §1, 카나리 144배 오판).
+    nice -n 5 .venv/bin/python -u tools/trial_final_residual_rl.py judge \
         --i-registered --markets "${MARKETS}" --updates 4000 --save
     echo "판정 rc=$?"
 } >> "${LOG}" 2>&1
