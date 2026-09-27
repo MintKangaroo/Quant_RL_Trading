@@ -205,6 +205,8 @@ class _Kit:
     # 라벨이 h5 라 그 퍼지가 없으면 내부 검증이 새어 조기 종료가 낙관적으로 걸린다(kit 담당 지적).
     inner_split = staticmethod(_kit.inner_split)
     block_span = staticmethod(_kit.block_span)
+    # 진행 기록도 진짜 kit 것 — store=None 이면 아무것도 안 한다(2026-09-28, 진행 칸 배선 뒤 빠져 있던 것).
+    record_progress = staticmethod(_kit.record_progress)
 
     @classmethod
     def require_full_window(cls, axis, first_judged, length, *, label="창"):

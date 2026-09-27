@@ -72,7 +72,9 @@ SEEDS = (0, 1, 2, 3, 4)
 
 CACHE = Path("data/_diag/final-round")
 LONG_CACHE = rkit.CACHE            # data/_diag-long — 국장 확장 패널
-RAW_DIRS = {"KR": Path("data/_diag"), "US": Path("data/_diag/w-us")}
+# 국장은 전 창 굽기(scripts/final_round_bake_features.sh, 2026-09-28 04:06 완료 · 2022-04~2026-06 · 1,038세션)로 옮겼다.
+# 옛 data/_diag 는 6차 패널 입력(2025-05~)이라 그대로 둔다.
+RAW_DIRS = {"KR": Path("data/_diag/kr-long"), "US": Path("data/_diag/w-us")}
 SOURCES_CACHE = Path("data/_diag/ranker-sources")
 #: 국장 편도 비용은 `trial_overlay.ONE_WAY_COST`(0.41%) 가 포트 함수 안에 박혀 있다. 미장은 config 에서 읽는다.
 KR_COST = rkit.ONE_WAY_COST
