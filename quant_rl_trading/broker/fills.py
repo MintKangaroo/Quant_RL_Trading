@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
@@ -61,9 +62,11 @@ if TYPE_CHECKING:
 __all__ = [
     "TR_FILLS",
     "FillOutcome",
+    "FillQuery",
     "FillState",
     "PendingFill",
     "SyncResult",
+    "index_by_ordno",
     "sync_fills",
 ]
 
@@ -144,6 +147,40 @@ class FillOutcome:
 
 
 @dataclass(frozen=True)
+class FillQuery:
+    """**어디서 행을 얻고, 그 행을 어느 날의 답으로 읽는가.**
+
+    차분·자연키·비용·잠금은 시장과 조회 방식에 무관하다. 갈리는 것은 이 네 가지뿐이라
+    여기에 모아 :func:`sync_fills` 에 끼운다. 기본값(:func:`today_query`)은 지금까지의
+    당일 조회이고, 과거 주문일 대사는 CSPAQ13700 을 끼운다
+    (``docs/design/execution-safety.md`` 2026-09-27 절).
+
+    ``order_day`` — 이 조회가 답하는 **거래소 날짜**. 주문 저널의 ``order_day`` 와 ``PendingFill.
+    observed_day`` 는 이 날짜와 같아야 한다. 다르면 "주문번호는 날짜마다 다시 센다" 는 함정에
+    빠진다 — 같은 번호의 남의 주문 체결을 우리 주문에 적는다.
+
+    ``filled_at`` — 행에서 **체결이 사실이 된 시각**을 읽는다. ``None`` 이면 지금(관측시각)을
+    쓴다(당일 대사는 그래도 같은 날이다). 과거 대사는 반드시 주면서, 못 읽으면 ``None`` 을
+    돌려 체결을 적지 않게 한다 — 시각을 지어내면 그날의 NAV 가 거짓이 된다.
+    """
+
+    fetch: Callable[[LSClient], dict[str, dict[str, Any]] | str]
+    quantity_keys: tuple[str, ...]
+    price_keys: tuple[str, ...]
+    order_day: date | None = None
+    filled_at: Callable[[dict[str, Any]], datetime | None] | None = None
+
+
+def today_query(market: str, *, as_of: datetime) -> FillQuery:
+    """지금까지의 당일 조회 — 국장 ``t0425``, 미장 ``COSAQ00102``."""
+    return FillQuery(
+        fetch=lambda client: _fetch_fill_rows(client, market, as_of=as_of),
+        quantity_keys=_QUANTITY_KEYS.get(market, _QUANTITY_KEYS["KR"]),
+        price_keys=_PRICE_KEYS.get(market, _PRICE_KEYS["KR"]),
+    )
+
+
+@dataclass(frozen=True)
 class SyncResult:
     outcomes: tuple[FillOutcome, ...]
     rows_written: int
@@ -165,10 +202,13 @@ def sync_fills(
     *,
     as_of: datetime,
     pending: list[PendingFill],
+    queries: Mapping[str, FillQuery] | None = None,
 ) -> SyncResult:
     store = store.execution_view()
     with account_lock(store.root):
-        return _sync_fills_locked(store, client, clock, as_of=as_of, pending=pending)
+        return _sync_fills_locked(
+            store, client, clock, as_of=as_of, pending=pending, queries=queries
+        )
 
 
 def _sync_fills_locked(
@@ -178,6 +218,7 @@ def _sync_fills_locked(
     *,
     as_of: datetime,
     pending: list[PendingFill],
+    queries: Mapping[str, FillQuery] | None = None,
 ) -> SyncResult:
     """대기 중인 주문들의 체결을 확인해 ``trades`` 에 적는다.
 
@@ -190,9 +231,13 @@ def _sync_fills_locked(
         return SyncResult((), 0)
 
     # 시장별 조회. 결과는 (주문번호 → 행) 또는 실패 사유 문자열.
-    fetched: dict[str, dict[str, dict[str, Any]] | str] = {}
-    for market in sorted({item.market for item in pending}):
-        fetched[market] = _fetch_fill_rows(client, market, as_of=as_of)
+    plans = {
+        market: (queries or {}).get(market) or today_query(market, as_of=as_of)
+        for market in sorted({item.market for item in pending})
+    }
+    fetched: dict[str, dict[str, dict[str, Any]] | str] = {
+        market: plan.fetch(client) for market, plan in plans.items()
+    }
 
     recorded_so_far, recorded_notional = _recorded_totals(store, as_of=as_of, pending=pending)
     from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_bindings
@@ -208,15 +253,18 @@ def _sync_fills_locked(
 
     for item in pending:
         venue = NEW_YORK if item.market == "US" else ZoneInfo("Asia/Seoul")
+        plan = plans[item.market]
+        # **이 조회가 답하는 주문일.** 당일 조회면 지금의 거래소 날짜, 날짜 지정 대사면 그 날짜다.
+        asked_day = plan.order_day or as_of.astimezone(venue).date()
         binding = bindings.get(item.order_id)
         if binding is not None:
             fingerprint = getattr(getattr(client, "credentials", None), "fingerprint", "")
             if (not binding["fingerprint"] or fingerprint != binding["fingerprint"]
-                    or binding["order_day"] != as_of.astimezone(venue).date().isoformat()):
+                    or binding["order_day"] != asked_day.isoformat()):
                 outcomes.append(FillOutcome(item.order_id, FillState.UNKNOWN,
                                             detail="submission account/date does not match fill query"))
                 continue
-        if item.observed_day is not None and item.observed_day != as_of.astimezone(venue).date():
+        if item.observed_day is not None and item.observed_day != asked_day:
             outcomes.append(FillOutcome(
                 item.order_id, FillState.UNKNOWN,
                 detail="historical order needs dated reconciliation; order number alone is insufficient",
@@ -236,8 +284,8 @@ def _sync_fills_locked(
             )
             continue
 
-        cumulative = _first_numeric(row, _QUANTITY_KEYS.get(item.market, _QUANTITY_KEYS["KR"]))
-        price = _first_numeric(row, _PRICE_KEYS.get(item.market, _PRICE_KEYS["KR"]))
+        cumulative = _first_numeric(row, plan.quantity_keys)
+        price = _first_numeric(row, plan.price_keys)
         if cumulative is None or price is None:
             outcomes.append(
                 FillOutcome(item.order_id, FillState.UNKNOWN, detail=f"체결 필드 파싱 실패: {row!r}")
@@ -271,6 +319,17 @@ def _sync_fills_locked(
             )
             continue
 
+        # **체결이 사실이 된 시각.** 당일 대사는 지금(같은 날)이고, 날짜 지정 대사는 조회가
+        # 알려 준 체결 시각이다. 못 읽으면 지어내지 않는다 — 과거 체결을 오늘로 적으면
+        # 그날의 NAV·비중이 둘 다 거짓이 된다.
+        at = plan.filled_at(row) if plan.filled_at is not None else None
+        if plan.filled_at is not None and (at is None or at > observed_at):
+            outcomes.append(FillOutcome(
+                item.order_id, FillState.UNKNOWN, cumulative_quantity=cumulative,
+                detail="체결 시각을 읽을 수 없다 — 신규체결을 적을 수 없다",
+            ))
+            continue
+
         currency = currency_of(item.market)
         gross = cumulative * price - recorded_notional.get(item.order_id, 0.0)
         if not math.isfinite(gross) or gross <= 0:
@@ -286,7 +345,7 @@ def _sync_fills_locked(
             side=str(item.side),
             quantity=delta,
             price=price,
-            filled_at=observed_at,
+            filled_at=at or observed_at,
             fee=fee,
             tax=tax,
             broker_order_no=item.broker_order_no,
@@ -294,7 +353,7 @@ def _sync_fills_locked(
         rows.append(
             {
                 "entity_id": item.entity_id,
-                "valid_from": as_of,
+                "valid_from": at or as_of,
                 "observed_at": observed_at,
                 "source": SOURCE,
                 "market": item.market,
@@ -471,7 +530,12 @@ def _normalize_ordno(value: str | None) -> str:
 _ORG_KEYS = ("orgordno", "OrgOrdNo")
 
 
-def _index_by_ordno(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _index_by_ordno(
+    rows: list[dict[str, Any]],
+    *,
+    key_pairs: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] | None = None,
+    annotate: Callable[[list[dict[str, Any]]], dict[str, Any]] | None = None,
+) -> dict[str, dict[str, Any]]:
     """주문번호 → 행. **정정 사슬을 원주문으로 접는다.**
 
     재호가(정정)를 내면 브로커는 **새 주문번호**를 주고 체결은 그 번호 밑에 쌓인다(t0425:
@@ -481,6 +545,10 @@ def _index_by_ordno(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
     그래서 사슬의 모든 행을 원주문으로 모아 **체결 수량은 합, 체결가는 가중평균**으로 한 행을
     만들고, 사슬의 어느 번호로 찾아도 그 행이 나오게 한다. 취소 행(cheqty 0)은 합에 0 을 더할 뿐이다.
+
+    ``key_pairs`` — (수량 후보, 가격 후보) 짝들. 기본은 국장 t0425·미장 COSAQ00102 의 이름이다.
+    과거 주문일 조회(CSPAQ13700)는 이름이 또 달라서(``AllExecQty``/``ExecPrc``) 밖에서 준다.
+    ``annotate`` — 사슬 전체를 보고 접은 행에 더할 필드(예: 사슬의 마지막 체결 시각).
     """
     def ordno_of(row: dict[str, Any]) -> str:
         return _normalize_ordno(str(row.get("ordno") or row.get("OrdNo") or ""))
@@ -510,7 +578,10 @@ def _index_by_ordno(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for key_root, members in chains.items():
         merged = dict(members[-1])  # 상태·수량 같은 나머지 필드는 마지막 행의 것
-        for qkeys, pkeys in ((_QUANTITY_KEYS["KR"], _PRICE_KEYS["KR"]), (_QUANTITY_KEYS["US"], _PRICE_KEYS["US"])):
+        for qkeys, pkeys in key_pairs or (
+            (_QUANTITY_KEYS["KR"], _PRICE_KEYS["KR"]),
+            (_QUANTITY_KEYS["US"], _PRICE_KEYS["US"]),
+        ):
             qty_key = next((k for k in qkeys if any(k in m for m in members)), None)
             px_key = next((k for k in pkeys if any(k in m for m in members)), None)
             if qty_key is None:
@@ -525,12 +596,18 @@ def _index_by_ordno(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             merged[qty_key] = total
             if px_key is not None:
                 merged[px_key] = (amount / total) if total > 0 else 0.0
+        if annotate is not None:
+            merged.update(annotate(members))
         for m in members:
             for candidate in (ordno_of(m), org_of(m)):
                 if candidate:
                     out[candidate] = merged
         out[key_root] = merged
     return out
+
+
+#: 패키지 밖(``broker/backlog.py``)에서도 같은 사슬 접기를 쓴다.
+index_by_ordno = _index_by_ordno
 
 
 def _first_numeric(row: dict[str, Any], keys: tuple[str, ...]) -> float | None:

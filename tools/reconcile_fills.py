@@ -120,7 +120,8 @@ def missing_broker_ids(
 
     ``venue_day`` 를 주면 그 거래소 날짜의 것만 센다. 2026-08-28 의 ``submitting``
     한 건처럼 옛 고아는 매일 세어도 오늘 할 일이 없다 — rc 를 영영 1 로 만들어
-    오늘의 진짜 신호를 덮는다. 옛 건은 주문일 지정 대사로 따로 치운다.
+    오늘의 진짜 신호를 덮는다. 옛 건은 ``tools/reconcile_backlog.py`` 가 주문일을
+    지정해 따로 치운다.
     """
     frame = store.get(ORDERS, as_of=as_of, market=market)
     if frame.empty:
@@ -260,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"지난 거래일 미확정 {max(unknown_backlog, carried)}건 — t0425 는 당일만 답한다. "
             "거래소가 잔량을 소멸시켰고 체결 누락은 정산 대조(D+2)가 잡는다. "
-            "주문일 지정 대사는 후속 작업이다 (docs/design/execution-safety.md)"
+            "주문일을 지정해 확정하려면: tools/reconcile_backlog.py (기본 미리보기, --apply 로 적재)"
         )
     return 1 if unknown or missing or unverified else 0
 
