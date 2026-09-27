@@ -297,6 +297,33 @@ class DartSource:
 
         return collected
 
+    # -- 지분공시 -----------------------------------------------------------------
+
+    def major_stock(self, corp_code: str) -> list[dict[str, Any]]:
+        """주식등의대량보유상황보고(5% 룰). 회사 하나당 한 콜에 **최근 2년** 이력이 온다.
+
+        2년 롤링 창인 것은 실측이다(2026-09-27, 60개사 346행의 최소 접수일 = 오늘 −2년).
+        배치 엔드포인트가 없어 회사당 한 콜이다 — 상장사 3,994 면 하루 한도(20,000) 안이다.
+
+        데이터 없음(013)은 **실패가 아니다.** 5% 보고가 없는 회사가 대부분이다.
+        한도 초과(020)는 호출자가 보고 그날치를 멈춰야 하므로 감추지 않는다.
+        """
+        response = self._call("/majorstock.json", {"corp_code": corp_code})
+        if response.status_code != 200:
+            raise DartUnavailable(f"majorstock.json HTTP {response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError as error:
+            raise DartUnavailable(f"majorstock.json JSON 파싱 실패: {error}") from error
+        status = str(payload.get("status"))
+        if status == NO_DATA:
+            return []
+        if status != "000":
+            raise DartUnavailable(
+                f"majorstock.json status={status} msg={payload.get('message')}"
+            )
+        return list(payload.get("list") or [])
+
     # -- 기업 개황 ---------------------------------------------------------------
 
     def company_info(self, corp_code: str) -> dict[str, Any] | None:

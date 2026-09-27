@@ -1,0 +1,101 @@
+{
+  "status": "000",
+  "message": "정상",
+  "list": [
+    {
+      "rcept_no": "20241025000530",
+      "rcept_dt": "2024-10-25",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "일반",
+      "repror": "삼성물산",
+      "stkqy": "1,198,889,258",
+      "stkqy_irds": "6,317",
+      "stkrt": "20.08",
+      "stkrt_irds": "0.00",
+      "ctr_stkqy": "97,526,980",
+      "ctr_stkrt": "1.63",
+      "report_resn": "- 보유주식수 변동\n- 보유주식등에 관한 계약의 변경"
+    },
+    {
+      "rcept_no": "20250310000111",
+      "rcept_dt": "2025-03-10",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "약식",
+      "repror": "국민연금공단",
+      "stkqy": "430,000,000",
+      "stkqy_irds": "-12,000,000",
+      "stkrt": "7.21",
+      "stkrt_irds": "-0.20",
+      "ctr_stkqy": "-",
+      "ctr_stkrt": "-",
+      "report_resn": "단순추가취득/처분"
+    },
+    {
+      "rcept_no": "20250620000222",
+      "rcept_dt": "2025-06-20",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "일반",
+      "repror": "얼라인파트너스자산운용",
+      "stkqy": "3,000,000",
+      "stkqy_irds": "3,000,000",
+      "stkrt": "5.40",
+      "stkrt_irds": "5.40",
+      "report_resn": "경영참가 목적의 신규 취득\n- 주주제안 예정"
+    },
+    {
+      "rcept_no": "20250901000333",
+      "rcept_dt": "2025-09-01",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "일반",
+      "repror": "홍길동",
+      "stkqy": "100,000",
+      "stkqy_irds": "-2,500,000",
+      "stkrt": "4.10",
+      "stkrt_irds": "-1.90",
+      "report_resn": "장내매도"
+    },
+    {
+      "rcept_no": "20200105000444",
+      "rcept_dt": "2020-01-05",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "일반",
+      "repror": "옛보고자",
+      "stkqy": "1,000",
+      "stkqy_irds": "1,000",
+      "stkrt": "5.10",
+      "stkrt_irds": "5.10",
+      "report_resn": "신규보고"
+    },
+    {
+      "rcept_no": "20250901000333",
+      "rcept_dt": "2025-09-01",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "일반",
+      "repror": "홍길동",
+      "stkqy": "100,000",
+      "stkqy_irds": "-2,500,000",
+      "stkrt": "4.10",
+      "stkrt_irds": "-1.90",
+      "report_resn": "장내매도"
+    },
+    {
+      "rcept_no": "20250915000555",
+      "rcept_dt": "2025-09-15",
+      "corp_code": "00126380",
+      "corp_name": "삼성전자",
+      "report_tp": "일반",
+      "repror": "값없는보고자",
+      "stkqy": "-",
+      "stkqy_irds": "-",
+      "stkrt": "-",
+      "stkrt_irds": "-",
+      "report_resn": "-"
+    }
+  ]
+}

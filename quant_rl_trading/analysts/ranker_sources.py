@@ -33,6 +33,21 @@ GROUPS: dict[str, tuple[str, ...]] = {
     "X": ("text_pc1", "text_pc2", "text_pc3"),
     # G8 (2026-09-23 추가, 사용자 승인) — 국장 잠정실적 서프라이즈(PEAD). G6 의 국장 짝. 표는 prelim_earnings.
     "G8": ("prelim_op_surprise", "prelim_sales_yoy", "prelim_age"),
+    # G9 는 비워 둔다 (다른 사전등록이 쓴다).
+    # G10 (2026-09-27 초안) — 국장 5% 대량보유 변동. 표는 major_holders.
+    # **전부 변화형이다.** BA(밸류업 공시 개수)가 스타일 노출을 넣어 기각된 뒤의 규칙이다 —
+    # "어떤 회사인가"(보유 수준·보고 건수)가 아니라 "무엇이 새로 알려졌나"(증감·신규 진입·이탈)만 쓴다.
+    # 피처 셋 — 6차 공통 "묶음마다 ≤ 3". `mh_exit_60`(5% 아래 이탈 건수)은 리드 결정으로 뺐다
+    # (2026-09-27): 이탈은 `mh_inst_net_60` 의 순감으로 이미 잡힌다.
+    "G10": ("mh_inst_net_60", "mh_new_inst_180", "mh_nps_change_120"),
+    # G12 (2026-09-27 초안) — 국장 손익구조 30% 이상 변동 공시. 표는 pl_change.
+    # G8(잠정실적)의 짝이 아니라 **다른 공시**다: 표본이 2,554종목으로 네 배 넓고 순이익·전환 표지가 있다.
+    # 6차 규약 "묶음마다 피처 수 ≤ 3" 을 지킨다 — 영업이익률 변화(pl_op_margin_chg)는 같은 두 값에서
+    # 나오고 pl_op_delta_cap 과 겹쳐 뺐다(등록 문서에 이유를 남긴다).
+    "G12": ("pl_op_delta_cap", "pl_turn_sign", "pl_age"),
+    # G13 (2026-09-27 초안) — 국장 단일판매ㆍ공급계약. 표는 supply_contracts.
+    # event Analyst 는 이 공시를 **건수**로만 쓴다(+1.0). 금액을 매출액으로 나눈 크기가 여기서 처음 들어온다.
+    "G13": ("sc_ratio_60", "sc_last_ratio", "sc_cancel_60"),
 }
 
 #: G1 — ADV120 이 필요하므로 달력일로 넉넉히.
@@ -477,9 +492,80 @@ def prelim_surprise(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
 
 
+# --------------------------------------------------------------------------- G10 국장 5% 대량보유 변동
+
+#: 180세션 ≈ 260달력일. 가장 긴 창(신규 진입)에 맞춘다.
+MAJOR_LOOKBACK_DAYS = 280
+MAJOR_SESSIONS = 60
+MAJOR_NEW_SESSIONS = 180
+MAJOR_NPS_SESSIONS = 120
+#: 보고비율은 소수 둘째 자리까지 온다 — "증감 == 보유비율"(0 에서 올라온 신규보고)의 허용오차.
+MAJOR_RATIO_EPS = 0.011
+#: 5% 선을 넘은 신규 진입만 센다.
+MAJOR_THRESHOLD = 5.0
+#: 전문투자자 = 우리가 신호로 보는 보고자. 개인·법인 대주주의 질권·증여는 신호가 아니다
+#: (첫 스모크에서 개인·법인이 행의 75% 였고 대부분 '주요계약의 변경' 이다).
+MAJOR_PRO_CLASSES = ("institution", "nps", "foreign")
+
+
+def major_holder_flow(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G10. 5% 대량보유 보고의 **변화**만 — 수준·건수는 쓰지 않는다(BA 복기).
+
+    - ``mh_inst_net_60``   = 최근 60세션 전문투자자(기관·국민연금·외국계) 보고의 보유비율 증감 합(%p)
+    - ``mh_new_inst_180``  = 최근 180세션 전문투자자의 **신규 5% 진입** 보유비율 합(%).
+                             신규는 "증감 == 보유비율"(0 에서 올라온 보고)로 판별한다 — 보고자 이력을
+                             거슬러 볼 필요가 없어 창 밖 자료에 기대지 않는다.
+    - ``mh_nps_change_120``= 최근 120세션 국민연금 증감 합(%p). 국내 최대 단일 기관은 따로 센다.
+
+    창은 **접수일**(valid_from)로 센다. 사유발생일은 API 에 없고, 있어도 그날은 아직 공시 전이다.
+    보고가 없으면 세 값 모두 0 이다 — "변동이 없었다" 는 결측이 아니라 사실이다(G4·G7 과 같은 규칙).
+    표가 없는 과거 구간은 빈 표를 돌려주고, 그때는 rank-gauss 가 결측을 중앙으로 보낸다.
+    """
+    rows = analyst.store.get(
+        "major_holders", as_of=as_of, lookback=MAJOR_LOOKBACK_DAYS, market=str(analyst.market),
+        columns=["entity_id", "valid_from", "reporter_class", "ratio", "ratio_change"],
+    )
+    if rows.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=MAJOR_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    sessions = _session_index(prices)
+    if len(sessions) < 20:
+        return pd.DataFrame()
+
+    rows = rows.copy()
+    rows["day"] = rows["valid_from"].dt.date
+    entities = pd.Index(sorted(prices["entity_id"].unique()), name="entity_id")
+
+    def since(count: int) -> date:
+        return sessions[-min(count, len(sessions))]
+
+    pro = rows["reporter_class"].isin(MAJOR_PRO_CLASSES)
+    change = rows["ratio_change"].astype(float)
+    ratio = rows["ratio"].astype(float)
+
+    raw = pd.DataFrame(index=entities)
+    window = rows[pro & (rows["day"] >= since(MAJOR_SESSIONS))]
+    raw["mh_inst_net_60"] = window.groupby("entity_id")["ratio_change"].sum().reindex(entities).fillna(0.0)
+
+    fresh = rows[
+        pro
+        & (rows["day"] >= since(MAJOR_NEW_SESSIONS))
+        & ((change - ratio).abs() < MAJOR_RATIO_EPS)
+        & (ratio >= MAJOR_THRESHOLD)
+    ]
+    raw["mh_new_inst_180"] = fresh.groupby("entity_id")["ratio"].sum().reindex(entities).fillna(0.0)
+
+    nps = rows[(rows["reporter_class"] == "nps") & (rows["day"] >= since(MAJOR_NPS_SESSIONS))]
+    raw["mh_nps_change_120"] = nps.groupby("entity_id")["ratio_change"].sum().reindex(entities).fillna(0.0)
+    return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
 BUILDERS = {
     "G1": liquidity_decay, "G2": filing_distress, "G3": short_flow, "G4": insider_selling,
-    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading, "G8": prelim_surprise, "X": filing_embedding,
+    "G5": accounting_quality, "G6": earnings_drift, "G7": form4_trading, "G8": prelim_surprise,
+    "G10": major_holder_flow, "X": filing_embedding,
 }
 
 
@@ -490,3 +576,147 @@ def build(group: str, analyst: Analyst, as_of: datetime) -> pd.DataFrame:
     if raw.empty:
         return pd.DataFrame(columns=columns)
     return raw.reindex(columns=columns)
+
+
+# --------------------------------------------------------------------------- G11 미장 8-K 항목 단위 사건
+#
+# 본체는 `ranker_sources_g11.py` 에 따로 둔다 — G10·G12·G13 이 이 파일을 동시에 고치고 있어서,
+# 여기서는 **끝에 등록만** 한다(위 줄을 건드리지 않는다). 등록은 위 GROUPS·BUILDERS 를 채우므로
+# `build("G11", ...)` 와 `tools/ranker_source_features.py --group G11` 이 그대로 돈다.
+from quant_rl_trading.analysts import ranker_sources_g11 as _g11  # noqa: E402
+
+GROUPS["G11"] = _g11.G11_FEATURES
+BUILDERS["G11"] = _g11.eight_k_items
+
+
+# --------------------------------------------------------------------------- G12·G13 국장 공시 원문 표
+#
+# 이 파일을 G10·G11 과 동시에 고치고 있어서 **끝에만** 덧붙인다(위 줄을 건드리지 않는다).
+# 등록은 아래 BUILDERS 갱신으로 한다 — GROUPS 는 위 사전에 이미 있다.
+
+#: G12 — 60세션 창 + 여유. 발표 효과의 창을 넘은 공시는 결측이다(등록).
+PL_LOOKBACK_DAYS = 120
+PL_MAX_SESSIONS = 60
+#: 흑자·적자 전환 표지 → 부호. 지속은 사건이 아니라 상태라 0 이다.
+PL_TURN_SIGN = {"흑자전환": 1.0, "적자전환": -1.0}
+#: G13 — 60세션(≈90달력일) 누적. 계약은 실적으로 이어지기까지 시간이 걸린다.
+SUPPLY_LOOKBACK_DAYS = 120
+SUPPLY_SESSIONS = 60
+
+
+def _cap_before(analyst: Analyst, as_of: datetime, days: int, when: pd.Series) -> pd.Series:
+    """공시 **전날**까지의 마지막 시가총액. 공시 당일 시총은 그 공시의 반응을 이미 담고 있다."""
+    caps = analyst.store.get(
+        "market_stats", as_of=as_of, lookback=days, market=str(analyst.market),
+        columns=["entity_id", "valid_from", "metric", "value"],
+    )
+    if caps.empty:
+        return pd.Series(dtype=float)
+    caps = caps[caps["metric"] == "market_cap"]
+    if caps.empty:
+        return pd.Series(dtype=float)
+    caps = caps.assign(
+        day=pd.to_datetime(caps["valid_from"]).dt.tz_convert("Asia/Seoul").dt.date
+    ).sort_values("day")
+    by_entity = {e: g for e, g in caps.groupby("entity_id")}
+    out: dict[str, float] = {}
+    for entity, day in when.items():
+        g = by_entity.get(entity)
+        if g is None:
+            continue
+        before = g[g["day"] < day]
+        if not before.empty:
+            out[str(entity)] = float(before["value"].iloc[-1])
+    return pd.Series(out, dtype=float)
+
+
+def pl_structure_change(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G12. 개장 전까지 공시된 가장 최근 손익구조 변동 한 건(연결 우선).
+
+    - ``pl_op_delta_cap``   = (당해 − 직전 영업이익) / 공시 전 시가총액. **분모를 직전 영업이익으로
+                              두지 않는다** — 적자에서 적자로 가면 부호가 뒤집힌다(음수 분모).
+    - ``pl_turn_sign``      = 흑자전환 +1 · 적자전환 −1 · 그 외 0 (원문 `흑자적자전환여부` 칸 그대로).
+    - ``pl_age``            = 공시 뒤 지난 세션 수(0~60). 넘으면 세 피처 모두 결측.
+
+    **전부 변화형이다** — 수준(매출 규모·이익률 자체)은 쓰지 않는다(BA 복기).
+    공시가 없는 종목은 결측이다(0 이 아니다): "손익구조가 30% 넘게 바뀌지 않았다" 는 사실이지만,
+    바뀐 폭을 0 으로 두면 변동 없는 종목과 실제 증감 0 인 종목을 같은 값으로 만든다.
+    """
+    rows = analyst.store.get(
+        "pl_change", as_of=as_of, lookback=PL_LOOKBACK_DAYS, market=str(analyst.market),
+    )
+    if rows.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=PL_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    sessions = _session_index(prices)
+    if len(sessions) < 5:
+        return pd.DataFrame()
+
+    rows = rows.sort_values(["observed_at", "valid_from"])
+    picked = []
+    for _entity, g in rows.groupby("entity_id"):
+        latest = g["valid_from"].max()
+        recent = g[g["valid_from"] >= latest - pd.Timedelta(days=PRELIM_SAME_PERIOD_DAYS)]
+        cons = recent[recent["basis"] == "consolidated"]
+        picked.append((cons if not cons.empty else recent).iloc[-1])
+    last = pd.DataFrame(picked)
+    last["day"] = pd.to_datetime(last["valid_from"]).dt.tz_convert("Asia/Seoul").dt.date
+    pos = np.searchsorted(np.array(sessions), last["day"].to_numpy(), side="left")
+    last["ago"] = len(sessions) - 1 - pos
+    last = last[(pos < len(sessions)) & (last["ago"] <= PL_MAX_SESSIONS)].copy()
+    if last.empty:
+        return pd.DataFrame()
+    last = last.set_index("entity_id")
+
+    cap = _cap_before(analyst, as_of, PL_LOOKBACK_DAYS, last["day"]).reindex(last.index)
+    raw = pd.DataFrame(index=last.index)
+    raw["pl_op_delta_cap"] = (last["op_cur"] - last["op_base"]) / cap.where(cap > 0)
+    raw["pl_turn_sign"] = last["op_turn"].astype(str).map(PL_TURN_SIGN).fillna(0.0)
+    raw["pl_age"] = last["ago"].astype(float)
+    return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
+def supply_contract_flow(analyst: Analyst, as_of: datetime) -> pd.DataFrame:
+    """G13. 공급계약 **금액**을 매출액으로 나눈 흐름 — event Analyst 의 건수(+1.0)를 크기로 바꾼다.
+
+    - ``sc_ratio_60``    = 최근 60세션 체결 계약의 `매출액 대비(%)` 합. 공시가 스스로 분모를 들고
+                           오므로(최근매출액) 우리 쪽 재무를 끌어오지 않는다 — 결측이 안 생긴다.
+    - ``sc_last_ratio``  = 그 창에서 가장 최근 계약 한 건의 비율(%). 합과 달리 **한 방의 크기**다.
+    - ``sc_cancel_60``   = 최근 60세션 **해지** 금액의 비율(%) 합. 취소는 체결의 반대가 아니라
+                           따로 센다 — 부호를 합치면 해지 없는 종목과 상쇄된 종목이 같아진다.
+
+    계약이 없으면 세 값 모두 0 이다 — "계약 공시가 없었다" 는 사실이다(G4·G7·G10 과 같은 규칙).
+    창은 **접수일**(valid_from)로 센다. 계약기간 시작일은 공시 전일 수 있어 창의 기준이 못 된다.
+    """
+    rows = analyst.store.get(
+        "supply_contracts", as_of=as_of, lookback=SUPPLY_LOOKBACK_DAYS, market=str(analyst.market),
+        columns=["entity_id", "valid_from", "kind", "sales_ratio"],
+    )
+    if rows.empty:
+        return pd.DataFrame()
+    prices = analyst.price_panel(as_of, lookback=SUPPLY_LOOKBACK_DAYS)
+    if prices.empty:
+        return pd.DataFrame()
+    sessions = _session_index(prices)
+    if len(sessions) < 20:
+        return pd.DataFrame()
+
+    rows = rows.copy()
+    rows["day"] = rows["valid_from"].dt.date
+    since = sessions[-min(SUPPLY_SESSIONS, len(sessions))]
+    rows = rows[(rows["day"] >= since) & rows["sales_ratio"].notna()].sort_values("valid_from")
+    entities = pd.Index(sorted(prices["entity_id"].unique()), name="entity_id")
+
+    signed = rows[rows["kind"] == "contract"]
+    cancel = rows[rows["kind"] == "termination"]
+    raw = pd.DataFrame(index=entities)
+    raw["sc_ratio_60"] = signed.groupby("entity_id")["sales_ratio"].sum().reindex(entities).fillna(0.0)
+    raw["sc_last_ratio"] = signed.groupby("entity_id")["sales_ratio"].last().reindex(entities).fillna(0.0)
+    raw["sc_cancel_60"] = cancel.groupby("entity_id")["sales_ratio"].sum().reindex(entities).fillna(0.0)
+    return raw.replace([np.inf, -np.inf], np.nan).dropna(how="all")
+
+
+BUILDERS["G12"] = pl_structure_change
+BUILDERS["G13"] = supply_contract_flow

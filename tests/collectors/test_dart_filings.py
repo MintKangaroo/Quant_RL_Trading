@@ -110,6 +110,15 @@ def test_분류_규칙() -> None:
     assert classify("기타경영사항(자율공시)") == OTHER
 
 
+def test_손익구조_변동은_실적과_따로_센다() -> None:
+    """2026-09-27 추가. 12,949건이 패턴이 없어 `other` 로 떨어져 있었다 — G12 의 입력이다."""
+    assert classify("매출액또는손익구조30%(대규모법인은15%)이상변동") == "pl_change"
+    assert classify("[기재정정]매출액 또는 손익구조 30%(대규모법인은 15%)이상 변경") == "pl_change"
+    assert classify("매출액또는손익구조30%(대규모법인15%)미만변경(자율공시)") == "pl_change"
+    # 잠정실적은 그대로 earnings 다 — 손익구조 패턴이 실적을 먹지 않는다.
+    assert classify("연결재무제표기준영업(잠정)실적(공정공시)") == "earnings"
+
+
 def test_재개_단위는_날짜와_시장구분() -> None:
     assert filings_run_id("KR", date(2024, 5, 16), "Y") == (
         "bf-dart-filings-KR-2024-05-16-Y"

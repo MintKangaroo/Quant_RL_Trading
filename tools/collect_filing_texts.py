@@ -38,7 +38,9 @@ PAUSE_SEC = 0.2
 
 #: 본문을 볼 값이 큰 것부터. `other` 는 34만 중 22만이라 기본에서 뺀다 —
 #: 임베딩의 첫 표본은 "무너질 종목" 쪽에서 만든다(재료 대장 추천 기준).
-DEFAULT_TYPES = ("distress", "dilution", "earnings", "contract", "buyback", "split")
+#: `pl_change`(손익구조 30% 이상 변동)는 2026-09-27 에 추가했다 — 6차 G12 의 입력이고
+#: 본문에 당기·전기 손익 표가 있다. 저장된 분류는 `tools/reclassify_filings.py` 로 맞췄다.
+DEFAULT_TYPES = ("distress", "dilution", "earnings", "contract", "buyback", "split", "pl_change")
 
 
 def collect(
@@ -60,7 +62,9 @@ def collect(
     건너뛸 뿐 받기는 하므로, 적재 수로 세면 잘 받고도 "한 건도 못 받았다" 가 된다.
     """
     now = clock.now()
-    frame = store.get(docs.DOCUMENTS, as_of=now, lookback=lookback_days)
+    # **국장만.** 시장 없이 읽어 이름이 같은 유형(contract 등)의 미장 8-K 까지 DART 에 SEC 접수번호로 물었고,
+    # 9/16~19 밤 5,725건에 source='dart' 의 '원문 없음' 정정본이 남았다(2026-09-27 G12 작업 중 발견).
+    frame = store.get(docs.DOCUMENTS, as_of=now, lookback=lookback_days, market="KR")
     if until is not None and not frame.empty:
         # 판정 창 **밖** 표본(시행 X 모델 선정·PCA 적합)만 받을 때. pending 은 최근 것부터라
         # 창을 자르지 않으면 판정 창 안의 공시가 배치 머리를 차지한다.

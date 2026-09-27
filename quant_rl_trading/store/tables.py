@@ -693,6 +693,37 @@ _SPECS: dict[str, TableSpec] = {
             "셀렉터 필터(`universe.instrument_types_us`)가 보통주·ADR 만 남긴다. 분류 규칙은 collectors/us_symbols.py."
         ),
     ),
+    # 주식등의대량보유상황보고(5% 룰). **`insider_trades` 와 표를 나눈다** — 보고 의무도
+    # 보고자도 필드도 다르고(임원·주요주주 소유보고 vs 5% 대량보유), 같은 표에 섞으면
+    # 6차 G4 의 등록된 입력이 몰래 바뀐다(form4_trades 와 같은 이유).
+    "major_holders": TableSpec(
+        name="major_holders",
+        columns={
+            "market": pa.string(),
+            "rcept_no": pa.string(),
+            "reporter": pa.string(),        # repror 원값
+            "reporter_class": pa.string(),  # nps | institution | foreign | corporate | individual
+            "report_tp": pa.string(),       # 일반 | 약식 (원값)
+            # **보유목적은 응답에 없다.** report_tp + 사유 문구의 대리변수다
+            # (collectors/dart_major_holders.py docstring). simple | general | management
+            "purpose": pa.string(),
+            "report_resn": pa.string(),     # 사유 자유서술 — 개행을 ' / ' 로 이었다
+            "ratio": pa.float64(),          # 보고 후 보유비율 %
+            "ratio_change": pa.float64(),   # 증감 %p (+취득 / −처분)
+            "shares": pa.float64(),         # 보고 후 보유 주식등 수
+            "shares_change": pa.float64(),
+            "contract_ratio": pa.float64(),  # 주식등에 관한 계약 대상 비율 %
+        },
+        # 한 접수번호에 보고자가 여럿일 수 있고, 같은 접수일에 접수번호가 여럿이다.
+        natural_key=("entity_id", "valid_from", "rcept_no", "reporter"),
+        observation_lag_days=3,
+        doc=(
+            "DART majorstock — 주식등의대량보유상황보고(5% 룰). valid_from = 접수일 09:00 KST, "
+            "observed_at = 그 공시가 공시 목록에 처음 올라온 시각(documents 첫 revision, 접수일 18:00 KST). "
+            "**사유발생일은 API 에 없다** — 창은 접수일로 센다(G7 과 같은 이유). 응답은 최근 2년 롤링 창이다. "
+            "6차 G10(대량보유 변동)의 입력."
+        ),
+    ),
     "prelim_earnings": TableSpec(
         name="prelim_earnings",
         columns={
@@ -710,6 +741,57 @@ _SPECS: dict[str, TableSpec] = {
         doc=(
             "DART 영업(잠정)실적 원문에서 읽은 당기·전년동기 매출액·영업이익. valid_from·observed_at 은 원 공시(documents)의 값을 "
             "그대로 옮긴다 — 파싱은 계산일 뿐 새 사실이 아니다(document_embeddings 와 같은 규칙). 6차 G8 의 입력."
+        ),
+    ),
+    # 손익구조 30%(대규모법인 15%) 이상 변동 — 6차 G12(2026-09-27 초안). 잠정실적(G8)과 **다른 공시**다:
+    # 결산 뒤 손익이 크게 바뀐 것을 사후에 알리는 것이라 표본이 넓고(2,554종목 vs 638), 증감률이 이미 표에 있다.
+    "pl_change": TableSpec(
+        name="pl_change",
+        columns={
+            "market": pa.string(),
+            "doc_id": pa.string(),
+            "basis": pa.string(),        # consolidated | separate
+            "amended": pa.bool_(),       # [기재정정] — 정정 공시의 관측 시각에 새 값으로 들어온다
+            "sales_cur": pa.float64(),   # 당해사업연도, 원
+            "sales_base": pa.float64(),  # 직전사업연도, 원
+            "op_cur": pa.float64(),
+            "op_base": pa.float64(),
+            "net_cur": pa.float64(),
+            "net_base": pa.float64(),
+            "op_turn": pa.string(),      # 흑자전환 | 적자전환 | 적자지속 | 흑자지속 | ''
+            "period_end": pa.string(),   # 당해사업연도 종료일(ISO) — 어느 기간의 손익인지
+        },
+        natural_key=("entity_id", "valid_from", "doc_id"),
+        observation_lag_days=1,
+        doc=(
+            "DART `매출액또는손익구조30%(대규모법인은15%)이상변동` 원문에서 읽은 당해·직전 사업연도 매출액·영업이익·순이익. "
+            "**증감률은 저장하지 않는다** — 원문 칸은 분모가 음수면 부호가 뒤집혀 오므로 두 값으로 그때그때 계산한다. "
+            "valid_from·observed_at 은 원 공시(documents)의 값을 그대로 옮긴다(prelim_earnings 와 같은 규칙). 6차 G12 의 입력."
+        ),
+    ),
+    # 단일판매ㆍ공급계약 체결·해지 — 6차 G13(2026-09-27 초안). 지금 event Analyst 는 이 공시를
+    # **건수**로만 쓴다(FILING_SIGNS contract +1.0). 본문에는 계약금액과 최근매출액 대비 비율이 있다.
+    "supply_contracts": TableSpec(
+        name="supply_contracts",
+        columns={
+            "market": pa.string(),
+            "doc_id": pa.string(),
+            "kind": pa.string(),          # contract(체결) | termination(해지)
+            "amount": pa.float64(),       # 계약금액 총액(해지는 해지금액), 원
+            "recent_sales": pa.float64(), # 최근매출액(원) — 회사 것. 계약상대방 것이 아니다
+            "sales_ratio": pa.float64(),  # 매출액 대비(%)
+            "counterparty": pa.string(),
+            "relation": pa.string(),      # 회사와의 관계(계열회사·거래처·'-' 등)
+            "period_start": pa.string(),  # 계약기간 시작일(ISO)
+            "period_end": pa.string(),
+            "amended": pa.bool_(),        # [기재정정]
+        },
+        natural_key=("entity_id", "valid_from", "doc_id"),
+        observation_lag_days=1,
+        doc=(
+            "DART 단일판매ㆍ공급계약 체결·해지 원문에서 읽은 계약금액·최근매출액·매출액 대비 비율. 해지는 kind='termination' "
+            "이고 금액은 해지금액이다(부호를 붙이지 않는다 — 방향은 kind 가 말한다). valid_from·observed_at 은 원 공시의 값을 "
+            "그대로 옮긴다. 6차 G13 의 입력."
         ),
     ),
     # 종목별 프로그램매매(국장) — 사용자 제안(2026-09-20). **과거 이력을 주는 소스가 없다**: LS t1637 은 당일
