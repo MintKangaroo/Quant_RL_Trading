@@ -47,7 +47,8 @@ BlockRows = Callable[[pd.DataFrame, "list[date]", int, int], pd.DataFrame]
 
 PROTOCOL = Path("docs/protocols/final-model-round-2026-10.md")
 #: 본 측정 가능 시각 — BC(10/3)·6차 G8(10/4) 뒤. 사전등록 머리글.
-MEASURE_FROM = date(2026, 10, 5)
+# 원래 10/5(일정 잠금). 사용자 9/27 허용으로 앞당김 — 진짜 잠금은 스크립트의 '초안' 검사·해시 고정이다.
+MEASURE_FROM = date(2026, 9, 28)
 MARKETS = ("KR", "US")
 WINDOW = (date(2022, 7, 1), date(2026, 6, 30))
 SEEDS = (0, 1, 2, 3, 4)

@@ -76,7 +76,8 @@ PROTOCOL = Path("docs/protocols/final-model-round-2026-10.md")
 #: C1(GBM·FA) 워크포워드 예측 캐시 — 공통 틀 제작자가 쓴다(entity_id · session · pred). BG 는 읽기만 한다.
 C1_CACHE = Path("data/_diag/final-round")
 #: 판정·학습은 이 날짜부터. 공통 틀의 "측정 10/5 이후" 이고, 사전등록 승인과 **같이** 필요한 조건이다.
-JUDGE_FROM = date(2026, 10, 5)
+# 원래 10/5(BC·G8 과 겹치지 않게 — 일정 잠금). 사용자 9/27 "주말이라 낮에 돌려도 돼" 로 앞당겼다. 진짜 잠금은 등록 문서의 '초안' 머리줄이다.
+JUDGE_FROM = date(2026, 9, 28)
 
 TOP_N = 24
 #: 재조정 주기(세션) = 채택된 규칙 AO C10. 기울기도 이 날에만 낸다.

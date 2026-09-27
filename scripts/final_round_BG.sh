@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 시행 BG(잔차 RL) 측정 — docs/protocols/final-model-round-2026-10.md. **준비만 해 둔 것이다:**
-# 사전등록 해시 고정 + 사용자 승인 + 10/5 이후여야 도구 자체가 돈다(require_registered).
+# 사전등록 해시 고정 + 사용자 승인 + 9/28 이후(원래 10/5, 사용자 허용으로 앞당김)여야 도구 자체가 돈다(require_registered).
 #
 #   기동: setsid nohup bash scripts/final_round_BG.sh > /dev/null 2>&1 &
 #
