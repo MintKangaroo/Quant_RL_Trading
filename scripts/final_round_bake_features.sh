@@ -26,7 +26,8 @@ LOCK="data/_locks/final-round-bake-features.lock"
 OUT=data/_diag/kr-long
 WARMUP_START="${WARMUP_START:-2022-04-01}"
 BAKE_END="${BAKE_END:-2026-06-30}"
-GROUPS="${GROUPS:-G1 G2 G4 G5}"
+# GROUPS 는 bash 예약 변수(사용자 그룹 번호)라 쓰면 "1000" 이 들어간다(2026-09-27 22:37 실패) — BUNDLES 로.
+BUNDLES="${BUNDLES:-G1 G2 G4 G5}"
 ANALYSTS="chart event flow_kr fundamental regime risk"
 mkdir -p logs data/_locks
 
@@ -89,8 +90,8 @@ PY
   nice -n 5 .venv/bin/python -u tools/diagnose_ic.py cache-extra --market KR --analyst ${ANALYSTS} --cache-dir "${OUT}"
   rc=$?; echo "  원피처 rc=${rc}"; [ "${rc}" -ne 0 ] && FAILED=$((FAILED + 1))
 
-  echo "--- $(date '+%F %T') ③ 묶음 월 조각 ${GROUPS} (이미 구운 달은 건너뜀) ---"
-  for G in ${GROUPS}; do
+  echo "--- $(date '+%F %T') ③ 묶음 월 조각 ${BUNDLES} (이미 구운 달은 건너뜀) ---"
+  for G in ${BUNDLES}; do
     echo "  $(date '+%T') ${G}"
     GROUP="${G}" WARMUP_START="${WARMUP_START}" BAKE_END="${BAKE_END}" nice -n 5 .venv/bin/python -u - <<'PY'
 import os
