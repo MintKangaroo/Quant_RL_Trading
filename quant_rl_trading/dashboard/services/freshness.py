@@ -32,6 +32,9 @@ DATASETS: tuple[tuple[str, str, str, Market, str | None, str | None, str | None]
     # FINRA 일별 공매도 거래량 — flow_us 의 입력. 2026-08-18 백필 뒤 일일 수집이 빠져
     # 열흘을 조용히 멈춰 있었다(8/29 발견). 띠에 올려 두면 다음엔 하루 만에 보인다.
     ("us_short", "미장 공매도", "short_flow", Market.US, "US", None, None),
+    # 미장 SEC 8-K 공시 — event(미장)·G2·G6·G11 의 입력. 일일 수집 줄이 없어 8/25~9/26 한 달을 얼어 있었는데
+    # 띠에 없어서 아무 데도 안 보였다(2026-09-27 G11 등록 점검 중 발견). 08:40 미장 수집이 받는다.
+    ("us_filings", "미장 공시", "documents", Market.US, "US", None, None),
     # **종료 판정의 대조군**(milestones.md). 2026-09-18 확인 시점에 창고에 0행이었다 —
     # ETF 는 유니버스에 없어 일상 수집 어디에도 안 걸리고, 띠에도 없어 그 공백이
     # 아무 데도 안 보였다. 판정일에 발견하면 소급해 채우는 수밖에 없고, 그때 채우면
