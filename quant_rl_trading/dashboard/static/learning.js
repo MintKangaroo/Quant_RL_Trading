@@ -456,7 +456,140 @@ async function renderResearchLedger() {
     </tbody></table>`;
 }
 
-runAll([renderKpis, renderGate, renderIcHistory, renderResearchLedger, renderOpenDiagnostics]);
+/* 마지막 모델 회차(BE·BF·BG·C0·C1) — **학습 진행만.**
+ *
+ * 판정 창의 수익·IC 는 이 칸에 오지 않는다(서비스가 애초에 안 담는다). 사전등록이
+ * "학습 중에는 판정 창을 보지 않는다" 로 정했고, 화면이 그것을 비추면 규칙이 깨진다.
+ * 판정이 끝난 시행만 시행 대장(research_trials)에 적힌 줄을 그대로 옮긴다.
+ *
+ * 손실 선은 둘 다 **낮을수록 좋다** — 순위 지표로 조기 종료하는 모델(BF 의 NDCG,
+ * BG 의 검증 우위)은 창고에 부호를 뒤집어 적혀 있고 metric 칸이 원 이름을 말한다.
+ */
+function elapsedLabel(seconds) {
+  if (seconds == null) return "—";
+  if (seconds < 90) return `${Math.round(seconds)}초`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}분`;
+  if (seconds < 3600 * 36) return `${(seconds / 3600).toFixed(1)}시간`;
+  return `${(seconds / 86400).toFixed(1)}일`;
+}
+
+function renderFinalRoundTable(target, data) {
+  const rows = data.trials.map((t) => {
+    const seeds = t.n_seeds ? `${t.seeds.length} / ${t.n_seeds}` : `${t.seeds.length}`;
+    const unit = t.axis === "fold" ? "폴드" : "블록";
+    const done = t.units_total ? `${t.units_done} / ${t.units_total}` : `${t.units_done}`;
+    const eta = t.eta_seconds == null
+      ? '<span class="kpi-note">남은 양을 모른다</span>'
+      : elapsedLabel(t.eta_seconds);
+    const early = t.early_share == null ? "—" : `${(t.early_share * 100).toFixed(0)}%`;
+    return `<tr>
+      <td><strong>${t.trial}</strong> <span class="sub">${t.kind === "control" ? "대조군" : "모델"}</span>
+        <div class="kpi-note">${t.markets.join("+") || "—"} · ${t.metric || "지표 미기록"}</div></td>
+      <td class="num">${seeds}</td>
+      <td class="num">${done}<span class="hint">${unit}</span></td>
+      <td class="num">${t.progress == null ? "—" : `${(t.progress * 100).toFixed(0)}%`}</td>
+      <td class="num">${elapsedLabel(t.mean_unit_s)}</td>
+      <td class="num">${eta}</td>
+      <td class="num">${early}<div class="kpi-note">${t.early_n ? `${t.early_n}회 기록` : "기록 없음"}</div></td>
+      <td class="mobile-hide">${String(t.last_at).replace("T", " ").slice(0, 16)}
+        <div class="kpi-note">${t.last_note || ""}</div></td>
+    </tr>`;
+  }).join("");
+  target.innerHTML = `<table class="dense">
+    <thead><tr>
+      <th>시행</th><th class="num">시드</th><th class="num">진행</th><th class="num">비율</th>
+      <th class="num">평균 시간</th><th class="num">남은 예상</th><th class="num">조기 종료</th>
+      <th class="mobile-hide">마지막 기록</th>
+    </tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+function drawFinalRoundLoss(data) {
+  // **모델마다 눈금을 따로 준다.** BE 의 MSE 는 1.0 근처이고 BG 의 검증 우위는 0.001 근처다 —
+  // 한 y축에 얹으면 작은 쪽이 0 에 붙은 직선으로 보여 "학습이 안 된다" 처럼 읽힌다.
+  // ECharts 의 grid 를 시행마다 하나씩 쌓는다(작은 배수). 손실이 한 칸도 없는 군(GBM 대조군)은 뺀다.
+  const target = document.getElementById("chart-final-round");
+  if (!target) return;
+  const drawn = data.trials.filter((t) =>
+    t.curves.some((c) => c.train.some((v) => v != null) || c.val.some((v) => v != null)));
+  if (!drawn.length) {
+    target.innerHTML = `<p class="kpi-note">손실을 적은 시행이 아직 없다 — 대조군 GBM 은 조기 종료를 쓰지 않아
+      손실 칸이 비어 있다.</p>`;
+    return;
+  }
+  const ROW = 150;
+  target.style.height = `${drawn.length * ROW + 30}px`;
+  const grids = [], xAxes = [], yAxes = [], series = [], titles = [];
+  drawn.forEach((t, i) => {
+    const color = COLOR.series[i % COLOR.series.length];
+    // 오른쪽 여백은 축 이름("블록"·"폴드") 자리다 — 16 이면 글자가 화면 밖으로 잘린다.
+    grids.push({ left: 56, right: 44, top: i * ROW + 28, height: ROW - 56 });
+    xAxes.push({ gridIndex: i, type: "value", minInterval: 1,
+                 name: t.axis === "fold" ? "폴드" : "블록", nameLocation: "end", nameGap: 6 });
+    yAxes.push({ gridIndex: i, type: "value", scale: true });
+    titles.push({ text: `${t.trial} · ${t.metric || "지표 미기록"}`, top: i * ROW + 6, left: 0,
+                  textStyle: { color: COLOR.muted, fontSize: 11, fontWeight: "normal" } });
+    for (const curve of t.curves) {
+      const points = (which) => curve.x.map((x, k) => [x, curve[which][k]]);
+      const common = { type: "line", showSymbol: false, xAxisIndex: i, yAxisIndex: i,
+                       itemStyle: { color } };
+      if (curve.train.some((v) => v != null)) {
+        series.push({ ...common, name: `${t.trial} 학습`, data: points("train"),
+                      lineStyle: { width: 1.5, color, opacity: 0.55 } });
+      }
+      if (curve.val.some((v) => v != null)) {
+        series.push({ ...common, name: `${t.trial} 검증`, data: points("val"),
+                      lineStyle: { width: 1.5, color, type: "dashed" } });
+      }
+    }
+  });
+  chart("chart-final-round").setOption({
+    ...BASE,
+    title: titles,
+    legend: { show: false },   // 시드마다 한 선이라 범례는 이름이 겹친다 — 칸 제목이 시행을 말한다
+    grid: grids, xAxis: xAxes, yAxis: yAxes,
+    tooltip: { ...BASE.tooltip, trigger: "item" },
+    series,
+  }, true);
+}
+
+function renderFinalRoundVerdicts(target, data) {
+  if (!data.verdicts.length) {
+    target.innerHTML = `<p class="kpi-note">판정 기록 없음 — 학습이 끝나면 시행 대장에 한 줄이 적힌다.
+      진행률이 100% 라도 판정은 별도 실행이다.</p>`;
+    return;
+  }
+  const rows = data.verdicts.map((v) => `<tr>
+    <td><strong>${v.entity_id}</strong><div class="kpi-note">${v.family} · ${v.protocol_hash || "해시 미고정"}</div></td>
+    <td>${String(v.at).replace("T", " ").slice(0, 16)}</td>
+    <td>${v.detail}</td></tr>`).join("");
+  target.innerHTML = `<h3>판정 기록 <span class="sub">시행 대장에 적힌 줄 그대로</span></h3>
+    <table class="dense"><thead><tr><th>시행</th><th>시각</th><th>판정</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+async function renderFinalRound() {
+  const target = document.getElementById("final-round-progress");
+  const verdicts = document.getElementById("final-round-verdicts");
+  if (!target) return;
+  const body = await fetchJson("learning/final-round");
+  const data = body.data;
+  showScope(body);
+  if (!data.has_data) {
+    // **0행과 "돌렸는데 진행이 없다" 는 다른 사실이다.** 0 으로 그리지 않는다.
+    target.innerHTML = `<p class="empty">진행 기록이 0행이다 — 이 시점에 돌고 있는 회차 학습이 없다.</p>`;
+    // 빈 차트 칸을 접는다. 그냥 두면 CSS 높이만큼 검은 공백이 남아 "그리다 만 화면" 으로 보인다.
+    const canvas = document.getElementById("chart-final-round");
+    if (canvas) { canvas.innerHTML = ""; canvas.style.height = "0"; }
+    if (verdicts) renderFinalRoundVerdicts(verdicts, data);
+    return;
+  }
+  renderFinalRoundTable(target, data);
+  drawFinalRoundLoss(data);
+  if (verdicts) renderFinalRoundVerdicts(verdicts, data);
+}
+
+runAll([renderKpis, renderGate, renderIcHistory, renderFinalRound, renderResearchLedger, renderOpenDiagnostics]);
 
 const diagnostics = document.getElementById("rl-diagnostics");
 async function renderOpenDiagnostics() {

@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from tools import final_round_kit as kit  # noqa: E402
 from tools.trial_lambdarank import top_overlap  # noqa: E402
@@ -143,6 +144,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--markets", default="KR,US")
     parser.add_argument("--window", default="", help="YYYY-MM-DD:YYYY-MM-DD — **배선 확인용 짧은 창**. 본 판정은 기본값(등록 창)이다")
     parser.add_argument("--rebuild", action="store_true", help="FA 패널 조각을 다시 굽는다")
+    # 진행 기록(`trial_progress`)은 기본으로 적는다 — 학습 탭의 대조군 진행률이 여기서 온다.
+    # **`--smoke` 는 자동으로 끈다**: 짧은 창·시드 1개의 배선 확인이 본 굽기의 진행률과 섞이면
+    # 화면이 "C0 이 1/2 블록에서 멈췄다" 로 보인다.
+    parser.add_argument("--no-progress", action="store_true", help="trial_progress 기록을 끈다")
     args = parser.parse_args(argv)
     if not (args.precheck or args.bake):
         parser.error("--precheck 또는 --bake 중 하나는 있어야 한다")
@@ -183,7 +188,9 @@ def main(argv: list[str] | None = None) -> int:
     seeds = (0,) if args.smoke else kit.SEEDS
     if args.smoke:
         bl = bl[: args.smoke]
-    out = kit.controls(panel, feats, sessions, bl, seeds=seeds, smoke=args.smoke)
+    recording = store if not (args.no_progress or args.smoke) else None
+    out = kit.controls(panel, feats, sessions, bl, seeds=seeds, smoke=args.smoke,
+                       store=recording, clock=LiveClock())
     for arm, per_seed in out.items():
         for s, frame in per_seed.items():
             print(f"{arm} seed{s}: 예측 {len(frame):,}행 · 세션 {frame['session'].nunique()}", flush=True)

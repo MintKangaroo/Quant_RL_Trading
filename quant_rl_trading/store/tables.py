@@ -927,6 +927,66 @@ _SPECS: dict[str, TableSpec] = {
             "(self-improvement.md §0). 리셋도 삭제도 없다."
         ),
     ),
+    "trial_progress": TableSpec(
+        name="trial_progress",
+        columns={
+            "market": pa.string(),
+            # 시드·블록(또는 폴드)까지가 한 행의 자리다. 시드가 여럿이면 같은 블록이
+            # 여러 번 적히므로 seed 가 키에 들어간다.
+            "seed": pa.int32(),
+            # 판정 블록 순번(0-based)과 전체 블록 수. 진행률의 분자·분모다 —
+            # 화면이 분모를 따로 들면 학습 설정과 어긋난다(불변식 10과 같은 사정).
+            "block": pa.int32(),
+            "n_blocks": pa.int32(),
+            # 이 실행이 돌릴 **시드 수**. 진행률의 분모는 시드 × 블록이고, 그 분모를 화면이
+            # 짐작하면(관측된 시드 수로 세면) 3시드만 시작한 회차가 "완주" 로 보인다.
+            "n_seeds": pa.int32(),
+            # RL(BG)은 블록이 아니라 워크포워드 폴드로 돈다. 축 이름을 하나로
+            # 뭉개면 "3/41" 과 "1/2" 가 같은 칸에 섞인다.
+            "fold": pa.int32(),
+            "n_folds": pa.int32(),
+            "step": pa.int64(),
+            "epoch": pa.int32(),
+            "rounds": pa.int32(),
+            # **학습 손실과 내부 검증 손실만.** 판정 창의 수익·IC·포트 지표는
+            # 이 표에 절대 들어가지 않는다 — 사전등록(final-model-round-2026-10.md
+            # §과적합 억제 5)이 "학습 중에는 판정 창을 보지 않는다" 를 요구하고,
+            # 진행 화면이 그 값을 비추면 사람이 학습 도중에 판정 창을 읽게 된다.
+            # 판정 결과는 끝난 뒤 research_trials 한 곳에만 적힌다.
+            # **둘 다 "낮을수록 좋은 값" 이다.** 손실이 아닌 지표로 조기 종료하는 모델
+            # (BF 의 NDCG@100 · BG 의 검증 우위 · BE 의 순위상관)은 **부호를 뒤집어** 넣고,
+            # 원 지표 이름을 `metric` 에 적는다. 섞어 넣으면 한 그림 안에서 어떤 선은
+            # 내려가는 것이 좋고 어떤 선은 올라가는 것이 좋아져 화면이 읽을 수 없게 된다.
+            "train_loss": pa.float64(),
+            "val_loss": pa.float64(),
+            # 그 두 칸이 실제로 무엇인가 — "mse" · "ndcg@100(−)" · "edge(−)" 처럼.
+            # 없으면 화면이 축 이름을 짐작하게 되고, 짐작은 곧 틀린 설명문이 된다.
+            "metric": pa.string(),
+            # 조기 종료가 **걸렸는지**. 예산(에포크·라운드·업데이트)을 다 쓴 것과
+            # 구분해 적는다 — 섞으면 과적합 진단이 반대로 읽힌다(BF·BG 주석 참고).
+            "stopped_early": pa.bool_(),
+            "elapsed_s": pa.float64(),
+            "note": pa.string(),
+        },
+        # 같은 시행·같은 시드·같은 블록(폴드)을 같은 시각에 두 번 적지 않는다.
+        # 다시 돌리면 valid_from 이 달라 새 행이고, 화면은 그 시드·블록의
+        # 마지막 행만 본다 — 지난 회차의 곡선이 새 회차와 겹쳐 그려지지 않는다.
+        natural_key=("entity_id", "valid_from", "seed", "block", "fold"),
+        # 기록 시각 = valid_from = observed_at 이라 지연은 0 이지만, **선언을
+        # 빠뜨리면 하한 프루닝이 통째로 꺼진다**(prices 주석 참고).
+        observation_lag_days=1,
+        # entity_id 가 종목이 아니라 **시행 이름**("BE"·"BF"·"BG"·"C0"·"C1")이다.
+        # research_trials 와 같은 사정 — 시장은 별도 컬럼이다.
+        market_prefixed_entity=False,
+        doc=(
+            "학습 진행 기록. 1행 = 한 시행 · 한 시드 · 한 블록(또는 폴드)이 끝난 순간. "
+            "마지막 모델 회차(docs/protocols/final-model-round-2026-10.md)의 BE·BF·BG 와 "
+            "대조군 C0·C1 이 `tools/final_round_kit.record_progress` 로 적는다. "
+            "**담는 것은 학습 손실·내부 검증 손실·조기 종료·스텝·경과 시간·진행 위치뿐이다** — "
+            "판정 창의 수익·IC 는 판정이 끝난 뒤 research_trials 에만 적힌다. "
+            "0행은 '학습을 안 돌렸다' 이고 '돌렸는데 진행이 없다' 와 다른 사실이다."
+        ),
+    ),
     "holdout_access": TableSpec(
         name="holdout_access",
         columns={

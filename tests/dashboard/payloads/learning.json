@@ -204,6 +204,24 @@
       "missing_warn": 0.01
     }
   },
+  "learning/final-round": {
+    "as_of": "2026-09-27T15:20:15+00:00",
+    "data": {
+      "has_data": false,
+      "trials": [],
+      "verdicts": []
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
   "learning/gate": {
     "as_of": "2026-08-30T03:31:34.571287+00:00",
     "data": {

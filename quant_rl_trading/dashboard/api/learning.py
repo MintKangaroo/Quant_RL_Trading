@@ -107,6 +107,17 @@ def walk_forward() -> Any:
     )
 
 
+@bp.get("/final-round")
+def final_round() -> Any:
+    """마지막 모델 회차(BE·BF·BG·C0·C1)의 **학습 진행**. 판정 창 수익·IC 는 담기지 않는다 —
+    판정이 끝난 시행은 research_trials 의 그 줄만 함께 온다."""
+    current = scope()
+    return envelope(
+        current,
+        service.final_round_progress(store(), as_of=current.as_of, lookback=current.lookback),
+    )
+
+
 @bp.get("/research-jobs")
 def research_jobs() -> Any:
     """지금 도는 연구 스크립트와 최근 연구 로그. 창고가 아니라 /proc·logs 라 as_of 를 안 받는다

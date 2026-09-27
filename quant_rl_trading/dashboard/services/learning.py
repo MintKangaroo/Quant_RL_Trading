@@ -442,6 +442,7 @@ __all__ = [
     "M4_WIDGETS",
     "WALK_FORWARD_2026_01_02",
     "analyst_gate",
+    "final_round_progress",
     "ic_history",
     "m4_status",
     "research_ledger",
@@ -649,3 +650,135 @@ def research_jobs(root: Path) -> dict[str, Any]:
                 "last": (lines[-1] if lines else "")[:160],
             })
     return {"running": running, "logs": logs}
+
+
+# --------------------------------------------------------------------------- 마지막 모델 회차
+
+#: 학습 진행 표. `tools/final_round_kit.record_progress` 가 적는다.
+TRIAL_PROGRESS = "trial_progress"
+#: 마지막 모델 회차의 판정 행(`research_trials`)을 고르는 접두어. 시행 도구가 이 이름으로 적는다.
+FINAL_ROUND_ENTITY = "final-model-round"
+#: 대조군(모델이 아니다). 화면이 "모델이 이겼나" 를 물을 때 기준선이 되는 군이다.
+FINAL_ROUND_CONTROLS = ("C0", "C1")
+#: 진행 곡선에 실을 시행당 최근 행 수. 41블록 × 5시드 = 205행이라 전부 실어도 작지만,
+#: 재실행이 쌓이면 응답이 커진다 — training_runs 가 6실행으로 자른 것과 같은 이유다.
+PROGRESS_ROW_CAP = 1200
+
+#: **응답에 실어도 되는 칸.** 판정 창 수익·IC·MDD·회전은 이 목록에 없다 — 사전등록이
+#: "학습 중에는 판정 창을 보지 않는다" 를 요구하고, 진행 화면이 그것을 비추면 규칙이 깨진다.
+#: 판정 결과는 끝난 뒤 `research_trials` 의 줄로만 나온다. 테스트가 이 목록을 지킨다.
+PROGRESS_PUBLIC_FIELDS = (
+    "seed", "block", "n_blocks", "fold", "n_folds", "n_seeds", "step", "epoch", "rounds",
+    "train_loss", "val_loss", "metric", "stopped_early", "elapsed_s", "note", "market", "at",
+)
+
+
+def _progress_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """같은 (시행·시드·블록/폴드)의 **마지막 기록만** 남긴다.
+
+    다시 돌리면 valid_from 이 달라 새 행이다(append-only). 전부 그리면 지난 회차의 곡선이
+    새 회차와 겹쳐 그려져서, 어느 선이 지금 도는 학습인지 알 수 없다.
+    """
+    frame = frame.sort_values("valid_from").copy()
+    keys = ["entity_id"]
+    for key in ("seed", "block", "fold"):
+        column = f"_key_{key}"
+        # 없는 축(BG 의 block · BE 의 fold)은 -1 로 묶는다 — NaN 은 groupby 에서 조용히 떨어진다.
+        frame[column] = frame[key].fillna(-1) if key in frame.columns else -1
+        keys.append(column)
+    return frame.groupby(keys, sort=False).tail(1).drop(columns=keys[1:])
+
+
+def _num(value: Any) -> float | None:
+    return None if value is None or pd.isna(value) else float(value)
+
+
+def _int(value: Any) -> int | None:
+    return None if value is None or pd.isna(value) else int(value)
+
+
+def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30) -> dict[str, Any]:
+    """마지막 모델 회차(BE·BF·BG·C0·C1)의 **학습 진행**. 판정 창 지표는 담지 않는다.
+
+    담는 것: 진행 위치(시드 x/n · 블록 y/n), 학습 손실·내부 검증 손실(`kit.inner_split` 쪽),
+    조기 종료 비율, 블록 평균 시간과 그것으로 뺀 예상 완료, 마지막 기록 시각.
+    판정이 끝난 시행은 `research_trials` 의 그 줄을 **그대로** 붙인다 — 화면이 판정을 다시 계산하지 않는다.
+
+    0행은 "학습을 안 돌렸다" 이고 "돌렸는데 진행이 없다" 와 다른 사실이다(`has_data`).
+    """
+    frame = store.get(TRIAL_PROGRESS, as_of=as_of, lookback=lookback)
+    verdicts = _final_round_verdicts(store, as_of=as_of, lookback=max(lookback, 120))
+    if frame.empty:
+        return {"has_data": False, "trials": [], "verdicts": verdicts}
+
+    rows = _progress_rows(frame)
+    trials: list[dict[str, Any]] = []
+    for trial, part in rows.groupby("entity_id", sort=False):
+        part = part.sort_values("valid_from").tail(PROGRESS_ROW_CAP)
+        fold_axis = "block" not in part.columns or part["block"].isna().all()
+        axis = "fold" if fold_axis else "block"
+        total_col = "n_folds" if fold_axis else "n_blocks"
+        per_seed = int(part[total_col].dropna().max()) if total_col in part.columns and part[total_col].notna().any() else None
+        # 분모는 **기록이 말하는 수**다(n_seeds). 관측된 시드 수로 세면 3시드만 시작한 회차가 완주로 보인다.
+        n_seeds = _int(part["n_seeds"].dropna().max()) if "n_seeds" in part.columns and part["n_seeds"].notna().any() else None
+        seeds_seen = sorted({v for s in part["seed"] if (v := _int(s)) is not None})
+        done = len(part)
+        total = (per_seed * n_seeds) if (per_seed and n_seeds) else None
+        elapsed = [v for v in (_num(v) for v in part["elapsed_s"]) if v is not None and v > 0]
+        mean_unit_s = sum(elapsed[-20:]) / len(elapsed[-20:]) if elapsed else None
+        last_at = str(part["valid_from"].max())
+        early = [bool(v) for v in part["stopped_early"] if not pd.isna(v)]
+        curves: list[dict[str, Any]] = []
+        for seed, grp in part.groupby("seed", dropna=False, sort=True):
+            grp = grp.sort_values(axis if axis in grp.columns else "valid_from")
+            curves.append({
+                "seed": _int(seed),
+                "x": [_int(v) for v in grp[axis]] if axis in grp.columns else list(range(len(grp))),
+                "train": [_num(v) for v in grp["train_loss"]],
+                "val": [_num(v) for v in grp["val_loss"]],
+            })
+        # 남은 단위 × 평균 단위 시간. 총량을 모르면 예상 완료를 **말하지 않는다**(짐작한 분모로 낸
+        # 완료 시각은 화면에서 사실과 구분되지 않는다).
+        remaining = (total - done) if total is not None else None
+        eta_s = (remaining * mean_unit_s) if (remaining is not None and remaining > 0 and mean_unit_s) else None
+        trials.append({
+            "trial": str(trial),
+            "kind": "control" if str(trial) in FINAL_ROUND_CONTROLS else "model",
+            "axis": axis,
+            "markets": sorted({str(m) for m in part["market"] if m}),
+            "metric": next((str(m) for m in reversed(list(part["metric"])) if m and not pd.isna(m)), ""),
+            "seeds": seeds_seen,
+            "n_seeds": n_seeds,
+            "units_per_seed": per_seed,
+            "units_done": done,
+            "units_total": total,
+            "progress": (done / total) if total else None,
+            "mean_unit_s": mean_unit_s,
+            "eta_seconds": eta_s,
+            "last_at": last_at,
+            "early_share": (sum(early) / len(early)) if early else None,
+            "early_n": len(early),
+            "curves": curves,
+            "last_note": next((str(n) for n in reversed(list(part["note"])) if n and not pd.isna(n)), ""),
+        })
+    # 마지막으로 기록을 남긴 시행이 위로 — 지금 도는 학습이 첫 줄이다(training_runs 와 같은 규칙).
+    trials.sort(key=lambda t: t["last_at"], reverse=True)
+    return {"has_data": True, "trials": trials, "verdicts": verdicts}
+
+
+def _final_round_verdicts(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
+    """`research_trials` 에 적힌 이 회차의 판정 줄. **여기서 판정을 계산하지 않는다** — 그대로 옮긴다."""
+    frame = store.get("research_trials", as_of=as_of, lookback=lookback)
+    if frame.empty:
+        return []
+    frame = frame[frame["entity_id"].astype(str).str.startswith(FINAL_ROUND_ENTITY)]
+    out: list[dict[str, Any]] = []
+    for _, row in frame.sort_values("valid_from").iterrows():
+        out.append({
+            "entity_id": str(row["entity_id"]),
+            "family": str(row.get("family") or ""),
+            "protocol_hash": str(row.get("protocol_hash") or ""),
+            "at": str(row["valid_from"]),
+            "detail": str(row.get("detail") or ""),
+        })
+    return out

@@ -71,6 +71,8 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
+
 PROTOCOL = Path("docs/protocols/final-model-round-2026-10.md")
 #: 시드별 예측 캐시. 10시간짜리 실행이라 중간에 죽으면(메모리 가드·WSL2 재부팅) 끝난 시드는 다시 돌리지 않는다.
 SEED_CACHE = Path("data/_diag/final-round/BE")
@@ -112,6 +114,9 @@ class TrainLog:
     seen_days: set[int] = field(default_factory=set)     # 손실·그래디언트에 쓴 세션 인덱스
     val_days: set[int] = field(default_factory=set)      # 조기 종료 판단에 쓴 세션 인덱스
     val_scores: list[float] = field(default_factory=list)
+    #: 에포크마다의 **학습 손실 평균**(MSE). 진행 기록(`trial_progress`)의 train_loss 가 이 마지막 값이다 —
+    #: 검증만 적으면 "학습이 내려가는데 검증이 안 내려간다"(과적합)와 "둘 다 안 내려간다"(학습 실패)를 못 가른다.
+    train_losses: list[float] = field(default_factory=list)
     epochs: int = 0
     stopped_early: bool = False
 
@@ -282,6 +287,7 @@ def train_model(cube: np.ndarray, observed: np.ndarray, market_id: np.ndarray,
 
     for epoch in range(max_epochs):
         model.train()
+        loss_sum, loss_n = 0.0, 0
         if steps_per_epoch and steps_per_epoch < len(pool):
             days = rng.choice(pool, size=steps_per_epoch, replace=False)
         else:
@@ -300,8 +306,11 @@ def train_model(cube: np.ndarray, observed: np.ndarray, market_id: np.ndarray,
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP)
                 opt.step()
+                loss_sum += float(loss.detach())
+                loss_n += 1
                 log.seen_days.add(int(day_index))
         log.epochs = epoch + 1
+        log.train_losses.append(loss_sum / loss_n if loss_n else float("nan"))
         score = _val_score(model, cube, observed, market_id, targets, val_days, log)
         log.val_scores.append(score)
         if score > best + 1e-6:
@@ -382,7 +391,7 @@ def rank_average(*frames: pd.DataFrame) -> pd.DataFrame:
 
 def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessions, blocks, targets,
              aug: Aug, seed: int, purge: int = 5,
-             max_epochs: int = MAX_EPOCHS) -> tuple[pd.DataFrame, pd.DataFrame, list[TrainLog], float]:
+             max_epochs: int = MAX_EPOCHS, store=None, clock=None, n_seeds: int = 0) -> tuple[pd.DataFrame, pd.DataFrame, list[TrainLog], float]:
     """시드 하나의 워크포워드. **5블록마다 재학습**, 학습은 `kit.train_end`(퍼지+엠바고) 까지만 본다.
 
     축이 둘이다 — 섞으면 미장이 조용히 사라진다:
@@ -393,6 +402,10 @@ def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessi
     반환: (판정창 예측, 학습창 예측, 재학습 로그, 분). 학습창 예측은 과적합 격차 지표에만 쓴다 —
     **판정에는 절대 들어가지 않는다**(공통 틀 5).
 
+    `store`·`clock` 을 주면 블록마다 `kit.record_progress` 로 진행을 적는다(학습 탭이 이걸 읽는다).
+    적는 것은 **학습 손실·내부 검증(부호 뒤집은 순위상관)·조기 종료·에포크·경과**뿐이다 —
+    판정 창 성적은 여기서 한 번도 계산하지 않고, 판정이 끝난 뒤 research_trials 에만 적힌다.
+
     `kit.inner_split` 은 **세션 날짜**를 돌려준다(인덱스가 아니다) — 여기서 큐브 인덱스로 옮긴다.
     """
     began = time_module.monotonic()  # invariant-allow: wallclock — 소요 시간 기록
@@ -402,6 +415,9 @@ def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessi
         # "자료 없음" 이 아니라 "순위 중앙" 이다). 규칙은 kit 한 곳에 있다 — BF·BG 와 같은 함수다. rc=5.
         kit.require_full_window(cube_sessions, axis_sessions[blocks[0][0]], WINDOW, label="60세션 창")
     model, logs, out, train_out = None, [], [], []
+    #: 블록 **하나**에 걸린 시간을 적는다(누적이 아니다) — 화면의 예상 완료가 평균 블록 시간 × 남은 블록이다.
+    mark = began
+    markets = "KR+US" if int(market_id.sum()) and int((market_id == 0).sum()) else ("US" if int(market_id.sum()) else "KR")
     for number, (first, last) in enumerate(blocks):
         if number % RETRAIN_EVERY == 0:
             cut = (kit.train_end(axis_sessions, first) if hasattr(kit, "train_end")
@@ -425,6 +441,19 @@ def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessi
                                                       entities, cube_sessions, log))
         out.append(predict_days(model, cube, observed, market_id, entities, cube_sessions,
                                 block_indices(kit, cube_sessions, axis_sessions, first, last)))
+        log = logs[-1] if logs else None
+        kit.record_progress(
+            store, clock, "BE", source="trial_final_transformer",
+            market=markets, seed=int(seed), n_seeds=n_seeds or None, block=number, n_blocks=len(blocks),
+            epoch=(log.epochs if log else None),
+            train_loss=(log.train_losses[-1] if log and log.train_losses else None),
+            # 순위상관은 **높을수록** 좋다 — 표 규약대로 부호를 뒤집어 넣는다(metric 에 이름을 적는다).
+            val_loss=(-log.val_scores[-1] if log and log.val_scores else None),
+            metric="mse / spearman(−)",
+            stopped_early=(bool(log.stopped_early) if log else None),
+            elapsed_s=time_module.monotonic() - mark,  # invariant-allow: wallclock
+            note=f"재학습 {len(logs)}회 · 판정 {axis_sessions[first]}~{axis_sessions[last]}")
+        mark = time_module.monotonic()  # invariant-allow: wallclock
     minutes = (time_module.monotonic() - began) / 60  # invariant-allow: wallclock
     return (pd.concat(out, ignore_index=True),
             pd.concat(train_out, ignore_index=True) if train_out else pd.DataFrame(),
@@ -554,6 +583,7 @@ def main(argv=None) -> int:
     parser.add_argument("--max-epochs", type=int, default=MAX_EPOCHS)
     parser.add_argument("--threads", type=int, default=12)
     parser.add_argument("--root", default="data")
+    parser.add_argument("--no-progress", action="store_true", help="trial_progress 기록을 끈다(기본은 적는다)")
     args = parser.parse_args(argv)
     if args.save and (args.smoke or args.synthetic):
         print("--save 는 본 판정에서만. --smoke/--synthetic 과 같이 못 쓴다.", file=sys.stderr)
@@ -600,6 +630,9 @@ def main(argv=None) -> int:
     cache = None if (args.synthetic or args.smoke) else SEED_CACHE
     if cache is not None:
         cache.mkdir(parents=True, exist_ok=True)
+    # 진행 기록은 **본 판정에서만** 적는다 — 합성·스모크 행이 섞이면 화면의 진행률이 거짓이 된다.
+    progress_store = None if (args.synthetic or args.smoke or args.no_progress) else kit.Store(root=Path(args.root))
+    clock = LiveClock()
     preds, train_preds, all_logs, minutes = {}, {}, {}, {}
     for seed in seeds:
         done = _load_seed(cache, seed)
@@ -610,7 +643,8 @@ def main(argv=None) -> int:
             continue
         preds[seed], train_preds[seed], all_logs[seed], minutes[seed] = run_seed(
             kit, cube, observed, market_id, entities, cube_sessions, sessions, blocks, targets,
-            aug, seed, max_epochs=args.max_epochs)
+            aug, seed, max_epochs=args.max_epochs, store=progress_store, clock=clock,
+            n_seeds=len(seeds))
         _save_seed(cache, seed, preds[seed], train_preds[seed])
     del cube
     if args.smoke or args.synthetic:

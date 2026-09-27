@@ -61,6 +61,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+from time import monotonic
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -1200,6 +1201,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     hashed = require_registered(args, "판정")
     real = build_inputs(args)
     inputs, kit, books = real.inputs, real.kit, real.books
+    from quant_rl_trading.replay.clock import LiveClock
     from quant_rl_trading.store import Store
     from tools.trial_ranker_kit import record
 
@@ -1233,6 +1235,10 @@ def cmd_judge(args: argparse.Namespace) -> int:
         raise SystemExit(f"C0 에 시드 0·1·2 의 ic 가 없다 {sorted(c0)} — ΔIC 를 0 으로 맞출 수 없다")
     results: dict[int, dict[str, float]] = {}
     train_m: dict[int, dict[str, float]] = {}
+    # 진행 기록은 **본 판정에서만**. `--no-progress` 로 끈다(합성 스모크·카나리는 애초에 여길 안 지난다).
+    progress_store = None if (args.no_progress or args.synthetic) else store
+    clock = LiveClock()
+    mark = monotonic()  # invariant-allow: wallclock — 폴드 하나에 걸린 시간
     sats, spreads, exhausted = [], [], []
     judged_first: dict[str, object] = {}
     for seed in (0, 1, 2):
@@ -1267,6 +1273,25 @@ def cmd_judge(args: argparse.Namespace) -> int:
                       f"· 학습창 {_ts['edge']:+.6f} · 한계붙음 {jstats['sat_share']:.0%} "
                       f"· 최고 @{run.best_step}/{args.updates}"
                       f"{' (예산 소진)' if run.budget_exhausted else ''}", flush=True)
+                # **진행 기록.** 학습 쪽 숫자만 적는다 — 위에 찍은 `jstats['edge']`(채점창)는
+                # 판정 창 지표라서 표에 넣지 않는다(사전등록: 학습 중에 판정 창을 보지 않는다).
+                # 담는 것은 학습 보상·내부 검증 우위(부호 뒤집음)·최고 체크포인트 위치·경과다.
+                # BG 는 break 로 끊지 않고 최고 체크포인트를 고르므로, **예산을 다 쓰지 않은 것**이
+                # 조기 종료가 걸린 것과 같은 뜻이다(`budget_exhausted` 의 반대).
+                kit.record_progress(                                                   # type: ignore[attr-defined]
+                    progress_store, clock, "BG", source="trial_final_residual_rl",
+                    # 시드 셋 — 바로 위 `for seed in (0, 1, 2)` 와 같은 수다(진행률의 분모).
+                    market=inp.market, seed=int(seed), n_seeds=3, fold=k_fold, n_folds=len(folds),
+                    step=int(run.best_step), rounds=int(args.updates),
+                    train_loss=(-float(run.log[-1]["reward"]) if run.log and "reward" in run.log[-1] else None),
+                    val_loss=-float(run.best_edge), metric="reward(−) / valid edge(−)",
+                    stopped_early=not run.budget_exhausted,
+                    elapsed_s=monotonic() - mark,  # invariant-allow: wallclock
+                    # 한계붙음도 **학습창(`_ts`)의 값**을 적는다 — `jstats` 는 채점창이라 진행 기록에 못 넣는다.
+                    # `evaluate_span` 은 에피소드가 비면 edge·n 만 돌려준다 — 없는 칸을 꺼내다 죽지 않게 get 이다.
+                    note=(f"적합 결정 ~{fit_all.stop} · 학습창 기울기 한계붙음 "
+                          f"{_ts.get('sat_share', float('nan')):.0%}"))
+                mark = monotonic()  # invariant-allow: wallclock
             daily = _series(judged.daily)
             judged_first.setdefault(inp.market, min(daily.index))
             if seed == 0:
@@ -1315,6 +1340,8 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--folds", type=int, default=FOLDS,
                            help="앞으로 걸어가며 다시 적합하는 횟수. 채점되는 결정은 전부 안 본 구간이다")
             p.add_argument("--save", action="store_true")
+            p.add_argument("--no-progress", action="store_true",
+                           help="trial_progress 기록을 끈다(기본은 적는다 — 학습 탭의 진행률이 여기서 온다)")
     return parser
 
 

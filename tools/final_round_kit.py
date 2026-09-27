@@ -28,9 +28,11 @@ import glob
 import os
 import sys
 from collections.abc import Sequence
+from typing import Any
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time
 from pathlib import Path
+from time import monotonic
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -268,6 +270,83 @@ def rss_mb() -> float:
 
 def _log(message: str) -> None:
     print(f"[final-round] {message} (최대 RSS {rss_mb():.0f}MB)", flush=True)
+
+
+# --------------------------------------------------------------------------- 학습 진행 기록
+
+#: 진행 기록 표. 이름을 문자열로 흩뿌리지 않는다.
+PROGRESS_TABLE = "trial_progress"
+
+#: **적을 수 있는 칸의 전부.** 판정 창의 수익·IC·MDD·회전은 여기에 없다 — 등록 §과적합 억제 5
+#: ("학습 구간 성과는 판정에 쓰지 않는다")의 짝이다. 진행 화면이 판정 창 숫자를 비추면
+#: 학습이 끝나기 전에 사람이 그것을 읽게 되고, 그 뒤의 판정은 사전등록이 아니다.
+#: 판정 결과는 `trial_ranker_kit.record` 가 research_trials 에 한 번만 적는다.
+PROGRESS_FIELDS = (
+    "market", "seed", "n_seeds", "block", "n_blocks", "fold", "n_folds",
+    "step", "epoch", "rounds", "train_loss", "val_loss", "metric", "stopped_early", "elapsed_s", "note",
+)
+_PROGRESS_INT = ("seed", "n_seeds", "block", "n_blocks", "fold", "n_folds", "epoch", "rounds")
+
+
+def record_progress(store: Any, clock: Any, trial: str, *,
+                    source: str = "final_round_kit", **fields: Any) -> bool:
+    """학습 진행 1행 — **블록(또는 폴드) 하나가 끝날 때마다** 부른다. 성공하면 True.
+
+    쓰기 실패가 학습을 죽이지 않는다. 밤새 도는 학습이 창고 잠금이나 디스크 때문에 죽으면
+    잃는 것은 진행 표시 한 줄이 아니라 몇 시간이다 — 그래서 예외를 경고로 바꾼다
+    (`warnings.warn` — 삼키지는 않는다. 테스트가 그 경고를 본다).
+
+    `store=None` 이면 아무것도 하지 않는다(합성 스모크·테스트에서 기록을 끄는 길).
+    시각은 `clock.now()` 로만 얻는다(불변식 2) — 도구는 `LiveClock()` 을 넣는다.
+
+    `train_loss`·`val_loss` 는 **낮을수록 좋은 값**이다. 손실이 아닌 지표로 조기 종료하는 모델은
+    부호를 뒤집어 넣고 `metric` 에 원 지표 이름을 적는다(표 주석 참고).
+
+    `PROGRESS_FIELDS` 밖의 이름은 **적지 않고 경고한다.** 판정 창 지표(수익·IC)를 실수로
+    넘기는 것을 여기서 막는다 — 표에 칸이 없어 SchemaViolation 이 날 것이지만, 그때는
+    이미 "왜 안 적히지" 를 새벽에 뒤지게 된다.
+    """
+    if store is None:
+        return False
+    import warnings
+
+    unknown = sorted(set(fields) - set(PROGRESS_FIELDS))
+    if unknown:
+        warnings.warn(
+            f"trial_progress 에 없는 칸 {unknown} — 적지 않는다. 판정 창 지표는 "
+            "이 표에 들어가지 않는다(research_trials 가 판정 뒤에 적는다)",
+            RuntimeWarning, stacklevel=2,
+        )
+        return False
+    try:
+        now = clock.now()
+        row: dict[str, object] = {
+            "entity_id": str(trial), "valid_from": now, "observed_at": now,
+            "source": source,
+        }
+        for name in PROGRESS_FIELDS:
+            value = fields.get(name)
+            if value is None:
+                row[name] = None
+            elif name in _PROGRESS_INT or name == "step":
+                row[name] = int(value)
+            elif name == "stopped_early":
+                row[name] = bool(value)
+            elif name in ("train_loss", "val_loss", "elapsed_s"):
+                row[name] = float(value)
+            else:
+                row[name] = str(value)[:200]
+        # 한 블록에 파일 하나다. 블록이 몇 분~몇십 분이라 하루 파티션에 수십~수백 개이고
+        # rl_updates(업데이트마다 한 행) 와 같은 규모다. **에포크마다 적지 않는다** —
+        # 그러면 파일이 수만 개가 되어 창고가 마비된다(us-backfill 파티션 폭발).
+        stamp = f"{now:%Y%m%dT%H%M%S%f}"
+        run_id = (f"trial-progress-{trial}-s{row.get('seed')}-b{row.get('block')}"
+                  f"-f{row.get('fold')}-{stamp}")
+        store.append(PROGRESS_TABLE, [row], ingest_run_id=run_id)
+        return True
+    except Exception as error:  # 진행 기록 한 줄 때문에 밤새 도는 학습이 죽지 않는다
+        warnings.warn(f"trial_progress 기록 실패({trial}): {error!r}", RuntimeWarning, stacklevel=2)
+        return False
 
 
 # --------------------------------------------------------------------------- 블록별 자료
@@ -703,16 +782,21 @@ def pooled_metrics(by_market: dict[str, dict[str, float]], *, weights: dict[str,
 
 
 def walk_gbm(panel: pd.DataFrame, sessions: list[date], feats: list[str], bl: list[tuple[int, int]],
-             seeds: Sequence[int], *, label: str = "") -> dict[int, pd.DataFrame]:
+             seeds: Sequence[int], *, label: str = "",
+             store: Any = None, clock: Any = None) -> dict[int, pd.DataFrame]:
     """GBM 워크포워드 예측(시드별) — `trial_ranker_kit.fit`(시행 L 하이퍼파라미터) 그대로.
 
     블록마다 X·y 를 한 번 만들고 시드를 돌린다 — 시드마다 다시 만들면 같은 800MB 배열을 다섯 번 만든다.
     학습 끝점은 `train_end`(퍼지 5 + 엠바고 5). 반환 프레임은 entity_id · session · market · pred.
 
     판정 행은 **`block_rows` 로만** 고른다 — 대조군과 처리군이 같은 날을 채점하게 하는 자리다(이음매 결함, 2026-09-27).
+
+    `store`·`clock` 을 주면 블록마다 `record_progress` 로 진행을 적는다(대조군 C0·C1 의 진행률).
+    GBM 은 조기 종료를 쓰지 않으므로 손실 칸은 비운다 — **0 으로 채우지 않는다**(없는 것과 0 은 다르다).
     """
     parts: dict[int, list[pd.DataFrame]] = {int(s): [] for s in seeds}
-    for first, last in bl:
+    markets = "+".join(sorted(pd.unique(panel["market"]))) if len(panel) else ""
+    for number, (first, last) in enumerate(bl):
         end = train_end(sessions, first)
         train = panel[(panel["session"] <= end) & panel["y5"].notna()]
         test = block_rows(panel, sessions, first, last)
@@ -721,10 +805,17 @@ def walk_gbm(panel: pd.DataFrame, sessions: list[date], feats: list[str], bl: li
         X, y = train[feats].to_numpy(np.float32), train["y5"].to_numpy(np.float32)
         Xt = test[feats].to_numpy(np.float32)
         base = test[["entity_id", "session", "market"]].reset_index(drop=True)
+        n_train = len(train)
         for s in seeds:
+            began = monotonic()  # invariant-allow: wallclock — 블록 소요 시간 기록
             out = base.copy()
             out["pred"] = rkit.fit(X, y, seed=int(s)).predict(Xt)
             parts[int(s)].append(out)
+            record_progress(store, clock, label or "GBM", source="final_round_kit.walk_gbm",
+                            market=markets, seed=int(s), n_seeds=len(seeds), block=number, n_blocks=len(bl),
+                            metric="손실 없음(GBM · 조기 종료를 안 쓴다)",
+                            elapsed_s=monotonic() - began,  # invariant-allow: wallclock
+                            note=f"학습 {n_train:,}행 ~{end} · 판정 {sessions[first]}~{sessions[last]}")
         del X, y, Xt, train, test, base
         _log(f"{label or 'GBM'} 블록 {sessions[first]}~{sessions[last]} · 학습 ~{end}")
     return {s: pd.concat(v, ignore_index=True) for s, v in parts.items() if v}
@@ -744,7 +835,8 @@ def control_path(arm: str, seed: int, tag: str, *, cache_dir: Path = CACHE) -> P
 
 def controls(panel: pd.DataFrame, feats: list[str], sessions: list[date], bl: list[tuple[int, int]],
              *, seeds: Sequence[int] = SEEDS, cache_dir: Path = CACHE, smoke: int = 0,
-             arms: Sequence[str] = ("C0", "C1")) -> dict[str, dict[int, pd.DataFrame]]:
+             arms: Sequence[str] = ("C0", "C1"),
+             store: Any = None, clock: Any = None) -> dict[str, dict[int, pd.DataFrame]]:
     """C0 = 현행 6점수 GBM(시행 L 규격) · C1 = 같은 GBM 을 FA 로. 시드별 예측(entity_id·session·market·pred).
 
     **한 번 구우면 캐시**다(`data/_diag/final-round/pred-{군}-seed{s}-{꼬리표}.pkl`). 세 시행(BE·BF·BG)이 밤마다
@@ -769,7 +861,7 @@ def controls(panel: pd.DataFrame, feats: list[str], sessions: list[date], bl: li
             else:
                 todo.append(int(s))
         if todo:
-            baked = walk_gbm(panel, sessions, cols[arm], bl, todo, label=arm)
+            baked = walk_gbm(panel, sessions, cols[arm], bl, todo, label=arm, store=store, clock=clock)
             for s, frame in baked.items():
                 frame.to_pickle(control_path(arm, s, tag, cache_dir=cache_dir))  # invariant-allow: data-access — 작업 캐시
                 _log(f"{arm} seed{s}: 예측 {len(frame):,}행 → {control_path(arm, s, tag, cache_dir=cache_dir)}")
@@ -868,6 +960,8 @@ __all__ = [
     "CACHE",
     "GAP",
     "GROUPS",
+    "PROGRESS_FIELDS",
+    "PROGRESS_TABLE",
     "PURGE",
     "REBALANCE_EVERY",
     "SCORE_FEATS",
@@ -891,6 +985,7 @@ __all__ = [
     "market_books",
     "overfit_gap",
     "pooled_metrics",
+    "record_progress",
     "rss_mb",
     "train_end",
 ]

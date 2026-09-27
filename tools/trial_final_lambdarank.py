@@ -26,6 +26,7 @@ import sys
 from collections.abc import Callable
 from datetime import date, timedelta
 from pathlib import Path
+from time import monotonic
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
@@ -242,7 +243,9 @@ def walk_rank(panel: pd.DataFrame, feats: list[str], keys: list[str], sessions: 
               bl: list[tuple[int, int]], seed: int, inner_split: InnerSplit, *, gap: int = GAP,
               label: str = "BF1", min_data: int | None = None, rounds: int = MAX_ROUNDS,
               train_end: Callable[[list[date], int], date] | None = None,
-              rows_of: BlockRows | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+              rows_of: BlockRows | None = None,
+              store: Any = None, clock: Any = None, n_seeds: int = 0,
+              record: Callable[..., bool] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     """확장창 워크포워드. 학습은 블록 시작 − (퍼지+엠바고)까지만. 반환: (예측, 블록별 진단).
 
     판정 행은 **`kit.block_rows` 로만 고른다**(`rows_of`). 규칙이 두 곳에 있으면 대조군과 처리군이 서로
@@ -250,11 +253,16 @@ def walk_rank(panel: pd.DataFrame, feats: list[str], keys: list[str], sessions: 
     스모크·테스트용이고 kit 과 **같은 반열림 규칙**이며, 둘이 어긋나지 않는지 테스트가 지킨다.
 
     ``train_end`` 는 kit 것을 쓴다(`kit.train_end` — 퍼지 5 + 엠바고 5). 안 주면 ``gap`` 으로 센다(테스트용).
-    ``min_data``·``rounds`` 는 스모크·테스트만 줄인다(fit_rank 를 볼 것)."""
+    ``min_data``·``rounds`` 는 스모크·테스트만 줄인다(fit_rank 를 볼 것).
+
+    ``store``·``clock``·``record``(=`kit.record_progress`) 를 주면 블록마다 진행을 적는다. 적는 것은
+    **내부 검증 NDCG(부호 뒤집음)·학습 NDCG·부스팅 횟수·조기 종료·경과**뿐이다 — 같은 diag 에 있는
+    `judge_ndcg` 는 **판정 창 지표라서 적지 않는다**(사전등록: 학습 중에 판정 창을 보지 않는다)."""
     preds: list[pd.DataFrame] = []
     diags: list[dict[str, float]] = []
     rows = rows_of or _block_rows_fallback
-    for first, last in bl:
+    mark = monotonic()  # invariant-allow: wallclock — 블록 하나에 걸린 시간
+    for number, (first, last) in enumerate(bl):
         end = train_end(sessions, first) if train_end else sessions[first - gap - 1]
         train = panel[(panel["session"] <= end) & panel["y5"].notna()]
         test = rows(panel, sessions, first, last).copy()
@@ -275,6 +283,17 @@ def walk_rank(panel: pd.DataFrame, feats: list[str], keys: list[str], sessions: 
         print(f"  {label} seed{seed} 블록 {sessions[first]}~{sessions[last]} · 학습 {len(train):,}행 · "
               f"iter {diag['best_iter']:.0f} · 내부검증 NDCG {diag['inner_valid_ndcg']:.4f} · "
               f"판정 {diag['judge_ndcg']:.4f}", flush=True)
+        if record is not None:
+            record(store, clock, "BF", source="trial_final_lambdarank",
+                   market="+".join(sorted(pd.unique(test["market"]))) if "market" in test.columns else "",
+                   seed=int(seed), n_seeds=n_seeds or None, block=number, n_blocks=len(bl),
+                   step=int(diag["best_iter"]), rounds=int(rounds),
+                   # NDCG 는 **높을수록** 좋다 — 표 규약대로 부호를 뒤집어 넣는다.
+                   train_loss=-float(diag["train_ndcg"]), val_loss=-float(diag["inner_valid_ndcg"]),
+                   metric=f"ndcg@{NDCG_AT}(−)", stopped_early=bool(diag["stopped_early"]),
+                   elapsed_s=monotonic() - mark,  # invariant-allow: wallclock
+                   note=f"{label} · 학습 {len(train):,}행 ~{end}")
+        mark = monotonic()  # invariant-allow: wallclock
     if not preds:
         raise ValueError("블록이 하나도 돌지 않았다 — 세션·퍼지·블록 설정을 볼 것")
     return pd.concat(preds, ignore_index=True), pd.DataFrame(diags)
@@ -378,7 +397,7 @@ def _kit() -> ModuleType:
 
 def seed_preds(kit: ModuleType, panel: pd.DataFrame, feats: list[str], keys: list[str],
                sessions: list[date], bl: list[tuple[int, int]], seed: int, *,
-               tag: str = "") -> tuple[pd.DataFrame, pd.DataFrame]:
+               tag: str = "", store: Any = None, clock: Any = None, n_seeds: int = 0) -> tuple[pd.DataFrame, pd.DataFrame]:
     """시드 하나의 BF1 예측 — **캐시한다**. 메모리 가드가 내려도 다음 회차가 남은 시드만 돈다.
 
     한 시드가 몇 시간이고 시드가 다섯이다. 캐시가 없으면 가드에 한 번 내려갈 때마다 처음부터 다시 돈다.
@@ -393,7 +412,8 @@ def seed_preds(kit: ModuleType, panel: pd.DataFrame, feats: list[str], keys: lis
         return (pd.read_pickle(path),       # invariant-allow: data-access — 작업 캐시
                 pd.read_pickle(diag_path))  # invariant-allow: data-access — 작업 캐시
     pred, diags = walk_rank(panel, feats, keys, sessions, bl, seed, kit.inner_split,
-                            train_end=kit.train_end, rows_of=kit.block_rows)
+                            train_end=kit.train_end, rows_of=kit.block_rows,
+                            store=store, clock=clock, record=kit.record_progress, n_seeds=n_seeds)
     pred.to_pickle(path)        # invariant-allow: data-access — 작업 캐시
     diags.to_pickle(diag_path)  # invariant-allow: data-access — 작업 캐시
     return pred, diags
@@ -437,6 +457,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--precheck", action="store_true", help="실자료 seed 0 · 첫 5블록 · 겹침·격차만")
     parser.add_argument("--save", action="store_true", help="판정 1행을 창고에 적는다(예산 소진)")
     parser.add_argument("--seeds", type=int, nargs="*", default=list(SEEDS))
+    parser.add_argument("--no-progress", action="store_true", help="trial_progress 기록을 끈다(기본은 적는다)")
     args = parser.parse_args(argv)
 
     if args.smoke:
@@ -495,7 +516,9 @@ def main(argv: list[str] | None = None) -> int:
         c0p, c1p = ctrl["C0"][seed], ctrl["C1"][seed]
         res["C0"][seed] = evaluate_pooled(kit, c0p, books, y)
         res["C1"][seed] = evaluate_pooled(kit, c1p, books, y, control=c0p)
-        bf1, diags = seed_preds(kit, panel, feats, keys, sessions, bl, seed)
+        bf1, diags = seed_preds(kit, panel, feats, keys, sessions, bl, seed,
+                                store=None if args.no_progress else store, clock=LiveClock(),
+                                n_seeds=len(seeds))
         #: 처리와 대조가 같은 (세션 × 시장)을 채점하는지 — 어긋나면 판정하지 않는다(rc=5).
         if (drift := session_sets_match(bf1, c0p)):
             print("처리와 대조의 채점 세션이 다르다 — 판정을 멈춘다:\n  " + "\n  ".join(drift),
