@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from tools.trial_final_lambdarank import (
+    MISMATCH_EXIT,
     N_BUCKETS,
     NDCG_AT,
     PARAMS,
@@ -287,6 +288,26 @@ def test_판정_행_선택이_kit_과_한_글자도_다르지_않다(panel) -> N
     lo, hi = block_span(kr_sessions, first, last)
     assert lo == kr_sessions[first]
     assert hi == kr_sessions[last + 1]
+
+
+def test_블록_시작은_엠바고만큼_밀리지_않는다(panel) -> None:
+    """채점 첫 세션은 `MIN_TRAIN + PURGE`(155)다. 엠바고는 블록을 늦추지 않고 **학습 끝점만** 당긴다 —
+    블록 시작을 GAP 만큼 밀면 BF 만 판정 블록이 달라져 C0·C1 과 견줄 수 없다."""
+    from tools import final_round_kit as kit
+
+    assert kit.FIRST_JUDGED_OFFSET == kit.MIN_TRAIN + kit.PURGE
+    assert kit.FIRST_JUDGED_OFFSET != kit.MIN_TRAIN + kit.GAP
+    _, _, days = panel
+    # 폴백도 같은 규격이다 — 시작 = min_train + purge, 끝점만 GAP 만큼 앞
+    bl = _blocks_fallback(days, min_train=30, block=10, purge=5)
+    assert bl[0][0] == 35
+
+
+def test_관문_종료_코드가_kit_것과_겹치지_않는다() -> None:
+    """셸이 "무엇이 없어서 안 돌았나" 를 로그에 가려 적으려면 번호가 겹치면 안 된다."""
+    from tools import final_round_kit as kit
+
+    assert MISMATCH_EXIT not in {kit.CONTROLS_EXIT, kit.COVERAGE_EXIT, kit.WINDOW_EXIT}
 
 
 def test_라운드_소진과_조기_종료를_구분해_적는다(panel) -> None:
