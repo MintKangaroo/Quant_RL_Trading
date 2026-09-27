@@ -475,3 +475,45 @@ def test_워밍업_길이는_관측이_뒤돌아보는_만큼이다() -> None:
     from tools.trial_final_residual_rl import WARMUP_SESSIONS
 
     assert WARMUP_SESSIONS >= 20, "지수 문맥이 20세션을 뒤돌아본다"
+
+
+def test_채점되는_결정은_전부_안_본_구간이다() -> None:
+    """이 회차에서 가장 비싼 오염 — 앞 80%로 배우고 100%를 채점받으면 **자기 학습 구간을 채점받는다.**
+    C0·C1 은 블록마다 앞만 보고 예측하는 워크포워드라, 그 구조를 안 맞추면 비교가 같은 것을 재지 않는다.
+    """
+    from tools.trial_final_residual_rl import GAP_DECISIONS, walk_folds
+
+    for n in (40, 123, 200):
+        folds = walk_folds(n)
+        assert folds, f"결정 {n}회에서 폴드를 못 만들었다"
+        for fit, judge in folds:
+            assert fit.stop + GAP_DECISIONS <= judge.start, "적합 끝과 채점 시작 사이에 퍼지가 없다"
+            assert set(range(fit.start, fit.stop)).isdisjoint(range(judge.start, judge.stop))
+        spans = [j for _f, j in folds]
+        assert all(a.stop == b.start for a, b in zip(spans, spans[1:], strict=False)), "채점 구간이 이어져야 한다"
+        assert spans[-1].stop == n, "마지막 결정까지 채점한다"
+        assert spans[0].start > 0, "앞쪽 일부는 적합에만 쓰고 채점하지 않는다"
+
+
+def test_적합은_확장창이다() -> None:
+    """뒤 폴드의 적합은 앞 폴드의 채점 구간을 포함한다 — 그때는 이미 지나간 자료다(미래를 보는 것이 아니다)."""
+    from tools.trial_final_residual_rl import walk_folds
+
+    folds = walk_folds(200, folds=3)
+    fits = [f.stop for f, _j in folds]
+    assert fits == sorted(fits) and len(set(fits)) == len(fits), "적합창이 커져야 한다"
+    for i, (fit, _j) in enumerate(folds):
+        if i:
+            assert fit.stop > folds[i - 1][1].start, "앞 폴드의 채점 구간이 뒤 폴드의 적합에 들어온다"
+
+
+def test_내부_검증은_적합창_안에_있고_채점과_안_겹친다() -> None:
+    from tools.trial_final_residual_rl import GAP_DECISIONS, _inner, walk_folds
+
+    for fit_all, judge in walk_folds(200):
+        cut = fit_all.stop - _inner(fit_all)
+        fit = range(fit_all.start, max(fit_all.start + 1, cut))
+        valid = range(fit.stop + GAP_DECISIONS, fit_all.stop)
+        assert valid.stop - valid.start >= 1, "내부 검증이 비면 조기 종료가 뜻이 없다"
+        assert valid.stop <= judge.start, "내부 검증이 채점 구간을 넘보면 하이퍼파라미터를 판정 창에서 고르는 셈이다"
+        assert fit.stop + GAP_DECISIONS <= valid.start, "적합과 내부 검증 사이에도 퍼지"
