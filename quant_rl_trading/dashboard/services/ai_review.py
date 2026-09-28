@@ -26,8 +26,9 @@ from typing import Any
 
 import pandas as pd
 
-from quant_rl_trading.analysts import scorecard
+from quant_rl_trading.dashboard.services.agent_health import scorecard_of
 from quant_rl_trading.store import ConfigNotFound, Store
+from quant_rl_trading.store.memo import derived
 
 CACHE = "agent_cache"
 VERDICTS = "verdicts"
@@ -145,18 +146,9 @@ def recent_calls(store: Store, *, as_of: datetime, lookback: int) -> list[dict[s
     ]
 
 
-def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
-    """News·SNS 거부 판정. ``scorecard`` 로 사후 성적까지 낸다."""
-    frame = store.get(VERDICTS, as_of=as_of, lookback=lookback)
-    card = scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback)
-    if frame.empty:
-        return {
-            "total": 0, "blocked": 0, "by_analyst": [], "by_market": [],
-            "recent": [], "scorecard": card,
-        }
-
+def _verdict_counts(frame: pd.DataFrame) -> dict[str, Any]:
+    """판정 건수·차단 수·시장별. 요약 카드와 판정 패널이 같은 셈을 쓴다."""
     blocked = frame[frame["decision"] == "block"]
-    recent = frame.sort_values("valid_from", ascending=False).head(RECENT_LIMIT)
     market = frame["entity_id"].map(_market_of)
     blocked_market = market.loc[blocked.index]
     return {
@@ -173,6 +165,25 @@ def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[st
             ),
             key=lambda item: -int(item["total"]),
         ),
+    }
+
+
+def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """News·SNS 거부 판정. ``scorecard`` 로 사후 성적까지 낸다."""
+    frame = store.get(VERDICTS, as_of=as_of, lookback=lookback)
+    # 에이전트 상태 탭과 같은 성적표 — 한 번 낸 것을 나눠 쓴다(``agent_health.scorecard_of``).
+    card = scorecard_of(store, as_of=as_of, lookback=lookback)
+    if frame.empty:
+        return {
+            "total": 0, "blocked": 0, "by_analyst": [], "by_market": [],
+            "recent": [], "scorecard": card,
+        }
+
+    counts = _verdict_counts(frame)
+    blocked = frame[frame["decision"] == "block"]
+    recent = frame.sort_values("valid_from", ascending=False).head(RECENT_LIMIT)
+    return {
+        **counts,
         "by_analyst": [
             {"analyst": str(name), "count": int(count)}
             for name, count in blocked["analyst"].value_counts().items()
@@ -195,20 +206,43 @@ def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     }
 
 
+#: 공시·뉴스 패널이 쓰는 열. ``url``·``raw_path`` 는 화면에 안 나온다 — 90일 창에서
+#: 6만 행어치 경로 문자열을 퍼오던 것이 조회 시간의 절반이었다(실측 0.74s → 0.37s).
+#: 자연키(entity_id·valid_from·doc_id)는 게이트가 늘 얹어 준다.
+_DOCUMENT_COLUMNS = ["doc_type", "title", "filer"]
+
+
+def _document_market_counts(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    market = frame["entity_id"].map(_market_of)
+    return [
+        {"market": str(name), "total": int(count)}
+        for name, count in market.value_counts().items()
+    ]
+
+
 def document_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
-    """판정의 입력이 된 공시·뉴스."""
-    frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback)
+    """판정의 입력이 된 공시·뉴스.
+
+    요약 카드도 이것을 부른다(건수·시장별). 결과는 프로세스 캐시가 기억한다
+    (``store.memo.derived``) — 탭이 요약 → 공시 패널을 차례로 부를 때 파일 1,300여 개를
+    두 번 열지 않는다.
+    """
+    return derived(
+        store,
+        ("ai_review.document_activity", as_of, lookback),
+        lambda: _document_activity(store, as_of=as_of, lookback=lookback),
+    )
+
+
+def _document_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    frame = store.get(DOCUMENTS, as_of=as_of, lookback=lookback, columns=_DOCUMENT_COLUMNS)
     if frame.empty:
         return {"total": 0, "by_type": [], "by_market": [], "recent": []}
 
     recent = frame.sort_values("valid_from", ascending=False).head(RECENT_LIMIT)
-    market = frame["entity_id"].map(_market_of)
     return {
         "total": len(frame),
-        "by_market": [
-            {"market": str(name), "total": int(count)}
-            for name, count in market.value_counts().items()
-        ],
+        "by_market": _document_market_counts(frame),
         "by_type": [
             {"doc_type": str(name), "count": int(count)}
             for name, count in frame["doc_type"].value_counts().items()
@@ -382,8 +416,18 @@ def _merge_markets(
 
 
 def summary(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    # 요약은 판정 **건수만** 쓴다. 판정 패널용 ``verdict_activity`` 를 부르면 쓰지도 않는
+    # 사후 성적표(시세 수십만 행 + 구간 수익률)까지 낸다 — 이 API 4~8초의 대부분이
+    # 그것이었다(2026-09-29 실측). 셈은 패널과 같은 함수(``_verdict_counts``)라 요약
+    # 카드와 패널의 숫자가 갈라질 수 없다.
     activity = agent_activity(store, as_of=as_of, lookback=lookback)
-    verdicts = verdict_activity(store, as_of=as_of, lookback=lookback)
+    verdict_frame = store.get(VERDICTS, as_of=as_of, lookback=lookback)
+    verdicts = (
+        _verdict_counts(verdict_frame)
+        if not verdict_frame.empty
+        else {"total": 0, "blocked": 0, "by_market": []}
+    )
+    # 공시는 패널과 같은 함수다 — 기억된 결과를 공시 패널이 그대로 받는다.
     documents = document_activity(store, as_of=as_of, lookback=lookback)
     cost = cost_activity(store, as_of=as_of, lookback=lookback)
     return {

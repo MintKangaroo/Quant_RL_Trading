@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
 
-from quant_rl_trading.store.memo import SharedMemo
+from quant_rl_trading.store.memo import SharedMemo, derived
 
 NOW = datetime(2026, 9, 17, 4, 0, tzinfo=UTC)
 
@@ -161,3 +163,176 @@ def test_큰_프레임은_아예_안_들고_있는다(ticking) -> None:
 
     assert inner.reads == 2, "상한을 넘는 프레임은 기억하지 않는다"
     assert memo._bytes == 0
+
+
+# -- 진행 중인 같은 질의에 올라타기 (2026-09-29) ------------------------------------
+
+
+class _Slow(_Counting):
+    """첫 읽기를 붙잡아 두는 창고 대역. 두 스레드가 확실히 겹치게 한다."""
+
+    def __init__(self, *, fail_first: bool = False) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.fail_first = fail_first
+
+    def get(self, table: str, **kwargs: object) -> pd.DataFrame:
+        self.reads += 1
+        if self.reads == 1:
+            self.entered.set()
+            assert self.release.wait(5)
+            if self.fail_first:
+                raise OSError("창고가 잠깐 안 열렸다")
+        return pd.DataFrame({"entity_id": ["KR:005930"], "n": [self.reads]})
+
+
+def _race(memo: SharedMemo, inner: _Slow) -> tuple[list[pd.DataFrame], list[OSError]]:
+    """앞 스레드가 창고 안에 있는 동안 뒤 스레드가 같은 질의를 한다."""
+    results: list[pd.DataFrame] = []
+    errors: list[OSError] = []
+
+    def call() -> None:
+        try:
+            results.append(memo.get("signals", as_of=NOW, lookback=14))
+        except OSError as error:
+            errors.append(error)
+
+    leader = threading.Thread(target=call)
+    leader.start()
+    assert inner.entered.wait(5)
+    follower = threading.Thread(target=call)
+    follower.start()
+    # 뒤 스레드가 기다리기 시작할 틈을 준다. 늦게 들어와도 판정은 읽기 횟수로 한다 —
+    # 이 틈이 모자라면 테스트가 실패하지 통과로 속지는 않는다.
+    time.sleep(0.2)
+    inner.release.set()
+    leader.join(5)
+    follower.join(5)
+    return results, errors
+
+
+def test_동시에_온_같은_질의는_한_번만_읽는다(ticking) -> None:
+    """화면은 패널 API 를 동시에 부른다. 큰 프레임은 기억 상한에 걸려 못 들고 있으므로,
+    겹친 두 요청이 창고를 두 번 열지 않게 하는 것은 이 올라타기뿐이다."""
+    _, clock = ticking
+    inner = _Slow()
+    # 기억 상한 1바이트 — 어떤 프레임도 안 들고 있는다. 올라타기는 상한과 무관해야 한다.
+    memo = SharedMemo(inner, ttl_seconds=45, budget_bytes=1, entry_bytes=1, monotonic=clock)
+
+    results, errors = _race(memo, inner)
+
+    assert not errors
+    assert inner.reads == 1, "겹친 같은 질의는 창고를 한 번만 연다"
+    assert len(results) == 2 and results[0].equals(results[1])
+    assert results[0] is not results[1], "사본을 나눠 준다 — 한쪽이 고쳐도 다른 쪽은 멀쩡해야 한다"
+    assert memo.joined == 1
+    assert not memo._inflight, "끝난 읽기는 곧바로 놓는다"
+
+    # 끝난 뒤에 온 요청은 올라타지 않는다(상한 때문에 기억에도 없다) — 다시 읽는다.
+    memo.get("signals", as_of=NOW, lookback=14)
+    assert inner.reads == 2
+
+
+def test_앞_읽기가_실패하면_뒤_요청은_직접_읽는다(ticking) -> None:
+    _, clock = ticking
+    inner = _Slow(fail_first=True)
+    memo = SharedMemo(inner, ttl_seconds=45, budget_bytes=10 << 20, monotonic=clock)
+
+    results, errors = _race(memo, inner)
+
+    assert len(errors) == 1, "앞 스레드는 자기 예외를 받는다"
+    assert len(results) == 1, "뒤 스레드는 남의 예외를 떠안지 않고 직접 읽는다"
+    assert inner.reads == 2
+    assert not memo._inflight
+
+
+def test_큰_프레임은_깊이_재지_않고_거른다(ticking) -> None:
+    """얕은 크기만으로 상한을 넘으면 기억하지 않는다 — 결론은 깊이 잰 것과 같다."""
+    _, clock = ticking
+
+    class _Wide(_Counting):
+        def get(self, table: str, **kwargs: object) -> pd.DataFrame:
+            self.reads += 1
+            return pd.DataFrame({"entity_id": ["KR:005930"] * 10_000, "n": range(10_000)})
+
+    inner = _Wide()
+    memo = SharedMemo(
+        inner, ttl_seconds=45, budget_bytes=10 << 20, entry_bytes=1024, monotonic=clock
+    )
+    memo.get("signals", as_of=NOW)
+    memo.get("signals", as_of=NOW)
+    assert inner.reads == 2, "상한을 넘는 프레임은 들고 있지 않는다"
+
+
+# -- 작은 집계 기억 (derived, 2026-09-29) ---------------------------------------------
+
+
+def test_집계는_TTL_동안_한_번만_계산한다(ticking) -> None:
+    """요약 카드와 패널이 차례로 같은 집계를 낸다 — 큰 프레임은 못 들고 있어도 결과는 든다."""
+    holder, clock = ticking
+    memo = SharedMemo(
+        _Counting(), ttl_seconds=45, budget_bytes=1, entry_bytes=1, monotonic=clock
+    )
+    calls: list[int] = []
+
+    def compute() -> dict[str, object]:
+        calls.append(1)
+        return {"total": 3, "rows": [{"n": 1}]}
+
+    first = derived(memo, ("signal_activity", NOW, 14), compute)
+    first["rows"][0]["n"] = 99  # type: ignore[index]  # 호출자가 고쳐도
+    second = derived(memo, ("signal_activity", NOW, 14), compute)
+    assert len(calls) == 1
+    assert second == {"total": 3, "rows": [{"n": 1}]}, "깊은 사본이라 기억은 오염되지 않는다"
+
+    derived(memo, ("signal_activity", NOW, 7), compute)
+    assert len(calls) == 2, "키가 다르면 다른 집계다"
+
+    holder["t"] += 46.0
+    derived(memo, ("signal_activity", NOW, 14), compute)
+    assert len(calls) == 3, "TTL 이 지나면 다시 계산한다 — 화면이 낡지 않게"
+
+
+def test_적재가_오면_집계_기억을_버린다(ticking) -> None:
+    _, clock = ticking
+    memo = SharedMemo(_Counting(), ttl_seconds=45, budget_bytes=10 << 20, monotonic=clock)
+    calls: list[int] = []
+
+    def compute() -> int:
+        calls.append(1)
+        return len(calls)
+
+    assert derived(memo, ("k",), compute) == 1
+    memo.append("signals", [], ingest_run_id="t")
+    assert derived(memo, ("k",), compute) == 2
+
+
+def test_캐시_없는_창고에서는_그냥_계산한다() -> None:
+    """테스트·세션의 맨 Store 에는 기억이 없다 — 답은 캐시 유무와 무관해야 한다."""
+    calls: list[int] = []
+
+    def compute() -> str:
+        calls.append(1)
+        return "x"
+
+    assert derived(_Counting(), ("k",), compute) == "x"
+    assert derived(_Counting(), ("k",), compute) == "x"
+    assert len(calls) == 2
+
+
+def test_요청_캐시를_거쳐도_프로세스_캐시에_닿는다(ticking) -> None:
+    """대시보드는 요청마다 MemoStore(SharedMemo(Store)) 를 쓴다."""
+    from quant_rl_trading.store.memo import MemoStore
+
+    _, clock = ticking
+    shared = SharedMemo(_Counting(), ttl_seconds=45, budget_bytes=10 << 20, monotonic=clock)
+    calls: list[int] = []
+
+    def compute() -> int:
+        calls.append(1)
+        return 1
+
+    derived(MemoStore(shared), ("k",), compute)  # type: ignore[arg-type]
+    derived(MemoStore(shared), ("k",), compute)  # type: ignore[arg-type]
+    assert len(calls) == 1, "요청이 달라도(MemoStore 가 새것이어도) 한 번만 계산한다"

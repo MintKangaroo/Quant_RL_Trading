@@ -34,7 +34,11 @@ VERDICTS = "verdicts"
 def _returns_between(
     prices: pd.DataFrame, start: datetime, end: datetime
 ) -> pd.Series:
-    """구간 수익률. 종목별 첫 종가 → 마지막 종가."""
+    """구간 수익률. 종목별 첫 종가 → 마지막 종가.
+
+    **정의(참조 구현)다.** 성적표는 같은 답을 빠르게 내는 ``_Windows`` 를 쓰고,
+    ``tests/analysts/test_verdicts.py`` 가 둘이 같음을 고정한다.
+    """
     window = prices[(prices["valid_from"] >= start) & (prices["valid_from"] <= end)]
     if window.empty:
         return pd.Series(dtype=float)
@@ -42,6 +46,47 @@ def _returns_between(
     grouped = ordered.groupby("entity_id")["close"]
     first, last = grouped.first(), grouped.last()
     return (last / first - 1.0).replace([np.inf, -np.inf], np.nan).dropna()
+
+
+class _Windows:
+    """``_returns_between`` 을 구간마다 55만 행 마스킹·정렬·문자열 groupby 로 내지 않는다.
+
+    실측 2026-09-29(모의 창고, 90일 창): 서로 다른 구간 28개 × 약 100ms = 2.8초가
+    성적표 한 번의 값이었고, 대시보드 두 탭의 요약·판정 API 가 각자 그걸 냈다.
+    시각으로 **한 번** 정렬해 두면 구간은 연속 조각(``searchsorted``)이고, 종목을
+    정수 코드로 한 번 바꿔 두면 첫·끝 종가는 ``np.unique`` 의 첫 등장 위치다.
+
+    **결과는 ``_returns_between`` 과 비트 단위로 같다.** 같은 종가 두 개로 같은
+    나눗셈을 한다 — 종목·세션당 행이 하나(자연키)라 정렬 안정성도 답을 안 바꾼다.
+    ``groupby().first()`` 가 NaN 을 건너뛰는 것과 맞추려고 NaN 종가는 미리 뺀다.
+    """
+
+    def __init__(self, prices: pd.DataFrame) -> None:
+        usable = prices.loc[prices["close"].notna(), ["entity_id", "valid_from", "close"]]
+        ordered = usable.sort_values("valid_from", kind="stable")
+        self._times = pd.DatetimeIndex(ordered["valid_from"])
+        codes, self._names = pd.factorize(ordered["entity_id"])
+        self._codes = np.asarray(codes)
+        self._close = ordered["close"].to_numpy(dtype=float)
+
+    def returns(self, start: datetime, end: datetime) -> pd.Series:
+        tz = self._times.tz
+        lo = self._times.searchsorted(pd.Timestamp(start).tz_convert(tz), side="left")
+        hi = self._times.searchsorted(pd.Timestamp(end).tz_convert(tz), side="right")
+        if hi <= lo:
+            return pd.Series(dtype=float)
+        codes = self._codes[lo:hi]
+        close = self._close[lo:hi]
+        present, first_at = np.unique(codes, return_index=True)
+        # 끝 종가 = 뒤집은 배열의 첫 등장. ``np.unique`` 는 코드 순서로 돌려주므로
+        # 두 호출의 코드 배열이 같은 순서로 맞물린다.
+        _, last_from_end = np.unique(codes[::-1], return_index=True)
+        last_at = len(codes) - 1 - last_from_end
+        # 0 종가는 inf 가 되고 아래에서 빠진다 — pandas 나눗셈처럼 경고 없이.
+        with np.errstate(divide="ignore", invalid="ignore"):
+            values = close[last_at] / close[first_at] - 1.0
+        series = pd.Series(values, index=pd.Index(self._names[present], name="entity_id"))
+        return series.replace([np.inf, -np.inf], np.nan).dropna()
 
 
 def evaluate_blocks(
@@ -66,24 +111,37 @@ def evaluate_blocks(
     # 컬럼을 좁힌다. 이 함수가 쓰는 것은 종가 하나인데, 안 좁히면 source ·
     # ingest_run_id · row_hash 같은 문자열까지 55만 행어치 퍼온다
     # (실측 1.35s → 0.58s). 대시보드 네 곳이 이 함수를 부른다.
+    #
+    # 창의 앞머리도 좁힌다 — 채점할 가장 이른 차단 시각부터면 된다. 판정도 같은
+    # ``lookback`` 으로 읽었으므로 이 하한은 늘 원래 창 안이다(90일 창에서 실측
+    # 57만 → 절반). **답은 같다:** 보정은 뒤(창의 끝)에서 앞으로 누적하므로 앞을
+    # 잘라도 남은 행의 보정가가 한 비트도 안 바뀌고, 창의 끝(as_of)은 그대로다.
+    earliest = settled["valid_from"].min()
     prices = read_prices(
-        store, as_of=as_of, lookback=lookback, columns=["close"], adjusted=True
+        store,
+        as_of=as_of,
+        lookback=(pd.Timestamp(as_of) - earliest).to_pytimedelta(),
+        columns=["close"],
+        adjusted=True,
     )
     if prices.empty:
         return _empty(pending=len(blocked))
 
     # 같은 구간이 여러 번 나온다 — 하루치 판정은 보통 같은 시각에 걸리고 같은
-    # 만료를 갖는다. ``_returns_between`` 은 55만 행을 통째로 마스킹·groupby
-    # 하므로 구간마다 한 번만 낸다 (실측 100건 → 서로 다른 구간 몇 개).
-    windows: dict[tuple[Any, Any], pd.Series] = {}
+    # 만료를 갖는다. 구간마다 한 번만 낸다 (실측 2,259건 → 서로 다른 구간 28개).
+    # 구간마다 (수익률, 시장 중앙값). 중앙값도 구간의 값이다 — 판정 건마다 다시 내면
+    # 2천여 건 × 9천 종목 정렬이 된다(실측 0.58s).
+    windows: dict[tuple[Any, Any], tuple[pd.Series, float]] = {}
+    sliced = _Windows(prices)
 
     records: list[dict[str, Any]] = []
     for row in settled.to_dict(orient="records"):
         start, end = row["valid_from"], row["expires_at"]
         span = (start, end)
         if span not in windows:
-            windows[span] = _returns_between(prices, start, end)
-        returns = windows[span]
+            found = sliced.returns(start, end)
+            windows[span] = (found, found.median() if not found.empty else float("nan"))
+        returns, median = windows[span]
         if returns.empty:
             continue
         entity = str(row["entity_id"])
@@ -91,7 +149,7 @@ def evaluate_blocks(
             continue
 
         # 시장 중앙값을 빼야 시장이 통째로 빠진 날의 하락을 공으로 세지 않는다.
-        excess = float(returns[entity] - returns.median())
+        excess = float(returns[entity] - median)
         records.append(
             {
                 "entity_id": entity,

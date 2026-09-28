@@ -24,6 +24,7 @@ import pandas as pd
 
 from quant_rl_trading.analysts import scorecard
 from quant_rl_trading.store import Store
+from quant_rl_trading.store.memo import derived
 from quant_rl_trading.selector import weights as weights_module
 
 WEIGHTS = "analyst_weights"
@@ -161,39 +162,91 @@ def ic_history(
 SIGNAL_ACTIVITY_DAYS = 14
 
 
+#: 신호 현황이 읽는 열. 요약 카드와 신호 패널이 **같은 인자**로 읽어야 한다 — 두 API 가
+#: 동시에 오면 프로세스 캐시(``SharedMemo``)가 한 번만 읽고 나눠 준다. 열을 따로 좁히면
+#: 질의가 둘이 되어 71만 행 정렬이 두 번 동시에 돈다(실측 각 1초 → 각 4초).
+_SIGNAL_COLUMNS = [
+    "entity_id", "valid_from", "analyst", "analyst_version", "latency_ms", "confidence",
+]
+
+
+def _signal_frame(store: Store, *, as_of: datetime, lookback: int) -> tuple[pd.DataFrame, int]:
+    window = min(int(lookback), SIGNAL_ACTIVITY_DAYS)
+    return store.get(SIGNALS, as_of=as_of, lookback=window, columns=_SIGNAL_COLUMNS), window
+
+
 def signal_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     """Signal 기록 현황. '점수를 내고 있는가' 를 본다.
 
     가중치 0(관찰 모드)이어도 **Signal 은 계속 기록돼야 한다.** 기록이 멈추면
     나중에 그 Analyst 를 켤 근거를 만들 수 없다.
+
+    요약 카드도 이것을 부른다(건수·경고). 결과는 프로세스 캐시가 기억한다
+    (``store.memo.derived``) — 탭이 요약 → 신호 패널을 차례로 부를 때 71만 행을 두 번
+    읽지 않는다. 창(``window``)이 같으면 같은 답이라 키는 창으로 잡는다.
     """
+    window = min(int(lookback), SIGNAL_ACTIVITY_DAYS)
+    return derived(
+        store,
+        ("agent_health.signal_activity", as_of, window),
+        lambda: _signal_activity(store, as_of=as_of, lookback=lookback),
+    )
+
+
+def _signal_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
     # 현황은 최근 2주면 답한다 — 90일 전 컬럼(evidence_json 등)을 3백만 행 읽던 것이
     # Agent Health 탭 6초의 정체였다(2026-08-30). 창과 컬럼을 좁힌다.
-    window = min(int(lookback), SIGNAL_ACTIVITY_DAYS)
-    frame = store.get(
-        SIGNALS, as_of=as_of, lookback=window,
-        columns=["entity_id", "valid_from", "analyst", "analyst_version", "latency_ms", "confidence"],
-    )
+    frame, window = _signal_frame(store, as_of=as_of, lookback=lookback)
     if frame.empty:
         return {"analysts": [], "total": 0, "window_days": window}
 
+    # 그룹을 프레임째 잘라 돌지 않는다 — 70만 행을 그룹 수만큼 take 하고 그룹마다
+    # ``dt.date`` 로 파이썬 date 객체를 만들던 것이 조회 뒤 0.9초였다(2026-09-29).
+    # 정수 집계는 groupby 가 한 번에 내고, 실수 통계(분위·평균)는 **그룹 안 원래 순서
+    # 그대로의 같은 값**에 같은 함수를 부른다 — 합산 순서가 바뀌면 끝자리가 달라진다.
+    grouped = frame.groupby(["analyst", "analyst_version"])
+    counts = grouped.size()
+    # 문자열 키를 한 번만 부호화한다. ``ngroup`` 번호는 ``counts`` 의 순서와 같다.
+    group_no = grouped.ngroup().to_numpy()
+    entities = frame["entity_id"].groupby(group_no).nunique()
+    # ``dt.date`` 와 같은 날 구분이다 — 둘 다 컬럼의 시간대에서 자정으로 자른다.
+    sessions = frame["valid_from"].dt.normalize().groupby(group_no).nunique()
+    last_seen = frame["valid_from"].groupby(group_no).max()
+    latency_all = frame["latency_ms"].astype(float)
+    confidence_all = frame["confidence"].astype(float)
+
+    positions_of = grouped.indices
     rows: list[dict[str, Any]] = []
-    for (name, version), group in frame.groupby(["analyst", "analyst_version"]):
-        latency = group["latency_ms"].astype(float)
+    # ``counts`` 의 순서(groupby 정렬 순)로 돈다 — ``indices`` 사전의 순서는 약속이 없고,
+    # 같은 Analyst 의 두 버전이 화면에 놓이는 순서가 그것에 달려 있다.
+    for number, key in enumerate(counts.index):
+        name, version = key
+        positions = positions_of[key]
+        latency = latency_all.iloc[positions]
         rows.append(
             {
                 "analyst": str(name),
                 "version": str(version),
-                "signals": len(group),
-                "entities": int(group["entity_id"].nunique()),
-                "sessions": int(group["valid_from"].dt.date.nunique()),
-                "last_as_of": group["valid_from"].max().isoformat(),
+                "signals": int(counts[key]),
+                "entities": int(entities.loc[number]),
+                "sessions": int(sessions.loc[number]),
+                "last_as_of": last_seen.loc[number].isoformat(),
                 "latency_p50_ms": float(latency.quantile(0.5)),
                 "latency_p90_ms": float(latency.quantile(0.9)),
-                "mean_confidence": float(group["confidence"].astype(float).mean()),
+                "mean_confidence": float(confidence_all.iloc[positions].mean()),
             }
         )
     return {"analysts": sorted(rows, key=lambda item: str(item["analyst"])), "total": len(frame), "window_days": window}
+
+
+def scorecard_of(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """거부 성적표. 에이전트 상태·AI 리뷰 두 탭이 같은 인자로 부른다 — 프로세스 캐시가
+    한 번 낸 것을 나눠 준다(``store.memo.derived``). 답은 ``evaluate_blocks`` 그대로다."""
+    return derived(
+        store,
+        ("scorecard.evaluate_blocks", as_of, lookback),
+        lambda: scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback),
+    )
 
 
 def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
@@ -210,7 +263,7 @@ def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[s
     if frame.empty:
         return {
             "blocks": 0, "by_category": [], "by_analyst": [], "active": 0,
-            "scorecard": scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback),
+            "scorecard": scorecard_of(store, as_of=as_of, lookback=lookback),
         }
 
     blocked = frame[frame["decision"] == "block"]
@@ -221,7 +274,7 @@ def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[s
         "active": len(active),
         # 차단이 실제로 손실을 피하게 해 줬는지. IC 를 못 쓰는 이 둘의
         # 유일한 검증 수단이다.
-        "scorecard": scorecard.evaluate_blocks(store, as_of=as_of, lookback=lookback),
+        "scorecard": scorecard_of(store, as_of=as_of, lookback=lookback),
         "by_category": [
             {"category": str(name), "count": int(count)}
             for name, count in blocked["category"].value_counts().items()
@@ -236,9 +289,16 @@ def verdict_scorecard(store: Store, *, as_of: datetime, lookback: int) -> dict[s
 def summary(
     store: Store, *, as_of: datetime, lookback: int, thresholds: dict[str, Any]
 ) -> dict[str, Any]:
+    # 요약은 거부 **건수만** 쓴다. 패널용 ``verdict_scorecard`` 를 부르면 쓰지도 않는 사후
+    # 성적표(시세 수십만 행 + 구간 수익률)까지 내서 이 API 가 5~9초였다(2026-09-29 실측).
+    # 신호 현황은 패널과 같은 함수다 — 기억된 결과를 신호 패널이 그대로 받는다.
     people = roster(store, as_of=as_of, lookback=lookback)
     activity = signal_activity(store, as_of=as_of, lookback=lookback)
-    verdicts = verdict_scorecard(store, as_of=as_of, lookback=lookback)
+    verdict_frame = store.get(VERDICTS, as_of=as_of, lookback=lookback)
+    verdicts = {
+        "blocks": 0 if verdict_frame.empty
+        else int((verdict_frame["decision"] == "block").sum()),
+    }
 
     passed = [item for item in people if item["passed"]]
     measured = [item for item in people if item["measured"]]
@@ -282,6 +342,7 @@ __all__ = [
     "ic_history",
     "latest_weights",
     "roster",
+    "scorecard_of",
     "signal_activity",
     "summary",
     "verdict_scorecard",

@@ -226,3 +226,48 @@ def test_empty_scorecard_is_unknown_not_zero(seeded) -> None:
     assert card["settled"] == 0
     assert card["hit_rate"] is None
     assert card["mean_excess"] is None
+
+
+# -- 성적표 속도 경로 ---------------------------------------------------------------
+
+
+def test_scorecard_fast_windows_match_the_reference_definition() -> None:
+    """``_Windows`` 는 ``_returns_between`` 과 **비트 단위로** 같아야 한다.
+
+    대시보드 두 탭이 이 성적표를 부르고, 느린 정의를 빠른 경로로 바꾼 것은
+    답이 한 자리도 안 바뀐다는 전제에서만 허락된다(2026-09-29). 결측 종가·
+    0 종가(inf)·구간 경계와 딱 맞는 세션·한 세션만 있는 종목을 일부러 넣는다.
+    """
+    import numpy as np
+    import pandas as pd
+
+    from quant_rl_trading.analysts.scorecard import _returns_between, _Windows
+
+    rng = np.random.default_rng(7)
+    sessions = list(pd.date_range("2026-07-01 06:30", periods=40, freq="D", tz="UTC"))
+    rows = []
+    for index in range(60):
+        entity = f"KR:{index:06d}"
+        # 종목마다 세션 일부만 — 상장·거래정지로 이가 빠진 창을 흉내 낸다.
+        for session, kept in zip(sessions, rng.random(len(sessions)) < 0.8, strict=True):
+            if not kept:
+                continue
+            rows.append({"entity_id": entity, "valid_from": session,
+                         "close": float(rng.uniform(1_000, 90_000))})
+    rows.append({"entity_id": "KR:999998", "valid_from": sessions[10], "close": 5_000.0})
+    rows.append({"entity_id": "KR:999999", "valid_from": sessions[3], "close": 0.0})
+    rows.append({"entity_id": "KR:999999", "valid_from": sessions[20], "close": 7_000.0})
+    frame = pd.DataFrame(rows).sample(frac=1.0, random_state=3).reset_index(drop=True)
+    frame.loc[frame.sample(n=25, random_state=5).index, "close"] = np.nan
+    # 창고는 KST 로 돌려준다 — 구간 끝(expires_at)은 UTC 다. 시간대가 섞여도 같아야 한다.
+    frame["valid_from"] = frame["valid_from"].dt.tz_convert("Asia/Seoul")
+
+    fast = _Windows(frame)
+    spans = [(sessions[0], sessions[-1]), (sessions[3], sessions[20]),
+             (sessions[10], sessions[10]), (sessions[5] + timedelta(hours=1), sessions[9]),
+             (sessions[-1] + timedelta(days=1), sessions[-1] + timedelta(days=3))]
+    for start, end in spans:
+        slow = _returns_between(frame, start, end).sort_index()
+        quick = fast.returns(start.to_pydatetime(), end.to_pydatetime()).sort_index()
+        assert list(slow.index) == list(quick.index), (start, end)
+        assert np.array_equal(slow.to_numpy(), quick.to_numpy()), (start, end)
