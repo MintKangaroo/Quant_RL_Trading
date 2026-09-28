@@ -445,3 +445,63 @@ main { grid-template-columns: minmax(0, 1fr); }
 
 /* 라이브 갱신 표지 — 되감기 경고(.rewound)와 달리 조용하다. 초가 바뀌면 자동 갱신이 도는 것이다. */
 #as-of-label.live-tick { color: var(--dim); font-size: 11px; }
+
+/* ---- 3차 다듬기 (2026-09-29, 전 탭 점검) ---------------------------------------- */
+/* 1. 화면 머리 — 모든 탭이 같은 머리를 든다: 작은 영문 러닝헤드 · 큰 한글 제목 · 이 화면이
+      무엇에 답하나 한 줄. 예전엔 트레이딩·학습만 제목이 있고 나머지는 제목 없이 경고 띠부터
+      시작해 "지금 어느 화면인가" 를 탭 밑줄로만 알았다. 한 줄 풀이는 설명 문단(.note)이
+      아니다 — 비전문가 사용자에게 탭 이름만으로는 뜻이 안 닿는다(13F·에이전트 상태). */
+.desk-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0 14px; }
+.desk-heading h2 { margin: 4px 0 0; font-size: 21px; font-weight: 600; letter-spacing: -.03em; }
+.desk-eyebrow { font: 10px "IBM Plex Mono", monospace; letter-spacing: .13em; color: var(--muted); }
+.desk-lede { margin: 4px 0 0; font-size: 12px; color: var(--muted); max-width: 80ch; }
+.desk-side { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; justify-content: flex-end; font-size: 11px; color: var(--muted); }
+.desk-side .sub { font-size: 11px; }
+@media (max-width: 768px) {
+  .desk-heading { align-items: flex-start; flex-direction: column; gap: 12px; padding: 14px 0 12px; }
+  .desk-heading h2 { font-size: 20px; }
+  .desk-lede { font-size: 11.5px; }
+  .desk-side { justify-content: flex-start; }
+}
+
+/* 2. 접기 표지 — 펼친 상태에서 app.css 의 글자 삼각형("▾ ")이 속성 선택자로 이겨 괘선
+      삼각형과 겹쳐 두 개가 찍혔다(트레이딩 '일별 수익률 · 캘린더' 등). 글자는 끈다. */
+details.fold[open] > summary::before { content: ""; }
+
+/* 3. 숫자 칸은 접히지 않는다 — 발표 시각이 세 줄로 쪼개졌다(뉴스·일정). */
+td.num, th.num, td.r.mono { white-space: nowrap; }
+/* 시각이 첫 열인 표: 시각 칸은 내용 폭만 — 넓은 빈 칸 오른쪽 끝에 시각이 붙어 다음 열과 멀었다.
+   (뉴스 표 table.news 는 table-layout: fixed 라 app.css 가 폭을 따로 준다.) */
+table.stamp-first td:first-child, table.stamp-first th:first-child { width: 1%; white-space: nowrap; padding-right: 16px; }
+/* 표 안의 긴 원문 이름(발표명 등) — 숫자 칸을 nowrap 으로 묶자 이름이 표를 패널 밖으로 밀어
+   오른쪽 '변화' 열이 잘렸다. 이름 칸이 **남는 폭만** 쓰고 넘치면 줄임표(max-width:0 + width:100%
+   는 자동 배분 표에서 한 열이 나머지를 흡수하게 하는 관용구다). */
+td:has(> .lead) { max-width: 0; width: 100%; overflow: hidden; }
+
+/* 4. 글자 바닥 — 데스크톱 라벨·머리글 10px → 10.5px. 대비(--dim)와 함께 올렸다. */
+@media (min-width: 769px) {
+  .kpi-label, th, .kpi-note { font-size: 10.5px; }
+}
+@media (max-width: 768px) {
+  .kpi-label { font-size: 10.5px; }
+}
+
+/* 5. 용어 풀이 — glossary.js 가 IC·MDD·TWR 같은 말에 점선 밑줄과 풀이(title)를 단다.
+      손가락에는 hover 가 없어 누르면 화면 아래에 풀이가 잠깐 뜬다. */
+.term { text-decoration: underline dotted color-mix(in srgb, var(--muted) 70%, transparent); text-underline-offset: 3px; cursor: help; }
+.term-tip {
+  position: fixed; left: 12px; right: 12px; z-index: 60;
+  bottom: calc(var(--bottom-bar-h, 0px) + env(safe-area-inset-bottom) + 12px);
+  background: var(--panel2); border: 1px solid var(--rule); border-radius: 2px;
+  padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--text);
+}
+.term-tip b { margin-right: 6px; }
+@media (min-width: 769px) { .term-tip { left: auto; right: 16px; bottom: 16px; max-width: 420px; } }
+
+/* 6. 빈 상태는 늘 보인다 — '없다' 문장을 .note 로 적어 [설명] 토글 뒤로 숨는 바람에
+      패널이 머리글만 남은 빈 칸이 됐다(데이터 품질 '진행 중인 작업', 뉴스·일정 '발표 해석'). */
+.empty { color: var(--muted); font-size: 12px; margin: 6px 0; padding: 0; }
+
+/* 8. 차트 넷 묶음 — 넓으면 한 줄 넷, 중간 폭은 둘씩(3 + 1 로 나뉘어 빈 칸이 생기지 않게). */
+@media (min-width: 769px) { .grid2.grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1400px) { .grid2.grid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

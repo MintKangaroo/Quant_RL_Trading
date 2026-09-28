@@ -41,7 +41,9 @@
   --rule: #2a2a2a;
   --text: #e8e8e8;
   --muted: #8f8f8f;
-  --dim: #5f5f5f;
+  /* --dim 은 라벨·머리글·각주 — 화면에서 가장 많이 쓰는 회색이다. #5f5f5f 는 바탕 대비
+     3.2:1 로 10px 글자에서 안 읽혔다(2026-09-29 점검). #767676 은 4.6:1 (WCAG AA). */
+  --dim: #767676;
   --warn: #f5a524;
   /* 경고 두 번째 단계 — 앰버(--warn)보다 붉고 --bad 보다 덜하다. 학습 카드의
      "과적합 의심" 처럼 "멈춘 건 아닌데 결과가 틀어지고 있다" 는 자리에만 쓴다.
@@ -448,7 +450,8 @@ td.num, th.num { text-align: right; }
 /* 뉴스 표 — 시각 열을 내용에 맞게 좁힌다. 기본 자동 배분은 이 열에 전체 폭의
    1/4 을 주는데, 값은 오른쪽 끝에 붙어 있어 제목과 사이가 텅 빈다. */
 table.news { table-layout: fixed; }
-table.news th:first-child, table.news td:first-child { width: 172px; }
+/* 172px → 128px (2026-09-29): 시각을 'YYYY-MM-DD HH:mm' 16자로 바꿔 더 짧아졌다. */
+table.news th:first-child, table.news td:first-child { width: 128px; }
 
 .alerts { display: grid; gap: 6px; }
 /* 경고 줄 — 가는 전체 테두리. 왼쪽 굵은 띠(side-tab)는 흔한 생성형 UI 관용구라
@@ -958,7 +961,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
   .scroll thead th:first-child { z-index: 2; }
 
   /* 뉴스 표의 첫 열 172px 은 390px 화면에서 절반을 먹는다. */
-  table.news th:first-child, table.news td:first-child { width: 108px; }
+  table.news th:first-child, table.news td:first-child { width: 118px; }
 
   /* 패널 여백을 줄여 숫자 자리를 남긴다. 아래 여백은 하단 탭 바
      높이(--bottom-bar-h) + safe-area 를 더한다 — 안 더하면 마지막

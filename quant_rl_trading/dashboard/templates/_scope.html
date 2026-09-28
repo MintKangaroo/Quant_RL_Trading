@@ -14,18 +14,18 @@
 {# 세 갈래다 — 운용(무엇을 샀나) · 분석(왜 그렇게 골랐나) · 운영(배관이 도는가).
    순서가 곧 읽는 순서다. 운영을 앞에 두면 매일 아침 배관부터 보게 된다. #}
   <nav class="tabs">
-    <a href="/trading" class="{{ 'on' if active == 'trading' }}">트레이딩</a>
-    <a href="/market" class="{{ 'on' if active == 'market' }}">마켓</a>
-    <a href="/thirteen-f" class="{{ 'on' if active == 'thirteen-f' }}">13F</a>
-    <a href="/headlines" class="{{ 'on' if active == 'headlines' }}">중요 시황</a>
-    <a href="/briefing" class="{{ 'on' if active == 'briefing' }}">뉴스 · 일정</a>
+    <a href="/trading" title="포트폴리오·주문·리스크 예산 — 지금 무엇을 들고 있나" class="{{ 'on' if active == 'trading' }}">트레이딩</a>
+    <a href="/market" title="국장·미장 지수와 시장 폭, 상위 종목, 거시지표" class="{{ 'on' if active == 'market' }}">마켓</a>
+    <a href="/thirteen-f" title="미국 대형 기관의 분기말 보유(13F 공시, 45일 지연)" class="{{ 'on' if active == 'thirteen-f' }}">기관 보유</a>
+    <a href="/headlines" title="매수 차단 종목·이달 발표 일정·중요 공시" class="{{ 'on' if active == 'headlines' }}">중요 시황</a>
+    <a href="/briefing" title="다음 거시지표 발표·발표 해석·최근 뉴스" class="{{ 'on' if active == 'briefing' }}">뉴스 · 일정</a>
     <span class="sep"></span>
-    <a href="/learning" class="{{ 'on' if active == 'learning' }}">모델 검증</a>
-    <a href="/ai-review" class="{{ 'on' if active == 'ai-review' }}">AI 리뷰</a>
+    <a href="/learning" title="지금 도는 학습·매매에 쓰는 모델·과거 시행" class="{{ 'on' if active == 'learning' }}">모델 검증</a>
+    <a href="/ai-review" title="LLM(Claude) 호출·비용·뉴스 판정" class="{{ 'on' if active == 'ai-review' }}">AI 리뷰</a>
     <span class="sep"></span>
-    <a href="/data-quality" class="{{ 'on' if active == 'data-quality' }}">데이터 품질</a>
-    <a href="/agent-health" class="{{ 'on' if active == 'agent-health' }}">에이전트 상태</a>
-    <a href="/system" class="{{ 'on' if active == 'system' }}">시스템</a>
+    <a href="/data-quality" title="수집 범위·빠진 값·지연·실패 — 입력을 믿을 수 있나" class="{{ 'on' if active == 'data-quality' }}">데이터 품질</a>
+    <a href="/agent-health" title="Analyst 별 적중도(IC)·합격 여부·가중치" class="{{ 'on' if active == 'agent-health' }}">에이전트 상태</a>
+    <a href="/system" title="서버 자원·예약 작업·안전장치" class="{{ 'on' if active == 'system' }}">시스템</a>
   </nav>
 
   <span class="statusbar" id="statusbar" hidden></span>

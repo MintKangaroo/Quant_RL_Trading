@@ -5,11 +5,17 @@
 {% with active = 'data-quality' %}{% include "_scope.html" %}{% endwith %}
 
 <main>
+  <div class="desk-heading">
+    <div><span class="desk-eyebrow">DATA / QUALITY</span><h2>데이터 품질</h2>
+      <p class="desk-lede">매매에 들어가는 데이터를 믿을 수 있나 — 수집 범위 · 빠진 값 · 지연 · 실패.</p></div>
+  </div>
   <section class="alerts" id="alerts"></section>
 
   <section class="kpis" id="kpis"></section>
 
-  <section class="grid2">
+  {# 차트 넷 — grid2(auto-fit 420px)는 1600px 에서 3 + 1 로 나뉘어 마지막 줄 오른쪽 2/3 가 비었다.
+     grid4 는 넓으면 넷 한 줄, 좁으면 둘씩 두 줄이다. #}
+  <section class="grid2 grid4">
     <div class="panel">
       <h2>커버리지 — 일별 종목 수</h2>
       <div class="chart" id="chart-coverage"></div>
@@ -40,8 +46,9 @@
   </section>
 
   <section class="panel">
-    <h2>최근 수집 실패</h2>
-    <div id="failures"></div>
+    <h2>최근 수집 실패 <span class="right"><span class="sub" id="failures-count"></span></span></h2>
+    {# 50줄이 화면을 1,200px 밀어냈다(2026-09-29 점검) — 패널 안에서 스크롤한다. #}
+    <div id="failures" class="scroll dense"></div>
   </section>
 </main>
 {% endblock %}

@@ -261,7 +261,8 @@ function showAlerts(warnings) {
   const target = document.getElementById("alerts");
   target.innerHTML = warnings.length
     ? warnings.map((text) => `<div class="alert">${text}</div>`).join("")
-    : `<div class="alert ok">경고 없음 — 임계치는 store.config 기준</div>`;
+    // "임계치는 store.config 기준" 은 개발자 말이다 — 화면에는 결론만, 출처는 풀이(title)로 (2026-09-29).
+    : `<div class="alert ok" title="경고 기준값은 전부 설정(store.config)에서 읽는다">경고 없음</div>`;
 }
 
 async function runAll(jobs) {
@@ -270,7 +271,9 @@ async function runAll(jobs) {
       await job();
     } catch (error) {
       document.getElementById("alerts").innerHTML +=
-        `<div class="alert">${job.name}: ${error.message}</div>`;
+        // job.name 은 JS 함수 이름(renderGate 등)이라 사용자에게 뜻이 없다. 무엇이 안 됐는지를
+        // 먼저 말하고, 함수 이름은 찾을 때 쓰도록 뒤에 남긴다.
+        `<div class="alert">화면 일부를 불러오지 못했다 — ${error.message} <span class="sub">(${job.name})</span></div>`;
     }
   }
   scheduleAutoRefresh(jobs);

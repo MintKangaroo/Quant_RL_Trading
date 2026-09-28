@@ -20,7 +20,10 @@ function isLive() {
 function stamp(iso) {
   const at = new Date(iso);
   if (Number.isNaN(at.valueOf())) return "—";
-  return at.toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+  // 다른 탭과 같은 'YYYY-MM-DD HH:mm'(보는 기기 시각). ko-KR 짧은 꼴('26. 9. 28. 오후 9:30')은
+  // 칸 안에서 세 줄로 쪼개졌고, 탭마다 날짜 모양이 달랐다(2026-09-29 점검).
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${p2(at.getMonth() + 1)}-${p2(at.getDate())} ${p2(at.getHours())}:${p2(at.getMinutes())}`;
 }
 
 const DOC_TYPE_NAME = {
@@ -93,19 +96,19 @@ function eventRows(rows) {
     return `<p class="empty">이 창고에 파이프라인 이벤트가 없다. 백테스트·라이브 run 이
       이 창고에 events 를 남기면 관측→체결까지의 판단이 여기 쌓인다.</p>`;
   }
-  const head = `<thead><tr><th class="num">시각</th><th>run</th><th class="mid">단계</th>
+  const head = `<thead><tr><th>시각</th><th>실행</th><th class="mid">단계</th>
     <th>주체</th></tr></thead>`;
   const body_ = rows
     .map(
       (row) => `<tr>
-        <td class="num mono">${stamp(row.ts_sim)}</td>
+        <td class="mono">${stamp(row.ts_sim)}</td>
         <td class="code">${esc(row.run_id)}</td>
         <td class="mid"><span class="tag dim">${esc(row.stage)}</span></td>
         <td>${esc(row.actor)}</td>
       </tr>`
     )
     .join("");
-  return `<table>${head}<tbody>${body_}</tbody></table>`;
+  return `<table class="stamp-first">${head}<tbody>${body_}</tbody></table>`;
 }
 
 async function loadHeadlines() {

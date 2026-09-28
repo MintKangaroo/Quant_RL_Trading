@@ -88,7 +88,11 @@ async function renderIcHistory() {
 
   instance.setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: data.series.map((s) => s.analyst) },
+    // 계열이 스무 개(Analyst × 시장)라 기본 범례가 네 줄로 늘어나 그림 위를 덮었다(2026-09-29 점검).
+    // 한 줄 스크롤 범례로 두고 그림은 그 아래에서 시작한다.
+    legend: { ...BASE.legend, type: "scroll", left: 0, right: 0, itemWidth: 14, itemHeight: 8,
+              pageTextStyle: { color: COLOR.muted }, data: data.series.map((s) => s.analyst) },
+    grid: { ...BASE.grid, top: 34 },
     xAxis: { type: "category", data: stamps.map((at) => at.slice(0, 16).replace("T", " ")), ...AXIS },
     yAxis: { type: "value", scale: true, ...AXIS },
     series: [

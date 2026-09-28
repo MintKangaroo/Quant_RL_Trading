@@ -24,15 +24,13 @@
 {% with active = 'ai-review' %}{% include "_scope.html" %}{% endwith %}
 
 <main>
-  <section class="alerts" id="alerts"></section>
-
   <div class="air-wrap">
-    <div class="air-bar">
-      <h2>AI 리뷰</h2>
-      <span class="sub" id="air-cost-badge"></span>
-      <div class="air-spacer"></div>
-      <span class="sub" id="air-budget-badge"></span>
+    <div class="desk-heading">
+      <div><span class="desk-eyebrow">AI / REVIEW</span><h2>AI 리뷰</h2>
+        <p class="desk-lede">LLM(Claude)이 무엇을 했고 얼마가 들었나 — 호출 · 비용 · 뉴스 매수 차단 판정.</p></div>
+      <div class="desk-side"><span class="sub" id="air-cost-badge"></span><span class="sub" id="air-budget-badge"></span></div>
     </div>
+    <section class="alerts" id="alerts"></section>
 
     <div class="air-card" id="air-oneliner"></div>
 
@@ -55,7 +53,8 @@
 
       {# LS_KR 에 있고 우리에겐 없는 것. 값을 지어내는 대신 무엇이 있어야
          채워지는지를 적는다 — 이 저장소의 규칙은 "화면이 이유를 말하게 한다" 다. #}
-      <div class="air-card">
+      {# 개발 메모라 [설명] 을 켰을 때만 보인다(2026-09-29 점검 — 화면 위쪽 절반을 차지했다). #}
+      <div class="air-card air-devnote">
         <div class="air-h">아직 없는 것 <span class="hint">— LS_KR 화면에는 있다</span></div>
         <div class="air-placeholder">
           <b>등급 A~F · 종합점수 · 항목별 채점 · 잘한 점 · 자기진화 제안</b> —

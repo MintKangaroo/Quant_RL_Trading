@@ -61,7 +61,7 @@
   </section>
   <section class="grid-half">
     <div class="panel">
-      <h2>Positions
+      <h2>보유 종목
         <span class="right"><span class="sub" id="positions-count"></span></span>
       </h2>
       <div class="positions-body">
@@ -77,7 +77,7 @@
     </div>
 
     <div class="panel">
-      <h2>Orders &amp; Executions <span id="orders-head" class="muted mono" style="font-weight:400;font-size:.85em"></span></h2>
+      <h2>주문 · 체결 <span id="orders-head" class="sub mono"></span></h2>
       <div id="orders" class="scroll dense"></div>
       <p class="note">
         마지막 주문일 하루치만 보인다(최근이 위). 체결 지연은 <strong>실거래에서만 잰다</strong> — 0 으로 채우면
@@ -99,7 +99,7 @@
      달력을 막대 오른쪽에 둔다(사용자 요청 2026-09-07). 모바일에선 세로로 쌓인다. #}
   <section class="grid-half">
     <div class="panel">
-      <h2>Daily Returns <span class="right"><span class="sub">TWR · 최근 20세션</span></span></h2>
+      <h2>일별 수익률 <span class="right"><span class="sub">TWR · 최근 20세션</span></span></h2>
       <div class="chart positions-daily" id="chart-daily-returns"></div>
     </div>
     <div class="panel">
@@ -171,7 +171,7 @@
 
     <!-- 우: 결정 -->
     <div class="panel" id="panel-decision">
-      <h2>AI Decision
+      <h2>AI 결정
         <span class="sub" id="decision-engine"></span>
         <span class="right"><span class="live-dot" id="decision-live">LIVE</span></span>
       </h2>

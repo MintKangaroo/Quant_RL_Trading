@@ -61,3 +61,26 @@
 }
 .air-placeholder b { color: var(--muted); }
 .air-placeholder code { color: var(--muted); }
+
+/* ---- 시트 문법에 맞춘다 (2026-09-29 점검) -------------------------------------
+   이 탭만 LS_KR 에서 옮긴 둥근 상자·회색 바탕 카드가 남아 다른 탭과 다른 화면처럼 보였다
+   (DESIGN.md: 카드 격자 금지 · 모서리 2px 이하). 경계는 절 괘선, 머리는 러닝헤드, KPI 는
+   괘선 스트립 — 다른 탭과 같은 문법이다. */
+.air-card { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 0 0 10px; margin: 0; }
+#air-oneliner { font-size: 13px; padding: 10px 0; }
+.air-h { font-size: 11.5px; letter-spacing: .01em; text-transform: none; margin: 0 0 4px; padding: 8px 0 4px; }
+.air-h .hint { font-size: 11px; }
+.air-kpis { gap: 0; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); }
+.air-kpi { background: transparent; border: 0; border-left: 1px solid var(--border); border-radius: 0; padding: 6px 12px 5px; }
+.air-kpi:first-child { border-left: 0; padding-left: 0; }
+.air-kpi .k { font-size: 10.5px; text-transform: none; letter-spacing: 0; }
+.air-kpi .v { font-size: 17px; font-weight: 500; }
+.air-placeholder { border-radius: 2px; background: transparent; }
+/* 개발 메모('아직 없는 것')는 설명 문단과 같은 자리 — [설명] 을 켰을 때만. */
+.air-devnote { display: none; }
+body.show-notes .air-devnote { display: block; }
+@media (max-width: 768px) {
+  .air-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .air-kpi { border-bottom: 1px solid var(--border); padding: 7px 10px 6px; }
+  .air-kpi:nth-child(odd) { border-left: 0; padding-left: 0; }
+}

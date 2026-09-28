@@ -729,7 +729,7 @@ def alerts(kpi: dict[str, Any], risk_state: dict[str, Any]) -> list[dict[str, st
             }
         )
     if not out:
-        out.append({"level": "info", "text": "경고 없음 — 임계치는 store.config 기준"})
+        out.append({"level": "info", "text": "경고 없음"})
     return out
 
 

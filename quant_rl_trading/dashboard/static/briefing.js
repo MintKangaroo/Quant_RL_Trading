@@ -42,7 +42,10 @@ const market = (code) => MARKET_NAME[code] || code;
 function stamp(iso) {
   const at = new Date(iso);
   if (Number.isNaN(at.valueOf())) return "—";
-  return at.toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+  // 다른 탭과 같은 'YYYY-MM-DD HH:mm'(보는 기기 시각). ko-KR 짧은 꼴('26. 9. 28. 오후 9:30')은
+  // 칸 안에서 세 줄로 쪼개졌고, 탭마다 날짜 모양이 달랐다(2026-09-29 점검).
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${p2(at.getMonth() + 1)}-${p2(at.getDate())} ${p2(at.getHours())}:${p2(at.getMinutes())}`;
 }
 
 /** 실측값과 직전값의 변화.
@@ -63,7 +66,7 @@ function change(actual, previous) {
 
 function releaseRows(items, { withActual }) {
   if (!items.length) {
-    return `<p class="note">${withActual ? "발표된 지표가 없다." : "예정된 발표가 없다."}</p>`;
+    return `<p class="empty">${withActual ? "발표된 지표가 없다." : "예정된 발표가 없다."}</p>`;
   }
   const head = withActual
     ? "<thead><tr><th>지표</th><th>발표</th><th class='num'>실측</th><th class='num'>직전</th><th class='num'>변화</th></tr></thead>"
@@ -101,7 +104,7 @@ function releaseRows(items, { withActual }) {
 
 function newsRows(items) {
   if (!items.length) {
-    return `<p class="note">뉴스가 없다. 수집기(<code>tools/collect_news.py</code>)를
+    return `<p class="empty">뉴스가 없다. 수집기(<code>tools/collect_news.py</code>)를
       돌렸는지 확인할 것 — 비어 있는 것과 악재가 없는 것은 다르다.</p>`;
   }
   const rows = items.map((item) => {
@@ -133,7 +136,7 @@ const TONE = {
 function explainRows(items) {
   const done = items.filter((i) => i.brief);
   if (!done.length) {
-    return `<p class="note">해설이 없다. ANTHROPIC_API_KEY 를 확인할 것 —
+    return `<p class="empty">해설이 없다. ANTHROPIC_API_KEY 를 확인할 것 —
       숫자는 그대로 남지만 해석은 붙지 않는다.</p>`;
   }
   const rows = done.map((item) => {
@@ -176,7 +179,7 @@ async function render() {
         kpi("발표 시각", stamp(d.next.scheduled_at), esc(market(d.next.market))),
         kpi("남은 시간", countdown(d.next.in_seconds), "as_of 기준", d.next.in_seconds < 3600),
       ].join("")}</div>`
-    : `<p class="note">예정된 발표가 없다.</p>`;
+    : `<p class="empty">예정된 발표가 없다.</p>`;
 
   document.getElementById("released").innerHTML = releaseRows(d.released, { withActual: true });
   document.getElementById("upcoming").innerHTML = releaseRows(d.upcoming, { withActual: false });

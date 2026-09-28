@@ -79,8 +79,13 @@
    지웠다 살렸다 하면 나머지 열 폭이 매번 다시 계산된다. */
 .pnl-inline { display: none; }
 
-@media (max-width: 768px) {
-  /* 6열은 390px 에 안 들어간다. PnL 열을 접고 그 값을 포지션 칸 아래로
+/* **화면 폭이 아니라 패널 폭으로 접는다** (2026-09-29). 데스크톱 1600px 에서도 후보 칸은
+   세 칸 중 첫째라 ~340px 이고, 6열이 안 들어가 평가손익 열이 `-684,5` 처럼 잘려 있었다
+   (화면 폭 기준 규칙은 768px 아래에서만 켜졌다). 컨테이너 쿼리는 칸이 좁으면 어느 기기든 접는다. */
+#panel-watchlist { container: watch / inline-size; }
+
+@container watch (max-width: 560px) {
+  /* 6열은 좁은 칸에 안 들어간다. PnL 열을 접고 그 값을 포지션 칸 아래로
      내린다 — 실측 2026-08-19(아이폰): `-6,81` 처럼 잘려 보였다.
      포지션이 FLAT 인 행은 어차피 PnL 이 없어 영향이 없다. */
   #watchlist th.c-pnl, #watchlist td.c-pnl,
@@ -90,19 +95,21 @@
   #watchlist table { table-layout: fixed; width: 100%; }
   /* **폭을 준다.** fixed 만 켜고 폭을 안 주면 열이 균등 분배되어 종목명 칸이
      좁아지고 이름이 옆 칸 숫자와 겹친다 — 그게 실제로 났다. */
-  #watchlist col.c-name { width: 34%; }
-  #watchlist col.c-price { width: 20%; }
-  #watchlist col.c-chg { width: 20%; }
-  #watchlist col.c-sig { width: 13%; }
-  #watchlist col.c-pos { width: 13%; }
+  /* 포지션 칸 13% 는 인라인 평가손익(`-684,564`)이 잘렸다 — 18% 로 넓히고 이름·가격에서 뗐다. */
+  #watchlist col.c-name { width: 32%; }
+  #watchlist col.c-price { width: 19%; }
+  #watchlist col.c-chg { width: 19%; }
+  #watchlist col.c-sig { width: 12%; }
+  #watchlist col.c-pos { width: 18%; }
 
   /* 숫자만 안 접는다. 종목명까지 nowrap 을 걸면 칸을 넘어 흘러나온다. */
-  #watchlist td.mono, #watchlist td.r { white-space: nowrap; }
+  #watchlist td.mono, #watchlist td.r, #watchlist th { white-space: nowrap; }
   #watchlist .name, #watchlist .code {
     display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   /* 포지션 칸 아래 PnL 은 작게. 여기가 넘치면 다시 겹친다. */
-  #watchlist .pnl-inline { font-size: 10px; line-height: 1.25; white-space: nowrap; }
+  /* 금액과 수익률이 한 줄이면 좁은 칸에서 `-684,56…` 으로 잘렸다 — 두 줄로 접히게 둔다. */
+  #watchlist .pnl-inline { font-size: 10px; line-height: 1.25; white-space: normal; overflow: visible; text-overflow: clip; }
   #watchlist .sig { padding: 1px 4px; font-size: 10px; }
 }
 
@@ -128,3 +135,11 @@
 .perf-value.up { color: var(--up); }
 .perf-value.down { color: var(--down); }
 .perf-note { color: var(--dim); font-size: 10.5px; margin-top: 1px; }
+
+/* 차트 머리 — 폰에서 봉 수 부제('61봉 · 일봉')가 세로로 한 글자씩 쪼개졌다(2026-09-29 점검).
+   머리가 두 줄로 접히게 하고, 봉 단위 버튼 줄은 둘째 줄을 통째로 쓴다. */
+#panel-chart h2 #chart-sub { white-space: nowrap; }
+@media (max-width: 768px) {
+  #panel-chart h2 { flex-wrap: wrap; row-gap: 6px; }
+  #panel-chart h2 .right { margin-left: 0; width: 100%; }
+}

@@ -748,6 +748,9 @@ async function renderLiveModels() {
 const LS_RESULT = { 채택: "adopt", 기각: "reject", 보류: "hold", 진행중: "live" };
 const lsOpen = new Set();
 let lsHistory = null;
+const LS_PAGE = 20;
+let lsShowAll = false;
+let lsShowLedger = false;
 
 function lsCategory() {
   const value = new URLSearchParams(window.location.search).get("cat");
@@ -758,6 +761,7 @@ function lsSetCategory(value) {
   const url = new URL(window.location.href);
   if (value === "전체") url.searchParams.delete("cat"); else url.searchParams.set("cat", value);
   window.history.replaceState(null, "", url);
+  lsShowAll = false;
   lsDrawHistory();
 }
 
@@ -800,10 +804,32 @@ function lsDrawHistory() {
   for (const button of document.getElementById("history-filter").querySelectorAll("button")) {
     button.addEventListener("click", () => lsSetCategory(button.dataset.cat));
   }
-  const rows = data.trials.filter((t) => current === "전체" || t.category === current);
-  list.innerHTML = rows.length
+  const inCat = data.trials.filter((t) => current === "전체" || t.category === current);
+  // 목록 다듬기(2026-09-29 점검): 83줄이 한 번에 펼쳐져 탭이 7,000px 였고, 그중 '대장에만 있음 —
+  // 카탈로그 요약 없음' 줄(제목도 설명도 없는 시행 대장 원문)이 사이사이 끼어 읽기를 끊었다.
+  // 그 줄은 기본으로 접고, 목록은 최근 LS_PAGE 줄만 보인다. 둘 다 누르면 펼친다 — 지우지 않는다.
+  // 상태는 이 페이지가 떠 있는 동안만 기억한다(브라우저 저장소 금지).
+  const ledgerOnly = inCat.filter((t) => t.source === "ledger_only" && !t.what);
+  const visible = lsShowLedger ? inCat : inCat.filter((t) => !ledgerOnly.includes(t));
+  const rows = lsShowAll ? visible : visible.slice(0, LS_PAGE);
+  const more = [];
+  if (visible.length > rows.length) {
+    more.push(`<button type="button" class="ls-chip" data-more="all">나머지 ${visible.length - rows.length}건 더 보기</button>`);
+  }
+  if (ledgerOnly.length) {
+    more.push(`<button type="button" class="ls-chip" data-more="ledger" aria-pressed="${lsShowLedger}">${
+      lsShowLedger ? "요약 없는 대장 줄 숨기기" : `요약 없는 대장 줄 ${ledgerOnly.length}건 보기`}</button>`);
+  }
+  list.innerHTML = (rows.length
     ? rows.map((t) => lsTrialRow(t, "")).join("")
-    : `<p class="empty">이 분류에 기록이 없다.</p>`;
+    : `<p class="empty">이 분류에 ${ledgerOnly.length ? "요약이 있는 " : ""}기록이 없다.</p>`)
+    + (more.length ? `<div class="ls-more-row">${more.join("")}</div>` : "");
+  for (const button of list.querySelectorAll(".ls-more-row button")) {
+    button.addEventListener("click", () => {
+      if (button.dataset.more === "all") lsShowAll = true; else lsShowLedger = !lsShowLedger;
+      lsDrawHistory();
+    });
+  }
   for (const node of list.querySelectorAll("details.ls-trial")) {
     node.addEventListener("toggle", () => {
       if (node.open) lsOpen.add(node.dataset.key); else lsOpen.delete(node.dataset.key);

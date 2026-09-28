@@ -1,8 +1,6 @@
 /* 관제 화면의 정보 배치. 색·서체의 정본은 app.css :root다. */
 .mission-control, .model-control { min-width: 0; }
-.desk-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0 14px; }
-.desk-heading h2 { margin: 4px 0 0; font-size: 21px; font-weight: 600; letter-spacing: -.03em; }
-.desk-eyebrow { font: 10px "IBM Plex Mono", monospace; letter-spacing: .13em; color: var(--muted); }
+/* 화면 머리(.desk-heading · .desk-eyebrow) 는 전 탭 공통이라 sheet.css 로 옮겼다(2026-09-29). */
 .desk-heading .ledger-switch { margin: 0; }
 .desk-heading .desk-stop { margin-left: auto; }
 .desk-stop .kpi-stop { padding: 0; border: 0; }
@@ -72,8 +70,6 @@
   .control-desk { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; }
 }
 @media (max-width: 768px) {
-  .desk-heading { align-items: flex-start; flex-direction: column; gap: 12px; padding: 14px 0 12px; }
-  .desk-heading h2 { font-size: 20px; }
   .desk-heading { position: relative; padding-top: 14px; }
   .desk-heading .desk-stop { position: absolute; right: 0; top: 17px; max-width: 47%; }
   .desk-stop .kpi-stop button { font-size: 9px; padding: 5px 7px; }
@@ -232,6 +228,8 @@
 .ls-chip { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 2px; padding: 5px 10px; font-size: 12px; cursor: pointer; min-height: 32px; }
 .ls-chip .num { color: var(--dim); margin-left: 3px; font-size: 11px; }
 .ls-chip[aria-pressed="true"] { color: var(--text); border-color: var(--accent); }
+/* 과거 학습 내역 끝의 "더 보기 · 대장 줄 보기" (2026-09-29) */
+.ls-more-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 4px; }
 .ls-trial { border-bottom: 1px solid var(--border); }
 .ls-trial > summary { display: grid; grid-template-columns: 84px 72px 40px minmax(0, 1fr) auto; align-items: baseline; gap: 4px 10px; padding: 7px 0; cursor: pointer; list-style: none; font-size: 12.5px; }
 .ls-trial > summary::-webkit-details-marker { display: none; }

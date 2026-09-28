@@ -159,9 +159,9 @@ function renderExecutionCosts(body) {
   const total = known ? rows.length ? rows.map((row) => money(row.commission + row.tax, row.currency)).join('<br>') : "0 · 체결 없음" : "미측정";
   const detail = known ? rows.map((row) => `${controlEsc(row.currency)} 수수료 ${num(row.commission)} · 세금 ${num(row.tax)}`).join(' / ') : "명시 비용 전수 집계 없음";
   document.getElementById("cost-stamp").textContent = p?.session ? `${p.session} · 회계 기준` : "회계 미측정";
-  target.innerHTML = `<div class="cost-item"><span>Gross PnL</span><strong class="cost-unknown">미측정</strong><small>총 거래비용 분해 없음</small></div>
-    <div class="cost-item"><span>Trading Cost · 명시 비용</span><strong${known ? '' : ' class="cost-unknown"'}>${total}</strong><small>장부 전체 수수료 + 세금 · 총비용과 별도</small></div>
-    <div class="cost-item"><span>Net PnL</span><strong class="${tone(p?.pnl)}">${p?.session && p.pnl != null ? wonSigned(p.pnl) : '미측정'}</strong><small>회계 손익 · 비용 재차감 없음</small></div>`;
+  target.innerHTML = `<div class="cost-item"><span>총손익 · 비용 전</span><strong class="cost-unknown">미측정</strong><small>총 거래비용 분해 없음</small></div>
+    <div class="cost-item"><span>매매 비용 · 명시 비용</span><strong${known ? '' : ' class="cost-unknown"'}>${total}</strong><small>장부 전체 수수료 + 세금 · 총비용과 별도</small></div>
+    <div class="cost-item"><span>순손익 · 회계</span><strong class="${tone(p?.pnl)}">${p?.session && p.pnl != null ? wonSigned(p.pnl) : '미측정'}</strong><small>회계 손익 · 비용 재차감 없음</small></div>`;
   const panel = document.getElementById("cost-detail");
   if (panel) panel.innerHTML = `${detail}<br>Spread · Slippage · Turnover · 순IR: 미측정`;
 }
@@ -417,10 +417,14 @@ function emergencyStopCard(engaged, disabled = false) {
   return `<div class="kpi kpi-stop${engaged ? " engaged" : ""}">
     <button type="button" id="emergency-stop" data-engaged="${engaged}" ${disabled ? "disabled" : ""}
             title="신규매수 차단 — 매도는 막지 않는다">
-      ${disabled ? "조회 모드 · 조작 불가" : engaged ? "킬스위치 해제" : "EMERGENCY STOP"}
+      ${disabled ? "조회 모드 · 조작 불가" : engaged ? "킬스위치 해제" : "긴급 정지"}
     </button>
   </div>`;
 }
+
+/* 리스크 예산 판정 글자 — INFO/WARNING/CRITICAL/UNKNOWN 영어 대문자는 비전문가 사용자에게
+   뜻이 바로 안 닿았다(2026-09-29 점검). 색·판정 규칙은 그대로, 글자만 한국어로. */
+const RISK_VERDICT = { info: "정상", warning: "주의", critical: "위험", unknown: "모름" };
 
 function renderAlerts(body) {
   document.getElementById("alerts").innerHTML = body.data.alerts
@@ -448,8 +452,8 @@ function renderWatchlist(body) {
   const cols = `<colgroup><col class="c-name"><col class="c-price"><col class="c-chg">
                 <col class="c-sig"><col class="c-pos"><col class="c-pnl"></colgroup>`;
   const head = `${cols}<thead><tr><th>종목명</th><th class="r">현재가</th><th class="r">등락률</th>
-                <th class="mid">AI 시그널</th><th class="mid">포지션</th>
-                <th class="r c-pnl">PnL</th></tr></thead>`;
+                <th class="mid">AI 신호</th><th class="mid">포지션</th>
+                <th class="r c-pnl">평가손익</th></tr></thead>`;
   const cells = rows
     .map(
       (row) => `<tr class="click${row.entity_id === selected ? " on" : ""}" data-entity="${row.entity_id}">
@@ -536,12 +540,12 @@ function renderDecision(body) {
   document.getElementById("decision").innerHTML = `
     <div class="decision-head">
       <div class="decision-action">
-        <div class="k">현재 Action</div>
+        <div class="k">현재 행동</div>
         <div class="v ${action.toLowerCase()}">${action}</div>
       </div>
       ${donut(confidence)}
     </div>
-    <h3>Q-Values <span class="sub">행동 확률</span></h3>
+    <h3>행동별 확률 <span class="sub">Q값</span></h3>
     <p class="pending">— 미측정 <span class="why">· Q값은 정책(RL)이 내는 값이다. 지금 비중은
       규칙이 정하므로 잴 대상이 없다 (M4)</span></p>
     <div class="facts">${facts
@@ -611,7 +615,7 @@ function renderRisk(body) {
       if (value === null || value === undefined) {
         return `<div class="risk-row">
           <span class="name">${label}</span><span class="val">미측정</span>
-          <span class="track"></span><span class="verdict info">UNKNOWN</span>
+          <span class="track"></span><span class="verdict info">${RISK_VERDICT.unknown}</span>
         </div>`;
       }
       const magnitude = Math.abs(value === null || value === undefined ? 0 : value);
@@ -631,7 +635,7 @@ function renderRisk(body) {
         <span class="name">${label}</span>
         <span class="val ${kind === "sign" ? signClass(value) : ""}">${text}</span>
         <span class="track"><span class="fill ${fill}" style="width:${ratio}%"></span></span>
-        <span class="verdict ${level}">${level.toUpperCase()}</span>
+        <span class="verdict ${level}">${RISK_VERDICT[level]}</span>
       </div>`;
     })
     .join("");

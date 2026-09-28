@@ -109,12 +109,15 @@ async function renderFailures() {
     target.innerHTML = `<div class="empty">최근 창에 수집 실패 없음.</div>`;
     return;
   }
-  target.innerHTML = `<table>
+  const count = document.getElementById("failures-count");
+  if (count) count.textContent = `${num(data.length)}건`;
+  // 시각은 초까지만 — 원본(ISO·마이크로초·+09:00)을 그대로 찍으면 한 칸이 32자였다.
+  target.innerHTML = `<table class="stamp-first">
     <thead><tr><th>관측시각</th><th>소스</th><th>단계</th>
       <th class="num">소요(ms)</th><th>상세</th></tr></thead>
     <tbody>${data.map((row) => `<tr>
-      <td class="num">${row.observed_at}</td><td>${row.source}</td><td>${row.stage}</td>
-      <td class="num">${row.elapsed_ms.toFixed(0)}</td><td>${row.detail}</td>
+      <td class="num" title="${esc(row.observed_at)}">${esc(String(row.observed_at).slice(0, 19).replace("T", " "))}</td><td>${esc(row.source)}</td><td>${esc(row.stage)}</td>
+      <td class="num">${row.elapsed_ms.toFixed(0)}</td><td>${esc(row.detail)}</td>
     </tr>`).join("")}</tbody></table>`;
 }
 
@@ -178,7 +181,7 @@ function jobsRows(d) {
       <td class="num">—</td><td class="num sub">—</td>
     </tr>`);
   }
-  if (!rows.length) return `<p class="note">진행 중이거나 기록된 작업이 없다.</p>`;
+  if (!rows.length) return `<p class="empty">진행 중이거나 기록된 작업이 없다.</p>`;
   return `<table><thead><tr><th>작업</th><th>진행</th><th class="num">%</th>`
     + `<th class="num">단위</th><th class="num">적재</th><th class="num">마지막</th>`
     + `</tr></thead><tbody>${rows.join("")}</tbody></table>`;
