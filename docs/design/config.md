@@ -171,6 +171,11 @@ collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내�
                                    # 없는 코드·신규 종목). 2026-09-11 원본 주소가 바뀌어 100% 가
                                    # 실패했는데 rc 가 0 이라 2주를 몰랐다
 
+dashboard:                     # 학습 탭 "마지막 모델 회차" 카드의 상태 배지 (dashboard.md §5)
+  training_stall_factor: 3     # 마지막 진행 기록이 평균 단위(블록·폴드) 시간 × 이 배수보다 오래되면 "느림/멈춤 의심"
+  training_trend_window: 5     # 최근 이 단위 수에서 학습 손실↓ · 학습창 안쪽 검증↓(나빠짐) 이면 "과적합 의심".
+                               # 판정 창은 보지 않는다 — 사전등록. 새 키라 기존 창고엔 tools/seed_config.py --apply 로 심는다
+
 allocator:                     # 유동시총 가중(float_cap — Z2·미장 G1 트랙). portfolio-construction.md "Z2 트랙"
   float_cap_limit: 0.10        # 한 종목 상한. 샌드박스 덮어쓰기로 켠다
   float_cap_min_coverage: 0.8  # 후보 중 시총을 아는 비율이 이보다 낮으면 동일가중으로 물러선다.

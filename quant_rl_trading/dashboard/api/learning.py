@@ -109,12 +109,16 @@ def walk_forward() -> Any:
 
 @bp.get("/final-round")
 def final_round() -> Any:
-    """마지막 모델 회차(BE·BF·BG·C0·C1)의 **학습 진행**. 판정 창 수익·IC 는 담기지 않는다 —
-    판정이 끝난 시행은 research_trials 의 그 줄만 함께 온다."""
+    """마지막 모델 회차(BE·BF·BG·D1·C0·C1)의 **학습 진행**. 판정 창 수익·IC 는 담기지 않는다 —
+    판정이 끝난 시행은 research_trials 의 그 줄만 함께 온다.
+
+    진행은 연구 창고에서, 화면 임계치(멈춤 배수·추세 창)는 화면의 주 장부 config 에서 읽는다 —
+    다른 화면 임계치(`dashboard.*`)와 같은 곳이다."""
     current = scope()
     return envelope(
         current,
-        service.final_round_progress(research_store(), as_of=current.as_of, lookback=current.lookback),
+        service.final_round_progress(research_store(), as_of=current.as_of, lookback=current.lookback,
+                                     config_store=store()),
     )
 
 

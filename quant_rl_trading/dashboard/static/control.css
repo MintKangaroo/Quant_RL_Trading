@@ -99,3 +99,51 @@
   .model-control #chart-ic { height: 220px; }
   .model-evidence dd { font-size: 15px; }
 }
+
+/* 학습 탭 "마지막 모델 회차" — 시행마다 카드 하나(2026-09-28 사용자 요청: 무엇을 배우나 · 얼마나 남았나 ·
+   잘 되고 있나). 시트 문법대로 상자가 아니라 괘선으로 나눈다. 클래스는 모두 fr- 접두어 —
+   표의 <col class> 와 겹치지 않게(2026-09 col class 충돌 사고). */
+.fr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); border-top: 1px solid var(--rule); }
+.fr-card { min-width: 0; padding: 10px 16px 12px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.fr-card:first-child { border-left: 0; padding-left: 0; }
+.fr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fr-name { font: 600 17px "IBM Plex Mono", monospace; color: var(--text); }
+.fr-market { margin-left: auto; font: 10px "IBM Plex Mono", monospace; color: var(--dim); }
+.fr-about { margin: 5px 0 0; color: var(--text); font-size: 12.5px; line-height: 1.5; }
+.fr-reason { margin: 4px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.fr-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 500; padding: 1px 7px; border: 1px solid currentColor; border-radius: 2px; white-space: nowrap; }
+.fr-badge i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.fr-badge.st-ok { color: var(--ok); }
+.fr-badge.st-stall { color: var(--warn); }
+.fr-badge.st-overfit { color: var(--caution); }
+.fr-badge.st-unknown, .fr-badge.st-done, .fr-badge.st-queued { color: var(--muted); }
+.fr-badge.st-queued i { background: transparent; border: 1px solid currentColor; }
+.fr-progress { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 10px; margin: 10px 0 4px; }
+.fr-pct { font: 600 22px "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--text); grid-row: span 2; }
+.fr-progress .bar { height: 8px; min-width: 0; }
+.fr-units { font: 11px "IBM Plex Mono", monospace; color: var(--muted); }
+.fr-facts { display: flex; flex-wrap: wrap; margin: 8px 0 4px; }
+.fr-facts > div { min-width: 0; padding: 2px 14px 2px 10px; border-left: 1px solid var(--border); }
+.fr-facts > div:first-child { border-left: 0; padding-left: 0; }
+.fr-facts dt { color: var(--muted); font-size: 10.5px; }
+.fr-facts dd { margin: 3px 0 0; font: 500 14px "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.fr-facts small { display: block; color: var(--dim); font-size: 10px; margin-top: 2px; }
+.fr-chart { width: 100%; height: 170px; margin-top: 6px; }
+.fr-chart-sub { height: 96px; opacity: .85; }
+.fr-note { margin: 4px 0 0; color: var(--dim); font-size: 10.5px; overflow-wrap: anywhere; }
+.fr-queue { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.fr-queue ol { list-style: none; margin: 4px 0 0; padding: 0; }
+.fr-queue li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 5px 0; border-top: 1px solid var(--border); }
+.fr-queue li:first-child { border-top: 0; }
+.fr-queue .fr-about { margin: 0; color: var(--muted); font-size: 12px; flex-basis: 100%; }
+.fr-order { font: 11px "IBM Plex Mono", monospace; color: var(--dim); min-width: 14px; }
+.fr-done-head { margin-top: 10px; }
+.fr-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 8px 0; font-size: 12px; color: var(--text); }
+.fr-controls .kpi-note { flex-basis: 100%; }
+@media (max-width: 768px) {
+  .fr-card { padding: 10px 0 12px; border-left: 0; }
+  .fr-facts > div { padding: 2px 10px 2px 8px; flex: 1 1 45%; }
+  .fr-facts > div:nth-child(odd) { border-left: 0; padding-left: 0; }
+  .fr-chart { height: 160px; }
+  .fr-chart-sub { height: 90px; }
+}

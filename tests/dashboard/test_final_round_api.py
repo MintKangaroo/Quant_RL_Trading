@@ -22,11 +22,19 @@ from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 10, 6, 9, tzinfo=UTC)
 #: 응답의 시행 칸에 있어도 되는 이름. **수익·IC·MDD·회전은 없다.**
+#: 2026-09-28 카드 재설계로 더한 칸도 **진행·시각·상태·설명**뿐이다 — 상태(과적합 의심)도 학습창 안쪽 검증만 본다.
 ALLOWED_TRIAL_KEYS = {
     "trial", "kind", "axis", "markets", "metric", "seeds", "n_seeds", "units_per_seed",
     "units_done", "units_total", "progress", "mean_unit_s", "eta_seconds", "last_at",
     "early_share", "early_n", "curves", "last_note",
+    # 카드(2026-09-28)
+    "about", "score_label", "eta_at", "eta_label", "started_at", "elapsed_wall_s", "last_label",
+    "since_last_s", "status", "status_reason",
 }
+#: 곡선 칸. `score` 는 `val`(학습창 안쪽 검증)의 부호를 사람이 읽는 방향으로 되돌린 것뿐이다.
+ALLOWED_CURVE_KEYS = {"seed", "x", "train", "val", "score"}
+#: 칸 이름에 이 말이 들어가면 판정 창 성적이 새어 나간 것이다.
+FORBIDDEN_WORDS = ("return", "ret", "ic", "mdd", "drawdown", "turnover", "sharpe", "ir", "judge")
 
 
 def progress_row(trial: str, seed: int, block: int, *, at: datetime, n_blocks: int = 41,
@@ -83,7 +91,10 @@ def test_응답에_판정_창_수익_칸이_없다(seeded: Any) -> None:
     data = service.final_round_progress(seeded, as_of=NOW)
     for trial in data["trials"]:
         assert set(trial) == ALLOWED_TRIAL_KEYS
-        assert set(trial["curves"][0]) == {"seed", "x", "train", "val"}
+        assert set(trial["curves"][0]) == ALLOWED_CURVE_KEYS
+    for key in ALLOWED_TRIAL_KEYS | ALLOWED_CURVE_KEYS:
+        words = key.split("_")
+        assert not any(w in FORBIDDEN_WORDS for w in words), f"{key} 는 판정 창 성적처럼 읽힌다"
 
 
 def test_as_of_이후의_행은_보이지_않는다(store: Any) -> None:
@@ -134,6 +145,149 @@ def test_판정_줄은_시행_대장에서_그대로_온다(seeded: Any) -> None
     assert verdicts[0]["detail"].startswith("기각")
 
 
+# --------------------------------------------------------------------------- 카드 (2026-09-28)
+# 사용자: "학습이 잘 되고 있는지 · 얼마나 남았는지 · 뭐가 학습되고 있는지". 상태는 셋 — 정상 · 느림/멈춤 의심 ·
+# 과적합 의심 — 이고 기준(배수 3 · 창 5)은 config 에서 온다(conftest 창고는 yaml 기본값을 심는다).
+
+
+def walk(store: Any, trial: str, *, last: datetime, n: int = 5, gap_s: float = 600.0,
+         train: list[float] | None = None, val: list[float] | None = None,
+         n_blocks: int = 41, n_seeds: int = 5, metric: str = "mse / spearman(−)") -> None:
+    """시드 0 으로 블록 0..n−1 을 gap_s 간격으로 적는다. 마지막 블록의 기록 시각이 `last`."""
+    rows = []
+    for block in range(n):
+        at = last - timedelta(seconds=gap_s * (n - 1 - block))
+        row = progress_row(trial, 0, block, at=at, n_blocks=n_blocks, elapsed=gap_s)
+        row["n_seeds"] = n_seeds
+        row["metric"] = metric
+        if train is not None:
+            row["train_loss"] = train[block]
+        if val is not None:
+            row["val_loss"] = val[block]
+        rows.append(row)
+    store.append("trial_progress", rows, ingest_run_id=f"walk-{trial}-{last.isoformat()}")
+
+
+def one(store: Any, trial: str = "BE") -> dict[str, Any]:
+    return next(t for t in service.final_round_progress(store, as_of=NOW)["trials"] if t["trial"] == trial)
+
+
+def test_상태_정상_최근_기록이고_내부_검증이_나빠지지_않는다(store: Any) -> None:
+    store.seed_config_defaults()
+    walk(store, "BE", last=NOW - timedelta(minutes=5),
+         train=[1.0, 0.98, 0.96, 0.95, 0.94], val=[-0.02, -0.03, -0.035, -0.04, -0.041])
+    trial = one(store)
+    assert trial["status"] == "ok", trial["status_reason"]
+    assert "나빠지지 않는다" in trial["status_reason"]
+    assert trial["about"].startswith("가격 흐름을 읽는 트랜스포머")
+    # 부호를 되돌려 "높을수록 좋음" 으로 그린다 — val −0.041 은 순위상관 +0.041 이다.
+    assert trial["score_label"] == "내부 검증 순위상관 (높을수록 좋음)"
+    assert trial["curves"][0]["score"][-1] == pytest.approx(0.041)
+
+
+def test_상태_멈춤_의심_마지막_기록이_평균_단위의_배수를_넘었다(store: Any) -> None:
+    store.seed_config_defaults()
+    factor = store.config("dashboard.training_stall_factor", as_of=NOW)
+    # 블록 하나에 10분인데 마지막 기록이 (배수 × 10분 + 1분) 전.
+    walk(store, "BE", last=NOW - timedelta(minutes=10 * factor + 1))
+    trial = one(store)
+    assert trial["status"] == "stalled"
+    assert "배를 넘었다" in trial["status_reason"]
+    # 멈춘 학습의 "예상 끝" 은 이미 지났거나 믿을 수 없다 — 말하지 않는다(남은 초는 그대로 준다).
+    assert trial["eta_at"] is None and trial["eta_label"] is None and trial["eta_seconds"] is not None
+
+
+def test_상태_과적합_의심_학습_손실은_줄고_내부_검증은_나빠진다(store: Any) -> None:
+    store.seed_config_defaults()
+    walk(store, "BE", last=NOW - timedelta(minutes=5),
+         train=[1.0, 0.95, 0.90, 0.85, 0.80], val=[-0.05, -0.04, -0.03, -0.02, -0.01])
+    trial = one(store)
+    assert trial["status"] == "overfit", trial["status_reason"]
+    assert "내부 검증은 나빠진다" in trial["status_reason"]
+
+
+def test_추세_창보다_짧으면_과적합을_판단하지_않는다(store: Any) -> None:
+    store.seed_config_defaults()
+    window = store.config("dashboard.training_trend_window", as_of=NOW)
+    walk(store, "BE", last=NOW - timedelta(minutes=5), n=window - 1,
+         train=[1.0 - 0.1 * i for i in range(window - 1)], val=[0.1 * i for i in range(window - 1)])
+    assert one(store)["status"] == "ok"
+
+
+def test_설정이_없으면_상태를_지어내지_않는다(store: Any) -> None:
+    walk(store, "BE", last=NOW - timedelta(minutes=5))      # seed_config_defaults 를 안 불렀다
+    trial = one(store)
+    assert trial["status"] == "unknown" and "training_stall_factor" in trial["status_reason"]
+
+
+def test_예상_끝은_마지막_기록_더하기_남은_양이고_한국시간_as_of_기준_말이다(store: Any) -> None:
+    store.seed_config_defaults()
+    # 3블록 × 2시드 = 6, 5개 끝 → 남은 1 × 10분. 마지막 기록 08:55Z → 끝 09:05Z = 18:05 KST(as_of 와 같은 날).
+    walk(store, "BE", last=NOW - timedelta(minutes=5), n_blocks=3, n_seeds=2,
+         train=[1.0, 0.9, 0.8, 0.7, 0.6], val=[0.5, 0.4, 0.3, 0.2, 0.1])
+    trial = one(store)
+    assert trial["eta_at"] == "2026-10-06T09:05:00+00:00"
+    assert trial["eta_label"] == "오늘 18:05"
+    assert trial["last_label"] == "오늘 17:55"
+    # 경과 = as_of − (첫 기록 − 그 단위 시간). 첫 기록 08:15Z, 단위 10분 → 시작 08:05Z → 55분.
+    assert trial["elapsed_wall_s"] == pytest.approx(55 * 60)
+    # 자정을 넘기면 '내일' — 2026-10-06 20:40Z 는 10/07 05:40 KST.
+    import pandas as pd
+    assert service._kst_label(pd.Timestamp("2026-10-06T20:40:00Z"), NOW) == "내일 05:40"
+
+
+def test_as_of_를_되감으면_그때의_상태가_나온다(store: Any) -> None:
+    """상태·경과는 벽시계가 아니라 as_of 로 잰다 — 지난 시점으로 가면 그때는 정상이었다."""
+    store.seed_config_defaults()
+    walk(store, "BE", last=NOW - timedelta(hours=3))
+    assert one(store)["status"] == "stalled"
+    back = service.final_round_progress(store, as_of=NOW - timedelta(hours=3) + timedelta(minutes=2))
+    assert back["trials"][0]["status"] == "ok"
+
+
+def test_대기열은_등록_순서이고_기록이나_판정이_있으면_빠진다(store: Any) -> None:
+    store.seed_config_defaults()
+    empty = service.final_round_progress(store, as_of=NOW)
+    assert [q["trial"] for q in empty["queued"]] == ["BE", "BF", "BG", "D1"]
+    assert empty["queued"][1]["about"].startswith("순위 전용 GBM")
+
+    walk(store, "BE", last=NOW - timedelta(minutes=5))
+    walk(store, "D1a", last=NOW - timedelta(minutes=6), metric="mixed / -hard rule ann(val)")
+    at = NOW - timedelta(hours=1)
+    store.append("research_trials", [{
+        "entity_id": "final-model-round-2026-10:BF", "valid_from": at, "observed_at": at,
+        "source": "trial_final_lambdarank", "market": "KR", "family": "ranker", "n_trials": 1,
+        "protocol_hash": "abc", "detail": "기각 | ...",
+    }], ingest_run_id="verdict-bf")
+    data = service.final_round_progress(store, as_of=NOW)
+    # BE 는 돌고 있고, BF 는 판정이 적혔고(기록이 창 밖이어도), D1 은 변형 D1a 로 돌고 있다 → BG 만 대기.
+    assert [q["trial"] for q in data["queued"]] == ["BG"]
+    d1a = next(t for t in data["trials"] if t["trial"] == "D1a")
+    assert d1a["about"].startswith("결정 중심 학습")
+    assert d1a["score_label"] == "내부 검증 규칙 포트 연수익 (높을수록 좋음)"
+
+
+def test_끝난_대조군은_끝남이고_도는_시행_뒤에_선다(store: Any) -> None:
+    store.seed_config_defaults()
+    # C0 은 3블록 × 1시드를 다 돌았다(마지막 기록이 BE 보다 늦어도 끝난 것은 아래로).
+    walk(store, "C0", last=NOW - timedelta(minutes=1), n=3, n_blocks=3, n_seeds=1,
+         metric="손실 없음(GBM · 조기 종료를 안 쓴다)")
+    walk(store, "BE", last=NOW - timedelta(minutes=5))
+    trials = service.final_round_progress(store, as_of=NOW)["trials"]
+    assert [t["trial"] for t in trials] == ["BE", "C0"]
+    c0 = trials[1]
+    assert c0["status"] == "done" and c0["kind"] == "control" and c0["eta_at"] is None
+    assert c0["about"].startswith("비교 기준(대조군)")
+    assert "끝남" in c0["status_reason"]
+
+
+def test_모르는_시행은_설명_없이_이름만(store: Any) -> None:
+    store.seed_config_defaults()
+    walk(store, "ZZ9", last=NOW - timedelta(minutes=5), metric="loss")
+    trial = one(store, "ZZ9")
+    assert trial["about"] == "" and trial["score_label"] == "내부 검증 손실 (낮을수록 좋음)"
+
+
 def test_api_가_as_of_를_받는다(seeded: Any) -> None:
     client = make_app(seeded, ReplayClock(NOW)).test_client()
     body = client.get("/api/learning/final-round").get_json()
@@ -159,16 +313,46 @@ FILLED = {
              "units_done": 6, "units_total": 205, "progress": 6 / 205, "mean_unit_s": 600.0,
              "eta_seconds": 119400.0, "last_at": "2026-10-06T08:40:00+00:00",
              "early_share": 0.33, "early_n": 6, "last_note": "재학습 2회",
+             "about": "가격 흐름을 읽는 트랜스포머 — 최근 60일 가격·거래 패턴으로 5일 뒤 순위를 맞힌다",
+             "score_label": "내부 검증 순위상관 (높을수록 좋음)",
+             "eta_at": "2026-10-07T17:50:00+00:00", "eta_label": "내일 02:50",
+             "started_at": "2026-10-06T07:40:00+00:00", "elapsed_wall_s": 4800.0,
+             "last_label": "오늘 17:40", "since_last_s": 1200.0, "status": "overfit",
+             "status_reason": "최근 블록 5개: 학습 손실은 줄어드는데 내부 검증은 나빠진다",
              "curves": [{"seed": 0, "x": [0, 1, 2], "train": [1.0, 0.98, 0.97],
-                         "val": [1.1, 1.09, 1.09]},
+                         "val": [-0.03, -0.02, -0.01], "score": [0.03, 0.02, 0.01]},
                         {"seed": 1, "x": [0, 1, 2], "train": [1.0, 0.99, 0.98],
-                         "val": [1.1, 1.1, None]}]},
+                         "val": [-0.03, -0.03, None], "score": [0.03, 0.03, None]}]},
+            {"trial": "D1a", "kind": "model", "axis": "block", "markets": ["KR"], "metric": "",
+             "seeds": [0], "n_seeds": None, "units_per_seed": None, "units_done": 2, "units_total": None,
+             "progress": None, "mean_unit_s": None, "eta_seconds": None, "last_at": "2026-10-06T08:00:00+00:00",
+             "early_share": None, "early_n": 0, "last_note": "", "about": "결정 중심 학습",
+             "score_label": "내부 검증 손실 (낮을수록 좋음)", "eta_at": None, "eta_label": None,
+             "started_at": "2026-10-06T07:00:00+00:00", "elapsed_wall_s": 7200.0, "last_label": "오늘 17:00",
+             "since_last_s": 3600.0, "status": "unknown", "status_reason": "속도를 모른다",
+             "curves": [{"seed": 0, "x": [0, 1], "train": [None, None], "val": [None, None],
+                         "score": [None, None]}]},
             {"trial": "C0", "kind": "control", "axis": "block", "markets": ["KR+US"], "metric": "",
-             "seeds": [0], "n_seeds": 5, "units_per_seed": 41, "units_done": 41, "units_total": 205,
-             "progress": 0.2, "mean_unit_s": 61.0, "eta_seconds": None,
-             "last_at": "2026-10-05T23:10:00+00:00", "early_share": None, "early_n": 0,
-             "last_note": "", "curves": [{"seed": 0, "x": [0], "train": [None], "val": [None]}]},
+             "seeds": [0, 1, 2, 3, 4], "n_seeds": 5, "units_per_seed": 41, "units_done": 205,
+             "units_total": 205, "progress": 1.0, "mean_unit_s": 61.0, "eta_seconds": None,
+             "last_at": "2026-10-05T07:34:00+00:00", "early_share": None, "early_n": 0,
+             "last_note": "", "about": "비교 기준(대조군) — 지금 쓰는 GBM 랭커",
+             "score_label": "내부 검증 손실 (낮을수록 좋음)", "eta_at": None, "eta_label": None,
+             "started_at": "2026-10-05T04:00:00+00:00", "elapsed_wall_s": 12840.0, "last_label": "어제 16:34",
+             "since_last_s": 91000.0, "status": "done", "status_reason": "다 돌았다 — 어제 16:34 끝남",
+             "curves": [{"seed": 0, "x": [0], "train": [None], "val": [None], "score": [None]}]},
+            {"trial": "C1", "kind": "control", "axis": "block", "markets": ["KR+US"], "metric": "",
+             "seeds": [0], "n_seeds": 1, "units_per_seed": 1, "units_done": 1,
+             "units_total": 1, "progress": 1.0, "mean_unit_s": 61.0, "eta_seconds": None,
+             "last_at": "2026-10-05T11:52:00+00:00", "early_share": None, "early_n": 0,
+             "last_note": "", "about": "비교 기준(대조군) — 같은 GBM 에 새 재료를 넣은 것",
+             "score_label": "내부 검증 손실 (낮을수록 좋음)", "eta_at": None, "eta_label": None,
+             "started_at": "2026-10-05T11:51:00+00:00", "elapsed_wall_s": 61.0, "last_label": "어제 20:52",
+             "since_last_s": 76000.0, "status": "done", "status_reason": "다 돌았다 — 어제 20:52 끝남",
+             "curves": [{"seed": 0, "x": [0], "train": [None], "val": [None], "score": [None]}]},
         ],
+        "queued": [{"trial": "BG", "about": "잔차 RL — GBM 점수 위에서 비중만 조금 조정"}],
+        "settings": {"stall_factor": 3.0, "trend_window": 5},
         "verdicts": [{"entity_id": "final-model-round-2026-10:BF", "family": "ranker",
                       "protocol_hash": "abc123", "at": "2026-10-05T22:00:00+00:00",
                       "detail": "기각 | ① 시드 평균 ..."}],
@@ -192,7 +376,7 @@ def test_렌더러가_채워진_응답으로_끝까지_돈다(tmp_path: Any) -> 
     )
     # 하니스는 없는 id 에 null 을 준다(브라우저와 같다) — 그러면 렌더러가 조용히 첫 줄에서 돌아가고
     # 테스트는 통과한다. 그래서 칸이 템플릿에 **있다는 것**을 먼저 단언한다.
-    for needed in ("final-round-progress", "final-round-verdicts", "chart-final-round"):
+    for needed in ("final-round-progress", "final-round-verdicts"):
         assert needed in ids, f"learning.html 에 {needed} 칸이 없다"
     source = (harness.STATIC / "learning.js").read_text()
     match = re.search(r"runAll\(\[([^\]]*)\]\)\s*;", source)
@@ -202,12 +386,28 @@ def test_렌더러가_채워진_응답으로_끝까지_돈다(tmp_path: Any) -> 
         harness.HARNESS.replace("IDS", json.dumps(ids)),
         (harness.STATIC / "scope.js").read_text(),
         source,
-        harness.DRIVER.replace("PAYLOADS", json.dumps(payloads)).replace("JOBS", "renderFinalRound"),
+        harness.DRIVER.replace("PAYLOADS", json.dumps(payloads)).replace("JOBS", "renderFinalRound")
+        # 그려진 칸을 꺼내 본다 — "안 죽었다" 만으로는 카드가 비어도 통과한다.
+        .replace('() => console.log("OK")',
+                 '() => { console.log("OK"); console.log("HTML<<" + '
+                 'document.getElementById("final-round-progress").innerHTML + ">>"); }'),
     ])
     path = tmp_path / "final_round.js"
     path.write_text(js, encoding="utf-8")
     result = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=60)
     assert "OK" in result.stdout, f"{result.stdout}\n{result.stderr}"
+    html = result.stdout.split("HTML<<", 1)[1].rsplit(">>", 1)[0]
+    # 무엇을 배우나 · 상태 배지 · 진행 · 예상 끝 · 그래프 칸
+    assert "가격 흐름을 읽는 트랜스포머" in html and "과적합 의심" in html
+    assert "시드 2/5 · 블록 6/205" in html and "내일 02:50" in html
+    assert 'id="chart-fr-BE-score"' in html and 'id="chart-fr-BE-train"' in html
+    # 남은 양을 모르면 칸을 숨긴다 — 문구로 자리를 차지하지 않는다. 전문 용어는 풀어 쓴다.
+    assert "남은 양을 모른다" not in html and "조기 종료" not in html
+    assert "과적합을 막으려 학습을 일찍 멈춘 비율" in html
+    # 순서: 지금 도는 것 → 대기 → 끝난 비교 기준(한 줄로 접힘, 카드 없음)
+    assert html.index("BE") < html.index("fr-queue") < html.index("비교 기준 C0·C1 준비 완료")
+    assert "어제 16:34 · 어제 20:52" in html
+    assert 'id="chart-fr-C0-score"' not in html and html.count('<article class="fr-card') == 2
 
 
 def test_주_장부가_모의계좌면_연구_창고의_진행을_읽는다(tmp_path: Any) -> None:

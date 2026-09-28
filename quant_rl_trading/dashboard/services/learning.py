@@ -26,14 +26,18 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from quant_rl_trading.allocator import budget
 from quant_rl_trading.dashboard.services import agent_health
-from quant_rl_trading.store import Store
+from quant_rl_trading.store import ConfigNotFound, Store
+
+#: 화면의 시각 말('내일 05:40')은 한국시간이다 — 사용자가 읽는 시계.
+KST = ZoneInfo("Asia/Seoul")
 
 #: 학습 지표 표 (M4). 이름을 문자열로 흩뿌리지 않는다.
 RL_UPDATES = "rl_updates"
@@ -697,19 +701,165 @@ def _int(value: Any) -> int | None:
     return None if value is None or pd.isna(value) else int(value)
 
 
-def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30) -> dict[str, Any]:
-    """마지막 모델 회차(BE·BF·BG·C0·C1)의 **학습 진행**. 판정 창 지표는 담지 않는다.
+#: **등록 순서**(사전등록 `docs/protocols/final-model-round-2026-10.md` + D1). 아직 기록이 없는 시행은 이 순서로
+#: "대기" 에 선다. 날짜는 약속하지 않는다 — 순서만이 등록된 사실이다. D1 은 변형 D1a·D1b 로 적힌다(접두어로 맞춘다).
+FINAL_ROUND_QUEUE = ("BE", "BF", "BG", "D1")
 
-    담는 것: 진행 위치(시드 x/n · 블록 y/n), 학습 손실·내부 검증 손실(`kit.inner_split` 쪽),
-    조기 종료 비율, 블록 평균 시간과 그것으로 뺀 예상 완료, 마지막 기록 시각.
+#: 시행마다 "무엇을 배우나" 한 줄. 화면이 전문 용어 대신 이것을 먼저 보인다. 모르는 시행은 이름만 나간다.
+FINAL_ROUND_ABOUT: dict[str, str] = {
+    "BE": "가격 흐름을 읽는 트랜스포머 — 최근 60일 가격·거래 패턴으로 5일 뒤 순위를 맞힌다",
+    "BF": "순위 전용 GBM(LambdaRank) — 상위 종목을 맞히는 데 집중",
+    "BG": "잔차 RL — GBM 점수 위에서 비중만 조금 조정",
+    "D1": "결정 중심 학습 — 수익이 나는 방향으로 점수를 보정",
+    "D1a": "결정 중심 학습 — 수익이 나는 방향으로 점수를 보정 (상위 종목 고르기판)",
+    "D1b": "결정 중심 학습 — 수익이 나는 방향으로 점수를 보정 (지수 기울이기판)",
+    "C0": "비교 기준(대조군) — 지금 쓰는 GBM 랭커",
+    "C1": "비교 기준(대조군) — 같은 GBM 에 새 재료를 넣은 것",
+}
+
+#: 내부 검증 칸(`val_loss`, 낮을수록 좋게 적힘)을 **사람이 읽는 방향**으로 부를 이름. metric 문자열에 든 말로 고른다.
+#: 판정 창이 아니라 학습창 안쪽 검증이다 — 이름에 "내부 검증" 을 꼭 붙인다.
+_SCORE_NAMES = (
+    ("spearman", "내부 검증 순위상관"),
+    ("ndcg", "내부 검증 NDCG(상위 순위 정확도)"),
+    ("valid edge", "내부 검증 우위"),
+    ("hard rule", "내부 검증 규칙 포트 연수익"),
+)
+
+#: 학습 상태 판정에 쓰는 설정 이름(불변식 10 — 화면이 숫자를 들지 않는다).
+STALL_FACTOR_KEY = "dashboard.training_stall_factor"
+TREND_WINDOW_KEY = "dashboard.training_trend_window"
+
+
+def _about(trial: str) -> str:
+    if trial in FINAL_ROUND_ABOUT:
+        return FINAL_ROUND_ABOUT[trial]
+    head = next((q for q in FINAL_ROUND_QUEUE if trial.startswith(q)), None)
+    return FINAL_ROUND_ABOUT.get(head, "") if head else ""
+
+
+def _score_axis(metric: str) -> tuple[str, bool]:
+    """(축 이름, 뒤집나). 기록 규약은 "val_loss 는 낮을수록 좋다 — 높을수록 좋은 지표는 부호를 뒤집어 넣고
+    metric 에 (−) 나 - 를 적는다" 다. 뒤집힌 것만 되돌려 **높을수록 좋게** 그린다. 모르는 지표는 그대로 둔다."""
+    val_part = metric.split("/")[-1].strip()
+    flipped = "(−)" in val_part or "(-)" in val_part or val_part.startswith(("-", "−"))
+    if not flipped:
+        return "내부 검증 손실 (낮을수록 좋음)", False
+    lowered = val_part.lower()
+    name = next((label for key, label in _SCORE_NAMES if key in lowered), "내부 검증 점수")
+    return f"{name} (높을수록 좋음)", True
+
+
+def _ts(value: Any) -> pd.Timestamp:
+    """UTC 로 맞춘 시각. 창고는 시간대를 붙여 돌려주지만(KST 로 올 때도 있다) 응답은 한 시간대로 낸다."""
+    stamp = pd.Timestamp(value)
+    return stamp.tz_localize(UTC) if stamp.tzinfo is None else stamp.tz_convert(UTC)
+
+
+def _kst_label(moment: pd.Timestamp, as_of: datetime) -> str:
+    """절대 시각을 한국시간·**as_of 기준** 말로 — '오늘 16:34' · '내일 05:40' · '10/08 05:40'."""
+    local = moment.tz_convert(KST)
+    ref = _ts(as_of).tz_convert(KST)
+    days = (local.date() - ref.date()).days
+    prefix = {-1: "어제", 0: "오늘", 1: "내일", 2: "모레"}.get(days, f"{local.month}/{local.day}")
+    return f"{prefix} {local:%H:%M}"
+
+
+def _duration(seconds: float) -> str:
+    if seconds < 90:
+        return f"{round(seconds)}초"
+    if seconds < 90 * 60:
+        return f"{round(seconds / 60)}분"
+    if seconds < 36 * 3600:
+        return f"{seconds / 3600:.1f}시간"
+    return f"{seconds / 86400:.1f}일"
+
+
+def _slope(values: list[float]) -> float:
+    """최소제곱 기울기(x = 0..n−1). 끝점 둘만 보면 한 블록의 튐이 추세로 읽힌다."""
+    n = len(values)
+    mean_x = (n - 1) / 2
+    mean_y = sum(values) / n
+    den = sum((i - mean_x) ** 2 for i in range(n))
+    return sum((i - mean_x) * (v - mean_y) for i, v in enumerate(values)) / den if den else 0.0
+
+
+def _training_settings(store: Store, as_of: datetime) -> dict[str, Any] | None:
+    """멈춤 배수·추세 창. 창고에 없으면 None — 그때는 상태를 **판단하지 않는다**(기본값을 지어내지 않는다)."""
+    try:
+        return {
+            "stall_factor": float(store.config(STALL_FACTOR_KEY, as_of=as_of)),
+            "trend_window": int(store.config(TREND_WINDOW_KEY, as_of=as_of)),
+        }
+    except ConfigNotFound:
+        return None
+
+
+def _health(*, done: bool, since_last_s: float, mean_unit_s: float | None, unit: str,
+            latest_curve: dict[str, Any] | None, settings: dict[str, Any] | None,
+            last_at: pd.Timestamp, as_of: datetime) -> tuple[str, str]:
+    """상태 하나와 이유 한 줄. done · stalled(느림/멈춤 의심) · overfit(과적합 의심) · ok · unknown.
+
+    과적합은 **학습창 안쪽 검증**(`val_loss`)만 본다 — 판정 창은 이 표에 애초에 없다(사전등록).
+    추세는 가장 최근에 기록한 시드의 마지막 `trend_window` 단위로 잰다 — 시드를 섞으면 시드 사이의
+    계단이 추세로 읽힌다.
+    """
+    if done:
+        return "done", f"다 돌았다 — {_kst_label(last_at, as_of)} 끝남"
+    if settings is None:
+        return "unknown", (f"설정 {STALL_FACTOR_KEY}·{TREND_WINDOW_KEY} 가 창고에 없어 판단하지 않는다 "
+                           "— tools/seed_config.py 로 심는다")
+    if not mean_unit_s:
+        return "unknown", "아직 한 단위도 걸린 시간이 안 적혀 속도를 모른다"
+    factor = settings["stall_factor"]
+    if since_last_s > factor * mean_unit_s:
+        return "stalled", (f"마지막 기록이 {_duration(since_last_s)} 전 — {unit} 하나에 보통 "
+                           f"{_duration(mean_unit_s)} 걸리는데 그 {factor:g}배를 넘었다")
+    window = max(int(settings["trend_window"]), 2)
+    pairs: list[tuple[float, float]] = []
+    if latest_curve is not None:
+        pairs = [(t, v) for t, v in zip(latest_curve["train"], latest_curve["val"], strict=False)
+                 if t is not None and v is not None]
+    tail = pairs[-window:]
+    base = f"마지막 기록 {_duration(max(since_last_s, 0.0))} 전 · {unit} 하나에 보통 {_duration(mean_unit_s)}"
+    if len(tail) < window:
+        return "ok", f"{base} · 내부 검증 추세는 {unit} {window}개가 쌓이면 본다"
+    train_slope = _slope([t for t, _ in tail])
+    val_slope = _slope([v for _, v in tail])      # val_loss — 오를수록 나빠진다
+    if train_slope < 0 and val_slope > 0:
+        return "overfit", (f"최근 {unit} {window}개: 학습 손실은 줄어드는데 내부 검증은 나빠진다 "
+                           "(학습 자료를 외우기 시작했을 수 있다)")
+    return "ok", f"{base} · 최근 {unit} {window}개 내부 검증이 나빠지지 않는다"
+
+
+def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
+                         config_store: Store | None = None) -> dict[str, Any]:
+    """마지막 모델 회차(BE·BF·BG·D1·C0·C1)의 **학습 진행**. 판정 창 지표는 담지 않는다.
+
+    담는 것: 무엇을 배우나(한 줄), 진행 위치(시드 x/n · 블록 y/n), 예상 끝 시각(한국시간·as_of 기준 말),
+    경과 시간, 상태(정상·느림/멈춤 의심·과적합 의심·끝남)와 이유 한 줄, 학습 손실·내부 검증(`kit.inner_split` 쪽).
+    아직 기록이 없는 시행은 등록 순서대로 `queued` 에 선다(날짜 약속 없음).
     판정이 끝난 시행은 `research_trials` 의 그 줄을 **그대로** 붙인다 — 화면이 판정을 다시 계산하지 않는다.
+
+    임계치(멈춤 배수·추세 창)는 `config_store`(없으면 `store`) 의 config 에서 읽는다(불변식 10).
+    모든 시각은 as_of 로 잰다 — 벽시계를 읽지 않으므로 되감으면 그때의 상태가 나온다(불변식 2·9).
 
     0행은 "학습을 안 돌렸다" 이고 "돌렸는데 진행이 없다" 와 다른 사실이다(`has_data`).
     """
     frame = store.get(TRIAL_PROGRESS, as_of=as_of, lookback=lookback)
     verdicts = _final_round_verdicts(store, as_of=as_of, lookback=max(lookback, 120))
+    settings = _training_settings(config_store or store, as_of)
+    now = _ts(as_of)
+    judged = {v["entity_id"].split(":")[-1] for v in verdicts}
+
+    def queue(seen: set[str]) -> list[dict[str, Any]]:
+        # 기록이 있거나 판정이 적힌 시행은 대기가 아니다(기록이 조회 창 밖으로 밀려도 판정 줄이 남는다).
+        return [{"trial": name, "about": _about(name)} for name in FINAL_ROUND_QUEUE
+                if not any(t.startswith(name) for t in seen | judged)]
+
     if frame.empty:
-        return {"has_data": False, "trials": [], "verdicts": verdicts}
+        return {"has_data": False, "trials": [], "queued": queue(set()), "verdicts": verdicts,
+                "settings": settings}
 
     rows = _progress_rows(frame)
     trials: list[dict[str, Any]] = []
@@ -717,6 +867,7 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30) -
         part = part.sort_values("valid_from").tail(PROGRESS_ROW_CAP)
         fold_axis = "block" not in part.columns or part["block"].isna().all()
         axis = "fold" if fold_axis else "block"
+        unit = "폴드" if fold_axis else "블록"
         total_col = "n_folds" if fold_axis else "n_blocks"
         per_seed = int(part[total_col].dropna().max()) if total_col in part.columns and part[total_col].notna().any() else None
         # 분모는 **기록이 말하는 수**다(n_seeds). 관측된 시드 수로 세면 3시드만 시작한 회차가 완주로 보인다.
@@ -726,27 +877,50 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30) -
         total = (per_seed * n_seeds) if (per_seed and n_seeds) else None
         elapsed = [v for v in (_num(v) for v in part["elapsed_s"]) if v is not None and v > 0]
         mean_unit_s = sum(elapsed[-20:]) / len(elapsed[-20:]) if elapsed else None
-        last_at = str(part["valid_from"].max())
+        last_ts = _ts(part["valid_from"].max())
+        # 시작 = 첫 기록 시각 − 그 단위가 걸린 시간. 단위는 기록 **전에** 돌았다.
+        started = min(_ts(at) - timedelta(seconds=(_num(el) or 0.0))
+                      for at, el in zip(part["valid_from"], part["elapsed_s"], strict=False))
         early = [bool(v) for v in part["stopped_early"] if not pd.isna(v)]
+        metric = next((str(m) for m in reversed(list(part["metric"])) if m and not pd.isna(m)), "")
+        score_label, flip = _score_axis(metric)
         curves: list[dict[str, Any]] = []
+        latest_curve: dict[str, Any] | None = None
+        latest_at: pd.Timestamp | None = None
         for seed, grp in part.groupby("seed", dropna=False, sort=True):
             grp = grp.sort_values(axis if axis in grp.columns else "valid_from")
-            curves.append({
+            val = [_num(v) for v in grp["val_loss"]]
+            curve = {
                 "seed": _int(seed),
                 "x": [_int(v) for v in grp[axis]] if axis in grp.columns else list(range(len(grp))),
                 "train": [_num(v) for v in grp["train_loss"]],
-                "val": [_num(v) for v in grp["val_loss"]],
-            })
+                "val": val,
+                # 사람이 읽는 방향(높을수록 좋음)으로 되돌린 내부 검증. 뒤집힌 지표가 아니면 val 그대로.
+                "score": [(-v if (flip and v is not None) else v) for v in val],
+            }
+            curves.append(curve)
+            seed_last = _ts(grp["valid_from"].max())
+            if latest_at is None or seed_last > latest_at:
+                latest_curve, latest_at = curve, seed_last
         # 남은 단위 × 평균 단위 시간. 총량을 모르면 예상 완료를 **말하지 않는다**(짐작한 분모로 낸
         # 완료 시각은 화면에서 사실과 구분되지 않는다).
         remaining = (total - done) if total is not None else None
         eta_s = (remaining * mean_unit_s) if (remaining is not None and remaining > 0 and mean_unit_s) else None
+        is_done = total is not None and done >= total
+        since_last = (now - last_ts).total_seconds()
+        status, reason = _health(done=is_done, since_last_s=since_last, mean_unit_s=mean_unit_s, unit=unit,
+                                 latest_curve=latest_curve, settings=settings, last_at=last_ts, as_of=as_of)
+        # 끝 시각 = 마지막 기록 + 남은 양(지금 도는 단위는 마지막 기록 직후 시작했다). 멈춤 의심이면
+        # 그 시각은 이미 지났거나 믿을 수 없으니 말하지 않는다.
+        eta_at = (last_ts + timedelta(seconds=eta_s)) if (eta_s is not None and status != "stalled") else None
         trials.append({
             "trial": str(trial),
             "kind": "control" if str(trial) in FINAL_ROUND_CONTROLS else "model",
+            "about": _about(str(trial)),
             "axis": axis,
             "markets": sorted({str(m) for m in part["market"] if m}),
-            "metric": next((str(m) for m in reversed(list(part["metric"])) if m and not pd.isna(m)), ""),
+            "metric": metric,
+            "score_label": score_label,
             "seeds": seeds_seen,
             "n_seeds": n_seeds,
             "units_per_seed": per_seed,
@@ -755,15 +929,25 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30) -
             "progress": (done / total) if total else None,
             "mean_unit_s": mean_unit_s,
             "eta_seconds": eta_s,
-            "last_at": last_at,
+            "eta_at": eta_at.isoformat() if eta_at is not None else None,
+            "eta_label": _kst_label(eta_at, as_of) if eta_at is not None else None,
+            "started_at": started.isoformat(),
+            "elapsed_wall_s": max(((last_ts if is_done else now) - started).total_seconds(), 0.0),
+            "last_at": last_ts.isoformat(),
+            "last_label": _kst_label(last_ts, as_of),
+            "since_last_s": since_last,
+            "status": status,
+            "status_reason": reason,
             "early_share": (sum(early) / len(early)) if early else None,
             "early_n": len(early),
             "curves": curves,
             "last_note": next((str(n) for n in reversed(list(part["note"])) if n and not pd.isna(n)), ""),
         })
-    # 마지막으로 기록을 남긴 시행이 위로 — 지금 도는 학습이 첫 줄이다(training_runs 와 같은 규칙).
+    # 지금 도는 것 → 끝난 것. 같은 무리 안에서는 마지막으로 기록을 남긴 시행이 위다(training_runs 와 같은 규칙).
     trials.sort(key=lambda t: t["last_at"], reverse=True)
-    return {"has_data": True, "trials": trials, "verdicts": verdicts}
+    trials.sort(key=lambda t: t["status"] == "done")
+    return {"has_data": True, "trials": trials, "queued": queue({t["trial"] for t in trials}),
+            "verdicts": verdicts, "settings": settings}
 
 
 def _final_round_verdicts(store: Store, *, as_of: datetime, lookback: int) -> list[dict[str, Any]]:
