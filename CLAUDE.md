@@ -109,6 +109,7 @@ Quant_RL_Trading — 멀티에이전트 AI 사모펀드.
 | `docs/design/config.md` | 모든 임계치의 단일 소스 (config/quant_rl_trading.yaml) |
 | `docs/design/self-improvement.md` | 자기개선 루프 — 홀드아웃 금고, 사전등록, 시행 예산, DSR |
 | `docs/design/ai-architecture-v2.md` | AI v2 — 지수 코어 + 지도(기울이기)·비지도(국면 확률·군집)·강화(노출·재조정), 판정은 지수 대비 IR (2026-09-25) |
+| `docs/design/ai-full-stack.md` | AI 풀스택 — 매매 여섯 단계(재료·점수·선정·비중·노출·집행)를 AI 부품으로, 공통 과적합 규율 20조, 넘겨받는 사다리 (2026-09-28) |
 | `docs/design/modelops-ranker.md` | M5 재정의 — 랭커 IC 주간 측정, 감쇠 경보, 재학습 게이트(홀드아웃 개봉 뒤) |
 | `docs/design/ls-api.md` | LS API 제약 확인 목록 |
 | `docs/milestones.md` | M1~M5, 완료 기준, 중단 기준 |
