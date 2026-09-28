@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -52,6 +53,24 @@ def shadow_store() -> Store | None:
     if cached is None:
         cached = MemoStore(shadow)
         g.quant_rl_store_shadow = cached
+    return cached  # type: ignore[no-any-return]
+
+
+def research_store() -> Store:
+    """연구 창고(`data`) — 학습 진행(`trial_progress`)·시행 판정은 **여기에** 적힌다(시행 도구 기본 `--root data`).
+
+    화면의 주 장부가 모의계좌(`data/_paper`)면 그 부모가 연구 창고다. 주 장부가 이미 연구 창고면 그대로.
+    2026-09-28: 마지막 모델 회차 패널이 주 장부(_paper)를 읽어 BE 학습 중에도 "데이터 없음" 이었다.
+    """
+    inner: Store = current_app.config["QUANT_RL_STORE"]
+    root = Path(inner.root)
+    if not root.name.startswith("_"):
+        return store()
+    cached = g.get("quant_rl_store_research") if has_request_context() else None
+    if cached is None:
+        cached = MemoStore(Store(root=root.parent))
+        if has_request_context():
+            g.quant_rl_store_research = cached
     return cached  # type: ignore[no-any-return]
 
 

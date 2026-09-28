@@ -208,3 +208,17 @@ def test_렌더러가_채워진_응답으로_끝까지_돈다(tmp_path: Any) -> 
     path.write_text(js, encoding="utf-8")
     result = subprocess.run(["node", str(path)], capture_output=True, text=True, timeout=60)
     assert "OK" in result.stdout, f"{result.stdout}\n{result.stderr}"
+
+
+def test_주_장부가_모의계좌면_연구_창고의_진행을_읽는다(tmp_path: Any) -> None:
+    """2026-09-28: 화면 주 장부가 data/_paper 라 BE 학습 중에도 "데이터 없음" 이었다 — 진행은 data 에 적힌다."""
+    from quant_rl_trading.store import Store
+
+    research = Store(root=tmp_path / "data")
+    research.seed_config_defaults()
+    research.append("trial_progress", [progress_row("BE", 0, 0, at=NOW - timedelta(hours=1))], ingest_run_id="p")
+    paper = Store(root=tmp_path / "data" / "_paper")
+    paper.seed_config_defaults()
+    client = make_app(paper, ReplayClock(NOW)).test_client()
+    got = client.get(f"/api/learning/final-round?as_of={NOW.isoformat()}").get_json()["data"]
+    assert got["has_data"] and [t["trial"] for t in got["trials"]] == ["BE"]

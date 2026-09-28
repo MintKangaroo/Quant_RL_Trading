@@ -14,7 +14,7 @@ from typing import Any
 from flask import Blueprint, request
 from werkzeug.exceptions import BadRequest
 
-from quant_rl_trading.dashboard.api.common import envelope, scope, store
+from quant_rl_trading.dashboard.api.common import envelope, research_store, scope, store
 from quant_rl_trading.dashboard.services import learning as service
 
 bp = Blueprint("learning_api", __name__, url_prefix="/api/learning")
@@ -114,7 +114,7 @@ def final_round() -> Any:
     current = scope()
     return envelope(
         current,
-        service.final_round_progress(store(), as_of=current.as_of, lookback=current.lookback),
+        service.final_round_progress(research_store(), as_of=current.as_of, lookback=current.lookback),
     )
 
 
