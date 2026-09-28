@@ -86,6 +86,10 @@ def last_settled_day(store: Store, market: Market, now: datetime) -> date | None
     return None
 
 
+#: 계획했는데 안 보낸 조각이 있다(runbook §7.1 rc 표).
+UNSENT_RC = 5
+
+
 def exit_code(entry: loop.DayResult) -> int:
     """하루 결과를 종료코드로. **조용한 실패를 rc 로 내보내는 자리다.**
 
@@ -99,6 +103,10 @@ def exit_code(entry: loop.DayResult) -> int:
     사망에 대해 세운 규칙과 같다 — **조용한 실패는 rc 로 내보낸다.**
 
     둘이 겹치면 차단이 먼저다. 주문이 막힌 날은 그 사실이 더 급하다.
+
+    **계획했는데 안 보낸 조각은 rc 5 다** (2026-09-28, runbook §7.1). 재조정 70건이 9/24 휴장일 거부와 같은
+    세션이라 중복 가드가 "이미 보냈다" 로 건너뛰었고, 세션은 rc=0 으로 끝났다. 차단(2)·설비 고장(3)과
+    다른 사건이다 — 안전장치가 막은 것도, 선정이 못 돈 것도 아니고 **주문 경로가 조용히 삼킨 것**이다.
     """
     if entry.blocked_by:
         return 2
@@ -109,6 +117,14 @@ def exit_code(entry: loop.DayResult) -> int:
             file=sys.stderr,
         )
         return 3
+    unsent = getattr(entry, "unsent", ())
+    if unsent:
+        print(
+            f"계획했는데 안 보낸 조각 {len(unsent)}건 — 같은 세션의 이전 시도가 거부·차단으로 끝나 "
+            f"중복 가드가 건너뛰었다: {', '.join(unsent[:5])}{' 외' if len(unsent) > 5 else ''}",
+            file=sys.stderr,
+        )
+        return UNSENT_RC
     return 0
 
 

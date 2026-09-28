@@ -402,7 +402,8 @@ function renderKpis(body) {
     kpi("AI 상태", body.data.decision && body.data.decision.rl_active ? "RL" : "RULE",
         s ? s.engine : "—"),
     kpi("주문 거부", risk.orders_rejected + " / " + risk.orders_total,
-        risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`,
+        (risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`)
+          + (risk.orders_holiday_rejected ? ` · 휴장일 거부 ${risk.orders_holiday_rejected}건 별도` : ""),
         risk.reject_rate !== null && risk.reject_rate > risk.killswitch.order_fail_rate),
   ];
   document.getElementById("kpis").innerHTML = cards.join("");

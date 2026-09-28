@@ -34,7 +34,7 @@ from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.executor import orders as orders_module  # noqa: E402
 from quant_rl_trading.executor import plans as execution_plans  # noqa: E402
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams  # noqa: E402
-from quant_rl_trading.executor.pipeline import submit_orders  # noqa: E402
+from quant_rl_trading.executor.pipeline import holiday_retry_due, submit_orders  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.schemas.order import Order, Side  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
@@ -47,7 +47,7 @@ STATUS_PLANNED = "planned"
 
 
 def _planned_rows(store: Store, *, as_of: datetime, session_id: str, market: str) -> pd.DataFrame:
-    """아직 안 나간 조각. reserved 및 기존 planned는 전송 직전 다시 검사한다.
+    """아직 안 나간 조각. reserved 및 기존 planned는 전송 직전 다시 검사한다. 휴장일 거부로 끝난 조각도 포함한다.
 
     같은 조각이 planned → submitting → sent 로 revision 을 올려 가며 쌓이므로,
     행 하나만 보고 "planned 다" 라고 하면 이미 나간 주문을 다시 낸다.
@@ -64,7 +64,13 @@ def _planned_rows(store: Store, *, as_of: datetime, session_id: str, market: str
     frame = frame.sort_values("revision").drop_duplicates(
         subset=["entity_id", "slice_seq"], keep="last"
     )
-    return frame[frame["status"].isin({STATUS_PLANNED, "reserved"})]
+    waiting = frame["status"].isin({STATUS_PLANNED, "reserved"})
+    # **휴장일 거부로 끝난 조각도 다시 낼 차례다**(2026-09-28). 9/24 추석 거부 70건이 "거부 확정" 으로 남아 다음
+    # 거래일 재조정에서 안 나갔다 — 거부된 현지 날짜보다 뒤인 날에만(pipeline.holiday_retry_due).
+    retry = frame.apply(
+        lambda row: holiday_retry_due(row.to_dict(), now=as_of, market=market), axis=1
+    ).astype(bool)
+    return frame[waiting | retry]
 
 
 def release_anchor(market: Market, *, recorded_at: datetime, now: datetime) -> datetime:

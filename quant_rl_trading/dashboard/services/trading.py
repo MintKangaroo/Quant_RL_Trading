@@ -58,6 +58,7 @@ from quant_rl_trading.store.prices import read_prices
 
 NAV_DAILY = "nav_daily"
 ORDERS = "orders"
+KST = "Asia/Seoul"
 TRADES = "trades"
 SIGNALS = "signals"
 UNIVERSE = "universe"
@@ -591,6 +592,14 @@ def kpis(store: Store, context: Context) -> dict[str, Any]:
 # -- 리스크 --------------------------------------------------------------------
 
 
+def _as_kst(value: Any) -> pd.Timestamp:
+    """관측 시각을 한국시간으로. 타임존 없는 값은 UTC 로 본다(창고는 UTC 로 적는다)."""
+    stamp = pd.Timestamp(value)
+    if stamp.tzinfo is None:
+        stamp = stamp.tz_localize("UTC")
+    return stamp.tz_convert(KST)
+
+
 def risk(store: Store, context: Context) -> dict[str, Any]:
     """리스크 예산. **임계치는 전부 store.config 에서 온다** (불변식 10).
 
@@ -615,9 +624,7 @@ def risk(store: Store, context: Context) -> dict[str, Any]:
         band = "hard"
         message = f"급증 구간 · 신규매수 제한 · 한계까지 {(hard - drawdown) * 100:.1f}%p"
 
-    orders = store.get(ORDERS, as_of=as_of, lookback=5)
-    rejected = int((orders["status"] == "rejected").sum()) if not orders.empty else 0
-    total_orders = len(orders)
+    counts = reject_counts(store.get(ORDERS, as_of=as_of, lookback=5))
 
     valuation = context.snapshot.valuation
     exposure = (
@@ -642,9 +649,38 @@ def risk(store: Store, context: Context) -> dict[str, Any]:
         "exposure": exposure,
         "max_position_weight": allocator.max_position_weight,
         "cash_buffer": allocator.cash_buffer,
-        "orders_total": total_orders,
-        "orders_rejected": rejected,
-        "reject_rate": rejected / total_orders if total_orders else None,
+        "orders_total": counts["total"],
+        "orders_rejected": counts["rejected"],
+        "orders_holiday_rejected": counts["holiday_rejected"],
+        "reject_rate": counts["rate"],
+    }
+
+
+def reject_counts(orders: pd.DataFrame) -> dict[str, Any]:
+    """주문 거부율. **주문 하나를 한 번만 센다 — 최신 revision 으로.**
+
+    한 조각은 planned → reserved → submitting → rejected 처럼 revision 을 올려 가며 여러 행을 남긴다. 창고 읽기가
+    이미 최신만 주지만, 여기서 다시 자연키로 접어 정정 행이 분모·분자를 부풀리지 못하게 한다.
+
+    **휴장일 거부는 critical 분모·분자에서 뺀다** (2026-09-28). 9/24 추석 `01410 영업일이 아닙니다` 70건이 거부율을
+    56.5% 로 띄웠는데, 그건 주문 경로의 고장이 아니라 날짜였고 다음 거래일에 다시 나간다. 따로 센다.
+    """
+    if orders.empty:
+        return {"total": 0, "rejected": 0, "holiday_rejected": 0, "rate": None}
+    keys = [key for key in ("entity_id", "session_id", "slice_seq") if key in orders.columns]
+    sort = [col for col in ("revision", "observed_at") if col in orders.columns]
+    latest = orders.sort_values(sort).drop_duplicates(subset=keys, keep="last") if sort else orders
+    holiday = latest.apply(
+        lambda row: executor_pipeline.is_holiday_rejection(row.to_dict()), axis=1
+    ).astype(bool)
+    counted = latest[~holiday]
+    total = len(counted)
+    rejected = int((counted["status"] == executor_pipeline.STATUS_REJECTED).sum())
+    return {
+        "total": total,
+        "rejected": rejected,
+        "holiday_rejected": int(holiday.sum()),
+        "rate": rejected / total if total else None,
     }
 
 
@@ -677,7 +713,15 @@ def alerts(kpi: dict[str, Any], risk_state: dict[str, Any]) -> list[dict[str, st
         )
     rate = risk_state["reject_rate"]
     if rate is not None and rate > risk_state["killswitch"]["order_fail_rate"]:
-        out.append({"level": "critical", "text": f"주문 거부율 {rate * 100:.1f}%"})
+        out.append({"level": "critical", "text": f"주문 거부율 {rate * 100:.1f}% (휴장일 거부 제외)"})
+    holiday = int(risk_state.get("orders_holiday_rejected") or 0)
+    if holiday:
+        out.append(
+            {
+                "level": "info",
+                "text": f"휴장일 거부 {holiday}건 — 거부율에서 뺐다. 다음 거래일에 다시 나간다",
+            }
+        )
     if not out:
         out.append({"level": "info", "text": "경고 없음 — 임계치는 store.config 기준"})
     return out
@@ -957,10 +1001,16 @@ def orders(store: Store, context: Context) -> list[dict[str, Any]]:
     names = _names(store, as_of=as_of, entities=sorted(set(frame["entity_id"])))
     rows: list[dict[str, Any]] = []
     ordered = frame.sort_values(["valid_from", "observed_at"], ascending=False)
-    # **당일(마지막 주문일) 하루치만.** 열흘치를 쌓아 보이면 오늘 낸 주문이 어디까지인지
-    # 눈으로 갈라야 한다(사용자 요청 2026-09-07). 날짜는 화면이 자르는 ISO 문자열과 같은 기준.
-    days = ordered["valid_from"].map(lambda v: pd.Timestamp(v).date())
-    ordered = ordered[days == days.iloc[0]]
+    # **as_of 당일(한국시간)에 움직인 주문만.** 열흘치를 쌓아 보이면 오늘 낸 주문이 어디까지인지
+    # 눈으로 갈라야 한다(사용자 요청 2026-09-07). 예전엔 "마지막 세션 날짜(valid_from)" 로 잘랐는데,
+    # 세션 날짜는 전 거래일 16:00 이라 휴장을 건너뛴 재조정이 같은 세션의 휴장일 거부 행과 한 표에 섞였다
+    # (2026-09-28: 9/24 추석 거부 70건이 9/28 화면에 떴다). 기준은 행이 마지막으로 바뀐 시각(observed_at)의
+    # 한국시간 날짜 = as_of 의 한국시간 날짜다(불변식 9 — 되감으면 그날 표가 나온다).
+    today = _as_kst(as_of).date()
+    days = ordered["observed_at"].map(lambda v: _as_kst(v).date())
+    ordered = ordered[days == today]
+    if ordered.empty:
+        return []
     for row in ordered.head(ORDER_ROWS).to_dict(orient="records"):
         session = str(row["session_id"])
         key = f"{session}|{row['entity_id']}"

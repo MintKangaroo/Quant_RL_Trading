@@ -29,9 +29,13 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
+
+import pandas as pd
 
 from quant_rl_trading.broker import Ack, BrokerError, PaperBroker, RejectedOrder
 from quant_rl_trading.executor import guards
@@ -56,6 +60,7 @@ if TYPE_CHECKING:
     from quant_rl_trading.store import Store
 
 ORDERS = "orders"
+_RSP_CD = re.compile(r"rsp_cd=([0-9A-Za-z]+)")
 REALIZED_WEIGHTS = "realized_weights"
 SOURCE = "executor"
 
@@ -66,6 +71,63 @@ STATUS_SENT = "sent"
 STATUS_PAPER = "paper"
 STATUS_REJECTED = "rejected"
 STATUS_RISK_BLOCKED = "risk_blocked"
+
+#: 거래소가 **그날이 영업일이 아니라서** 받지 않았다는 응답. 주문 자체의 결함이 아니라 날짜의 결함이다.
+#: LS 모의투자: ``rsp_cd=01410 모의투자 영업일이 아닙니다``(2026-09-24 추석 70건). 코드가 안 붙은 옛 행(9/26 전
+#: reason 빈칸)은 거부 시각의 현지 날짜가 달력상 휴장일인지로 가른다(``is_holiday_rejection``).
+HOLIDAY_REJECT_CODES = frozenset({"01410"})
+HOLIDAY_REJECT_PHRASES = ("영업일이 아닙니다", "영업일이 아님", "휴장")
+
+#: 전송 claim 은 있는데 이 상태면 **시장에 닿지 않은 것**이다 — 중복 가드가 건너뛰면 "계획했는데 안 보낸" 조각이 된다.
+#: (sent·paper·submitting·체결·취소 계열은 이미 나갔거나 나갔는지 모르는 것이라 건너뛰는 게 맞다.)
+NOT_REACHED_STATUSES = frozenset({"planned", "reserved", STATUS_REJECTED, STATUS_RISK_BLOCKED, "withdrawn"})
+
+
+def _local_day(market: str, moment: object) -> date:
+    from quant_rl_trading.collectors.market_hours import Market, local_time
+
+    stamp = pd.Timestamp(moment)
+    if stamp.tzinfo is None:
+        stamp = stamp.tz_localize("UTC")
+    return local_time(Market(str(market).upper()), stamp.to_pydatetime()).date()
+
+
+def is_holiday_rejection(row: Mapping[str, Any], *, market: str | None = None) -> bool:
+    """이 주문 행이 **휴장일 거부**로 끝났나.
+
+    거부 사유에 휴장 응답 코드(``HOLIDAY_REJECT_CODES``)나 문구가 있거나, 거부가 기록된 시각의 현지 날짜가 그
+    시장의 휴장일이면 그렇다. 앞은 사유가 장부에 남은 행(2026-09-26 뒤), 뒤는 사유가 빈 옛 행을 위한 것이다.
+    """
+    if str(row.get("status", "")) != STATUS_REJECTED:
+        return False
+    reason = str(row.get("reason", "") or "")
+    for code in _RSP_CD.findall(reason):
+        if code in HOLIDAY_REJECT_CODES:
+            return True
+    if any(phrase in reason for phrase in HOLIDAY_REJECT_PHRASES):
+        return True
+    from quant_rl_trading.collectors.market_hours import Market, is_trading_day
+
+    code = market or str(row.get("entity_id", "")).split(":", 1)[0]
+    try:
+        return not is_trading_day(Market(str(code).upper()), _local_day(code, row["observed_at"]))
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
+def holiday_retry_due(row: Mapping[str, Any] | None, *, now: datetime, market: str) -> bool:
+    """휴장일 거부로 끝난 조각을 **지금 다시 낼 수 있나.**
+
+    거부가 적힌 현지 날짜보다 오늘(현지)이 뒤일 때만 그렇다. 같은 날 다시 내면 같은 이유로 또 거부되고,
+    20분마다 도는 ``release_slices`` 가 휴장 하루 내내 거부를 쌓는다. 다른 거부(잔고·호가·수량)는 여기로 안 온다
+    — 그대로 막는다.
+    """
+    if row is None or not is_holiday_rejection(row, market=market):
+        return False
+    try:
+        return _local_day(market, now) > _local_day(market, row["observed_at"])
+    except (KeyError, ValueError, TypeError):
+        return False
 
 
 @dataclass
@@ -81,6 +143,10 @@ class ExecutionResult:
     #: 주문(재시작 후 건너뛴 것)은 여기 없다 — 그 세션의 acks 를 다시 알고 싶으면
     #: ``orders`` 테이블에서 status 를 읽어야 한다.
     acks: tuple[Ack, ...] = ()
+    #: **계획했는데 안 보낸 조각**의 order_id. 중복 가드(``submit-<order_id>``)가 "이미 시도했다" 로 건너뛰었는데
+    #: 그 조각의 현재 상태가 시장에 닿지 않은 것(거부·위험차단·철회…)이다. 2026-09-28 재조정 70건이 9/24 휴장일
+    #: 거부와 같은 세션이라 이 길로 조용히 빠졌다 — 세션 실행기가 rc 로 내보낸다(tools/run_session.py).
+    unsent: tuple[str, ...] = ()
 
     @property
     def blocked(self) -> bool:
@@ -268,6 +334,7 @@ def run(
         result.notes.append("워밍업 재생 — 주문을 기록하지 않았다")
         return result
     record_orders(store, send_clock, planned=planned, as_of=as_of, market=market)
+    unsent: list[str] = []
     approved, risk_notes = reserve_orders(
         store,
         send_clock,
@@ -275,6 +342,7 @@ def run(
         as_of=as_of,
         market=market,
         simulation_only=isinstance(active_broker, PaperBroker),
+        unsent=unsent,
     )
     result.notes.extend(risk_notes)
     if planned and not approved and risk_notes:
@@ -289,8 +357,19 @@ def run(
             f"조각 분할 전송 — 지금 {len(now_due)}건 · 나중에 {len(approved) - len(now_due)}건"
         )
     result.acks = tuple(
-        submit_orders(store, send_clock, active_broker, planned=now_due, as_of=as_of, market=market)
+        submit_orders(
+            store, send_clock, active_broker, planned=now_due, as_of=as_of, market=market,
+            unsent=unsent,
+        )
     )
+    if unsent:
+        result.unsent = tuple(unsent)
+        message = (
+            f"계획했는데 안 보낸 조각 {len(unsent)}건 — 같은 세션의 이전 시도가 거부·차단으로 끝나 다시 내지 "
+            f"않았다 ({', '.join(unsent[:3])}{' 외' if len(unsent) > 3 else ''})"
+        )
+        result.notes.insert(0, message)
+        print(f"  ⚠️  {message}", flush=True)
     # 8. **절대 생략 금지.**
     record_realized_weights(
         store,
@@ -360,8 +439,11 @@ def reserve_orders(
     as_of: datetime,
     market: str,
     simulation_only: bool = False,
+    unsent: list[str] | None = None,
 ) -> tuple[list[PlannedOrder], list[str]]:
-    """Reserve all slices before any broker submission; planned is not approval."""
+    """Reserve all slices before any broker submission; planned is not approval.
+
+    ``unsent`` 를 주면 이미 거부·철회로 끝나 다시 심사하지 않는 조각의 order_id 를 담는다(``NOT_REACHED_STATUSES``)."""
     if not planned:
         return [], []
     store = store.execution_view()
@@ -381,10 +463,31 @@ def reserve_orders(
         for item in planned:
             logical = account_risk.key(item.session_id, item.order.entity_id, item.slice_seq)
             current = current_rows.get(logical)
+            if holiday_retry_due(current, now=now, market=market):
+                # **휴장일 거부는 다음 거래일에 다시 낸다**(_submit_orders_locked docstring). 예산은 여기서 같이 재지만
+                # 행은 적지 않는다 — "reserved" 로 덮으면 휴장 거부였다는 사실이 지워져 전송 가드가 재전송을 막는다.
+                reason = failure
+                if budget is not None:
+                    try:
+                        reservation = account_risk.for_order(item, market=market, slippage=slippage)
+                        decision = budget.check(reservation)
+                        reason = decision.reason
+                        if decision:
+                            budget.reservations[reservation.key] = reservation
+                    except ValueError as exc:
+                        reason = str(exc)
+                if reason:
+                    notes.append(f"{item.order.entity_id}: {reason}")
+                else:
+                    approved.append(item)
+                continue
             # risk_blocked 는 그 시점의 판정이다 — 다음 실행에서 다시 심사한다.
             if current and current["status"] not in ("planned", STATUS_RISK_BLOCKED):
                 if current["status"] == "reserved":
                     approved.append(item)
+                elif unsent is not None and str(current["status"]) in NOT_REACHED_STATUSES:
+                    # 거부·철회로 끝난 조각을 이번 계획이 또 원한다 — **계획했는데 안 보낸** 것이다(2026-09-28).
+                    unsent.append(item.order_id)
                 continue
             reason = failure
             if budget is not None:
@@ -467,11 +570,13 @@ def submit_orders(
     planned: list[PlannedOrder],
     as_of: datetime,
     market: str,
+    unsent: list[str] | None = None,
 ) -> list[Ack]:
+    """``unsent`` 를 주면 **계획했는데 안 보낸** 조각의 order_id 를 거기 담는다(``NOT_REACHED_STATUSES``)."""
     store = store.execution_view()
     with account_lock(store.root):
         return _submit_orders_locked(
-            store, clock, broker, planned=planned, as_of=as_of, market=market
+            store, clock, broker, planned=planned, as_of=as_of, market=market, unsent=unsent
         )
 
 
@@ -483,6 +588,7 @@ def _submit_orders_locked(
     planned: list[PlannedOrder],
     as_of: datetime,
     market: str,
+    unsent: list[str] | None = None,
 ) -> list[Ack]:
     """계획된 주문을 ``Broker`` 로 실제 전송한다. 이 함수가 **전송의 유일한
     자리**다 — 백테스트·shadow·실전이 여기를 같이 탄다(불변식 5).
@@ -517,6 +623,14 @@ def _submit_orders_locked(
     로 남긴다. 다시 낼 수 있는 주문이라는 뜻이지만, 자동 재시도는 이 함수의
     책임이 아니다 — 여기서 즉시 다시 부르면 같은 이유로 또 거부될 뿐이고,
     가격을 바꿔 쫓아가는 재시도는 ``lifecycle.py`` 가 맡는다.
+
+    ## 예외 하나 — 휴장일 거부는 다음 거래일에 다시 낸다 (2026-09-28)
+
+    ``rsp_cd=01410 모의투자 영업일이 아닙니다`` 처럼 **날짜 때문에** 거부된 조각은 주문이 틀린 게 아니다. 9/24 추석에
+    거부된 70건과 9/28 재조정이 같은 세션(KR-2026-09-23)이라, 위 가드가 "이미 시도했다" 로 건너뛰어 재조정이
+    통째로 안 나갔다. 그래서 휴장일 거부로 끝난 조각은 **거부된 현지 날짜보다 뒤인 날에** 새 claim
+    (``submit-<order_id>-retry-r<revision>``)으로 한 번 더 낸다(``holiday_retry_due``). claim 이 revision 에 묶여
+    있어 두 프로세스가 동시에 와도 한쪽만 적는다. 다른 거부는 그대로 막는다.
     """
     if not planned:
         return []
@@ -529,13 +643,21 @@ def _submit_orders_locked(
     acks: list[Ack] = []
     for item in planned:
         submit_run_id = f"submit-{item.order_id}"
+        current = _current_order(store, item, clock.now())
+        retry = current is not None and holiday_retry_due(current, now=clock.now(), market=market)
+        if retry and current is not None:
+            # 휴장일 거부 — 이번 시도만의 claim 으로 다시 낸다(위 docstring).
+            submit_run_id = f"{submit_run_id}-retry-r{int(current['revision'])}"
         if store.ingest_run_recorded(ORDERS, submit_run_id):
             # 이미 이 주문에 전송을 시도한 기록이 있다 — 다시 보내지 않는다.
+            # 다만 그 시도가 시장에 닿지 않고 끝났으면 **계획했는데 안 보낸** 것이다 — 조용히 넘기지 않는다.
+            if unsent is not None and current and str(current["status"]) in NOT_REACHED_STATUSES:
+                unsent.append(item.order_id)
             continue
 
-        current = _current_order(store, item, clock.now())
-        if current and current["status"] not in {"planned", "reserved"}:
+        if current and current["status"] not in {"planned", "reserved"} and not retry:
             continue
+        attempt = submit_run_id.removeprefix(f"submit-{item.order_id}")
 
         # 1. 적는다 — 전송 시도 전에 먼저. revision 을 올려 record_orders 의
         #    "planned" 행보다 항상 나중 상태로 읽히게 한다("적고 나서
@@ -586,6 +708,7 @@ def _submit_orders_locked(
                 item,
                 as_of=as_of,
                 market=market,
+                attempt=attempt,
                 status=STATUS_RISK_BLOCKED,
                 reason=approval.reason,
             )
@@ -614,7 +737,7 @@ def _submit_orders_locked(
             # 한 달 뒤엔 "왜 다 거부됐는지" 를 아무도 말할 수 없다.
             acks.append(Ack(order_id=item.order_id, accepted=False, sent=False, rsp_msg=str(error)))
             _record_submit_result(
-                store, clock, item, as_of=as_of, market=market, status=STATUS_REJECTED,
+                store, clock, item, as_of=as_of, market=market, attempt=attempt, status=STATUS_REJECTED,
                 reason=f"거부 — {error}"[:300],
             )
             if budget is not None and reservation is not None:
@@ -626,7 +749,7 @@ def _submit_orders_locked(
             # 어디에도 없어서, 증권사 주문 내역으로 "미도착" 은 확인했지만 원인(타임아웃·끊김·응답 파싱)은 끝내 몰랐다.
             detail = f"{type(error).__name__}: {error}"[:300]
             _record_submit_result(
-                store, clock, item, as_of=as_of, market=market,
+                store, clock, item, as_of=as_of, market=market, attempt=attempt,
                 status=STATUS_SUBMITTING, reason=f"전송 결과 미확정 — {detail}",
             )
             guards.engage(
@@ -655,6 +778,7 @@ def _submit_orders_locked(
             item,
             as_of=as_of,
             market=market,
+            attempt=attempt,
             status=(
                 STATUS_REJECTED if not ack.accepted else STATUS_SENT if ack.sent else STATUS_PAPER
             ),
@@ -687,11 +811,14 @@ def _record_submit_result(
     status: str,
     broker_order_no: str | None = None,
     reason: str = "",
+    attempt: str = "",
 ) -> None:
-    """전송 결과를 "submitting" 위 revision 으로 남긴다. 이 기록의 존재
+    """``attempt`` 는 휴장일 재전송의 claim 꼬리(``-retry-r<revision>``) — 시도마다 결과를 따로 남긴다.
+
+    전송 결과를 "submitting" 위 revision 으로 남긴다. 이 기록의 존재
     여부는 재전송 판단에 쓰지 않는다 — 그건 이미 ``submit_run_id`` 로
     끝났다. 이건 순전히 감사·대시보드를 위한 최종 상태 표시다."""
-    run_id = f"submit-result-{item.order_id}"
+    run_id = f"submit-result-{item.order_id}{attempt}"
     if store.ingest_run_recorded(ORDERS, run_id):
         return
     row = item.row(as_of=as_of, observed_at=clock.now(), market=market, status=status)

@@ -14,7 +14,7 @@ from quant_rl_trading.selector import weights as weights_module
 from tools import run_session
 
 
-def _day(*, blocked_by: str = "", fault: str = "") -> loop.DayResult:
+def _day(*, blocked_by: str = "", fault: str = "", unsent: tuple[str, ...] = ()) -> loop.DayResult:
     return loop.DayResult(
         as_of=datetime(2026, 8, 21, 6, 40, tzinfo=UTC),
         nav=1_000_000.0,
@@ -29,6 +29,7 @@ def _day(*, blocked_by: str = "", fault: str = "") -> loop.DayResult:
         blocked_by=blocked_by,
         fault=fault,
         notes=(),
+        unsent=unsent,
     )
 
 
@@ -54,3 +55,10 @@ def test_설비_고장은_차단과_다른_코드다() -> None:
 
 def test_둘이_겹치면_차단이_먼저다() -> None:
     assert run_session.exit_code(_day(blocked_by="kill_switch", fault="none_passed")) == 2
+
+
+def test_계획했는데_안_보낸_조각은_5로_나간다() -> None:
+    """2026-09-28 — 재조정 70건이 9/24 휴장일 거부와 같은 세션이라 중복 가드가 건너뛰었는데 세션은 rc=0 이었다.
+    차단(2)·설비 고장(3)과 다른 사건이라 다른 코드다(runbook §7.1)."""
+    assert run_session.exit_code(_day(unsent=("a", "b"))) == run_session.UNSENT_RC == 5
+    assert run_session.exit_code(_day(blocked_by="kill_switch", unsent=("a",))) == 2

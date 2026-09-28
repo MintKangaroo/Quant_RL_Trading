@@ -72,6 +72,8 @@ class DailySession:
     #: `blocked_by` 와도 다르다. 그쪽은 안전장치가 **일한** 것이고 이쪽은
     #: 알파 합성이 **못 돈** 것이다.
     fault: str = ""
+    #: **계획했는데 안 보낸 조각**의 order_id(``ExecutionResult.unsent``). 비어 있지 않으면 세션 실행기가 rc 로 알린다.
+    unsent: tuple[str, ...] = ()
 
     def digest(self) -> str:
         """주문의 지문. **같은 as_of 는 같은 지문이어야 한다.**
@@ -515,6 +517,7 @@ def run(
         if item.entity_id in holdings
     )
     result.blocked_by = execution.blocked_by
+    result.unsent = execution.unsent
     log.record(
         "execute",
         "executor",

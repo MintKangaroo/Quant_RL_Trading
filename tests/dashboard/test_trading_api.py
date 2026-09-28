@@ -101,6 +101,19 @@ def desk(store):  # type: ignore[no-untyped-def]
         ],
         ingest_run_id="orders",
     )
+    # 오늘 아침 전송됐다 — 주문 표는 **as_of 당일(한국시간)에 움직인 행**만 싣는다.
+    store.append(
+        "orders",
+        [
+            _row(
+                ENTITY, YESTERDAY, market="KR", session_id="KR-2026-08-11",
+                slice_seq=0, side="buy", quantity=100.0, limit_price=10_050.0,
+                target_weight=0.15, status="sent", reason="broker_order_no=1", revision=1,
+            )
+            | {"observed_at": NOW - timedelta(hours=6)}
+        ],
+        ingest_run_id="orders-sent",
+    )
     store.append(
         "trades",
         [
@@ -241,6 +254,68 @@ def test_되감으면_그_시점_이후_체결이_안_보인다(client) -> None:
     assert body["data"]["positions"] == []
     # 입금은 어제 있었으므로 자본은 그대로다.
     assert body["data"]["kpis"]["nav"] == pytest.approx(100_000_000.0)
+
+
+def test_주문_표는_as_of_당일에_움직인_주문만_싣는다(desk) -> None:
+    """2026-09-28: 휴장을 건너뛴 재조정이 같은 세션(전 거래일 16:00)이라, 세션 날짜로 자르던 표에 9/24 추석
+    거부 70건이 오늘 주문처럼 섞였다. 기준은 행이 마지막으로 바뀐 시각(observed_at)의 한국시간 날짜다."""
+    stale = YESTERDAY + timedelta(minutes=1)  # 어제 거부된 조각 — 세션 날짜로 자르면 오늘과 섞일 수 있다
+    desk.append(
+        "orders",
+        [
+            _row(
+                OTHER, YESTERDAY, market="KR", session_id="KR-2026-08-11",
+                slice_seq=0, side="buy", quantity=10.0, limit_price=15_000.0,
+                target_weight=0.05, status="rejected", reason="거부 — rsp_cd=01410", revision=1,
+            )
+            | {"observed_at": stale}
+        ],
+        ingest_run_id="orders-stale-reject",
+    )
+    client = create_app(store=desk, clock=ReplayClock(NOW)).test_client()
+
+    today = client.get(f"/api/trading?as_of={NOW.isoformat()}").get_json()["data"]["orders"]
+    assert [row["entity_id"] for row in today] == [ENTITY]
+
+    # 되감으면 그날 표가 나온다(불변식 9) — 어제 화면에선 그 거부가 그날의 주문이었다.
+    back = client.get(f"/api/trading?as_of={(stale + timedelta(minutes=1)).isoformat()}")
+    assert {row["entity_id"] for row in back.get_json()["data"]["orders"]} == {ENTITY, OTHER}
+
+
+def test_거부율은_주문별_최신_revision_으로_세고_휴장일_거부를_뺀다() -> None:
+    import pandas as pd
+
+    from quant_rl_trading.dashboard.services import trading as service
+
+    def order(entity: str, revision: int, status: str, reason: str = "") -> dict[str, Any]:
+        return {
+            "entity_id": entity, "session_id": "KR-2026-09-23", "slice_seq": 0,
+            "revision": revision, "status": status, "reason": reason,
+            "observed_at": datetime(2026, 9, 28, 0, revision, tzinfo=UTC),
+        }
+
+    frame = pd.DataFrame([
+        # 정정 행 셋이 한 주문이다 — 거부 한 건으로만 센다.
+        order("KR:A", 0, "planned"), order("KR:A", 1, "submitting"),
+        order("KR:A", 2, "rejected", "거부 — rsp_cd=02714 주문가능금액 부족"),
+        order("KR:B", 0, "reserved"), order("KR:B", 1, "sent", "broker_order_no=9"),
+        order("KR:C", 0, "sent", "broker_order_no=8"),
+        order("KR:D", 0, "reserved"), order("KR:D", 1, "rejected", "거부 — rsp_cd=01410 모의투자 영업일이 아닙니다"),
+        order("KR:E", 0, "rejected", "rsp_cd=01410"),
+    ])
+
+    counts = service.reject_counts(frame)
+
+    assert counts == {"total": 3, "rejected": 1, "holiday_rejected": 2, "rate": pytest.approx(1 / 3)}
+    risk_state = {
+        "killswitch": {"engaged": False, "order_fail_rate": 0.5},
+        "band": "free", "band_message": "",
+        "reject_rate": counts["rate"], "orders_holiday_rejected": counts["holiday_rejected"],
+    }
+    kpi = {"action_reflection": None, "action_reflection_floor": 0.3}
+    alerts = service.alerts(kpi, risk_state)
+    assert not any(a["level"] == "critical" for a in alerts)
+    assert any("휴장일 거부 2건" in a["text"] for a in alerts)
 
 
 def test_as_of_에_타임존이_없으면_거부한다(client) -> None:

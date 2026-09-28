@@ -74,6 +74,8 @@ class DayResult:
     #: 다른 종료코드로 내보낼 수 있다.
     fault: str
     notes: tuple[str, ...]
+    #: 계획했는데 안 보낸 조각(``ExecutionResult.unsent``). 실행기가 rc 5 로 내보낸다(runbook §7.1).
+    unsent: tuple[str, ...] = ()
     #: 성적 집계에서 빠지는 날. 신호 이력을 쌓기 위해 돌린 구간이다.
     warmup: bool = False
     #: 단계별 실측 소요(초). **성적이 아니라 계측이다** — 진화 검색이
@@ -400,6 +402,7 @@ def run(
             elapsed=elapsed,
             blocked_by=session.blocked_by,
             fault=session.fault,
+            unsent=session.unsent,
             notes=tuple(notes),
             warmup=day in warmup_set,
         )

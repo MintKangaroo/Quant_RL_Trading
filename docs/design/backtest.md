@@ -283,6 +283,13 @@ KR 세션의 `rejected` 70건은 `reason` 이 전부 빈 문자열이었고 진�
 삭제되고 장부는 남는다.** 전송된 건의 `reason` 은 `broker_order_no` 몫이다(대사·예산이
 그 열쇠로 주문을 찾으므로 그쪽이 먼저다).
 
+**휴장일 거부는 다음 거래일에 다시 낸다** (2026-09-28). 9/24 추석 `01410` 거부 70건과 9/28 재조정이 같은
+세션(KR-2026-09-23)이라 `submit-<order_id>` 중복 가드가 "이미 시도했다" 로 건너뛰었다. 휴장일 거부(사유의
+`HOLIDAY_REJECT_CODES`·문구, 사유가 빈 옛 행은 거부 시각의 현지 날짜가 달력상 휴장인지)로 끝난 조각은 **거부된
+현지 날짜보다 뒤인 날에** `submit-<order_id>-retry-r<revision>` claim 으로 다시 나간다 — 세션(`reserve_orders` 가
+행을 안 덮고 예산만 잰다)과 `release_slices` 둘 다. 다른 거부는 그대로 막고, 이번 계획이 원했는데 거부·철회로 끝나
+다시 안 낸 조각은 `ExecutionResult.unsent` 로 모여 세션이 rc=5 로 끝난다(runbook §7.1).
+
 ### 장부는 `data/_paper` — 실전 창고에 섞지 않는다
 
 `--live-broker` 는 원래 `--live-store` 를 요구했다: 실주문을 내면서 장부를
