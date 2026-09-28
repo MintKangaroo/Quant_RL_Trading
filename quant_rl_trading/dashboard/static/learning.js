@@ -523,6 +523,7 @@ function frCard(t) {
        ${hasTrain ? `<div class="fr-chart fr-chart-sub" id="${frChartId(t.trial, "train")}"></div>` : ""}`
     : `<p class="kpi-note">그래프 없음 — 이 시행은 손실을 적지 않는다${t.kind === "control" ? "(비교 기준 GBM 은 일찍 멈추기를 쓰지 않는다)" : ""}.</p>`;
   return `<article class="fr-card st-${(FR_STATUS[t.status] || [])[1] || "unknown"}">
+    <div class="fr-info">
     <header class="fr-head">
       <strong class="fr-name">${frEsc(t.trial)}</strong>
       ${frBadge(t.status)}
@@ -537,8 +538,9 @@ function frCard(t) {
       <span class="fr-units">${seeds} · ${units}</span>
     </div>
     <dl class="fr-facts">${facts.map(([k, v, s]) => `<div><dt>${k}</dt><dd>${frEsc(v)}</dd>${s ? `<small>${frEsc(s)}</small>` : ""}</div>`).join("")}</dl>
-    ${charts}
     ${t.last_note ? `<p class="fr-note">${frEsc(t.last_note)}</p>` : ""}
+    </div>
+    <div class="fr-plots">${charts}</div>
   </article>`;
 }
 
@@ -555,17 +557,18 @@ function frDrawCharts(t) {
         itemStyle: { color }, lineStyle: { width: faded ? 1 : 1.6, color, opacity: faded ? 0.5 : 1 },
       };
     });
-  const axes = (name, top) => ({
+  // x 축 이름(블록·폴드)은 축 끝에 세우면 오른쪽 여백에 눌려 세로로 찍혔다 — 눈금 값 뒤에 붙인다.
+  const axes = (name, top, ticks) => ({
     grid: { left: 48, right: 14, top, bottom: 22 },
-    xAxis: { type: "value", minInterval: 1, name: unit, nameLocation: "end", nameGap: 4,
-             nameTextStyle: { color: COLOR.dim, fontSize: 10, padding: [18, 0, 0, 0] } },
-    yAxis: { type: "value", scale: true, name, nameLocation: "end", nameGap: 8,
-             nameTextStyle: { color: COLOR.muted, fontSize: 11, align: "left" } },
+    xAxis: { type: "value", minInterval: 1, axisLabel: { formatter: (v) => `${v}` } },
+    yAxis: { type: "value", scale: true, name, nameLocation: "end", nameGap: 8, splitNumber: ticks,
+             nameTextStyle: { color: COLOR.muted, fontSize: 11, align: "left" },
+             axisLabel: { formatter: (v) => Number(v).toFixed(ticks <= 2 ? 3 : 2) } },
   });
   const scoreId = frChartId(t.trial, "score");
   if (document.getElementById(scoreId)) {
     chart(scoreId).setOption({
-      ...BASE, ...axes(t.score_label || "내부 검증", 30),
+      ...BASE, ...axes(`${t.score_label || "내부 검증"} · 가로축 ${unit}`, 30, 5),
       legend: { ...BASE.legend, show: t.curves.length > 1, top: 0, right: 0, itemWidth: 12, itemHeight: 6 },
       tooltip: { ...BASE.tooltip, trigger: "axis" },
       series: lines("score", false),
@@ -574,7 +577,7 @@ function frDrawCharts(t) {
   const trainId = frChartId(t.trial, "train");
   if (document.getElementById(trainId)) {
     chart(trainId).setOption({
-      ...BASE, ...axes("학습 손실 (낮을수록 좋음 · 보조)", 22),
+      ...BASE, ...axes("학습 손실 (낮을수록 좋음 · 보조)", 22, 2),
       legend: { show: false },
       tooltip: { ...BASE.tooltip, trigger: "axis" },
       series: lines("train", true),

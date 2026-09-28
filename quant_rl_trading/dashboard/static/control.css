@@ -103,7 +103,14 @@
 /* 학습 탭 "마지막 모델 회차" — 시행마다 카드 하나(2026-09-28 사용자 요청: 무엇을 배우나 · 얼마나 남았나 ·
    잘 되고 있나). 시트 문법대로 상자가 아니라 괘선으로 나눈다. 클래스는 모두 fr- 접두어 —
    표의 <col class> 와 겹치지 않게(2026-09 col class 충돌 사고). */
-.fr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr)); border-top: 1px solid var(--rule); }
+/* auto-fit: 카드가 하나면 폭 전체를 쓴다(auto-fill 은 빈 칸을 남겨 오른쪽이 텅 비었다, 2026-09-29).
+   넓은 화면에선 카드 안을 두 단으로 — 왼쪽 글·숫자, 오른쪽 그래프. */
+.fr-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 720px), 1fr)); border-top: 1px solid var(--rule); }
+.fr-plots { min-width: 0; }
+@media (min-width: 1000px) {
+  .fr-card { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); column-gap: 28px; align-items: start; }
+  .fr-plots .fr-chart:first-child { margin-top: 0; height: 200px; }
+}
 .fr-card { min-width: 0; padding: 10px 16px 12px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .fr-card:first-child { border-left: 0; padding-left: 0; }
 .fr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
