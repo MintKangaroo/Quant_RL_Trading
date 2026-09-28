@@ -97,11 +97,12 @@ async function renderIcHistory() {
     yAxis: { type: "value", scale: true, ...AXIS },
     series: [
       ...data.series.map(line),
-      {
-        // 합격선을 배경에 깐다. 숫자를 눈으로 판정할 수 있어야 한다.
-        name: "합격선", type: "line", data: stamps.map(() => thresholds.ic_threshold ?? 0.03),
+      // 합격선을 배경에 깐다. 숫자를 눈으로 판정할 수 있어야 한다. 값은 서버(store.config)가 준 것만 —
+      // 없으면 선을 긋지 않는다(예전 `?? 0.03` 폴백은 설정과 어긋날 수 있는 하드코딩이었다, 불변식 10).
+      ...(thresholds.ic_threshold == null ? [] : [{
+        name: "합격선", type: "line", data: stamps.map(() => thresholds.ic_threshold),
         showSymbol: false, lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
-      },
+      }]),
     ],
   }, true);
 }

@@ -31,6 +31,8 @@ THRESHOLD_KEYS = {
     "default_lookback_days": "data_quality.default_lookback_days",
     "max_lookback_days": "data_quality.max_lookback_days",
     "failure_rows": "data_quality.failure_rows",
+    # 에이전트 상태 탭의 IC 합격선 — 예전엔 화면이 `?? 0.03` 으로 직접 들었다(2026-09-29 제거).
+    "ic_threshold": "analyst.ic_threshold",
 }
 
 
