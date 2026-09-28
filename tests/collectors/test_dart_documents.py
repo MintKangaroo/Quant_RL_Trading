@@ -184,3 +184,27 @@ def test_until_은_그_날짜_전_공시만_고른다(store, tmp_path) -> None:
     assert tool.collect(store, source, ReplayClock(NOW), until=FILED.date(), **kwargs)[2] == 0, "until 당일 공시를 골랐다"
     assert source.calls == []
     assert tool.collect(store, source, ReplayClock(NOW), until=NOW.date(), **kwargs)[:2] == (1, 0)
+
+
+def test_제목으로_other_분류의_최대주주변경_자사주처분을_더_고르고_담보계약은_뺀다() -> None:
+    """L1(2026-09-28): 분류를 바꾸면 event Analyst 의 FILING_SIGNS 가 바뀌므로 수집기에서 제목으로만 고른다."""
+    titles = {
+        "a": ("other", "최대주주변경"),
+        "b": ("other", "최대주주변경을수반하는주식담보제공계약체결"),
+        "c": ("other", "[기재정정]최대주주변경을 수반하는 주식담보제공계약체결"),
+        "d": ("other", "주요사항보고서(자기주식처분결정)"),
+        "e": ("other", "자기주식처분결과보고서"),
+        "f": ("other", "주식소각결정"),
+        "g": ("distress", "관리종목지정"),
+        "h": ("other", "[기재정정]주식소각결정"),
+        "i": ("other", "주식소각결정(자회사의주요경영사항)"),
+        "j": ("other", "기타경영사항(자율공시)(제5회무기명식이권부무보증사모전환사채소각결정의건)"),
+        "k": ("other", "주요사항보고서(자기주식처분결정)(자회사의주요경영사항)"),
+    }
+    frame = pd.DataFrame([
+        {"entity_id": "KR:000001", "doc_id": k, "source": "dart", "valid_from": NOW, "revision": 0,
+         "raw_path": None, "doc_type": t, "title": title} for k, (t, title) in titles.items()
+    ])
+    picked = set(docs.pending(frame, doc_types=("distress",), titles=tool.DEFAULT_TITLES)["doc_id"])
+    assert picked == {"a", "d", "f", "g", "h"}
+    assert set(docs.pending(frame, doc_types=("distress",))["doc_id"]) == {"g"}, "titles 없이는 예전 그대로"

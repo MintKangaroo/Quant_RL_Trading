@@ -818,13 +818,16 @@ _SPECS: dict[str, TableSpec] = {
         name="filing_events",
         columns={
             "market": pa.string(),
-            "doc_id": pa.string(),
+            "doc_id": pa.string(),           # 사건 키 — 정정이면 **원공시**의 접수번호
+            "source_doc_id": pa.string(),    # 실제로 읽은 공시(정정이면 그 정정)
+            "amended": pa.bool_(),           # 정정 공시를 읽은 행. 원공시를 못 찾은 고아 정정은 doc_id == source_doc_id
             "doc_type": pa.string(),         # documents 의 분류 그대로
             "status": pa.string(),           # ok | failed(스키마 검증 2회 실패) | too_long(부르지 않음)
             "event_type": pa.string(),       # 열거 — llm_filing_events.EVENT_TYPES
             "direction": pa.int32(),         # −1 / 0 / +1 (status≠ok 면 null)
             "magnitude": pa.float64(),       # 원문이 적은 크기 — 단위는 magnitude_unit
             "magnitude_unit": pa.string(),   # pct_of_sales | pct_of_shares | pct_change | krw | none
+            "magnitude_source": pa.string(), # code(코드가 원문 칸을 읽음) | llm — v4, 2026-09-28
             "vs_prior": pa.string(),         # better | worse | similar | none — 원문 안의 비교 기준 대비
             "confidence": pa.float64(),      # 0~1, 모델이 스스로 매긴 값 — 가중에 쓰지 않는다
             "evidence": pa.string(),         # 원문 인용(코드가 원문 안에 있는지 검사했다)
@@ -835,7 +838,7 @@ _SPECS: dict[str, TableSpec] = {
             "input_hash": pa.string(),       # 원문 평문의 지문
             "input_chars": pa.int32(),
         },
-        # 같은 공시를 다른 프롬프트로 다시 뽑으면 **다른 사실**이다(덮지 않는다).
+        # 같은 공시를 다른 프롬프트로 다시 뽑으면 **다른 사실**이다(덮지 않는다). 정정은 원공시 키의 revision 을 올린다.
         natural_key=("entity_id", "valid_from", "doc_id", "prompt_hash"),
         # 추출은 접수 뒤에만 있다(observed_at ≥ valid_from). 늦은 쪽(백필)은 하한 위라 안 잘린다.
         observation_lag_days=1,

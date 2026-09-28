@@ -41,6 +41,14 @@ PAUSE_SEC = 0.2
 #: `pl_change`(손익구조 30% 이상 변동)는 2026-09-27 에 추가했다 — 6차 G12 의 입력이고
 #: 본문에 당기·전기 손익 표가 있다. 저장된 분류는 `tools/reclassify_filings.py` 로 맞췄다.
 DEFAULT_TYPES = ("distress", "dilution", "earnings", "contract", "buyback", "split", "pl_change")
+#: 분류(`other`)와 무관하게 제목으로 더 받는 것 — L1 LLM 추출의 대상 중 원문이 없던 사건(2026-09-28).
+#: **주식담보제공계약은 뺀다**(부정 조건) — "최대주주변경을수반하는주식담보제공계약체결" 은 변경이 아니라
+#: 담보 계약이고, 최대주주변경 제목의 절반이다(최근 30일 90건 중 42건). 공백을 뗀 제목에 건다.
+#: 자사주 소각의 실제 제목은 "주식소각결정"(자기주식 글자 없음, 60일 91건) — 머리(정정 표지 뒤)에 올 때만. 자회사 공시는 뺀다.
+DEFAULT_TITLES = (
+    r"^(?!.*주식담보제공계약)(?!.*자회사의주요경영사항)"
+    r"(?:(?:\[[^\]]*\])?주식소각결정|.*(?:최대주주변경|자기주식처분결정|자기주식소각결정))"
+)
 
 
 def collect(
@@ -69,7 +77,9 @@ def collect(
         # 판정 창 **밖** 표본(시행 X 모델 선정·PCA 적합)만 받을 때. pending 은 최근 것부터라
         # 창을 자르지 않으면 판정 창 안의 공시가 배치 머리를 차지한다.
         frame = frame[frame["valid_from"] < pd.Timestamp(until, tz="UTC")]
-    todo = docs.pending(frame, limit=limit, doc_types=doc_types)
+    # 제목 추가는 기본 분류로 돌 때만 — `--doc-type` 로 좁힌 배치(시행 X 표본 등)에 딴 사건이 끼지 않게.
+    titles = DEFAULT_TITLES if doc_types == DEFAULT_TYPES else None
+    todo = docs.pending(frame, limit=limit, doc_types=doc_types, titles=titles)
     if todo.empty:
         return 0, 0, 0
 

@@ -128,7 +128,8 @@ NO_TEXT = "-"
 
 
 def pending(
-    frame: pd.DataFrame, *, limit: int = 0, doc_types: Iterable[str] | None = None
+    frame: pd.DataFrame, *, limit: int = 0, doc_types: Iterable[str] | None = None,
+    titles: str | None = None,
 ) -> pd.DataFrame:
     """원문이 아직 없는 **DART** 공시. **최근 것부터** 준다.
 
@@ -138,6 +139,10 @@ def pending(
     같이 산다. 거르지 않으면 SEC 접수번호를 DART 에 물어 014 를 받고 '없음' 으로 찍는다 —
     2026-09-16~19 밤 배치 3,000건 중 최대 74% 가 그렇게 헛돌았다. 아직 원문이 없는 행은
     revision 0 이라 ``source`` 가 원래 출처 그대로다(정정 행만 ``dart`` 로 적힌다).
+
+    ``titles`` 는 분류와 무관하게 더 고를 **제목 정규식**(공백을 뗀 제목에 건다). 분류가 ``other`` 인
+    사건(최대주주 변경·자기주식 처분·소각)을 받으려고 둔다 — 분류를 바꾸면 ``event`` Analyst 의
+    FILING_SIGNS 가 따라 바뀌므로 수집기에서만 고른다(L1, 2026-09-28).
     """
     if frame.empty:
         return frame
@@ -147,8 +152,11 @@ def pending(
     missing = latest[latest["raw_path"].fillna("").astype(str).str.len() == 0]
     missing = missing[missing["source"] == SOURCE]
     if doc_types is not None:
-        wanted = set(doc_types)
-        missing = missing[missing["doc_type"].isin(wanted)]
+        keep = missing["doc_type"].isin(set(doc_types))
+        if titles:
+            compact = missing["title"].fillna("").astype(str).str.replace(" ", "", regex=False)
+            keep = keep | compact.str.contains(titles, regex=True)
+        missing = missing[keep]
     missing = missing.sort_values("valid_from", ascending=False)
     return missing.head(limit) if limit else missing
 
