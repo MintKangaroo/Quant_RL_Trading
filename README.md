@@ -21,7 +21,57 @@ Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 [![ci](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml/badge.svg)](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](pyproject.toml)
 
-## 앞으로 — 일정과 남은 일 (2026-09-20 갱신)
+## 지금 — 2026-09-28
+
+### 한 줄
+
+**판정 기준은 "지수 대비 정보비율(IR)" 하나다** (2026-09-25 사용자 확정: "지수 사도 돼, 대신 지수 이기고 알파 내면 돼").
+지수를 코어로 들고, AI 가 할 일은 그 위에서 **지수를 이기는 기울이기**를 찾는 것이다. 새 AI 부품은 전부
+사전등록 → 판정 → 금고(홀드아웃) → shadow → 사용자 승인의 사다리를 올라야 운용에 들어온다.
+
+### 지금 어디 있나 — 모의계좌 (`tools/verify_exit_criterion.py`, 9/28 중간 집계)
+
+| | 우리 | KODEX200 총수익 |
+|---|---|---|
+| 수익률 | −1.12% | +5.68% |
+| 최대낙폭 | −3.23% | −5.19% |
+
+세션 17/60. 초과수익 −6.80%p(중단 쪽) · 낙폭은 개선(계속 쪽) → 둘 다 참이 아니라 **계속**.
+베타 0.20 · 베타 보정 알파 −2.27%p(참고, 관문 아님). 지수가 급등한 구간에 덜 들고 있었던 것이 차이의 대부분이다.
+판정은 **11/25**, 결과를 보고 기준을 바꾸지 않는다.
+
+### AI 풀스택 — 매매 여섯 단계를 AI 부품으로 (2026-09-28 승인)
+
+설계: [`docs/design/ai-full-stack.md`](docs/design/ai-full-stack.md). 모든 부품에 **공통 과적합 규율 20조**
+(사전등록·해시 고정·퍼지/엠바고·대조군·카나리·라벨 섞기·다중검정 기록·금고 판정)를 건다. 규칙을 이긴 부품만 넘겨받고,
+지면 규칙으로 되돌아간다. 부품마다 액션 반영률을 잰다.
+
+| 단계 | 부품 | 상태 |
+|---|---|---|
+| ① 재료 | **L1** LLM 공시 추출 — Claude Haiku 4.5·온도 0·고정 스키마, 월 한도 \$20(추정 \$4~6). 숫자 크기는 코드가 읽을 수 있으면 코드가, LLM 은 방향만. 추출 시각을 `observed_at` 으로 달아 **과거 백필은 판정에 안 쓴다**(모델이 미래를 안다) | 구현 완료, 9/29 접수분부터 전방 축적. 첫 4주 30건 수기 대조 관문 |
+| ② 점수 | **BE** 가격 트랜스포머 v2 · **BF** LambdaRank v2 (대조 C0/C1, 피처 FA 76열) | 마지막 모델 회차 — 굽기·점검 완료, 대조군 굽기 → 해시 고정 → 실행 |
+| ③ 선정 + ④ 비중 | **D1** 결정 중심 학습 — 얼린 GBM 백본 + 잔차 머리를 비용 후 포트 수익으로 학습, 판정은 실제 규칙 그대로. 라벨 섞기로 잰 채택 여백을 못 넘으면 백본 그대로 | 코드 커밋(`ddbc0de`), 등록은 BE/BF 결과 뒤 |
+| ④ 비중 | **BG** 잔차 RL | 마지막 모델 회차 |
+| ⑤ 노출 | HMM 국면 → 밴딧 → PPO | HMM 매일 기록 중, 10/27 V6 대비 판정 |
+| ⑥ 집행 | **E1** 집행 밴딧 — 조각 수·간격 팔 넷, `execution_plans` 표를 executor 가 **읽기만** 한다(불변식 6) | 구현, 기본값 `plan_source: rule`(꺼짐). 무작위 팔 표본이 필요해 11/26 뒤 결정 |
+
+### 날짜가 잡힌 것 (2026-09-28 기준)
+
+| 날짜 | 할 일 |
+|---|---|
+| 9/28 밤~ | 대조군 굽기 → 마지막 모델 회차 BE → BF → BG |
+| 9/29~ | L1 전방 축적 (매일 03:07) |
+| 10/3 | 시행 BC — 대형주 기울이기 갈림길 |
+| 10/4~ | 6차 재료 측정 · G8 잠정실적 · FA+(G8·G10~G13 묶음) |
+| 10/19 | 10월 결과 한 표 + 다음 실험 추천 |
+| 10/27 | HMM 노출 vs 현행 V6 |
+| 11/23 | 금고(2026-07-01~11-13) 개봉 — 등록된 후보 심사 |
+| **11/25** | **종료 판정 — 60거래일** |
+| 11/26 | 모의계좌 측정 시작일 리셋 + 전략 전환(한 번에) |
+
+---
+
+## 지난 기록 — 일정과 남은 일 (2026-09-20 갱신)
 
 ### 2026-09-20 에 바뀐 것 — **판정 창이 하나뿐이었다**
 
@@ -736,6 +786,17 @@ RL 에 매매를 맡기려는 시도를 **아홉 판** 했다 — 오라클 카�
 | [`docs/protocols/exposure-axes-2026-09.md`](docs/protocols/exposure-axes-2026-09.md) | 시행 V — 노출 축 셋 중 무엇이 값을 하나. 게이트 설계의 교훈 |
 | [`docs/protocols/ranker-sources-round6-2026-09.md`](docs/protocols/ranker-sources-round6-2026-09.md) | 6차 재료 G1~G6 사전등록·커버리지·집행 |
 | [`docs/postmortem-ls.md`](docs/postmortem-ls.md) | 선행 프로젝트 부검 |
+| [`docs/design/ai-full-stack.md`](docs/design/ai-full-stack.md) | AI 풀스택 — 여섯 단계 AI 부품, 과적합 규율 20조, 넘겨받는 사다리 (2026-09-28) |
+| [`docs/design/ai-architecture-v2.md`](docs/design/ai-architecture-v2.md) | AI v2 — 지수 코어 + 기울이기, 판정은 지수 대비 IR (2026-09-25) |
+| [`docs/design/self-improvement.md`](docs/design/self-improvement.md) | 자기개선 루프 — 홀드아웃 금고, 사전등록, 시행 예산 |
+| [`docs/design/portfolio-construction.md`](docs/design/portfolio-construction.md) | 비중 산출 — 섹터 하방베타, 팩터 공분산, 리스크 패리티 |
+| [`docs/design/execution-safety.md`](docs/design/execution-safety.md) | 주문 안전 · 분할 집행 · E1 집행 계획 계약 |
+| [`docs/design/modelops-ranker.md`](docs/design/modelops-ranker.md) | 랭커 IC 주간 측정, 감쇠 경보, 재학습 게이트 |
+| [`docs/trials-postmortem.md`](docs/trials-postmortem.md) | 선정·랭커 시행 복기 — 날짜별 한 일·실패 이유·배운 것 |
+| [`docs/protocols/final-model-round-2026-10.md`](docs/protocols/final-model-round-2026-10.md) | 마지막 모델 회차 BE·BF·BG 사전등록 |
+| [`docs/protocols/decision-focused-2026-10.md`](docs/protocols/decision-focused-2026-10.md) | D1 결정 중심 학습 사전등록(초안) |
+| [`docs/protocols/llm-filing-events-2026-10.md`](docs/protocols/llm-filing-events-2026-10.md) | L1 LLM 공시 추출 사전등록 |
+| [`docs/protocols/execution-bandit-2026-10.md`](docs/protocols/execution-bandit-2026-10.md) | E1 집행 밴딧 사전등록(초안) |
 
 ## 라이선스
 

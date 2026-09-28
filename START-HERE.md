@@ -3,7 +3,20 @@
 Quant_RL_Trading의 현재 인수인계와 초기 개발 순서. 기존 시스템을 이어서 작업할 때는
 아래 인수인계를 먼저 확인한다. 초기 kickoff를 처음부터 다시 실행하지 않는다.
 
-## 현재 인수인계 — 2026-09-09
+## 현재 인수인계 — 2026-09-28
+
+먼저 [README "지금 — 2026-09-28"](README.md#지금--2026-09-28) 과 [AI 풀스택 설계](docs/design/ai-full-stack.md) 를 읽는다.
+
+- **기준**: 지수 대비 IR. 지수 코어 허용(9/25). 새 AI 부품은 사전등록 → 판정 → 금고(11/23 개봉) → shadow → 사용자 승인.
+- **운영**: main 브랜치 작업 트리를 크론이 그대로 읽는다 — **작업 트리 수정 = 배포**. 장 중(평일 09:00~15:30)에는
+  런타임 파일(`quant_rl_trading/`·`config/`·`scripts/`·운영 `tools/`)을 고치지 않는다. 대시보드는 스크립트로만 재기동한다.
+- **무거운 실행은 한 번에 하나**. 22:40~00:40 정규 작업 시간과 장 중에는 새 학습·굽기를 시작하지 않는다.
+- **진행 중**: 마지막 모델 회차(BE·BF·BG, `docs/protocols/final-model-round-2026-10.md`) — 대조군 굽기 → 해시 고정 → 실행.
+  D1(`tools/trial_final_dfl.py`)은 그 뒤 등록. L1(`tools/extract_filing_events.py`)은 9/29 부터 전방 축적. E1 은 기본 꺼짐.
+- **판정일**: 11/25 종료 판정(60거래일, `tools/verify_exit_criterion.py --final`) → 11/26 측정 시작일 리셋 + 전략 전환.
+- 시행 실패는 [`docs/trials-postmortem.md`](docs/trials-postmortem.md) 에 날짜별로 복기한다.
+
+## 지난 인수인계 — 2026-09-09
 
 ### 작업 위치와 반영 상태
 
