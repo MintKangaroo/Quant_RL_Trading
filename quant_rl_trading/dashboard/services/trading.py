@@ -624,7 +624,8 @@ def risk(store: Store, context: Context) -> dict[str, Any]:
         band = "hard"
         message = f"급증 구간 · 신규매수 제한 · 한계까지 {(hard - drawdown) * 100:.1f}%p"
 
-    counts = reject_counts(store.get(ORDERS, as_of=as_of, lookback=5))
+    # **당일 것만** (사용자 요청 2026-09-28) — 주문표와 같은 기준: 최신 행의 observed_at 한국시간 날짜 = as_of 날짜.
+    counts = reject_counts(store.get(ORDERS, as_of=as_of, lookback=5), day=_as_kst(as_of).date())
 
     valuation = context.snapshot.valuation
     exposure = (
@@ -656,20 +657,25 @@ def risk(store: Store, context: Context) -> dict[str, Any]:
     }
 
 
-def reject_counts(orders: pd.DataFrame) -> dict[str, Any]:
-    """주문 거부율. **주문 하나를 한 번만 센다 — 최신 revision 으로.**
+def reject_counts(orders: pd.DataFrame, *, day: Any = None) -> dict[str, Any]:
+    """주문 거부율. **주문 하나를 한 번만 센다 — 최신 revision 으로.** ``day`` 를 주면 그날(한국시간) 마지막으로 움직인 주문만.
 
     한 조각은 planned → reserved → submitting → rejected 처럼 revision 을 올려 가며 여러 행을 남긴다. 창고 읽기가
     이미 최신만 주지만, 여기서 다시 자연키로 접어 정정 행이 분모·분자를 부풀리지 못하게 한다.
 
     **휴장일 거부는 critical 분모·분자에서 뺀다** (2026-09-28). 9/24 추석 `01410 영업일이 아닙니다` 70건이 거부율을
-    56.5% 로 띄웠는데, 그건 주문 경로의 고장이 아니라 날짜였고 다음 거래일에 다시 나간다. 따로 센다.
+    56.5% 로 띄웠는데, 그건 주문 경로의 고장이 아니라 날짜였다. 따로 센다(재전송은 최신 세션·첫 거래일일 때만).
     """
     if orders.empty:
         return {"total": 0, "rejected": 0, "holiday_rejected": 0, "rate": None}
     keys = [key for key in ("entity_id", "session_id", "slice_seq") if key in orders.columns]
     sort = [col for col in ("revision", "observed_at") if col in orders.columns]
     latest = orders.sort_values(sort).drop_duplicates(subset=keys, keep="last") if sort else orders
+    if day is not None and "observed_at" in latest.columns:
+        # 주문을 최신 revision 으로 접은 **뒤에** 날짜로 자른다 — 그날 마지막으로 움직인 주문만(주문표와 같은 기준).
+        latest = latest[latest["observed_at"].map(lambda v: _as_kst(v).date()) == day]
+        if latest.empty:
+            return {"total": 0, "rejected": 0, "holiday_rejected": 0, "rate": None}
     holiday = latest.apply(
         lambda row: executor_pipeline.is_holiday_rejection(row.to_dict()), axis=1
     ).astype(bool)
@@ -719,7 +725,7 @@ def alerts(kpi: dict[str, Any], risk_state: dict[str, Any]) -> list[dict[str, st
         out.append(
             {
                 "level": "info",
-                "text": f"휴장일 거부 {holiday}건 — 거부율에서 뺐다. 다음 거래일에 다시 나간다",
+                "text": f"휴장일 거부 {holiday}건 — 거부율에서 뺐다",
             }
         )
     if not out:

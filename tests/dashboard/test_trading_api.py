@@ -318,6 +318,29 @@ def test_거부율은_주문별_최신_revision_으로_세고_휴장일_거부�
     assert any("휴장일 거부 2건" in a["text"] for a in alerts)
 
 
+def test_거부율은_당일_주문만_센다() -> None:
+    """사용자 요청(2026-09-28): 9/24 거부 70건이 9/28 거부율로 뜨면 안 된다 — 주문표와 같은 당일 기준."""
+    import pandas as pd
+
+    from quant_rl_trading.dashboard.services import trading as service
+
+    def order(entity: str, when: datetime, status: str, reason: str = "") -> dict[str, Any]:
+        return {"entity_id": entity, "session_id": "KR-2026-09-23", "slice_seq": 0, "revision": 0,
+                "status": status, "reason": reason, "observed_at": when}
+
+    old = datetime(2026, 9, 24, 0, 5, tzinfo=UTC)      # 9/24 09:05 KST
+    today = datetime(2026, 9, 28, 0, 5, tzinfo=UTC)    # 9/28 09:05 KST
+    frame = pd.DataFrame([
+        order("KR:A", old, "rejected", "거부 — rsp_cd=02714 주문가능금액 부족"),
+        order("KR:B", old, "rejected", "rsp_cd=01410"),
+        order("KR:C", today, "sent", "broker_order_no=1"),
+        order("KR:D", today, "rejected", "거부 — rsp_cd=02714 주문가능금액 부족"),
+    ])
+    counts = service.reject_counts(frame, day=datetime(2026, 9, 28).date())
+    assert counts == {"total": 2, "rejected": 1, "holiday_rejected": 0, "rate": pytest.approx(0.5)}
+    assert service.reject_counts(frame, day=datetime(2026, 9, 27).date())["rate"] is None
+
+
 def test_as_of_에_타임존이_없으면_거부한다(client) -> None:
     assert client.get("/api/trading?as_of=2026-08-12T15:40:00").status_code == 400
 
