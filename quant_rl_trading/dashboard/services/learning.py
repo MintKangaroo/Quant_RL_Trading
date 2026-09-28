@@ -796,6 +796,7 @@ def _training_settings(store: Store, as_of: datetime) -> dict[str, Any] | None:
 
 
 def _health(*, done: bool, since_last_s: float, mean_unit_s: float | None, unit: str,
+            slowest_unit_s: float | None = None,
             latest_curve: dict[str, Any] | None, settings: dict[str, Any] | None,
             last_at: pd.Timestamp, as_of: datetime) -> tuple[str, str]:
     """상태 하나와 이유 한 줄. done · stalled(느림/멈춤 의심) · overfit(과적합 의심) · ok · unknown.
@@ -812,24 +813,30 @@ def _health(*, done: bool, since_last_s: float, mean_unit_s: float | None, unit:
     if not mean_unit_s:
         return "unknown", "아직 한 단위도 걸린 시간이 안 적혀 속도를 모른다"
     factor = settings["stall_factor"]
-    if since_last_s > factor * mean_unit_s:
-        return "stalled", (f"마지막 기록이 {_duration(since_last_s)} 전 — {unit} 하나에 보통 "
-                           f"{_duration(mean_unit_s)} 걸리는데 그 {factor:g}배를 넘었다")
+    # 기준은 **최근에 가장 오래 걸린 단위**다(2026-09-29). 재학습이 끼는 블록은 평균의 네 배쯤 걸려(BE: 평균 3분,
+    # 재학습 블록 12분) 평균 × 3 으로 재면 재학습 때마다 "멈춤 의심" 이 떴다.
+    slow = max(mean_unit_s, slowest_unit_s or 0.0)
+    if since_last_s > factor * slow:
+        return "stalled", (f"마지막 기록이 {_duration(since_last_s)} 전 — 최근 가장 오래 걸린 {unit}도 "
+                           f"{_duration(slow)} 였는데 그 {factor:g}배를 넘었다")
     window = max(int(settings["trend_window"]), 2)
     pairs: list[tuple[float, float]] = []
     if latest_curve is not None:
         pairs = [(t, v) for t, v in zip(latest_curve["train"], latest_curve["val"], strict=False)
                  if t is not None and v is not None]
+    # 같은 값이 이어지는 행은 **한 번의 학습**이다(2026-09-29 BE: 재학습 사이 블록은 예측만 해서 손실이 그대로
+    # 반복된다). 접지 않으면 5블록 창에 재학습이 한 번만 들어가 한 걸음의 흔들림을 "추세" 로 읽었다.
+    pairs = [p for i, p in enumerate(pairs) if i == 0 or p != pairs[i - 1]]
     tail = pairs[-window:]
     base = f"마지막 기록 {_duration(max(since_last_s, 0.0))} 전 · {unit} 하나에 보통 {_duration(mean_unit_s)}"
     if len(tail) < window:
-        return "ok", f"{base} · 내부 검증 추세는 {unit} {window}개가 쌓이면 본다"
+        return "ok", f"{base} · 내부 검증 추세는 학습 {window}번이 쌓이면 본다"
     train_slope = _slope([t for t, _ in tail])
     val_slope = _slope([v for _, v in tail])      # val_loss — 오를수록 나빠진다
     if train_slope < 0 and val_slope > 0:
-        return "overfit", (f"최근 {unit} {window}개: 학습 손실은 줄어드는데 내부 검증은 나빠진다 "
+        return "overfit", (f"최근 학습 {window}번: 학습 손실은 줄어드는데 내부 검증은 나빠진다 "
                            "(학습 자료를 외우기 시작했을 수 있다)")
-    return "ok", f"{base} · 최근 {unit} {window}개 내부 검증이 나빠지지 않는다"
+    return "ok", f"{base} · 최근 학습 {window}번 내부 검증이 나빠지지 않는다"
 
 
 def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
@@ -877,6 +884,7 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
         total = (per_seed * n_seeds) if (per_seed and n_seeds) else None
         elapsed = [v for v in (_num(v) for v in part["elapsed_s"]) if v is not None and v > 0]
         mean_unit_s = sum(elapsed[-20:]) / len(elapsed[-20:]) if elapsed else None
+        slowest_unit_s = max(elapsed[-20:]) if elapsed else None
         last_ts = _ts(part["valid_from"].max())
         # 시작 = 첫 기록 시각 − 그 단위가 걸린 시간. 단위는 기록 **전에** 돌았다.
         started = min(_ts(at) - timedelta(seconds=(_num(el) or 0.0))
@@ -909,7 +917,7 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
         is_done = total is not None and done >= total
         since_last = (now - last_ts).total_seconds()
         status, reason = _health(done=is_done, since_last_s=since_last, mean_unit_s=mean_unit_s, unit=unit,
-                                 latest_curve=latest_curve, settings=settings, last_at=last_ts, as_of=as_of)
+                                 slowest_unit_s=slowest_unit_s, latest_curve=latest_curve, settings=settings, last_at=last_ts, as_of=as_of)
         # 끝 시각 = 마지막 기록 + 남은 양(지금 도는 단위는 마지막 기록 직후 시작했다). 멈춤 의심이면
         # 그 시각은 이미 지났거나 믿을 수 없으니 말하지 않는다.
         eta_at = (last_ts + timedelta(seconds=eta_s)) if (eta_s is not None and status != "stalled") else None

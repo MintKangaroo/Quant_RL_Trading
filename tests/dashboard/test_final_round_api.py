@@ -422,3 +422,27 @@ def test_주_장부가_모의계좌면_연구_창고의_진행을_읽는다(tmp_
     client = make_app(paper, ReplayClock(NOW)).test_client()
     got = client.get(f"/api/learning/final-round?as_of={NOW.isoformat()}").get_json()["data"]
     assert got["has_data"] and [t["trial"] for t in got["trials"]] == ["BE"]
+
+
+def test_재학습_블록이_길어도_멈춤으로_읽지_않는다(store: Any) -> None:
+    """2026-09-29: BE 는 평균 3분 블록 사이에 12분짜리 재학습 블록이 끼어 평균 × 3 에서 헛경보가 났다."""
+    store.seed_config_defaults()
+    factor = store.config("dashboard.training_stall_factor", as_of=NOW)
+    rows = []
+    for block, secs in enumerate([180.0, 180.0, 720.0, 180.0, 180.0]):
+        at = NOW - timedelta(minutes=9) - timedelta(minutes=3 * (4 - block))
+        rows.append(progress_row("BE", 0, block, at=at, elapsed=secs))
+    store.append("trial_progress", rows, ingest_run_id="retrain-mix")
+    # 마지막 기록 9분 전 > 평균(5.2분) 은 넘지만 < 가장 긴 단위 12분 × 배수 — 정상이어야 한다.
+    assert 9 * 60 < factor * 720
+    assert one(store)["status"] == "ok"
+
+
+def test_재학습_사이_반복된_손실은_한_번으로_세어_추세를_꾸미지_않는다(store: Any) -> None:
+    """재학습 사이 블록은 같은 손실을 반복한다 — 한 걸음의 흔들림을 '과적합 추세' 로 읽지 않는다(2026-09-29)."""
+    store.seed_config_defaults()
+    train = [1.00, 1.00, 1.00, 0.98, 0.98]
+    val = [-0.117, -0.117, -0.117, -0.114, -0.114]   # 재학습 두 번뿐 — 추세를 볼 표본이 아니다
+    walk(store, "BE", last=NOW - timedelta(minutes=1), train=train, val=val)
+    trial = one(store)
+    assert trial["status"] == "ok" and "쌓이면 본다" in trial["status_reason"]
