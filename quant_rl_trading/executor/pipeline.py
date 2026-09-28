@@ -115,19 +115,54 @@ def is_holiday_rejection(row: Mapping[str, Any], *, market: str | None = None) -
         return False
 
 
-def holiday_retry_due(row: Mapping[str, Any] | None, *, now: datetime, market: str) -> bool:
-    """휴장일 거부로 끝난 조각을 **지금 다시 낼 수 있나.**
+def holiday_retry_due(
+    row: Mapping[str, Any] | None,
+    *,
+    now: datetime,
+    market: str,
+    latest_session: str | None = None,
+) -> bool:
+    """휴장일 거부로 끝난 조각을 **지금 다시 낼 수 있나.** 셋이 다 맞을 때만 그렇다.
 
-    거부가 적힌 현지 날짜보다 오늘(현지)이 뒤일 때만 그렇다. 같은 날 다시 내면 같은 이유로 또 거부되고,
-    20분마다 도는 ``release_slices`` 가 휴장 하루 내내 거부를 쌓는다. 다른 거부(잔고·호가·수량)는 여기로 안 온다
-    — 그대로 막는다.
+    1. 휴장일 거부다(``is_holiday_rejection``). 다른 거부(잔고·호가·수량)는 그대로 막는다.
+    2. 오늘(현지)이 거부된 날 뒤 **첫 거래일**이다. 같은 날 다시 내면 같은 이유로 또 거부되고(20분마다 도는
+       ``release_slices`` 가 휴장 내내 거부를 쌓는다), 첫 거래일을 넘기면 그 목표는 낡았다.
+    3. 그 조각의 세션이 **그 시장의 최신 세션**이다(``latest_session``). 더 새 세션이 계획·예약·전송 행을
+       가졌으면 새 세션이 목표를 이미 다시 정한 것이다 — 낡은 목표를 내면 새 목표와 겹친다(2026-09-28 리드 검토:
+       9/24 추석 거부 70건은 "그대로 둔다" 가 사용자 결정이다).
+
+    날짜는 전부 달력(``market_hours``)에서 온다 — 상수로 박지 않는다.
     """
     if row is None or not is_holiday_rejection(row, market=market):
         return False
+    if latest_session is not None and str(row.get("session_id", "")) < latest_session:
+        return False
     try:
-        return _local_day(market, now) > _local_day(market, row["observed_at"])
+        rejected_on = _local_day(market, row["observed_at"])
+        today = _local_day(market, now)
     except (KeyError, ValueError, TypeError):
         return False
+    return today == first_trading_day_after(market, rejected_on)
+
+
+def first_trading_day_after(market: str, day: date) -> date | None:
+    """``day`` 다음 첫 거래일(달력 기준). 추석·설처럼 길게 쉬어도 한 달 안에서 찾는다."""
+    from datetime import timedelta
+
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
+
+    after = trading_days(Market(str(market).upper()), day + timedelta(days=1), day + timedelta(days=31))
+    return after[0] if after else None
+
+
+def latest_session(store: Store, *, as_of: datetime, market: str) -> str | None:
+    """그 시장의 최신 세션 id — 주문 행이 하나라도 있는 가장 새 세션. 세션 id 는 ``<시장>-YYYY-MM-DD`` 라
+    문자열 순서가 날짜 순서다."""
+    frame = store.get(ORDERS, as_of=as_of, lookback=31, market=market, columns=["session_id"])
+    if frame.empty:
+        return None
+    sessions = [str(v) for v in frame["session_id"] if str(v).startswith(f"{str(market).upper()}-")]
+    return max(sessions) if sessions else None
 
 
 @dataclass
@@ -147,6 +182,9 @@ class ExecutionResult:
     #: 그 조각의 현재 상태가 시장에 닿지 않은 것(거부·위험차단·철회…)이다. 2026-09-28 재조정 70건이 9/24 휴장일
     #: 거부와 같은 세션이라 이 길로 조용히 빠졌다 — 세션 실행기가 rc 로 내보낸다(tools/run_session.py).
     unsent: tuple[str, ...] = ()
+    #: **낡은 휴장 거부** — 휴장일 거부로 끝났지만 지금 다시 내지 않는 조각(첫 거래일이 아니거나 더 새 세션이
+    #: 목표를 다시 정했다). 노트·로그엔 올리되 rc 는 올리지 않는다 — 이미 대체됐거나 아직 차례가 아니다.
+    stale_holiday: tuple[str, ...] = ()
 
     @property
     def blocked(self) -> bool:
@@ -335,6 +373,7 @@ def run(
         return result
     record_orders(store, send_clock, planned=planned, as_of=as_of, market=market)
     unsent: list[str] = []
+    stale_holiday: list[str] = []
     approved, risk_notes = reserve_orders(
         store,
         send_clock,
@@ -343,6 +382,7 @@ def run(
         market=market,
         simulation_only=isinstance(active_broker, PaperBroker),
         unsent=unsent,
+        stale_holiday=stale_holiday,
     )
     result.notes.extend(risk_notes)
     if planned and not approved and risk_notes:
@@ -359,9 +399,17 @@ def run(
     result.acks = tuple(
         submit_orders(
             store, send_clock, active_broker, planned=now_due, as_of=as_of, market=market,
-            unsent=unsent,
+            unsent=unsent, stale_holiday=stale_holiday,
         )
     )
+    if stale_holiday:
+        result.stale_holiday = tuple(dict.fromkeys(stale_holiday))
+        message = (
+            f"낡은 휴장 거부 {len(result.stale_holiday)}건 — 다시 내지 않는다(첫 거래일이 아니거나 더 새 세션이 "
+            "목표를 다시 정했다). rc 는 올리지 않는다"
+        )
+        result.notes.insert(0, message)
+        print(f"  ⚠️  {message}", flush=True)
     if unsent:
         result.unsent = tuple(unsent)
         message = (
@@ -440,6 +488,7 @@ def reserve_orders(
     market: str,
     simulation_only: bool = False,
     unsent: list[str] | None = None,
+    stale_holiday: list[str] | None = None,
 ) -> tuple[list[PlannedOrder], list[str]]:
     """Reserve all slices before any broker submission; planned is not approval.
 
@@ -460,10 +509,11 @@ def reserve_orders(
             for r in store.get(ORDERS, as_of=now).to_dict(orient="records")
         }
         approved, notes, rows = [], [], []
+        newest = latest_session(store, as_of=now, market=market)
         for item in planned:
             logical = account_risk.key(item.session_id, item.order.entity_id, item.slice_seq)
             current = current_rows.get(logical)
-            if holiday_retry_due(current, now=now, market=market):
+            if holiday_retry_due(current, now=now, market=market, latest_session=newest):
                 # **휴장일 거부는 다음 거래일에 다시 낸다**(_submit_orders_locked docstring). 예산은 여기서 같이 재지만
                 # 행은 적지 않는다 — "reserved" 로 덮으면 휴장 거부였다는 사실이 지워져 전송 가드가 재전송을 막는다.
                 reason = failure
@@ -485,6 +535,10 @@ def reserve_orders(
             if current and current["status"] not in ("planned", STATUS_RISK_BLOCKED):
                 if current["status"] == "reserved":
                     approved.append(item)
+                elif is_holiday_rejection(current, market=market):
+                    # 휴장일 거부인데 지금 차례가 아니다(holiday_retry_due) — 낡은 휴장 거부. rc 는 안 올린다.
+                    if stale_holiday is not None:
+                        stale_holiday.append(item.order_id)
                 elif unsent is not None and str(current["status"]) in NOT_REACHED_STATUSES:
                     # 거부·철회로 끝난 조각을 이번 계획이 또 원한다 — **계획했는데 안 보낸** 것이다(2026-09-28).
                     unsent.append(item.order_id)
@@ -571,12 +625,15 @@ def submit_orders(
     as_of: datetime,
     market: str,
     unsent: list[str] | None = None,
+    stale_holiday: list[str] | None = None,
 ) -> list[Ack]:
-    """``unsent`` 를 주면 **계획했는데 안 보낸** 조각의 order_id 를 거기 담는다(``NOT_REACHED_STATUSES``)."""
+    """``unsent`` 를 주면 **계획했는데 안 보낸** 조각의 order_id 를 거기 담는다(``NOT_REACHED_STATUSES``).
+    ``stale_holiday`` 에는 다시 내지 않는 휴장일 거부 조각을 담는다(rc 대상 아님)."""
     store = store.execution_view()
     with account_lock(store.root):
         return _submit_orders_locked(
-            store, clock, broker, planned=planned, as_of=as_of, market=market, unsent=unsent
+            store, clock, broker, planned=planned, as_of=as_of, market=market, unsent=unsent,
+            stale_holiday=stale_holiday,
         )
 
 
@@ -589,6 +646,7 @@ def _submit_orders_locked(
     as_of: datetime,
     market: str,
     unsent: list[str] | None = None,
+    stale_holiday: list[str] | None = None,
 ) -> list[Ack]:
     """계획된 주문을 ``Broker`` 로 실제 전송한다. 이 함수가 **전송의 유일한
     자리**다 — 백테스트·shadow·실전이 여기를 같이 탄다(불변식 5).
@@ -628,7 +686,7 @@ def _submit_orders_locked(
 
     ``rsp_cd=01410 모의투자 영업일이 아닙니다`` 처럼 **날짜 때문에** 거부된 조각은 주문이 틀린 게 아니다. 9/24 추석에
     거부된 70건과 9/28 재조정이 같은 세션(KR-2026-09-23)이라, 위 가드가 "이미 시도했다" 로 건너뛰어 재조정이
-    통째로 안 나갔다. 그래서 휴장일 거부로 끝난 조각은 **거부된 현지 날짜보다 뒤인 날에** 새 claim
+    통째로 안 나갔다. 그래서 휴장일 거부로 끝난 조각은 **거부일 뒤 첫 거래일에, 그 세션이 최신 세션일 때만** 새 claim
     (``submit-<order_id>-retry-r<revision>``)으로 한 번 더 낸다(``holiday_retry_due``). claim 이 revision 에 묶여
     있어 두 프로세스가 동시에 와도 한쪽만 적는다. 다른 거부는 그대로 막는다.
     """
@@ -641,17 +699,23 @@ def _submit_orders_locked(
     except (LookupError, ValueError, StoreError) as exc:
         budget, budget_error = None, f"risk: account unavailable ({exc})"
     acks: list[Ack] = []
+    newest = latest_session(store, as_of=clock.now(), market=market)
     for item in planned:
         submit_run_id = f"submit-{item.order_id}"
         current = _current_order(store, item, clock.now())
-        retry = current is not None and holiday_retry_due(current, now=clock.now(), market=market)
+        retry = current is not None and holiday_retry_due(
+            current, now=clock.now(), market=market, latest_session=newest
+        )
         if retry and current is not None:
             # 휴장일 거부 — 이번 시도만의 claim 으로 다시 낸다(위 docstring).
             submit_run_id = f"{submit_run_id}-retry-r{int(current['revision'])}"
         if store.ingest_run_recorded(ORDERS, submit_run_id):
             # 이미 이 주문에 전송을 시도한 기록이 있다 — 다시 보내지 않는다.
             # 다만 그 시도가 시장에 닿지 않고 끝났으면 **계획했는데 안 보낸** 것이다 — 조용히 넘기지 않는다.
-            if unsent is not None and current and str(current["status"]) in NOT_REACHED_STATUSES:
+            if current and is_holiday_rejection(current, market=market):
+                if stale_holiday is not None:
+                    stale_holiday.append(item.order_id)  # 낡은 휴장 거부 — rc 대상 아님
+            elif unsent is not None and current and str(current["status"]) in NOT_REACHED_STATUSES:
                 unsent.append(item.order_id)
             continue
 

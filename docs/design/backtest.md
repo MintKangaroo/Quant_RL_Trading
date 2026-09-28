@@ -285,10 +285,13 @@ KR 세션의 `rejected` 70건은 `reason` 이 전부 빈 문자열이었고 진�
 
 **휴장일 거부는 다음 거래일에 다시 낸다** (2026-09-28). 9/24 추석 `01410` 거부 70건과 9/28 재조정이 같은
 세션(KR-2026-09-23)이라 `submit-<order_id>` 중복 가드가 "이미 시도했다" 로 건너뛰었다. 휴장일 거부(사유의
-`HOLIDAY_REJECT_CODES`·문구, 사유가 빈 옛 행은 거부 시각의 현지 날짜가 달력상 휴장인지)로 끝난 조각은 **거부된
-현지 날짜보다 뒤인 날에** `submit-<order_id>-retry-r<revision>` claim 으로 다시 나간다 — 세션(`reserve_orders` 가
-행을 안 덮고 예산만 잰다)과 `release_slices` 둘 다. 다른 거부는 그대로 막고, 이번 계획이 원했는데 거부·철회로 끝나
-다시 안 낸 조각은 `ExecutionResult.unsent` 로 모여 세션이 rc=5 로 끝난다(runbook §7.1).
+`HOLIDAY_REJECT_CODES`·문구, 사유가 빈 옛 행은 거부 시각의 현지 날짜가 달력상 휴장인지)로 끝난 조각은 셋이 다 맞을
+때만 `submit-<order_id>-retry-r<revision>` claim 으로 다시 나간다(`holiday_retry_due`): ① 휴장일 거부 ② 오늘이 거부일
+뒤 **첫 거래일**(달력) ③ 그 세션이 그 시장의 **최신 세션**(더 새 세션이 행을 가졌으면 목표를 이미 다시 정한 것).
+세션(`reserve_orders` 는 행을 안 덮고 예산만 잰다)과 `release_slices` 둘 다 같은 판별을 쓴다. 어긋난 휴장 거부는
+**낡은 휴장 거부**(`ExecutionResult.stale_holiday`)로 노트·로그에만 적고 rc 는 올리지 않는다. 다른 거부는 그대로
+막고, 이번 계획이 원했는데 거부·철회로 끝나 다시 안 낸 조각은 `ExecutionResult.unsent` 로 모여 세션이 rc=5 로
+끝난다(runbook §7.1). 자본 증액 게이트(`verify_capital_gate`)의 주문 실패율도 휴장일 거부를 뺀다.
 
 ### 장부는 `data/_paper` — 실전 창고에 섞지 않는다
 

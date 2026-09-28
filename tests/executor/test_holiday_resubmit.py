@@ -13,18 +13,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from tests.account_fixture import fund_account
 
 from quant_rl_trading.broker import Ack, RejectedOrder
+from quant_rl_trading.collectors.market_hours import Market, is_trading_day, previous_trading_day
 from quant_rl_trading.executor import Target, pipeline
 from quant_rl_trading.executor.orders import PlannedOrder, session_id
 from quant_rl_trading.replay.clock import ReplayClock
 
 NOW = datetime(2026, 8, 12, 1, 0, tzinfo=UTC)  # 한국시간 수 10:00
 NEXT_DAY = NOW + timedelta(days=1)             # 목 10:00
+SEOUL = ZoneInfo("Asia/Seoul")
 HOLIDAY = "TR CSPAT00601 rsp_cd=01410 msg=모의투자 영업일이 아닙니다"
 
 
@@ -119,7 +122,9 @@ def test_같은_날엔_휴장일_거부를_다시_내지_않는다(seeded) -> No
     second = _run(seeded, NOW + timedelta(hours=2), broker)
 
     assert broker.submitted == []
-    assert set(second.unsent) == {item.order_id for item in first.planned}
+    # 아직 차례가 아닌 휴장 거부 — 경보 목록(낡은 휴장 거부)엔 오르되 rc 대상(unsent)은 아니다.
+    assert second.unsent == ()
+    assert set(second.stale_holiday) == {item.order_id for item in first.planned}
 
 
 def test_다른_거부는_다음_날에도_다시_내지_않고_unsent_로_알린다(seeded) -> None:
@@ -164,9 +169,147 @@ def test_휴장일_거부_판별() -> None:
     assert not pipeline.is_holiday_rejection(_row("", datetime(2026, 9, 22, 23, 40, tzinfo=UTC)))
 
 
+def _kst(day: date, hour: int, minute: int = 0) -> datetime:
+    return datetime.combine(day, time(hour, minute), tzinfo=SEOUL).astimezone(UTC)
+
+
 def test_재전송_시점_판별() -> None:
-    chuseok = datetime(2026, 9, 23, 23, 40, tzinfo=UTC)  # 한국시간 9/24 08:40
-    row = _row(f"거부 — {HOLIDAY}", chuseok)
-    assert not pipeline.holiday_retry_due(row, now=chuseok + timedelta(hours=3), market="KR")
-    assert pipeline.holiday_retry_due(row, now=datetime(2026, 9, 27, 23, 40, tzinfo=UTC), market="KR")
-    assert not pipeline.holiday_retry_due(None, now=chuseok, market="KR")
+    """거부일 뒤 **첫 거래일**에, 그 세션이 **최신 세션**일 때만. 날짜는 달력에서 유도한다."""
+    rejected_on = _first_holiday_weekday()
+    first = pipeline.first_trading_day_after("KR", rejected_on)
+    assert first is not None
+    later = pipeline.first_trading_day_after("KR", first)
+    row = _row(f"거부 — {HOLIDAY}", _kst(rejected_on, 8, 40)) | {"session_id": "KR-2000-01-01"}
+
+    assert not pipeline.holiday_retry_due(row, now=_kst(rejected_on, 11), market="KR")
+    assert pipeline.holiday_retry_due(row, now=_kst(first, 8, 40), market="KR")
+    assert not pipeline.holiday_retry_due(row, now=_kst(later, 8, 40), market="KR")  # 낡았다
+    assert pipeline.holiday_retry_due(
+        row, now=_kst(first, 8, 40), market="KR", latest_session="KR-2000-01-01"
+    )
+    assert not pipeline.holiday_retry_due(  # 더 새 세션이 목표를 다시 정했다
+        row, now=_kst(first, 8, 40), market="KR", latest_session="KR-2000-01-02"
+    )
+    assert not pipeline.holiday_retry_due(None, now=_kst(first, 8, 40), market="KR")
+
+
+# -- 긴 휴장(추석) 시나리오 — 날짜는 전부 달력에서 --------------------------------------
+
+
+def _first_holiday_weekday() -> date:
+    """평일인데 국장이 쉬는 날(명절·공휴일) 하나. 달력에서 찾는다 — 날짜를 박지 않는다."""
+    day = date(2026, 9, 1)
+    while day.weekday() >= 5 or is_trading_day(Market.KR, day):
+        day += timedelta(days=1)
+    return day
+
+
+@pytest.fixture
+def long_holiday(store):  # type: ignore[no-untyped-def]
+    """휴장 전 마지막 거래일(세션일) · 휴장일(거부) · 휴장 뒤 첫 거래일 · 그다음 거래일."""
+    holiday = _first_holiday_weekday()
+    session_day = previous_trading_day(Market.KR, holiday)
+    first = pipeline.first_trading_day_after("KR", holiday)
+    assert first is not None
+    second = pipeline.first_trading_day_after("KR", first)
+    assert second is not None
+
+    store.seed_config_defaults()
+    fund_account(store, _kst(session_day, 16) - timedelta(days=2))
+    store.append(
+        "config",
+        [{
+            "entity_id": "execution.slice_interval_sec",
+            "valid_from": _kst(session_day, 0) - timedelta(days=60),
+            "observed_at": _kst(session_day, 0) - timedelta(days=60), "source": "test",
+            "value_json": "3600",
+        }],
+        ingest_run_id="cfg-slice-interval-3600",
+    )
+    rows = []
+    day = session_day - timedelta(days=10)
+    while day <= second:
+        if is_trading_day(Market.KR, day):
+            moment = _kst(day, 16)
+            rows.append({
+                "entity_id": "KR:A", "valid_from": moment, "observed_at": moment, "source": "test",
+                "market": "KR", "open": 1_000.0, "high": 1_000.0, "low": 1_000.0,
+                "close": 1_000.0, "volume": 1e6, "value": 1e9, "adj_factor": None,
+            })
+        day += timedelta(days=1)
+    store.append("prices", rows, ingest_run_id="p-long-holiday")
+    return store, session_day, holiday, first, second
+
+
+def _session(store, session_day: date, clock_at: datetime, broker: Broker):  # type: ignore[no-untyped-def]
+    return pipeline.run(
+        store, ReplayClock(clock_at), as_of=_kst(session_day, 16), market="KR",
+        targets=[Target("KR:A", weight=0.10, price=1_000.0, adv_value=1e9)],
+        holdings={}, equity=10_000_000.0, broker=broker,
+    )
+
+
+def test_새_세션이_있으면_휴장_거부를_다시_내지_않는다(long_holiday) -> None:
+    """세션일·휴장일 거부 뒤 첫 거래일에 **새 세션**이 목표를 다시 정했다 → 옛 세션의 휴장 거부 조각은
+    첫 거래일에도 그다음 날에도 release_slices 가 고르지 않고, 옛 세션을 다시 돌려도 rc 대상이 없다."""
+    from tools.release_slices import _planned_rows
+
+    store, session_day, holiday, first, second = long_holiday
+    old = _session(store, session_day, _kst(holiday, 8, 40), Broker(reject=HOLIDAY))
+    assert old.planned and all(not ack.accepted for ack in old.acks)
+    _session(store, first, _kst(first, 8, 40), Broker())  # 새 세션
+    old_id = session_id(as_of=_kst(session_day, 16), market="KR")
+
+    for day in (first, second):
+        rows = _planned_rows(store, as_of=_kst(day, 10), session_id=old_id, market="KR")
+        assert rows.empty or not set(rows["status"]) & {"rejected"}
+
+    broker = Broker()
+    again = _session(store, session_day, _kst(second, 8, 40), broker)
+    assert broker.submitted == []
+    assert again.unsent == ()  # rc 0 — 이미 새 세션이 대체했다
+    assert again.stale_holiday
+
+
+def test_새_세션이_없으면_첫_거래일에_한_번만_다시_낸다(long_holiday) -> None:
+    from tools.release_slices import _planned_rows
+
+    store, session_day, holiday, first, second = long_holiday
+    old = _session(store, session_day, _kst(holiday, 8, 40), Broker(reject=HOLIDAY))
+    old_id = session_id(as_of=_kst(session_day, 16), market="KR")
+    # 휴장일 release_slices 는 나머지 조각도 거부당한다고 치고, 전부 거부 상태로 만든다.
+    rest = [item for item in old.planned if item.slice_seq > 0]
+    pipeline.submit_orders(
+        store, ReplayClock(_kst(holiday, 10)), Broker(reject=HOLIDAY),
+        planned=rest, as_of=_kst(holiday, 10), market="KR",
+    )
+
+    # 휴장일 당일엔 다시 고르지 않는다.
+    same_day = _planned_rows(store, as_of=_kst(holiday, 13), session_id=old_id, market="KR")
+    assert same_day.empty
+    picked = _planned_rows(store, as_of=_kst(first, 10), session_id=old_id, market="KR")
+    assert set(picked["slice_seq"]) == {item.slice_seq for item in old.planned}
+
+    broker = Broker()
+    pipeline.submit_orders(
+        store, ReplayClock(_kst(first, 10)), broker,
+        planned=list(old.planned), as_of=_kst(first, 10), market="KR",
+    )
+    assert sorted(broker.submitted) == sorted(item.order_id for item in old.planned)  # 한 번씩
+    pipeline.submit_orders(
+        store, ReplayClock(_kst(first, 11)), broker,
+        planned=list(old.planned), as_of=_kst(first, 11), market="KR",
+    )
+    assert len(broker.submitted) == len(old.planned)
+    assert _planned_rows(store, as_of=_kst(second, 10), session_id=old_id, market="KR").empty
+
+
+def test_첫_거래일을_넘긴_휴장_거부는_낡았다(long_holiday) -> None:
+    store, session_day, holiday, first, second = long_holiday
+    _session(store, session_day, _kst(holiday, 8, 40), Broker(reject=HOLIDAY))
+    broker = Broker()
+    again = _session(store, session_day, _kst(second, 8, 40), broker)
+
+    assert broker.submitted == []
+    assert again.unsent == ()
+    assert again.stale_holiday

@@ -34,7 +34,11 @@ from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.executor import orders as orders_module  # noqa: E402
 from quant_rl_trading.executor import plans as execution_plans  # noqa: E402
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams  # noqa: E402
-from quant_rl_trading.executor.pipeline import holiday_retry_due, submit_orders  # noqa: E402
+from quant_rl_trading.executor.pipeline import (  # noqa: E402
+    holiday_retry_due,
+    latest_session,
+    submit_orders,
+)
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
 from quant_rl_trading.schemas.order import Order, Side  # noqa: E402
 from quant_rl_trading.settings import load_env  # noqa: E402
@@ -66,9 +70,14 @@ def _planned_rows(store: Store, *, as_of: datetime, session_id: str, market: str
     )
     waiting = frame["status"].isin({STATUS_PLANNED, "reserved"})
     # **휴장일 거부로 끝난 조각도 다시 낼 차례다**(2026-09-28). 9/24 추석 거부 70건이 "거부 확정" 으로 남아 다음
-    # 거래일 재조정에서 안 나갔다 — 거부된 현지 날짜보다 뒤인 날에만(pipeline.holiday_retry_due).
+    # 거래일 재조정에서 안 나갔다 — 거부일 뒤 첫 거래일에, 이 세션이 최신 세션일 때만(pipeline.holiday_retry_due).
+    # 더 새 세션이 목표를 다시 정했으면 낡은 목표다 — 내지 않는다.
+    newest = latest_session(store, as_of=as_of, market=market)
     retry = frame.apply(
-        lambda row: holiday_retry_due(row.to_dict(), now=as_of, market=market), axis=1
+        lambda row: holiday_retry_due(
+            row.to_dict(), now=as_of, market=market, latest_session=newest
+        ),
+        axis=1,
     ).astype(bool)
     return frame[waiting | retry]
 

@@ -136,9 +136,22 @@ def check_order_fail_rate(store: Store, as_of: datetime, market: str) -> Check:
             name, "미측정",
             [f"주문 {len(orders)}건이 전부 paper — 실계좌 주문이 없다"],
         )
-    failed = live[live["status"].isin(["rejected", "failed", "error"])]
-    rate = len(failed) / len(live)
-    evidence = [f"실계좌 주문 {len(live)}건 · 실패 {len(failed)}건 = {rate:.2%} (상한 {cap:.1%})"]
+    # **휴장일 거부는 분모·분자에서 뺀다** (2026-09-28). `01410 영업일이 아닙니다` 는 주문 경로의 실패가 아니라
+    # 날짜다 — 대시보드 거부율(reject_counts)·재전송(holiday_retry_due)과 같은 판별 함수를 쓴다.
+    from quant_rl_trading.executor.pipeline import is_holiday_rejection
+
+    holiday = live.apply(lambda row: is_holiday_rejection(row.to_dict()), axis=1).astype(bool)
+    counted = live[~holiday]
+    if counted.empty:
+        return Check(
+            name, "미측정",
+            [f"실계좌 주문 {len(live)}건이 전부 휴장일 거부 — 실패율을 셀 표본이 없다"],
+        )
+    failed = counted[counted["status"].isin(["rejected", "failed", "error"])]
+    rate = len(failed) / len(counted)
+    evidence = [f"실계좌 주문 {len(counted)}건 · 실패 {len(failed)}건 = {rate:.2%} (상한 {cap:.1%})"]
+    if holiday.any():
+        evidence.append(f"휴장일 거부 {int(holiday.sum())}건은 뺐다")
     return Check(name, "PASS" if rate <= cap else "FAIL", evidence)
 
 
