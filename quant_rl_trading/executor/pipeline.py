@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 from quant_rl_trading.broker import Ack, BrokerError, PaperBroker, RejectedOrder
 from quant_rl_trading.executor import guards
 from quant_rl_trading.executor import orders as orders_module
+from quant_rl_trading.executor import plans as execution_plans
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams
 from quant_rl_trading.executor.sizing import (
     SizingParams,
@@ -231,6 +232,10 @@ def run(
 
     # 7. 분할 집행
     slice_params = SliceParams.from_store(store, as_of=as_of)
+    # E1 — 부품이 세션 전에 적은 팔을 **읽기만** 한다(plans.py). plan_source=rule(기본)이면 {} 라 전 종목 규칙.
+    arms = {} if liquidation_only else execution_plans.read_arms(store, as_of=as_of, market=market)
+    if arms:
+        result.notes.append(f"집행 계획 {sum(1 for item in sized if item.entity_id in arms)}종목 · 나머지 규칙")
     planned: list[PlannedOrder] = []
     for item in sized:
         planned.extend(
@@ -241,7 +246,10 @@ def run(
                 reference_price=item.price,
                 target_weight=item.target_weight,
                 session=session,
-                params=slice_params,
+                params=execution_plans.order_params(
+                    slice_params, arms, entity_id=item.entity_id,
+                    market_order=liquidation_only and item.side is Side.SELL,
+                ),
                 # 시장가는 청산과 킬스위치 발동 때만.
                 market_order=liquidation_only and item.side is Side.SELL,
                 # 호가단위표를 가른다 — 안 넘기면 미장 주문이 원화 표로
@@ -275,7 +283,7 @@ def run(
     # 전송은 지금 시각에 해당하는 조각만 한다 — 나머지는 ``reserved`` 로 남아
     # ``tools/release_slices.py`` 가 시간이 되면 낸다. 세션 시각의 elapsed 는 0
     # 이므로 여기서는 0번 조각만 나간다(slice_interval_sec<=0 이면 전부).
-    now_due = orders_module.due_slices(approved, params=slice_params, elapsed_sec=0.0)
+    now_due = execution_plans.due_slices(approved, base=slice_params, arms=arms, elapsed_sec=0.0)
     if len(now_due) != len(approved):
         result.notes.append(
             f"조각 분할 전송 — 지금 {len(now_due)}건 · 나중에 {len(approved) - len(now_due)}건"

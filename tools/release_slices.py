@@ -32,6 +32,7 @@ from quant_rl_trading.broker import factory as broker_factory  # noqa: E402
 from quant_rl_trading.collectors import market_hours  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market  # noqa: E402
 from quant_rl_trading.executor import orders as orders_module  # noqa: E402
+from quant_rl_trading.executor import plans as execution_plans  # noqa: E402
 from quant_rl_trading.executor.orders import PlannedOrder, SliceParams  # noqa: E402
 from quant_rl_trading.executor.pipeline import submit_orders  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
@@ -102,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
     session_id = f"{args.market}-{day.isoformat()}"
 
     params = SliceParams.from_store(store, as_of=now)
-    if int(params.slice_interval_sec) <= 0:
+    # E1 계획이 켜져 있으면 규칙 간격이 0 이어도 팔마다 간격이 있을 수 있다 — 조기 종료는 규칙일 때만.
+    if int(params.slice_interval_sec) <= 0 and execution_plans.plan_source(store, as_of=now) == execution_plans.RULE:
         print("slice_interval_sec <= 0 — 세션이 이미 전부 냈다. 할 일이 없다.")
         return 0
 
@@ -143,7 +145,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
 
-    due = orders_module.due_slices(planned, params=params, elapsed_sec=elapsed)
+    # **세션이 본 것과 같은 계획**을 읽는다 — 주문 행의 valid_from 이 그 세션의 as_of 다(executor/plans.py).
+    session_as_of = pd.Timestamp(pending["valid_from"].max()).to_pydatetime()
+    arms = execution_plans.read_arms(store, as_of=session_as_of, market=args.market)
+    due = execution_plans.due_slices(planned, base=params, arms=arms, elapsed_sec=elapsed)
     print(
         f"  기준점({anchor:%H:%M}) 뒤 {elapsed / 60:.0f}분 경과 · 간격 {params.slice_interval_sec}초"
         f" → 지금 낼 조각 {len(due)}건"

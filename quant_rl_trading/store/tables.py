@@ -678,6 +678,22 @@ _SPECS: dict[str, TableSpec] = {
             "`exposure.source` 가 그 부품일 때 **읽기만** 한다(불변식 6 — 집행 안에 AI 없음). entity_id = 시장, valid_from = 그 세션 기준 시각."
         ),
     ),
+    "execution_plans": TableSpec(
+        name="execution_plans",
+        columns={
+            "market": pa.string(),
+            "source": pa.string(),      # 계획을 낸 부품(예: e1-bandit)
+            "arm": pa.string(),         # executor/plans.py ARMS 의 이름(4x60·2x30·1x0·8x30)
+            "propensity": pa.float64(), # 그 팔을 고른 확률 — 오프폴리시 평가용, 집행기는 안 읽는다
+            "detail": pa.string(),      # 문맥(JSON) — 설명용, 집행기는 안 읽는다
+        },
+        natural_key=("entity_id", "valid_from", "source"),
+        observation_lag_days=1,
+        doc=(
+            "E1 집행 밴딧의 종목별 집행 계획(docs/design/execution-safety.md 'E1 집행 계획 계약'). 부품이 **세션 전에** 적고, "
+            "executor 는 `execution.plan_source` 가 그 부품일 때 **읽기만** 한다(불변식 6). entity_id = 종목, valid_from = 그 세션 기준 시각."
+        ),
+    ),
     "instrument_types": TableSpec(
         name="instrument_types",
         columns={
@@ -792,6 +808,42 @@ _SPECS: dict[str, TableSpec] = {
             "DART 단일판매ㆍ공급계약 체결·해지 원문에서 읽은 계약금액·최근매출액·매출액 대비 비율. 해지는 kind='termination' "
             "이고 금액은 해지금액이다(부호를 붙이지 않는다 — 방향은 kind 가 말한다). valid_from·observed_at 은 원 공시의 값을 "
             "그대로 옮긴다. 6차 G13 의 입력."
+        ),
+    ),
+    # LLM 공시 정보 추출 — 시행 L1(docs/design/ai-full-stack.md §4, 2026-09-28 초안). 원문 한 건 → 고정 스키마 사건 하나.
+    # **observed_at 은 추출 시각이다** — prelim_earnings·pl_change·supply_contracts(원 공시 시각을 옮긴다)와 반대다. 파싱은 계산이지만 LLM 추출은 그 모델이
+    # **그때 가진 지식**의 함수라, 과거 공시를 오늘 추출하면 "뒤에 어떻게 됐는지" 가 섞일 수 있다. 추출 시각을 달면 과거
+    # as_of 조회에 백필분이 안 잡힌다(누수 방지 — tests/collectors/test_llm_filing_events.py 가 고정한다).
+    "filing_events": TableSpec(
+        name="filing_events",
+        columns={
+            "market": pa.string(),
+            "doc_id": pa.string(),
+            "doc_type": pa.string(),         # documents 의 분류 그대로
+            "status": pa.string(),           # ok | failed(스키마 검증 2회 실패) | too_long(부르지 않음)
+            "event_type": pa.string(),       # 열거 — llm_filing_events.EVENT_TYPES
+            "direction": pa.int32(),         # −1 / 0 / +1 (status≠ok 면 null)
+            "magnitude": pa.float64(),       # 원문이 적은 크기 — 단위는 magnitude_unit
+            "magnitude_unit": pa.string(),   # pct_of_sales | pct_of_shares | pct_change | krw | none
+            "vs_prior": pa.string(),         # better | worse | similar | none — 원문 안의 비교 기준 대비
+            "confidence": pa.float64(),      # 0~1, 모델이 스스로 매긴 값 — 가중에 쓰지 않는다
+            "evidence": pa.string(),         # 원문 인용(코드가 원문 안에 있는지 검사했다)
+            "error": pa.string(),            # 실패 사유(검증 메시지)
+            "model": pa.string(),
+            "schema_version": pa.string(),
+            "prompt_hash": pa.string(),      # 모델·온도·프롬프트·스키마의 지문 — 바뀌면 다른 추출이다
+            "input_hash": pa.string(),       # 원문 평문의 지문
+            "input_chars": pa.int32(),
+        },
+        # 같은 공시를 다른 프롬프트로 다시 뽑으면 **다른 사실**이다(덮지 않는다).
+        natural_key=("entity_id", "valid_from", "doc_id", "prompt_hash"),
+        # 추출은 접수 뒤에만 있다(observed_at ≥ valid_from). 늦은 쪽(백필)은 하한 위라 안 잘린다.
+        observation_lag_days=1,
+        doc=(
+            "DART 공시 원문 한 건을 LLM(온도 0·고정 프롬프트·고정 스키마)으로 읽은 사건 하나 — event_type·direction·magnitude·"
+            "vs_prior·confidence·evidence. valid_from = 공시 접수일(documents 값), **observed_at = 추출 시각**(LLM 이 그때 알았다; "
+            "공시 목록 관측 시각이 아니다). 과거 공시의 백필은 관측 시각이 오늘이라 과거 as_of 조회에 안 잡힌다 — 판정은 전방만"
+            "(docs/protocols/llm-filing-events-2026-10.md). 불변식 8: 입력 피처일 뿐 보상·판정 식에 들어가지 않는다."
         ),
     ),
     # 종목별 프로그램매매(국장) — 사용자 제안(2026-09-20). **과거 이력을 주는 소스가 없다**: LS t1637 은 당일

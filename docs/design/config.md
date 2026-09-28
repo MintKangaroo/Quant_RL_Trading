@@ -61,6 +61,7 @@ execution:
   max_slippage: 0.005
   slice_count: 4
   slice_interval_sec: 60
+  plan_source: rule          # E1 집행 계획을 읽을 부품. rule 이면 표를 안 읽는다. 샌드박스에서만 켠다 (execution-safety.md E1)
   retry_after_sec: 300
   max_retries: 3
   # 매도 대금이 예수금이 되기까지의 거래일. 국내 주식은 D+2.
@@ -121,6 +122,7 @@ llm:
   news_screen_model: haiku
   news_deep_model: sonnet
   review_model: sonnet
+  filing_events_monthly_budget_usd: 20   # 시행 L1 LLM 공시 추출만의 달 예산(2026-09-28) — 전체 예산 안에서 따로 멈춘다
 ```
 
 ### 구현이 추가한 섹션
