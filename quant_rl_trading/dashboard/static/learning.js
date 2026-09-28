@@ -649,7 +649,188 @@ async function renderFinalRound() {
   if (verdicts) renderFinalRoundVerdicts(verdicts, data);
 }
 
-runAll([renderKpis, renderGate, renderIcHistory, renderFinalRound, renderResearchLedger, renderOpenDiagnostics]);
+/* ② 지금 매매에 쓰이는 모델 — 흐름 단계 · 랭커 상태 · 병행 트랙.
+ *
+ * 설명 문구와 채택 기록은 서비스 상수(services/model_story.PIPELINE_STAGES) 한 곳에서 온다. 화면은
+ * 문구를 들지 않는다. 설정 값도 서비스가 store.config(as_of) 로 읽어 보낸다 — 여기서 숫자를 적지 않는다.
+ */
+function lsDocLink(base, doc, label) {
+  // 문서는 저장소 경로로만 보인다 — 화면에 바깥 출처를 두지 않는다(tests/invariants/test_dashboard_bans).
+  if (!doc) return "";
+  return `<span class="ls-doclink" title="${frEsc(doc)}">${label ? `${frEsc(label)} ` : ""}<span class="mono">${frEsc(doc)}</span></span>`;
+}
+
+function lsStage(stage, index, base) {
+  const settings = stage.settings.length
+    ? `<dl class="ls-set">${stage.settings.map((x) => `<div class="${x.found ? "" : "ls-missing"}">
+        <dt>${frEsc(x.label)}${x.market ? ` <span class="ls-mk">${frEsc(x.market)}</span>` : ""}</dt>
+        <dd title="${frEsc(x.key)}">${frEsc(x.display)}</dd></div>`).join("")}</dl>`
+    : "";
+  const adopted = stage.adopted.length
+    ? `<ul class="ls-adopted">${stage.adopted.map((a) => `<li><span class="ls-when">${frEsc(a.date)}</span>
+        <strong>${frEsc(a.trial)}</strong> <span class="ls-adopt-note">${frEsc(a.note)}</span>
+        ${lsDocLink(base, a.doc)}</li>`).join("")}</ul>`
+    : "";
+  return `<li class="ls-stage" id="stage-${frEsc(stage.key)}">
+    <span class="ls-step">${index + 1}</span>
+    <div class="ls-stage-main">
+      <h4>${frEsc(stage.title)}</h4>
+      <p class="ls-plain">${frEsc(stage.plain)}</p>
+      ${adopted}
+      ${stage.detail ? `<details class="ls-more"><summary>왜 이렇게 하나</summary><p>${frEsc(stage.detail)}</p></details>` : ""}
+    </div>
+    <div class="ls-stage-set">${settings}</div>
+  </li>`;
+}
+
+function lsRanker(r, base) {
+  const threshold = r.threshold;
+  const rows = (r.markets || []).map((m) => {
+    const pass = threshold != null && m.ic != null ? m.ic >= threshold : null;
+    const hist = (m.history || []).map((h) => h.ic);
+    return `<tr>
+      <td><strong>${frEsc(m.market)}</strong></td>
+      <td class="num"><span class="${pass === false ? "weak" : pass ? "good" : ""}">${m.ic == null ? "—" : m.ic.toFixed(3)}</span>
+        ${m.ic_t == null ? "" : `<span class="sub">t ${m.ic_t.toFixed(1)}</span>`}</td>
+      <td class="ls-spark-cell">${spark(hist, COLOR.muted)}</td>
+      <td class="num">${m.weight == null ? "—" : m.weight.toFixed(2)}</td>
+      <td class="num">${frEsc(String(m.measured_at || "").slice(0, 10)) || "—"}</td></tr>`;
+  }).join("");
+  const table = rows
+    ? `<table class="dense ls-ranker-table"><colgroup><col class="c-ls-mk"><col class="c-ls-ic"><col class="c-ls-trend"><col class="c-ls-w"><col class="c-ls-at"></colgroup>
+        <thead><tr><th>시장</th><th class="num">적중도(IC)</th><th>추이</th><th class="num">가중치</th><th class="num">측정일</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+       <p class="ls-hint">적중도(IC) = 랭커 점수 순위와 5일 뒤 수익 순위가 얼마나 맞았나(0 = 아무 관계 없음). 합격선
+         ${threshold == null ? "설정 없음" : threshold} 을 넘어야 매매에 쓰인다. 매주 토요일 자동으로 잰다.</p>`
+    : `<p class="empty">저장된 랭커 적중도 측정이 없다 — 모름.</p>`;
+  const model = r.model;
+  const modelBlock = model
+    ? `<dl class="ls-set ls-model">
+        <div><dt>지금 쓰는 모델 파일</dt><dd>${frEsc(model.file)}</dd></div>
+        <div><dt>학습 자료 끝</dt><dd>${frEsc(model.trained_through)}</dd></div>
+        <div><dt>매매에 쓰기 시작</dt><dd>${frEsc(model.usable_from)}</dd></div>
+        <div><dt>학습 행 수</dt><dd>${num(model.rows)}</dd></div>
+      </dl>
+      <p class="ls-hint">홀드아웃 금고(2026-07-01 이후)를 아무도 안 본 기간으로 지키려고 그 뒤 자료로는 다시 학습하지 않는다 — 11월 금고 개봉 뒤 재학습.</p>
+      ${model.gain.length ? `<div class="ls-gain" aria-label="입력별 기여">${model.gain.map((g) => `<div class="ls-gain-row">
+          <span>${frEsc(g.feature)}</span><span class="ls-gain-track"><i style="width:${(g.share * 100).toFixed(1)}%"></i></span>
+          <span class="num">${(g.share * 100).toFixed(0)}%</span></div>`).join("")}
+        <p class="ls-hint">모델이 어느 입력에 기대는지(나눔 기여, gain). risk = 위험 점수 · event = 공시·이벤트 · is_us = 미장 여부.</p></div>` : ""}`
+    : `<p class="empty">모델 파일을 찾지 못했다 — 모름.</p>`;
+  return `${table}${modelBlock}`;
+}
+
+function lsTracks(tracks, base) {
+  if (!tracks.length) return `<p class="empty">이 시점에 돌던 병행 장부가 없다.</p>`;
+  return `<ul class="ls-tracks">${tracks.map((t) => `<li>
+      <div class="ls-track-head"><strong>${frEsc(t.name)}</strong><span class="ls-when">${frEsc(t.started)}~</span></div>
+      <p>${frEsc(t.compares)}</p>
+      <p class="ls-hint"><span class="mono">${frEsc(t.ledger)}</span> ${lsDocLink(base, t.doc)}</p></li>`).join("")}</ul>`;
+}
+
+async function renderLiveModels() {
+  const flow = document.getElementById("live-flow");
+  if (!flow) return;
+  const body = await fetchJson("learning/live-models");
+  const data = body.data;
+  const base = "";
+  // 흐름 띠: 단계 이름만 한 줄. 누르면 그 단계 설명으로 간다.
+  const strip = `<ol class="ls-strip" aria-label="매매 흐름 요약">${data.stages.map((st, i) =>
+    `<li><a href="#stage-${frEsc(st.key)}"><span class="ls-step">${i + 1}</span>${frEsc(st.title)}</a></li>`).join("")}</ol>`;
+  flow.innerHTML = `${strip}<ol class="ls-stages">${data.stages.map((st, i) => lsStage(st, i, base)).join("")}</ol>`;
+  document.getElementById("live-ranker").innerHTML = lsRanker(data.ranker || {}, base);
+  document.getElementById("live-tracks").innerHTML = lsTracks(data.tracks || [], base);
+}
+
+/* ③ 과거 학습 내역 — 카탈로그(사람이 옮겨 적은 요약) + 시행 대장. 판정은 원문 그대로다.
+ * 분류 필터 상태는 URL 쿼리(?cat=)에 둔다 — 브라우저 저장소를 쓰지 않는다(금지 사항). 펼친 줄은
+ * 이 페이지가 떠 있는 동안만 기억한다(자동 갱신 때 접히지 않게). */
+const LS_RESULT = { 채택: "adopt", 기각: "reject", 보류: "hold", 진행중: "live" };
+const lsOpen = new Set();
+let lsHistory = null;
+
+function lsCategory() {
+  const value = new URLSearchParams(window.location.search).get("cat");
+  return value || "전체";
+}
+
+function lsSetCategory(value) {
+  const url = new URL(window.location.href);
+  if (value === "전체") url.searchParams.delete("cat"); else url.searchParams.set("cat", value);
+  window.history.replaceState(null, "", url);
+  lsDrawHistory();
+}
+
+function lsResultBadge(result, source) {
+  if (!result) return `<span class="ls-badge ls-r-ledger">${source === "ledger_only" ? "대장 기록" : "결과 없음"}</span>`;
+  return `<span class="ls-badge ls-r-${LS_RESULT[result] || "other"}">${frEsc(result)}</span>`;
+}
+
+function lsTrialRow(t, base) {
+  const key = `${t.source}:${t.id}:${t.date}`;
+  const whatText = t.what || (t.source === "ledger_only" ? "대장에만 있음 — 카탈로그 요약 없음" : "");
+  const ledger = (t.ledger || []).map((l) => `<li><span class="mono">${frEsc(l.entity_id)}</span>
+      <span class="ls-when">${frEsc(String(l.at).slice(0, 10))}</span><div>${frEsc(l.detail)}</div></li>`).join("");
+  return `<details class="ls-trial" data-key="${frEsc(key)}" ${lsOpen.has(key) ? "open" : ""}>
+    <summary>
+      <span class="ls-when">${frEsc(t.date)}</span>
+      <span class="ls-tid" title="${frEsc(t.id)}">${frEsc(t.id)}</span>
+      <span class="ls-cat">${frEsc(t.category)}</span>
+      <span class="ls-what"><strong>${frEsc(t.title || "")}</strong>${t.title && whatText ? " — " : ""}${frEsc(whatText)}</span>
+      ${lsResultBadge(t.result, t.source)}
+    </summary>
+    <div class="ls-trial-body">
+      ${t.why ? `<p><span class="ls-k">${t.result === "채택" ? "채택 이유" : t.result === "기각" ? "안 된 이유" : "내용"}</span>${frEsc(t.why)}</p>` : ""}
+      ${ledger ? `<p class="ls-k">시행 대장에 적힌 줄</p><ul class="ls-ledger">${ledger}</ul>` : ""}
+      ${t.doc ? `<p class="ls-doc">근거 ${lsDocLink(base, t.doc)}</p>` : ""}
+    </div>
+  </details>`;
+}
+
+function lsDrawHistory() {
+  const data = lsHistory;
+  const list = document.getElementById("history-list");
+  if (!data || !list) return;
+  const current = lsCategory();
+  const cats = ["전체", ...data.categories, ...(data.summary.by_category["기타"] ? ["기타"] : [])];
+  document.getElementById("history-filter").innerHTML = cats.map((c) => {
+    const n = c === "전체" ? data.summary.total : (data.summary.by_category[c] || 0);
+    return `<button type="button" class="ls-chip" data-cat="${frEsc(c)}" aria-pressed="${c === current}">${frEsc(c)} <span class="num">${n}</span></button>`;
+  }).join("");
+  for (const button of document.getElementById("history-filter").querySelectorAll("button")) {
+    button.addEventListener("click", () => lsSetCategory(button.dataset.cat));
+  }
+  const rows = data.trials.filter((t) => current === "전체" || t.category === current);
+  list.innerHTML = rows.length
+    ? rows.map((t) => lsTrialRow(t, "")).join("")
+    : `<p class="empty">이 분류에 기록이 없다.</p>`;
+  for (const node of list.querySelectorAll("details.ls-trial")) {
+    node.addEventListener("toggle", () => {
+      if (node.open) lsOpen.add(node.dataset.key); else lsOpen.delete(node.dataset.key);
+    });
+  }
+}
+
+async function renderTrialHistory() {
+  const summary = document.getElementById("history-summary");
+  if (!summary) return;
+  const body = await fetchJson("learning/trial-history");
+  const data = body.data;
+  lsHistory = data;
+  const r = data.summary.by_result;
+  summary.innerHTML = `<p class="ls-count"><strong>총 ${data.summary.total}건</strong>
+    · <span class="ls-r-adopt">채택 ${r["채택"] || 0}</span> · 기각 ${r["기각"] || 0} · 보류 ${r["보류"] || 0} · 진행중 ${r["진행중"] || 0}
+    <span class="sub">요약 ${data.summary.catalog}건 + 대장에만 있는 줄 ${data.summary.ledger_only}건</span></p>
+    ${data.problems.length ? `<p class="kpi-note">카탈로그에서 읽지 못한 줄 ${data.problems.length}개 — ${frEsc(data.problems.slice(0, 3).join(" · "))}</p>` : ""}`;
+  const lessons = data.lessons || [];
+  document.getElementById("history-lessons").innerHTML = lessons.length
+    ? `<div class="ls-lessons"><h3>배운 것 세 줄</h3><ol>${lessons.map((l) =>
+        `<li>${frEsc(l.text)} ${lsDocLink("", l.source)}</li>`).join("")}</ol></div>`
+    : "";
+  lsDrawHistory();
+}
+
+runAll([renderFinalRound, renderLiveModels, renderTrialHistory, renderKpis, renderGate, renderIcHistory, renderResearchLedger, renderOpenDiagnostics]);
 
 const diagnostics = document.getElementById("rl-diagnostics");
 async function renderOpenDiagnostics() {

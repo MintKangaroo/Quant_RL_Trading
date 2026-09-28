@@ -154,3 +154,115 @@
   .fr-chart { height: 160px; }
   .fr-chart-sub { height: 90px; }
 }
+
+/* 학습 탭 세 구역(2026-09-29 사용자 요청): ① 지금 도는 학습 ② 지금 매매에 쓰이는 모델 ③ 과거 학습 내역.
+   사용자가 비전문가라 **한 줄 쉬운 말(.ls-lede·.ls-plain)은 상시 보이고**, 긴 설명은 <details> 뒤에 둔다 —
+   p.note 는 [설명] 토글로 숨는 클래스라 쓰지 않는다. 클래스는 모두 ls- 접두어(col class 충돌 사고, 2026-09). */
+.ls-jump { display: flex; flex-wrap: wrap; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.ls-jump a { color: var(--muted); text-decoration: none; font-size: 12px; padding: 8px 14px 8px 0; margin-right: 14px; }
+.ls-jump a:hover { color: var(--text); }
+.ls-zone { padding: 6px 0 14px; border-top: 1px solid var(--rule); margin-top: 14px; min-width: 0; scroll-margin-top: 70px; }
+.ls-zone-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0 4px; }
+.ls-zone-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.02em; }
+.ls-zone-head .sub { font-size: 11px; color: var(--muted); }
+.ls-lede { margin: 2px 0 8px; color: var(--text); font-size: 13px; line-height: 1.6; max-width: 88ch; }
+.ls-lede strong, .ls-points strong { font-weight: 600; }
+.ls-why { margin: 0 0 6px; }
+.ls-points { margin: 0 0 6px; padding-left: 18px; color: var(--text); font-size: 12.5px; line-height: 1.6; max-width: 92ch; }
+.ls-points li { margin: 3px 0; }
+.ls-doc, .ls-hint { color: var(--dim); font-size: 11px; line-height: 1.5; margin: 4px 0; overflow-wrap: anywhere; }
+.ls-doclink { color: var(--dim); overflow-wrap: anywhere; }
+.ls-doclink { font-size: 11px; margin-left: 4px; }
+.model-control .ls-zone h3 { margin: 10px 0 6px; font-size: 12px; font-weight: 600; color: var(--text); }
+.model-control .ls-zone h3 .sub { font-weight: 400; font-size: 11px; margin-left: 6px; }
+.ls-step { display: inline-block; min-width: 18px; font: 10.5px "IBM Plex Mono", monospace; color: var(--accent); }
+.ls-strip { list-style: none; display: flex; flex-wrap: wrap; margin: 4px 0 8px; padding: 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.ls-strip li { position: relative; padding: 6px 16px 6px 0; }
+.ls-strip li:not(:last-child)::after { content: ""; position: absolute; right: 6px; top: 50%; width: 5px; height: 5px; border-top: 1px solid var(--dim); border-right: 1px solid var(--dim); transform: translateY(-50%) rotate(45deg); }
+.ls-strip a { color: var(--text); text-decoration: none; font-size: 12px; white-space: nowrap; }
+.ls-strip a:hover { text-decoration: underline; text-decoration-color: var(--rule); }
+.ls-stages { list-style: none; margin: 0; padding: 0; }
+.ls-stage { display: grid; grid-template-columns: 24px minmax(0, 1.25fr) minmax(0, 1fr); gap: 4px 20px; padding: 10px 0; border-bottom: 1px solid var(--border); scroll-margin-top: 80px; }
+.ls-stage:last-child { border-bottom: 0; }
+.ls-stage > .ls-step { padding-top: 2px; }
+.ls-stage h4 { margin: 0; font-size: 13.5px; font-weight: 600; }
+.ls-plain { margin: 3px 0 4px; color: var(--text); font-size: 12.5px; line-height: 1.55; }
+.ls-adopted { list-style: none; margin: 4px 0 0; padding: 0; }
+.ls-adopted li { font-size: 11.5px; color: var(--muted); line-height: 1.5; padding: 1px 0; }
+.ls-adopted strong { color: var(--text); font-weight: 500; margin-right: 2px; }
+.ls-when { font: 11px "IBM Plex Mono", monospace; color: var(--dim); font-variant-numeric: tabular-nums; margin-right: 6px; white-space: nowrap; }
+.ls-more { margin-top: 4px; }
+.ls-more summary { cursor: pointer; color: var(--muted); font-size: 11.5px; }
+.ls-more p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.ls-set { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin: 0; }
+.ls-set > div { min-width: 0; padding: 3px 10px 5px 0; border-bottom: 1px solid var(--border); }
+.ls-set dt { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.ls-set dd { margin: 2px 0 0; font: 500 13px "IBM Plex Mono", monospace; font-variant-numeric: tabular-nums; color: var(--text); overflow-wrap: anywhere; }
+.ls-set .ls-missing dd { color: var(--dim); font: 12px "Pretendard", sans-serif; }
+.ls-mk { font: 9.5px "IBM Plex Mono", monospace; color: var(--dim); border: 1px solid var(--border); padding: 0 3px; border-radius: 2px; }
+.ls-live-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 28px; margin-top: 6px; border-top: 1px solid var(--rule); }
+.ls-block { min-width: 0; }
+.ls-ranker-table { width: 100%; table-layout: fixed; }
+.ls-ranker-table col.c-ls-mk { width: 44px; }
+.ls-ranker-table col.c-ls-trend { width: 26%; }
+.ls-ranker-table col.c-ls-w { width: 58px; }
+.ls-ranker-table col.c-ls-at { width: 86px; }
+.ls-ranker-table .sub { font-size: 10px; margin-left: 4px; }
+.ls-spark-cell .kpi-spark { display: block; position: static; width: 100%; height: 22px; opacity: .8; }
+.ls-spark-cell svg { width: 100%; height: 22px; display: block; }
+.ls-model { margin-top: 8px; }
+.ls-gain { margin: 8px 0 0; }
+.ls-gain-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) 36px; align-items: center; gap: 8px; font-size: 11.5px; padding: 1px 0; }
+.ls-gain-row > span:first-child { font-family: "IBM Plex Mono", monospace; color: var(--muted); }
+.ls-gain-track { height: 6px; background: #151515; display: block; }
+.ls-gain-track i { display: block; height: 100%; background: var(--accent); opacity: .75; }
+.ls-tracks { list-style: none; margin: 0; padding: 0; }
+.ls-tracks li { padding: 7px 0; border-bottom: 1px solid var(--border); }
+.ls-tracks li:last-child { border-bottom: 0; }
+.ls-tracks p { margin: 2px 0 0; font-size: 12px; color: var(--text); line-height: 1.5; }
+.ls-tracks p.ls-hint { color: var(--dim); font-size: 11px; }
+.ls-track-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ls-track-head strong { font-size: 12.5px; font-weight: 600; }
+.ls-count { margin: 4px 0; font-size: 13px; color: var(--text); }
+.ls-count .sub { font-size: 11px; margin-left: 8px; }
+.ls-lessons { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 2px 0 6px; margin: 6px 0 8px; }
+.model-control .ls-lessons h3 { margin: 6px 0 2px; }
+.ls-lessons ol { margin: 0; padding-left: 20px; font-size: 12.5px; line-height: 1.6; color: var(--text); max-width: 96ch; }
+.ls-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.ls-chip { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 2px; padding: 5px 10px; font-size: 12px; cursor: pointer; min-height: 32px; }
+.ls-chip .num { color: var(--dim); margin-left: 3px; font-size: 11px; }
+.ls-chip[aria-pressed="true"] { color: var(--text); border-color: var(--accent); }
+.ls-trial { border-bottom: 1px solid var(--border); }
+.ls-trial > summary { display: grid; grid-template-columns: 84px 72px 40px minmax(0, 1fr) auto; align-items: baseline; gap: 4px 10px; padding: 7px 0; cursor: pointer; list-style: none; font-size: 12.5px; }
+.ls-trial > summary::-webkit-details-marker { display: none; }
+.ls-trial > summary:hover { background: #0d0d0d; }
+.ls-tid { font: 600 12.5px "IBM Plex Mono", monospace; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-cat { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.ls-what { min-width: 0; color: var(--text); line-height: 1.45; }
+.ls-what strong { font-weight: 600; }
+.ls-badge { font-size: 11px; font-weight: 500; padding: 1px 7px; border: 1px solid currentColor; border-radius: 2px; white-space: nowrap; justify-self: end; }
+.ls-r-adopt { color: var(--ok); }
+.ls-badge.ls-r-reject, .ls-badge.ls-r-other, .ls-badge.ls-r-ledger { color: var(--muted); }
+.ls-badge.ls-r-ledger { border-style: dashed; }
+.ls-badge.ls-r-hold { color: var(--warn); }
+.ls-badge.ls-r-live { color: var(--accent); }
+.ls-trial-body { padding: 2px 0 10px 110px; font-size: 12.5px; line-height: 1.6; color: var(--text); max-width: 110ch; }
+.ls-trial-body p { margin: 3px 0; }
+.ls-k { display: inline-block; color: var(--muted); font-size: 11px; margin-right: 8px; }
+.ls-ledger { list-style: none; margin: 2px 0; padding: 0; font-size: 11.5px; color: var(--muted); }
+.ls-ledger li { padding: 3px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .ls-stage { grid-template-columns: 24px minmax(0, 1fr); }
+  .ls-stage-set { grid-column: 2; }
+  .ls-live-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .ls-jump a { padding: 8px 10px 8px 0; margin-right: 6px; font-size: 11.5px; }
+  .ls-zone-head h2 { font-size: 15px; }
+  .ls-set { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ls-trial > summary { grid-template-columns: auto minmax(0, 150px) minmax(0, 1fr) auto; }
+  .ls-trial > summary .ls-what { grid-column: 1 / -1; grid-row: 2; }
+  .ls-trial-body { padding-left: 0; }
+  .ls-ranker-table col.c-ls-at { width: 70px; }
+  .ls-ranker-table col.c-ls-trend { width: 22%; }
+}

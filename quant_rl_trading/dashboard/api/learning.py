@@ -16,6 +16,7 @@ from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.dashboard.api.common import envelope, research_store, scope, store
 from quant_rl_trading.dashboard.services import learning as service
+from quant_rl_trading.dashboard.services import model_story as service_story
 
 bp = Blueprint("learning_api", __name__, url_prefix="/api/learning")
 
@@ -120,6 +121,29 @@ def final_round() -> Any:
         service.final_round_progress(research_store(), as_of=current.as_of, lookback=current.lookback,
                                      config_store=store()),
     )
+
+
+@bp.get("/live-models")
+def live_models() -> Any:
+    """② 지금 매매에 쓰이는 모델 — 흐름 단계(설명·채택 기록·설정 실제 값) · 랭커 IC·모델 파일 · 병행 트랙.
+
+    설정·가중치는 화면의 주 장부에서(다른 패널과 같은 곳), 모델 파일은 연구 창고 옆 `models/ranker` 에서
+    `usable_from ≤ as_of` 로 거른다 — 실전 랭커가 모델을 찾는 규칙과 같다."""
+    from pathlib import Path
+
+    current = scope()
+    return envelope(
+        current,
+        service_story.live_models(store(), as_of=current.as_of, lookback=current.lookback,
+                                  models_root=Path(research_store().root)),
+    )
+
+
+@bp.get("/trial-history")
+def trial_history() -> Any:
+    """③ 과거 학습 내역 — 사람이 쓴 카탈로그(docs/trials-catalog.yaml, 날짜 ≤ as_of) + 연구 창고의 시행 대장."""
+    current = scope()
+    return envelope(current, service_story.trial_history(research_store(), as_of=current.as_of))
 
 
 @bp.get("/research-jobs")

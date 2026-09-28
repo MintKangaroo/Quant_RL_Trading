@@ -1,0 +1,656 @@
+# 시행 카탈로그 — 사람이 쓴 요약. 판정은 원문 문서에서 옮긴 것이다(새로 내리지 않는다).
+# 대시보드 학습 탭 ③ '과거 학습 내역' 의 원천. date 는 판정(결과)이 난 날 — as_of 로 거른다.
+lessons:
+  - text: "배우는 목적과 채점하는 기준이 같아야 학습이 이긴다. 순위로 채점하면서 수익률을 가르친 랭커는 졌고, 목적을 순위로 바꾸자 이겼다."
+    source: docs/rl-postmortem.md
+    date: "2026-09-04"
+  - text: "같은 재료는 같은 답을 낸다. 모델·목적·입력을 바꿔도 점수 정확도는 거의 그대로였다 — 병목은 알고리즘이 아니라 정보다."
+    source: docs/trials-postmortem.md
+    date: "2026-09-22"
+  - text: "매매 비용은 알파의 일부가 아니라 대부분이다. 랭커 상위 24 는 비용 전 연 +31.7% 가 비용 후 +5.2% 였다 — 덜 갈아타는 것이 가장 큰 개선이었다."
+    source: docs/rl-postmortem.md
+    date: "2026-09-04"
+trials:
+  # ── 강화학습(RL) 회차 — docs/rl-postmortem.md ─────────────────────────
+  - id: "카나리"
+    date: "2026-08-23"
+    category: RL
+    title: "오라클 카나리 배관 점검"
+    what: "정답(미래 수익)을 몰래 보여 주고 학습 장치가 그것을 배우는지 확인했다."
+    result: 보류
+    why: "배관은 정상이었다. 다만 합격 기준(기여도 10배)이 돈 버는 것과 무관한 것을 쟀고, 필요한 학습량의 0.7% 만 주고 '못 배운다' 고 오판했다 — 기준을 필요조건 셋으로 바꿨다."
+    doc: docs/rl-postmortem.md
+    ledger: ["retro-rl-canary"]
+  - id: "M4-1"
+    date: "2026-08-25"
+    category: RL
+    title: "배분 RL 1회차"
+    what: "규칙이 고른 24종목의 비중을 강화학습(PPO)으로 나눴다. 38.6시간 학습."
+    result: 기각
+    why: "보상이 학습 내내 −0.017 에서 안 움직였고, 정책은 현금으로 도망갔다(6.5% → 13.8%). 손익만 보상으로 주면 '덜 행동하기' 부터 배운다."
+    doc: docs/rl-postmortem.md
+  - id: "M4-2"
+    date: "2026-08-29"
+    category: RL
+    title: "배분 RL 2회차"
+    what: "1회차 결함을 고쳐 다시 학습. 첫 판(r5)은 관측값에 환율 원값 1,478 이 들어간 코드 결함으로 중단하고 고친 뒤 완주했다."
+    result: 기각
+    why: "학습 구간에선 균등가중을 이겼지만 안 본 구간(OOS)에선 졌다. 배운 것은 현금 타이밍뿐이었고 그것을 통째로 외운 것이었다."
+    doc: docs/rl-postmortem.md
+  - id: "M4-3"
+    date: "2026-09-01"
+    category: RL
+    title: "배분 RL 3회차 파일럿"
+    what: "현금 고정·보유 상태 출발·검증 구간으로 체크포인트 선택 — 외울 자유도를 뺀 설계."
+    result: 기각
+    why: "정책 결정의 95% 가 실제로 집행됐는데도 균등가중과 차이가 0 이었다. 상위 24 안에서 비중을 바꿔 얻을 알파가 없다 — 레버는 '얼마씩' 이 아니라 '무엇을' 이다."
+    doc: docs/rl-postmortem.md
+  - id: "E2E-베타"
+    date: "2026-09-02"
+    category: RL
+    title: "매매 전반 RL 베타"
+    what: "선정·비중·회전을 신경망 하나가 한 번에 정하게 했다(2,872종목 전체에 비중)."
+    result: 기각
+    why: "학습 구간에서 종목 하나를 외워 +360~680% 를 냈다(유효 종목 1). 안 본 구간의 점수 정확도(IC)는 fundamental 의 절반이었다."
+    doc: docs/protocols/e2e-rl-2026-09.md
+  - id: "M4-4"
+    date: "2026-09-04"
+    category: RL
+    title: "랭커 위 배분 RL 4회차"
+    what: "후보를 랭커로 바꾸고 보상 기준선을 후보 균등가중으로 맞춘 뒤 비중 배분을 다시 학습."
+    result: 기각
+    why: "파일럿에서 검증 우위가 마지막 셋 모두 음수(−0.00004·−0.00007·−0.00004)로 불합격. 3회차와 같은 그림이라 배분 RL 은 여기서 닫았다."
+    doc: docs/protocols/drl-round4-2026-09.md
+  - id: "M4-5"
+    date: "2026-09-04"
+    category: RL
+    title: "매매 전반 DRL 마지막"
+    what: "지난 실패마다 장치를 하나씩 넣고(비중 상한·잔차 정책·비용 반영 등) 매매 전반을 다시 학습."
+    result: 기각
+    why: "장치는 다 작동했지만 대조보다 연 −41%p(t −2.96), 낙폭도 더 깊었다. 학습 구간에서조차 못 올랐다 — 외운 게 아니라 배울 신호가 없었다."
+    doc: docs/protocols/e2e-drl-final-2026-09.md
+    ledger: ["e2e-drl-final-2026-09:M4-5"]
+
+  # ── 2026-08-27 선정·랭커 ─────────────────────────────────────────────
+  - id: "완충 48"
+    date: "2026-08-27"
+    category: 선정
+    title: "완충 구간(진입24·퇴출48)"
+    what: "상위 24 에 들면 사고, 48위 밖으로 밀려나야 판다 — 매일 전부 갈아타지 않게 여유를 뒀다."
+    result: 채택
+    why: "연 회전이 5.6회에서 1.3회로 줄었다."
+    doc: docs/protocols/selection-2026-08-27.md
+    ledger: ["selection-buffer-2026-08-27"]
+  - id: "섹터 중립"
+    date: "2026-08-27"
+    category: 선정
+    title: "섹터 중립화"
+    what: "점수를 업종(KSIC 24군) 안에서 따로 표준화해 업종 쏠림을 없앴다."
+    result: 기각
+    why: "섹터 중립화는 기각 — 채택 기준(점수 정확도 개선 t ≥ 2)을 못 넘었다."
+    doc: docs/protocols/selection-2026-08-27.md
+    ledger: ["selection-sector-neutral-2026-08-27"]
+  - id: "랭커A-0827"
+    date: "2026-08-27"
+    category: 랭커
+    title: "LightGBM 랭커 1차"
+    what: "피처 13개로 비선형 모델(LightGBM)이 종목 순위를 배우게 했다."
+    result: 기각
+    why: "점수 정확도(IC) −0.0006 대 fundamental +0.0769, 7구간 전부 열세. 학습창에서 강했던 피처가 다음 20세션엔 예측력 0 이었다."
+    doc: docs/protocols/ranker-2026-08-27.md
+    ledger: ["ranker-lgbm-2026-08-27"]
+  - id: "랭커B-0827"
+    date: "2026-08-27"
+    category: 랭커
+    title: "LightGBM 랭커 2차"
+    what: "재무 피처 7개만, 학습창을 늘리고 모델을 얕게 해서 다시."
+    result: 기각
+    why: "IC +0.018 대 fundamental +0.081. 같은 피처의 선형 결합도 +0.027 — 이 표본에선 데이터로 가중을 배우는 것 자체가 손으로 정한 부호보다 못했다."
+    doc: docs/protocols/ranker-2026-08-27b.md
+    ledger: ["ranker-lgbm-b-2026-08-27"]
+
+  # ── 8/29 ~ 9/3 재료 ────────────────────────────────────────────────
+  - id: "B"
+    date: "2026-08-29"
+    category: 재료
+    title: "event 신호 변형"
+    what: "공시 사건 점수에서 재무 점수와 겹치는 부분을 빼거나(B1), 사건 뒤 20세션만 쓰게(B2) 바꿨다."
+    result: 기각
+    why: "둘 다 재무 점수 위에 더하는 정보가 0 이었다(한계기여 t −0.25 / −0.10). event 는 어떻게 잘라도 fundamental 과 겹친다."
+    doc: docs/protocols/analyst-features-2026-09.md
+    ledger: ["analyst-features-2026-09:B"]
+  - id: "E"
+    date: "2026-08-30"
+    category: 선정
+    title: "월 1회 재선정"
+    what: "매일 대신 20세션마다 상위 24 를 다시 골랐다."
+    result: 기각
+    why: "순IR +1.15 로 현행 +1.24 보다 낮고, 오히려 회전이 더 높았다(1.90 대 1.32). 한 번에 갈아치우는 것이 완충 구간보다 비쌌다."
+    doc: docs/protocols/new-sources-2026-09.md
+  - id: "H"
+    date: "2026-09-02"
+    category: 재료
+    title: "국장 공매도 비중"
+    what: "공매도가 많은 종목은 뒤에 못 간다는 가설로 공매도 비중을 신호로 썼다."
+    result: 보류
+    why: "표본이 87세션으로 규칙(120세션) 미만이라 보류. 이 구간에선 오히려 반대 방향(공매도 많은 종목이 더 오름)이 나왔다."
+    doc: docs/protocols/new-sources-2026-09.md
+  - id: "I"
+    date: "2026-09-02"
+    category: 재료
+    title: "미장 공매도 잔고"
+    what: "미국 공매도 잔고(FINRA)가 큰 종목을 피하는 신호."
+    result: 기각
+    why: "11개 시점 전부 음수 — 가설과 반대로 잔고가 큰 종목이 더 올랐다. 부호는 사후에 뒤집지 않는다."
+    doc: docs/protocols/new-sources-2026-09.md
+  - id: "J"
+    date: "2026-09-03"
+    category: 재료
+    title: "미장 실적 서프라이즈"
+    what: "분기 순이익이 전년보다 얼마나 놀라웠나(SUE)를 신호로 썼다."
+    result: 기각
+    why: "방향은 맞았지만(11시점 전부 양수) 크기가 합격선 0.03 의 절반이었다. 10-Q 공시일 기준이라 드리프트 앞부분이 빠진다."
+    doc: docs/protocols/new-sources-2026-09.md
+
+  # ── 9/2 벤치마크·베타 탐색 (기록만) ─────────────────────────────────
+  - id: "베타 오버레이"
+    date: "2026-09-02"
+    category: 노출
+    title: "지수 헤지·변동성 조절"
+    what: "지수를 공매도해 시장 몫을 걷거나(헤지), 변동성이 큰 날 비중을 줄였다."
+    result: 보류
+    why: "넷 다 기록만. 지수가 연 +153% 오른 창이라 헤지는 정의상 손실이다 — 이 표본으로는 헤지를 잴 수 없다는 것을 확인했다."
+    doc: docs/protocols/beta-overlay-2026-09.md
+  - id: "베타 정렬"
+    date: "2026-09-02"
+    category: 선정
+    title: "베타 맞춘 종목 선정"
+    what: "포트의 시장 민감도(β)를 지수에 가깝게 맞추도록 종목을 골랐다."
+    result: 보류
+    why: "셋 다 기록만. 어떻게 골라도 β 가 0.4~0.6 에 머물렀다 — 유니버스 자체의 β 가 0.4 라서, 동일가중 24 로는 시총가중 지수를 못 쫓는다."
+    doc: docs/protocols/beta-aligned-selection-2026-09.md
+  - id: "벤치마크 정렬 1"
+    date: "2026-09-02"
+    category: 선정
+    title: "지수 닮은 구성 1차"
+    what: "시총 상위 200 안에서 고르고 시총가중으로 담는 등 구성을 지수에 붙였다."
+    result: 보류
+    why: "등록 기준으로는 기록만. CAP200 이 지수를 연 +63%p 이겼지만 β 1.21 이 남았고 대용 지수 오차가 판정을 가렸다."
+    doc: docs/protocols/benchmark-aligned-construction-2026-09.md
+  - id: "벤치마크 정렬 2b"
+    date: "2026-09-02"
+    category: 선정
+    title: "지수 닮은 구성 2차"
+    what: "대용 지수를 고치고 β 를 1.0 에 묶어 다시 쟀다."
+    result: 보류
+    why: "셋 다 기록만. 1차의 '+63%p' 는 SK하이닉스 한 종목이 포트의 6할이었던 결과였다 — 알파가 아니라 한 종목 베팅."
+    doc: docs/protocols/benchmark-aligned-construction-2b-2026-09.md
+
+  # ── 9/3 랭커 ─────────────────────────────────────────────────────────
+  - id: "합침 랭커"
+    date: "2026-09-03"
+    category: 랭커
+    title: "국장+미장 합친 랭커"
+    what: "국장·미장 표본을 합쳐 5배로 늘리고 규제를 세게 건 랭커 4가지."
+    result: 기각
+    why: "넷 다 fundamental 을 못 이겼다. 뒤이은 진단이 진짜 원인을 찾았다 — 표본이 아니라 목적함수(수익률 오차를 줄이게 가르친 것)였다."
+    doc: docs/protocols/pooled-ranker-2026-09.md
+  - id: "L"
+    date: "2026-09-03"
+    category: 랭커
+    title: "순위 목적 GBM 랭커"
+    what: "수익률 대신 '그날 종목 순위' 를 맞히도록 가르친 GBM 랭커."
+    result: 채택
+    why: "국장 IC +0.105 대 fundamental +0.077(t 2.88), 미장 +0.080 대 +0.049(t 4.40). 지금 두 시장에서 매매를 하고 있는 모델이다."
+    doc: docs/protocols/rank-objective-ranker-2026-09.md
+    ledger: ["rank-objective-ranker-2026-09:L"]
+
+  # ── 9/4 ~ 9/7 선정·노출 ─────────────────────────────────────────────
+  - id: "M"
+    date: "2026-09-04"
+    category: 선정
+    title: "랭커 위 종목 수·가중"
+    what: "랭커 점수로 24·36·48종목, 시총가중(상한 10%) 등을 비교했다."
+    result: 기각
+    why: "어느 변형도 t 2 를 못 넘었다. 대신 진짜 문제가 보였다 — 회전 비용이 알파의 5/6 을 먹는다(비용 전 +31.7% → 비용 후 +5.2%)."
+    doc: docs/protocols/selection-ranker-2026-09.md
+    ledger: ["selection-ranker-2026-09:M"]
+  - id: "N"
+    date: "2026-09-04"
+    category: 선정
+    title: "점수 평활 + 완충 72"
+    what: "랭커 점수를 5일 평균처럼 부드럽게(EMA5) 하고, 72위 밖으로 밀려야 팔게 했다."
+    result: 채택
+    why: "안 본 구간에서 연수익 +20.2%p(t 3.55), 낙폭 −30.6% → −16.5%, 회전 88 → 32."
+    doc: docs/protocols/selection-smoothing-2026-09.md
+    ledger: ["selection-smoothing-2026-09:N"]
+  - id: "P"
+    date: "2026-09-04"
+    category: 선정
+    title: "유동시총 가중"
+    what: "동일가중 대신 유동시가총액 비례로 담았다(종목 상한 10%)."
+    result: 기각
+    why: "가중 방식 자체는 동일가중과 차이가 없었다(t −0.02). K200 안에서만 고르는 변형이 +11.9%p 였지만 t 1.35 라 방향 표시로만 남겼다."
+    doc: docs/protocols/float-cap-construction-2026-09.md
+    ledger: ["float-cap-construction-2026-09:P"]
+  - id: "Q"
+    date: "2026-09-04"
+    category: 선정
+    title: "국장 K200 안에서만"
+    what: "국장 후보를 코스피200 구성종목으로 좁혔다."
+    result: 기각
+    why: "연 +9.9%p 로 방향은 맞지만 t 1.54 로 기준(2.0) 미달. 시행 P 와 같은 방향이라 홀드아웃 개봉 때 다시 잰다."
+    doc: docs/protocols/selection-q-r-2026-09.md
+    ledger: ["selection-q-2026-09:Q"]
+  - id: "R(미장)"
+    date: "2026-09-04"
+    category: 선정
+    title: "미장 평활·완충"
+    what: "국장에서 통한 점수 평활(EMA5)·완충 확대를 미장에도 적용."
+    result: 기각
+    why: "회전은 반으로 줄었지만 비용 전 수익이 +32% → +5% 로 꺾였다. 미장 순위 변화는 잡음이 아니라 정보였다(빨리 갈아타야 이득)."
+    doc: docs/protocols/selection-q-r-2026-09.md
+    ledger: ["selection-r-2026-09:R"]
+  - id: "T"
+    date: "2026-09-05"
+    category: 선정
+    title: "미장 진입 하루 늦추기"
+    what: "미장 신호가 나온 날 대신 하루 뒤에 사면 나은지 봤다."
+    result: 기각
+    why: "당일 진입(+20.9%)이 하루 지연(+10.1%)보다 나았다. 미장 회전 150 은 어느 시차에서도 그대로였다."
+    doc: docs/protocols/us-entry-timing-2026-09.md
+    ledger: ["us-entry-timing-2026-09:T"]
+  - id: "R(노출)"
+    date: "2026-09-07"
+    category: 노출
+    title: "위기 국면 판정 문턱"
+    what: "'살짝 하락' 을 위기(crisis)로 읽지 않게 문턱을 −3% 로 넓혔다."
+    result: 채택
+    why: "위기 세션이 23 → 12 로 줄고 연수익 +12.6% → +14.1%, 낙폭 −17.7% → −16.9%, 전환 26 → 20."
+    doc: docs/protocols/regime-crisis-rule-2026-09.md
+    ledger: ["regime-crisis-rule-2026-09:R"]
+
+  # ── 9/18 노출 ───────────────────────────────────────────────────────
+  - id: "U"
+    date: "2026-09-18"
+    category: 노출
+    title: "노출 변경 데드밴드"
+    what: "주식 비중을 조금씩 바꾸지 않게, 일정 폭 이상 달라질 때만 바꾸는 여유 폭을 뒀다."
+    result: 채택
+    why: "채택 U2 는 현행과 소수점까지 같은 형식적 채택이다 — 데드밴드는 제대로 재니 아무것도 해결하지 못했다. 첫 측정의 U4 채택은 부동소수 오류라 바로잡았다."
+    doc: docs/protocols/exposure-timing-2026-09.md
+    ledger: ["exposure-timing-2026-09:U"]
+  - id: "V"
+    date: "2026-09-18"
+    category: 노출
+    title: "노출 축 셋 중 국면만"
+    what: "비중을 줄이는 세 장치(추세·국면·압축) 중 무엇이 값을 하는지 조합별로 쟀다."
+    result: 채택
+    why: "국면 축만 켠 V6 채택 — 위험은 같고 연수익 +3.40%p, 전환 42 → 26. 다만 승자를 가른 차이가 1.1bp 로 잡음이었다."
+    doc: docs/protocols/exposure-axes-2026-09.md
+    ledger: ["exposure-axes-2026-09:V"]
+
+  # ── 9/20 ~ 9/21 확장 패널(4년)에서 ────────────────────────────────────
+  - id: "Y"
+    date: "2026-09-20"
+    category: 선정
+    title: "K200 안에서 고르기"
+    what: "코스피200 구성종목 안에서만 골라 시장 민감도(β)를 시장만큼 올리려 했다."
+    result: 기각
+    why: "K200 안에서 골라도 β 가 0.25~0.29 였다. '하락을 잘 막는다' 는 인상은 방어가 아니라 덜 들고 덜 움직인 결과였다."
+    doc: docs/protocols/market-beta-selection-2026-09.md
+    ledger: ["market-beta-selection-2026-09:Y"]
+  - id: "AB"
+    date: "2026-09-20"
+    category: 랭커
+    title: "예측 기간 앙상블"
+    what: "5일·20일·60일 뒤 순위를 각각 배운 모델을 평균했다."
+    result: 기각
+    why: "기간을 늘리면 두 국면 모두에서 나빠졌다(박스장 +5.9% → −5.2%). 지평은 5일이 맞다."
+    doc: docs/protocols/ranker-ensemble-horizons-2026-09.md
+    ledger: ["ranker-ensemble-horizons-2026-09:AB"]
+  - id: "Z"
+    date: "2026-09-21"
+    category: 선정
+    title: "K200 · 유동시총 10%"
+    what: "코스피200 안에서 고르고 유동시총 비례(종목 상한 10%)로 담았다."
+    result: 채택
+    why: "현행 대비 연 +12.8%p(t 2.16), 낙폭 −37.3% → −20.6%, 회전 36.9 → 19.1. 다만 지수는 못 이겼다."
+    doc: docs/protocols/beta-target-megacap-2026-09.md
+    ledger: ["beta-target-megacap-2026-09:Z"]
+  - id: "AD"
+    date: "2026-09-21"
+    category: 선정
+    title: "지수에서 패자만 빼기"
+    what: "지수를 넓게 들고 랭커 하위 10~30% 종목만 뺐다."
+    result: 기각
+    why: "빼는 것은 값을 했다(현행보다 모든 면에서 나음). 그러나 종목 상한 10% 때문에 삼성·하이닉스를 지수만큼 못 들어 지수를 못 이겼다."
+    doc: docs/protocols/index-minus-losers-2026-09.md
+    ledger: ["index-minus-losers-2026-09:AD"]
+  - id: "AE"
+    date: "2026-09-21"
+    category: 노출
+    title: "헤지 오버레이 재측정"
+    what: "지수 헤지·변동성 조절을 4년 창(박스장·급등장)에서 다시 쟀다."
+    result: 보류
+    why: "기록만, 채택 없음. 넷 다 기준 미달이고 박스장 낙폭도 더 깊었다. 확장 패널에도 진짜 하락장(2022 상반기)이 판정 창 밖이었다."
+    doc: docs/protocols/beta-overlay-extended-2026-09.md
+    ledger: ["beta-overlay-extended-2026-09:AE"]
+  - id: "AF"
+    date: "2026-09-21"
+    category: 선정
+    title: "종목 상한 풀기"
+    what: "종목당 최대 비중 10% 를 15~35%, 무제한까지 풀어 봤다."
+    result: 기각
+    why: "상한을 다 풀어도 지수보다 연 7.7%p 낮았다. '상한만 풀면 지수를 이긴다' 는 틀렸다 — 나머지는 비용과 제외 종목 문제다."
+    doc: docs/protocols/cap-relaxation-2026-09.md
+    ledger: ["cap-relaxation-2026-09:AF"]
+
+  # ── 9/22 여덟 시행 — docs/trials-postmortem.md ──────────────────────
+  - id: "AC"
+    date: "2026-09-22"
+    category: 랭커
+    title: "가격 트랜스포머"
+    what: "60일 가격·거래대금을 보는 소형 트랜스포머를 랭커 옆에 세웠다."
+    result: 기각
+    why: "단독 연 −5.6%, GBM 과 섞으면 +2.7%(GBM 단독 +15.3%). GBM 과 다른 것을 봤지만 그 다른 것은 잡음이었다."
+    doc: docs/protocols/price-transformer-2026-09.md
+    ledger: ["price-transformer-2026-09:AC"]
+  - id: "AA"
+    date: "2026-09-22"
+    category: 랭커
+    title: "시장 몫 뺀 타깃"
+    what: "랭커가 맞힐 수익에서 시장 몫(β)을 빼 고β 종목을 고르게 하려 했다."
+    result: 기각
+    why: "반대로 움직였다 — 포트 β 가 0.77 → 0.55 로 내려갔다. β 를 바꾸려면 타깃이 아니라 비중에서 바꿔야 한다."
+    doc: docs/protocols/ranker-target-beta-2026-09.md
+    ledger: ["ranker-target-beta-2026-09:AA"]
+  - id: "AG"
+    date: "2026-09-22"
+    category: 선정
+    title: "미장 넓게 들고 하위 빼기"
+    what: "국장의 '넓게 들고 하위 10% 만 뺀다' 를 미장에서 검증했다."
+    result: 채택
+    why: "현행 −7.6% → +17.9%(t 2.57)로 이겼지만 SPY(+18.4%)와 사실상 같다. 현행이 약하면 '현행보다 낫다' 는 쉽게 넘는다."
+    doc: docs/protocols/us-index-minus-losers-2026-09.md
+    ledger: ["us-index-minus-losers-2026-09:AG"]
+  - id: "AH"
+    date: "2026-09-22"
+    category: 선정
+    title: "안 본 하락장 역검증"
+    what: "'넓게 들고 하위 빼기' 를 2021-11~2022-06 하락장에서 채점했다."
+    result: 기각
+    why: "하락장에선 현행이 덜 잃었다(−30.6% 대 −36.3%). 빼는 종목은 비중이 작은 소형주라 포트에 닿지 않았다."
+    doc: docs/protocols/reverse-window-index-minus-losers-2026-09.md
+    ledger: ["reverse-window-index-minus-losers-2026-09:AH"]
+  - id: "AI"
+    date: "2026-09-22"
+    category: 선정
+    title: "국면 따라 구성 바꾸기"
+    what: "오르는 장엔 넓게, 내리는 장엔 골라 담도록 국면 신호로 두 구성을 오갔다."
+    result: 기각
+    why: "느린 신호는 회복을 146세션 늦게 알았고, 빠른 신호는 112번 흔들렸다. 두 구성이 종목을 공유하지 않아 전환 비용이 우위를 먹었다."
+    doc: docs/protocols/regime-blend-2026-09.md
+    ledger: ["regime-blend-2026-09:AI"]
+  - id: "AJ"
+    date: "2026-09-22"
+    category: 랭커
+    title: "랭커에 국면 입력"
+    what: "시장 국면(상승·하락·변동·위기)을 랭커 입력에 더했다."
+    result: 기각
+    why: "IC 는 조금 올랐는데 상위 24 포트는 박스장 −7.2%p. 국면 피처가 맨 위 몇 자리를 흔들었다."
+    doc: docs/protocols/ranker-market-state-2026-09.md
+    ledger: ["ranker-market-state-2026-09:AJ"]
+  - id: "AK"
+    date: "2026-09-22"
+    category: 랭커
+    title: "무너질 종목 분류기"
+    what: "하위 10% 로 떨어질 종목을 직접 맞히는 분류기로 배제 명단을 만들었다."
+    result: 기각
+    why: "분류기는 패자를 잘 가렸지만 랭커 자신의 하위 명단과 71% 겹쳤다. 상위 24 는 그대로였다(연 +11.6% 대 +11.5%)."
+    doc: docs/protocols/collapse-classifier-2026-09.md
+    ledger: ["collapse-classifier-2026-09:AK"]
+  - id: "AL"
+    date: "2026-09-22"
+    category: 선정
+    title: "확신 없으면 72종목"
+    what: "모델이 24위와 72위를 구분 못 하는 날엔 72종목을 들게 했다."
+    result: 기각
+    why: "규칙이 한 번도 켜지지 않았다. 대신 큰 발견 — 같은 모델도 시드만 바꾸면 상위 24 포트가 연 3.7%p 달라진다."
+    doc: docs/protocols/uncertainty-breadth-2026-09.md
+    ledger: ["uncertainty-breadth-2026-09:AL"]
+
+  # ── 9/24 ~ 9/25 추석 휴장 당김 ────────────────────────────────────────
+  - id: "AM"
+    date: "2026-09-24"
+    category: 선정
+    title: "72종목 동일가중"
+    what: "상위 24 대신 72종목을 담아 포트 흔들림(분산)을 줄이려 했다."
+    result: 기각
+    why: "평균 +1.9%p 에 흩어짐 4.6 → 2.4%p 로 나아졌지만 문턱(절반 = 2.3%p)을 0.1%p 차로 못 넘었다. 결과를 보고 기준을 바꾸지 않는다."
+    doc: docs/protocols/portfolio-variance-2026-10.md
+    ledger: ["portfolio-variance-2026-10:AM"]
+  - id: "AO"
+    date: "2026-09-24"
+    category: 선정
+    title: "10세션마다 재조정"
+    what: "매일 대신 10세션마다 종목을 다시 골랐다."
+    result: 채택
+    why: "네 원천 모두 연 +4~7%p, 평균 +6.2%p, 박스장 −4.3% → +5.0%. 포트는 예측이 아니라 매매 빈도에서 가장 많이 샜다."
+    doc: docs/protocols/rebalance-cadence-2026-10.md
+    ledger: ["rebalance-cadence-2026-10:AO"]
+  - id: "AP"
+    date: "2026-09-24"
+    category: 선정
+    title: "시간 불일치로 종목 수"
+    what: "모델 판단이 시간에 따라 흔들리는 날엔 종목 수를 늘리려 했다."
+    result: 보류
+    why: "등록 전 점검에서 규칙이 켜지는 날이 7%(급등장 0%)뿐이라 측정하지 않았다(시도 미소진)."
+    doc: docs/protocols/temporal-uncertainty-breadth-2026-10.md
+  - id: "G1"
+    date: "2026-09-24"
+    category: 재료
+    title: "유동성 고갈"
+    what: "거래가 말라 가는 종목을 잡는 피처 묶음을 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "점수 정확도 개선 없음(ΔIC +0.0005, t 0.09), 상위 24 수익은 세 시드 모두 낮아졌다."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G1"]
+  - id: "G2"
+    date: "2026-09-24"
+    category: 재료
+    title: "부실·희석 공시"
+    what: "부실·증자 같은 나쁜 공시 피처를 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "점수 정확도를 오히려 유의하게 깎았다(ΔIC −0.0182, t −2.62). 랭커의 기존 판단과 부딪혔다."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G2"]
+  - id: "G3"
+    date: "2026-09-24"
+    category: 재료
+    title: "미장 공매도"
+    what: "미국 공매도 자료를 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "ΔIC +0.0020(t 0.92)로 기준 미달, 국장 쪽 IC 는 깎였다."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G3"]
+  - id: "G4"
+    date: "2026-09-24"
+    category: 재료
+    title: "국장 내부자 거래"
+    what: "임원·주요주주 지분 변동(DART)을 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "IC 는 그대로(±0.0004)라 기각. 다만 상위 24 수익은 세 시드 모두 올랐다 — 새 창에서 상위 N 기준으로 다시 잴 단서로 남겼다."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G4"]
+  - id: "G5"
+    date: "2026-09-24"
+    category: 재료
+    title: "회계 품질"
+    what: "회계 품질 피처 묶음을 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "점수 정확도를 유의하게 깎았다(ΔIC −0.0082, t −2.92)."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G5"]
+  - id: "G6"
+    date: "2026-09-24"
+    category: 재료
+    title: "미장 실적 드리프트(8-K)"
+    what: "미국 실적 발표(8-K) 뒤 주가 흐름 피처를 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "ΔIC +0.0016(t 0.78)로 기준 미달, 상위 24 수익도 낮아졌다."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G6"]
+  - id: "G7"
+    date: "2026-09-24"
+    category: 재료
+    title: "미장 내부자(Form 4)"
+    what: "미국 내부자 거래 신고(SEC Form 4)를 랭커에 더했다(6차 재료)."
+    result: 기각
+    why: "IC 는 그대로라 기각. 국장 G4 와 같은 모양으로 상위 24 수익은 세 시드 모두 올랐다 — 기록으로 남겼다."
+    doc: docs/protocols/ranker-sources-round6-2026-09.md
+    ledger: ["ranker-sources-round6-2026-09:G7"]
+  - id: "W"
+    date: "2026-09-24"
+    category: 랭커
+    title: "점수 대신 원피처"
+    what: "애널리스트 점수 7개 대신 그 재료인 원피처 35개를 랭커에 직접 넣었다."
+    result: 기각
+    why: "ΔIC −0.0086(t −0.75). 애널리스트 점수가 원피처를 이미 잘 요약하고 있었다."
+    doc: docs/protocols/raw-feature-ranker-2026-09.md
+    ledger: ["raw-feature-ranker-2026-09:W"]
+  - id: "AN"
+    date: "2026-09-25"
+    category: 랭커
+    title: "맨 위 24 직접 학습"
+    what: "목적함수를 LambdaRank(맨 위 24자리 정답률)로 바꿨다."
+    result: 기각
+    why: "시드 평균 연 −7.9%p, 세 시드 모두 졌다. 맨 위 몇십 개 라벨의 잡음에 맞췄다 — 전 종목에서 배우는 회귀가 잡음을 더 잘 평균한다."
+    doc: docs/protocols/lambdarank-top24-2026-10.md
+    ledger: ["lambdarank-top24-2026-10:AN"]
+  - id: "X"
+    date: "2026-09-25"
+    category: 재료
+    title: "공시 원문 임베딩"
+    what: "DART 공시 원문 38,557건을 언어모델로 숫자화해 랭커에 더했다."
+    result: 기각
+    why: "ΔIC −0.0015(t −1.17), 상위 24 도 세 시드 모두 낮아졌다. 뽑힌 축이 공시 '유형' 이라 event 가 이미 아는 정보였다."
+    doc: docs/protocols/filing-text-embedding-2026-09.md
+    ledger: ["filing-text-embedding-2026-09:X"]
+  - id: "AT"
+    date: "2026-09-25"
+    category: 선정
+    title: "미장 재무 결측 처리"
+    what: "재무 자료가 없는 미장 종목의 점수를 계산할 때 빈칸을 0 으로 두게(M1) 바꿨다."
+    result: 채택
+    why: "연 +6.0%p, 세 시드 모두, 두 국면·낙폭·회전 모두 나아졌다. 다만 절대 수익 +1.0% 로 SPY(+17.9%)엔 한참 못 미친다."
+    doc: docs/protocols/us-missing-fundamental-2026-09.md
+    ledger: ["us-missing-fundamental-2026-09:AT"]
+
+  # ── 9/26 ~ 9/27 미장 체인·지수 기울이기 ────────────────────────────────
+  - id: "AU"
+    date: "2026-09-26"
+    category: 선정
+    title: "미장 10세션 재조정"
+    what: "미장도 매일 대신 10세션마다 종목을 다시 골랐다."
+    result: 채택
+    why: "세 시드 모두 연 +13.6%p(+2.5% → +16.1%). 국장 AO 보다 컸지만 SPY +18.4% 에는 못 미친다."
+    doc: docs/protocols/us-selection-chain-2026-09.md
+    ledger: ["us-selection-chain-2026-09:AU"]
+  - id: "AV"
+    date: "2026-09-26"
+    category: 선정
+    title: "미장 72종목"
+    what: "미장 보유 종목 수를 24 에서 72 로 넓혔다."
+    result: 기각
+    why: "연 −4.0%p, 급등장 −10%p. 24 유지."
+    doc: docs/protocols/us-selection-chain-2026-09.md
+    ledger: ["us-selection-chain-2026-09:AV"]
+  - id: "AW"
+    date: "2026-09-26"
+    category: 노출
+    title: "미장 국면 노출"
+    what: "S&P500 국면에 따라 미장 주식 비중을 줄였다."
+    result: 기각
+    why: "연수익 −3.5%p, 낙폭 개선도 기준에 못 미쳤다."
+    doc: docs/protocols/us-selection-chain-2026-09.md
+    ledger: ["us-selection-chain-2026-09:AW"]
+  - id: "AX"
+    date: "2026-09-26"
+    category: 선정
+    title: "미장 지수 기울이기"
+    what: "지수 비중을 랭커 점수로 조금씩 기울였다(X3)."
+    result: 채택
+    why: "등록 기준으로는 채택이지만 알파는 사실상 0 — 점수 없는 같은 구성이 이미 더 높았다. 실전 적용 안 함."
+    doc: docs/protocols/us-index-tilt-2026-09.md
+    ledger: ["us-index-tilt-2026-09:AX"]
+  - id: "AY"
+    date: "2026-09-26"
+    category: 노출
+    title: "기울인 지수 + 국면"
+    what: "기울인 지수에 국면별 주식 비중 조절을 더했다."
+    result: 기각
+    why: "수익이 −3.3%p 줄었다."
+    doc: docs/protocols/us-index-tilt-2026-09.md
+    ledger: ["us-index-tilt-2026-09:AY"]
+  - id: "AZ"
+    date: "2026-09-26"
+    category: 선정
+    title: "국장 K200 기울이기"
+    what: "코스피200 유동시총 비중을 랭커 점수로 기울였다."
+    result: 기각
+    why: "네 원천 모두 졌고 세게 기울일수록 더 졌다. 랭커의 실력은 대형주 순서가 아니라 중소형주에서 나온다."
+    doc: docs/protocols/kr-index-tilt-2026-09.md
+    ledger: ["kr-index-tilt-2026-09:AZ"]
+  - id: "BB"
+    date: "2026-09-26"
+    category: 노출
+    title: "HMM 국면 확률 노출"
+    what: "비지도 학습(HMM)이 추정한 국면 확률로 주식 비중을 정했다."
+    result: 기각
+    why: "샤프 +0.12·낙폭 2.6%p 개선으로 규칙보다 위험 대비 나았지만, 연수익이 문턱보다 0.2%p 더 줄어 기각. shadow 승격 후보로 전방 기록 중."
+    doc: docs/protocols/v2-hmm-exposure-2026-10.md
+    ledger: ["v2-hmm-exposure-2026-10:BB"]
+  - id: "BA"
+    date: "2026-09-27"
+    category: 재료
+    title: "밸류업·주주환원 공시"
+    what: "밸류업 계획·소각·자사주·배당 공시 개수를 랭커에 더했다."
+    result: 기각
+    why: "다섯 기준 전부 탈락(평균 −3.3%p, IC 0.096 → 0.075). 공시 개수는 '무엇이 새로 알려졌나' 가 아니라 '어떤 회사인가' 를 말했다."
+    doc: docs/protocols/kr-valueup-2026-09.md
+    ledger: ["kr-valueup-2026-09:BA"]
+
+  # ── 마지막 모델 회차 (진행중) ─────────────────────────────────────────
+  - id: "BE"
+    date: "2026-09-28"
+    category: 랭커
+    title: "트랜스포머 v2"
+    what: "전 피처 76열과 종목 사이 주의(attention)를 보는 트랜스포머, 과적합 억제 규칙을 모두 걸었다."
+    result: 진행중
+    why: "마지막 모델 회차 — 대조군 굽기 뒤 등록을 고정(9/28)하고 측정 중."
+    doc: docs/protocols/final-model-round-2026-10.md
+  - id: "BF"
+    date: "2026-09-28"
+    category: 랭커
+    title: "LambdaRank v2"
+    what: "맨 위 100자리를 겨냥하되 라벨 잡음을 덜 믿게 한 LambdaRank."
+    result: 진행중
+    why: "마지막 모델 회차 — BE 뒤에 측정한다."
+    doc: docs/protocols/final-model-round-2026-10.md
+  - id: "BG"
+    date: "2026-09-28"
+    category: RL
+    title: "잔차 RL"
+    what: "GBM 상위 24 동일가중 주위로 종목별 ±5%p 기울기만 내는 강화학습 — 외울 자유도를 뺐다."
+    result: 진행중
+    why: "마지막 모델 회차 — BF 뒤에 측정한다."
+    doc: docs/protocols/final-model-round-2026-10.md
+  - id: "D1"
+    date: "2026-09-28"
+    category: 선정
+    title: "결정 중심 학습"
+    what: "얼린 GBM 점수 위에 작은 머리를 얹어 비용 후 포트 수익을 직접 배우게 한다."
+    result: 진행중
+    why: "초안 — 등록은 BE·BF 결과 뒤."
+    doc: docs/protocols/decision-focused-2026-10.md

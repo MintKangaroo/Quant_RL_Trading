@@ -7,14 +7,88 @@
 {% with active = 'learning' %}{% include "_scope.html" %}{% endwith %}
 <main class="model-control">
   <div class="desk-heading">
-    <div><span class="desk-eyebrow">ALPHA / MODEL VALIDATION</span><h2>모델 검증</h2></div>
+    <div><span class="desk-eyebrow">ALPHA / MODEL VALIDATION</span><h2>학습 · 모델 검증</h2></div>
     <a class="control-link" href="/trading">운용 관제로 돌아가기</a>
   </div>
   <section class="alerts" id="alerts" aria-live="polite"></section>
+  <nav class="ls-jump" aria-label="학습 탭 구역">
+    <a href="#zone-now"><span class="section-index">01</span>지금 도는 학습</a>
+    <a href="#zone-live"><span class="section-index">02</span>지금 매매에 쓰이는 모델</a>
+    <a href="#zone-history"><span class="section-index">03</span>과거 학습 내역</a>
+    <a href="#zone-detail"><span class="section-index">04</span>검증 세부</a>
+  </nav>
+
+  <section class="ls-zone" id="zone-now" aria-labelledby="zone-now-title">
+    <header class="ls-zone-head">
+      <h2 id="zone-now-title"><span class="section-index">01</span>지금 도는 학습</h2>
+      <span class="sub">마지막 모델 회차 · 지금 도는 것 → 대기 → 끝난 것</span>
+    </header>
+    <p class="ls-lede">지금은 <strong>마지막 모델 회차</strong>를 돌린다 — 지금 매매에 쓰는 랭커(GBM)보다 나은 점수 모델이
+      있는지 마지막으로 확인하는 학습이다. 트랜스포머(BE) → LambdaRank(BF) → 잔차 RL(BG) 순서로 밤마다 하나씩 돈다.</p>
+    <details class="fold ls-why">
+      <summary>이 회차는 왜 돌리나 · 어떤 규칙으로 판정하나</summary>
+      <ul class="ls-points">
+        <li><strong>왜</strong> — 지난 모델 시도(트랜스포머 AC · LambdaRank AN · 강화학습 1~4회차)는 모두 지금 랭커를 못 이겼다.
+          그 사이 재료(피처)가 76열로 크게 늘었다. 전부 한꺼번에 넣으면 이길 수 있는지 본다. 지면 모델 쪽 시도는 끝내고
+          새 정보원에만 힘을 쓴다.</li>
+        <li><strong>사전등록 · 지문 고정</strong> — 쓸 자료·설정·채택 기준을 학습 전에 문서로 적고, 그 문서의 지문(해시)을 고정했다.
+          결과를 본 뒤 규칙을 바꾸지 못하게 하려는 것이다. 판정 기록 줄에 그 지문이 함께 적힌다.</li>
+        <li><strong>판정 구간 성적은 끝날 때까지 안 보인다</strong> — 아래 그래프는 학습 자료 안에서 떼어 둔 '내부 검증'뿐이다.
+          최종 판정 구간의 수익·적중도는 학습이 다 끝난 뒤 시행 대장에 한 줄로만 적힌다.</li>
+        <li><strong>이기면</strong> — 비교 기준(C0 = 지금 랭커 · C1 = 같은 랭커에 새 재료)을 채택 기준 다섯으로 넘어야 한다.
+          그다음 11월 홀드아웃 금고(2026-07-01 이후, 아무도 안 본 기간) 심사 → shadow 장부(돈이 오가지 않는 시뮬레이션) →
+          사용자 승인 → 모의계좌 순서로 올라간다. 한 칸이라도 못 넘으면 지금 랭커를 그대로 쓴다.</li>
+      </ul>
+      <p class="ls-doc">근거 문서 <span class="mono">docs/protocols/final-model-round-2026-10.md</span></p>
+    </details>
+    <div id="final-round-progress"></div>
+    <div id="final-round-verdicts"></div>
+    <p class="note">그래프의 검증 선은 <strong>학습 자료 안에서 떼어 둔 내부 검증</strong>이고 높을수록 좋게 그렸다.
+      최종 판정 구간의 수익·IC 는 학습이 끝난 뒤 시행 대장에만 적힌다 — 사전등록이 학습 중에 그 구간을
+      보지 않기로 정했기 때문이다. 상태 배지의 기준(멈춤 배수·추세 창)은 설정 파일에서 온다.</p>
+  </section>
+
+  <section class="ls-zone" id="zone-live" aria-labelledby="zone-live-title">
+    <header class="ls-zone-head">
+      <h2 id="zone-live-title"><span class="section-index">02</span>지금 매매에 쓰이는 모델</h2>
+      <span class="sub">무엇이 어떻게 매매를 정하나 · 값은 설정 파일에서</span>
+    </header>
+    <p class="ls-lede">매매는 아래 순서로 정해진다. 기계학습 모델은 <strong>③ 랭커 하나</strong>이고, 나머지는 시행으로 검증해
+      채택한 규칙이다. 강화학습(RL)은 지금 매매에 쓰이지 않는다.</p>
+    <div id="live-flow"></div>
+    <div class="ls-live-grid">
+      <section class="ls-block" aria-labelledby="live-ranker-title">
+        <h3 id="live-ranker-title">랭커 — 지금 상태 <span class="sub">주간 적중도 측정 · 모델 파일</span></h3>
+        <div id="live-ranker"></div>
+      </section>
+      <section class="ls-block" aria-labelledby="live-tracks-title">
+        <h3 id="live-tracks-title">병행 트랙 <span class="sub">돈이 오가지 않는 비교 장부</span></h3>
+        <div id="live-tracks"></div>
+      </section>
+    </div>
+  </section>
+
+  <section class="ls-zone" id="zone-history" aria-labelledby="zone-history-title">
+    <header class="ls-zone-head">
+      <h2 id="zone-history-title"><span class="section-index">03</span>과거 학습 내역</h2>
+      <span class="sub">무엇을 해봤고 왜 안 됐나 · 최신이 위</span>
+    </header>
+    <div id="history-summary"></div>
+    <div id="history-lessons"></div>
+    <div id="history-filter" class="ls-filter" role="group" aria-label="분류로 거르기"></div>
+    <div id="history-list"></div>
+  </section>
+
+  <section class="ls-zone" id="zone-detail" aria-labelledby="zone-detail-title">
+    <header class="ls-zone-head">
+      <h2 id="zone-detail-title"><span class="section-index">04</span>검증 세부</h2>
+      <span class="sub">Analyst 적중도 · 비교 증거 · 연구 예산</span>
+    </header>
+  </section>
   <section class="kpis" id="kpis" aria-label="모델 관측 지표"></section>
   <section class="model-intro">
     <section class="panel">
-      <h2><span class="section-index">01</span> Champion 기준</h2>
+      <h2>Champion 기준</h2>
       <div class="model-identity">
         <span class="model-role">SUPERVISED RANKING + RULES</span>
         <strong>Ranker + 규칙 기반 운용</strong>
@@ -23,7 +97,7 @@
       </div>
     </section>
     <section class="panel">
-      <h2><span class="section-index">02</span> Challenger 검증</h2>
+      <h2>Challenger 검증</h2>
       <div class="model-identity">
         <span class="model-role">EVIDENCE BEFORE PROMOTION</span>
         <strong>승격 근거 미측정</strong>
@@ -48,14 +122,6 @@
       <h2>현재 합성에 참여하는 신호 <span class="right sub">IC · 가중치 · 측정 시각</span></h2>
       <div id="gate" class="scroll"></div>
     </section>
-  </section>
-  <section class="panel" id="final-round">
-    <h2>마지막 모델 회차 <span class="right sub">학습 경과 · 지금 도는 것 → 대기 → 끝난 것</span></h2>
-    <div id="final-round-progress"></div>
-    <div id="final-round-verdicts"></div>
-    <p class="note">그래프의 검증 선은 <strong>학습 자료 안에서 떼어 둔 내부 검증</strong>이고 높을수록 좋게 그렸다.
-      최종 판정 구간의 수익·IC 는 학습이 끝난 뒤 시행 대장에만 적힌다 — 사전등록이 학습 중에 그 구간을
-      보지 않기로 정했기 때문이다. 상태 배지의 기준(멈춤 배수·추세 창)은 설정 파일에서 온다.</p>
   </section>
   <section class="panel">
     <h2>연구 예산 · 홀드아웃 기록</h2>

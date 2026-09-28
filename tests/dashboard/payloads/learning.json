@@ -14160,5 +14160,2025 @@
       "max_lookback_days": 400,
       "missing_warn": 0.01
     }
+  },
+  "learning/live-models": {
+    "as_of": "2026-09-29T03:00:00+00:00",
+    "data": {
+      "ranker": {
+        "markets": [
+          {
+            "history": [
+              {
+                "at": "2026-06-30 16:00:00+09:00",
+                "ic": 0.1037556656247169
+              },
+              {
+                "at": "2026-07-31 16:00:00+09:00",
+                "ic": 0.10484280391321113
+              },
+              {
+                "at": "2026-08-31 16:00:00+09:00",
+                "ic": 0.101306106269647
+              },
+              {
+                "at": "2026-09-03 12:34:45.310180+09:00",
+                "ic": 0.09900677958155266
+              },
+              {
+                "at": "2026-09-13 03:45:23.487080+09:00",
+                "ic": 0.09928876115328449
+              },
+              {
+                "at": "2026-09-19 14:00:03.478970+09:00",
+                "ic": 0.09878957024735044
+              },
+              {
+                "at": "2026-09-26 14:00:03.572499+09:00",
+                "ic": 0.09561620892158033
+              }
+            ],
+            "ic": 0.09561620892158033,
+            "ic_t": 9.311716406781285,
+            "market": "KR",
+            "measured_at": "2026-09-26 14:00:03.572499+09:00",
+            "weight": 1.0
+          },
+          {
+            "history": [
+              {
+                "at": "2026-09-03 17:35:44.027373+09:00",
+                "ic": 0.060927829945219655
+              },
+              {
+                "at": "2026-09-13 09:04:28.598646+09:00",
+                "ic": 0.06143060668106466
+              },
+              {
+                "at": "2026-09-19 17:55:46.349885+09:00",
+                "ic": 0.06272220061148344
+              },
+              {
+                "at": "2026-09-26 16:26:29.557016+09:00",
+                "ic": 0.06024612256164987
+              }
+            ],
+            "ic": 0.06024612256164987,
+            "ic_t": 4.076922095335594,
+            "market": "US",
+            "measured_at": "2026-09-26 16:26:29.557016+09:00",
+            "weight": 1.0
+          }
+        ],
+        "model": {
+          "features": [
+            "chart",
+            "event",
+            "flow",
+            "fundamental",
+            "regime",
+            "risk",
+            "is_us"
+          ],
+          "file": "ranker-v0.1.0-20260630.txt",
+          "gain": [
+            {
+              "feature": "risk",
+              "share": 0.4362
+            },
+            {
+              "feature": "event",
+              "share": 0.1913
+            },
+            {
+              "feature": "fundamental",
+              "share": 0.1016
+            },
+            {
+              "feature": "is_us",
+              "share": 0.0923
+            },
+            {
+              "feature": "flow",
+              "share": 0.0843
+            },
+            {
+              "feature": "chart",
+              "share": 0.0749
+            },
+            {
+              "feature": "regime",
+              "share": 0.0193
+            }
+          ],
+          "models_available": 49,
+          "objective": "regression",
+          "protocol_hash": "d4551fdda8999145",
+          "rounds": 300,
+          "rows": 2693086,
+          "trained_through": "2026-06-30",
+          "usable_from": "2026-07-01",
+          "version": "ranker-v0.1.0"
+        },
+        "threshold": 0.03
+      },
+      "stages": [
+        {
+          "adopted": [],
+          "detail": "수집은 Collector 만 한다(Analyst 가 직접 모으지 않는다). 수집이 먼저, 판단은 그 뒤 — 순서가 바뀌면 판정이 조용히 0건이 된다.",
+          "key": "collect",
+          "plain": "매일 장이 끝나면 시세·수급·재무·공시·지수를 모은다. 판단은 모두 이 재료 위에서 한다.",
+          "settings": [],
+          "title": "재료 수집"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-25",
+              "doc": "docs/protocols/us-missing-fundamental-2026-09.md",
+              "note": "미장만 — 재무 점수가 없는 종목을 0(중립)으로 계산(빈 칸 때문에 외국 발행사가 상위를 독차지하던 문제)",
+              "trial": "AT"
+            }
+          ],
+          "detail": "새 Analyst 는 적중도(IC, 점수와 이후 수익의 순위 상관)가 합격선을 넘어야 가중치를 받는다. 넘기 전에는 관찰만 한다.",
+          "key": "analysts",
+          "plain": "재무·수급·차트·이벤트·위험 등 Analyst 여럿이 종목마다 점수를 낸다. 랭커가 이 점수들을 재료로 쓴다.",
+          "settings": [
+            {
+              "display": "0.03",
+              "found": true,
+              "key": "analyst.ic_threshold",
+              "label": "합격선(적중도 IC)",
+              "market": null,
+              "value": 0.03
+            },
+            {
+              "display": "fundamental",
+              "found": true,
+              "key": "selector.missing_as_zero_us",
+              "label": "결측을 0 으로 두는 점수",
+              "market": "US",
+              "value": [
+                "fundamental"
+              ]
+            }
+          ],
+          "title": "Analyst 점수"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-03",
+              "doc": "docs/protocols/rank-objective-ranker-2026-09.md",
+              "note": "순위 목적 GBM 이 국장·미장 모두 통과해 채택",
+              "trial": "L"
+            }
+          ],
+          "detail": "정답을 수익률 그대로가 아니라 '그날 안에서의 순위'로 바꿔 학습한다(순위 목적). 같은 GBM 이 이 한 가지를 바꾸자 두 시장 모두에서 기존 최강 점수(재무)를 이겼다. 모델은 월말마다 한 벌씩 있고, 홀드아웃 금고(2026-07-01~) 때문에 2026-06-30 학습분에서 멈춰 있다.",
+          "key": "ranker",
+          "plain": "Analyst 점수 여섯을 입력으로 받아 '5일 뒤 누가 더 오를까' 의 순위를 매기는 기계학습 모델. 지금 매매 점수의 거의 전부다.",
+          "settings": [],
+          "title": "랭커 (LightGBM)"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-04",
+              "doc": "docs/protocols/selection-smoothing-2026-09.md",
+              "note": "평활 5일 + 완충 72 — 회전을 줄여 비용 후 수익을 지켰다(국장)",
+              "trial": "N"
+            },
+            {
+              "date": "2026-09-04",
+              "doc": "docs/protocols/selection-q-r-2026-09.md",
+              "note": "미장에 같은 평활을 넣는 안은 기각 — 미장은 평활 없음·완충 48 그대로",
+              "trial": "R"
+            }
+          ],
+          "detail": "점수가 매일 조금씩 흔들리는데 그대로 사고팔면 거래비용이 알파를 먹는다. 평활과 완충은 그 헛매매를 줄이는 장치다. 위험 하위 일정 비율은 먼저 걸러낸다.",
+          "key": "select",
+          "plain": "랭커 점수를 며칠 치 평균처럼 부드럽게(평활) 한 뒤 상위 종목을 산다. 이미 가진 종목은 순위가 조금 밀려도(완충 구간 안이면) 팔지 않는다.",
+          "settings": [
+            {
+              "display": "24",
+              "found": true,
+              "key": "selector.n_candidates",
+              "label": "살 종목 수",
+              "market": null,
+              "value": 24
+            },
+            {
+              "display": "5",
+              "found": true,
+              "key": "ranker.smoothing_span",
+              "label": "평활(최근 N세션)",
+              "market": "KR",
+              "value": 5
+            },
+            {
+              "display": "0",
+              "found": true,
+              "key": "ranker.smoothing_span_us",
+              "label": "평활(최근 N세션)",
+              "market": "US",
+              "value": 0
+            },
+            {
+              "display": "72",
+              "found": true,
+              "key": "selector.exit_rank",
+              "label": "완충 — 이 순위 안이면 보유 유지",
+              "market": "KR",
+              "value": 72
+            },
+            {
+              "display": "48",
+              "found": true,
+              "key": "selector.exit_rank_us",
+              "label": "완충 — 이 순위 안이면 보유 유지",
+              "market": "US",
+              "value": 48
+            },
+            {
+              "display": "0.2",
+              "found": true,
+              "key": "selector.risk_floor_percentile",
+              "label": "위험 하위 잘라내는 비율",
+              "market": null,
+              "value": 0.2
+            }
+          ],
+          "title": "평활 · 완충 · 상위 선정"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-24",
+              "doc": "docs/protocols/rebalance-cadence-2026-10.md",
+              "note": "국장 10세션마다(C10) 채택",
+              "trial": "AO"
+            },
+            {
+              "date": "2026-09-26",
+              "doc": "docs/protocols/us-selection-chain-2026-09.md",
+              "note": "미장도 매일 → 10세션(C10) 채택, 사용자 승인 9/26",
+              "trial": "AU"
+            }
+          ],
+          "detail": "매일 고르면 점수의 흔들림이 곧 매매가 된다. 10세션마다 고르자 원천 넷 평균 연수익이 +6.0% → +12.2%, 회전이 34 → 21 로 바뀌었다(시행 AO 문서).",
+          "key": "rebalance",
+          "plain": "종목 교체는 매일 하지 않고 정해진 세션마다 한 번 한다. 그 사이엔 가진 종목을 그대로 든다(주식 비중 조절만 매일 따른다).",
+          "settings": [
+            {
+              "display": "10",
+              "found": true,
+              "key": "selector.rebalance_every",
+              "label": "몇 세션마다 교체",
+              "market": "KR",
+              "value": 10
+            },
+            {
+              "display": "10",
+              "found": true,
+              "key": "selector.rebalance_every_us",
+              "label": "몇 세션마다 교체",
+              "market": "US",
+              "value": 10
+            },
+            {
+              "display": "2026-09-28",
+              "found": true,
+              "key": "selector.rebalance_anchor",
+              "label": "주기를 세는 기준일",
+              "market": null,
+              "value": "2026-09-28"
+            }
+          ],
+          "title": "재조정 주기"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-01",
+              "doc": "docs/design/portfolio-construction.md",
+              "note": "점수 비례 → 리스크 패리티, 사용자 확정",
+              "trial": "§7 비교(시행 아님)"
+            }
+          ],
+          "detail": "한 종목·한 섹터가 위험을 독차지하지 않게 상한을 둔다. 2026-04~06 하락장 비교에서 점수 비례 배분보다 수익·낙폭 둘 다 나았다(설정 파일 주석).",
+          "key": "weights",
+          "plain": "고른 종목에 돈을 똑같이 나누지 않고, 각 종목이 포트폴리오 전체 흔들림에 비슷하게 기여하도록 나눈다. 덜 흔들리는 종목에 조금 더 싣는다.",
+          "settings": [
+            {
+              "display": "risk_parity",
+              "found": true,
+              "key": "allocator.baseline",
+              "label": "배분 방식",
+              "market": null,
+              "value": "risk_parity"
+            },
+            {
+              "display": "0.15",
+              "found": true,
+              "key": "allocator.max_position_weight",
+              "label": "한 종목 비중 상한",
+              "market": null,
+              "value": 0.15
+            },
+            {
+              "display": "0.15",
+              "found": true,
+              "key": "allocator.name_risk_cap",
+              "label": "한 종목 위험 기여 상한",
+              "market": null,
+              "value": 0.15
+            },
+            {
+              "display": "0.35",
+              "found": true,
+              "key": "allocator.sector_risk_cap",
+              "label": "한 섹터 위험 기여 상한",
+              "market": null,
+              "value": 0.35
+            },
+            {
+              "display": "0.05",
+              "found": true,
+              "key": "allocator.cash_buffer",
+              "label": "남겨 두는 현금",
+              "market": null,
+              "value": 0.05
+            }
+          ],
+          "title": "비중 — 리스크 패리티"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-18",
+              "doc": "docs/protocols/exposure-axes-2026-09.md",
+              "note": "노출 축 셋 중 국면만 남김",
+              "trial": "V (V6)"
+            },
+            {
+              "date": "2026-09-07",
+              "doc": "docs/protocols/regime-crisis-rule-2026-09.md",
+              "note": "위기 문턱을 모멘텀 −3% 로",
+              "trial": "R"
+            }
+          ],
+          "detail": "추세·변동성 압축 축도 있었지만 낙폭을 한 자리도 못 바꾸고 수익만 깎아 껐다(시행 V). 위기 판단은 21세션 모멘텀이 −3% 아래일 때로 좁혔다(시행 R). 올릴 때는 며칠 확인하고, 내릴 때는 바로 내린다.",
+          "key": "exposure",
+          "plain": "시장이 위기·약세 국면이면 주식 비중을 줄이고, 평소엔 다 들고 간다. 규칙은 '국면' 하나만 쓴다.",
+          "settings": [
+            {
+              "display": "1",
+              "found": true,
+              "key": "exposure.regime_scale.bull",
+              "label": "주식 비중 배수 — 상승 국면",
+              "market": null,
+              "value": 1.0
+            },
+            {
+              "display": "0.7",
+              "found": true,
+              "key": "exposure.regime_scale.bear",
+              "label": "주식 비중 배수 — 약세 국면",
+              "market": null,
+              "value": 0.7
+            },
+            {
+              "display": "0.5",
+              "found": true,
+              "key": "exposure.regime_scale.crisis",
+              "label": "주식 비중 배수 — 위기 국면",
+              "market": null,
+              "value": 0.5
+            },
+            {
+              "display": "-0.03",
+              "found": true,
+              "key": "exposure.crisis_momentum_floor",
+              "label": "위기 판단 모멘텀 문턱",
+              "market": null,
+              "value": -0.03
+            },
+            {
+              "display": "2",
+              "found": true,
+              "key": "exposure.regime_confirm_sessions",
+              "label": "올릴 때 확인하는 세션 수",
+              "market": null,
+              "value": 2
+            },
+            {
+              "display": "1",
+              "found": true,
+              "key": "exposure.below_trend",
+              "label": "추세 축 배수(1 = 꺼짐)",
+              "market": null,
+              "value": 1.0
+            },
+            {
+              "display": "1",
+              "found": true,
+              "key": "exposure.squeezed",
+              "label": "압축 축 배수(1 = 꺼짐)",
+              "market": null,
+              "value": 1.0
+            },
+            {
+              "display": "설정 없음",
+              "found": false,
+              "key": "exposure.source",
+              "label": "노출 결정 출처(없으면 규칙)",
+              "market": null,
+              "value": null
+            }
+          ],
+          "title": "노출 — 시장 국면 규칙(V6)"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-09-01",
+              "doc": "config/quant_rl_trading.yaml",
+              "note": "조각 간격 60초 → 3600초(한 시간) — 네 조각이 오전에 퍼진다",
+              "trial": "설정 변경(시행 아님)"
+            }
+          ],
+          "detail": "집행 코드 안에는 AI 가 없다(불변식 6) — 마지막 안전장치는 예측 가능해야 한다. 조각 수·간격을 AI(밴딧)가 고르는 안은 만들어 두었지만 꺼져 있다.",
+          "key": "execute",
+          "plain": "주문을 한 번에 내지 않고 몇 조각으로 나눠 한 시간 간격으로 낸다. 개장 직후 호가가 얇을 때 한꺼번에 사면 비싸게 사기 때문이다.",
+          "settings": [
+            {
+              "display": "4",
+              "found": true,
+              "key": "execution.slice_count",
+              "label": "주문 조각 수",
+              "market": null,
+              "value": 4
+            },
+            {
+              "display": "3600",
+              "found": true,
+              "key": "execution.slice_interval_sec",
+              "label": "조각 간격(초)",
+              "market": null,
+              "value": 3600
+            },
+            {
+              "display": "limit",
+              "found": true,
+              "key": "execution.order_type",
+              "label": "주문 방식",
+              "market": null,
+              "value": "limit"
+            },
+            {
+              "display": "rule",
+              "found": true,
+              "key": "execution.plan_source",
+              "label": "집행 계획 출처(rule = 규칙)",
+              "market": null,
+              "value": "rule"
+            }
+          ],
+          "title": "집행 — 나눠서 주문"
+        },
+        {
+          "adopted": [
+            {
+              "date": "2026-08-28",
+              "doc": "README.md",
+              "note": "모의계좌 실주문 시작",
+              "trial": "첫 가동"
+            }
+          ],
+          "detail": "강화학습(RL) 정책은 지금 매매에 쓰이지 않는다 — 네 번의 시도가 규칙을 못 이겼다. 아래 'RL 정책' 칸이 비어 있으면 꺼져 있다는 뜻이다.",
+          "key": "paper",
+          "plain": "국장은 증권사 모의투자 계좌에 실제로 주문을 낸다(가상 돈). 미장은 증권사 모의투자가 해외를 막아 돈이 오가지 않는 시뮬레이션(shadow)으로 돈다.",
+          "settings": [
+            {
+              "display": "30",
+              "found": true,
+              "key": "risk.max_positions",
+              "label": "최대 보유 종목 수",
+              "market": null,
+              "value": 30
+            },
+            {
+              "display": "0.03",
+              "found": true,
+              "key": "risk.max_daily_loss",
+              "label": "하루 손실 한도",
+              "market": null,
+              "value": 0.03
+            },
+            {
+              "display": "(비어 있음)",
+              "found": true,
+              "key": "allocator.rl.checkpoint",
+              "label": "RL 정책(비어 있으면 꺼짐)",
+              "market": null,
+              "value": ""
+            }
+          ],
+          "title": "모의계좌"
+        }
+      ],
+      "tracks": [
+        {
+          "compares": "국장과 같은 방식(랭커 상위·10세션 재조정)을 미장에 — 달러 37만 달러로 시뮬레이션. 미장 지수 대비로 본다.",
+          "doc": "README.md",
+          "ledger": "data/_shadow",
+          "name": "미장 shadow",
+          "started": "2026-09-02"
+        },
+        {
+          "compares": "코스피200 안에서만 고르고 유동시총 가중(한 종목 10% 상한) — 지금 국장 방식과 20세션 비교.",
+          "doc": "docs/design/portfolio-construction.md",
+          "ledger": "data/_z2_shadow",
+          "name": "Z2",
+          "started": "2026-09-23"
+        },
+        {
+          "compares": "미장 시총 상위 500 을 시총 가중으로 그대로 든다 — 'S&P 만큼 따라가나'. 기존 미장 shadow·SPY 와 비교.",
+          "doc": "docs/protocols/us-index-minus-losers-2026-09.md",
+          "ledger": "data/_g1us_shadow",
+          "name": "G1 미장",
+          "started": "2026-09-25"
+        },
+        {
+          "compares": "같은 코스피200 포트에 노출 규칙만 다르다 — 학습된 국면 확률(HMM) vs 지금 규칙(V6). 20세션 뒤(10/27 경) 비교.",
+          "doc": "docs/protocols/v2-hmm-exposure-2026-10.md",
+          "ledger": "data/_k200hmm_shadow · data/_k200v6_shadow",
+          "name": "K200 HMM / V6",
+          "started": "2026-09-28"
+        },
+        {
+          "compares": "지금 방식 그대로 폭만 72종목 vs 24종목. 기록만 하고 이 장부로 판정하지 않는다(11월 금고 심사 참고용).",
+          "doc": "docs/protocols/breadth72-forward-2026-09.md",
+          "ledger": "data/_w72_shadow · data/_n24_shadow",
+          "name": "W72 / N24",
+          "started": "2026-09-28"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "learning/trial-history": {
+    "as_of": "2026-09-29T03:00:00+00:00",
+    "data": {
+      "categories": [
+        "선정",
+        "랭커",
+        "RL",
+        "노출",
+        "집행",
+        "재료"
+      ],
+      "lessons": [
+        {
+          "source": "docs/rl-postmortem.md",
+          "text": "배우는 목적과 채점하는 기준이 같아야 학습이 이긴다. 순위로 채점하면서 수익률을 가르친 랭커는 졌고, 목적을 순위로 바꾸자 이겼다."
+        },
+        {
+          "source": "docs/trials-postmortem.md",
+          "text": "같은 재료는 같은 답을 낸다. 모델·목적·입력을 바꿔도 점수 정확도는 거의 그대로였다 — 병목은 알고리즘이 아니라 정보다."
+        },
+        {
+          "source": "docs/rl-postmortem.md",
+          "text": "매매 비용은 알파의 일부가 아니라 대부분이다. 랭커 상위 24 는 비용 전 연 +31.7% 가 비용 후 +5.2% 였다 — 덜 갈아타는 것이 가장 큰 개선이었다."
+        }
+      ],
+      "problems": [],
+      "results": [
+        "채택",
+        "기각",
+        "보류",
+        "진행중"
+      ],
+      "summary": {
+        "by_category": {
+          "RL": 8,
+          "기타": 2,
+          "노출": 8,
+          "랭커": 14,
+          "선정": 29,
+          "재료": 22,
+          "집행": 0
+        },
+        "by_result": {
+          "기각": 47,
+          "보류": 8,
+          "진행중": 4,
+          "채택": 12
+        },
+        "catalog": 71,
+        "ledger_only": 12,
+        "total": 83
+      },
+      "trials": [
+        {
+          "category": "랭커",
+          "date": "2026-09-28",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G8",
+          "ledger": [
+            {
+              "at": "2026-09-28T02:30:45.121175+09:00",
+              "detail": "판정: 기각 | G8 주 시장 KR 판정 100세션 · 처리 IC +0.1054 (t +6.20) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0004 · NW t -0.37 × | ② 상위24 h5 z-수익 처리 +0.2422 대 대조 +0.1687 ○ | ③ 블록별 ΔIC -0.003 -0.001 +0.001 -0.003 +0.005 · 최악 -0.003 ○ | ④ US 판정 104세션 · ΔIC +0.0001 (NW t +0.35) ○ | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G8"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "ranker-sources-round6-2026-09",
+          "what": "",
+          "why": "판정: 기각 | G8 주 시장 KR 판정 100세션 · 처리 IC +0.1054 (t +6.20) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0004 · NW t -0.37 × | ② 상위24 h5 z-수익 처리 +0.2422 대 대조 +0.1687 ○ | ③ 블록별 ΔIC -0.003 -0.001 +0.001 -0.003 +0.005 · 최악 -0.003 ○ | ④ US 판정 104세션 · ΔIC +0.0001 (NW t +0.35) ○ | 기록(기준 아님) ② 시드별 처리−대"
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-28",
+          "doc": "docs/protocols/decision-focused-2026-10.md",
+          "id": "D1",
+          "ledger": [],
+          "result": "진행중",
+          "source": "catalog",
+          "title": "결정 중심 학습",
+          "what": "얼린 GBM 점수 위에 작은 머리를 얹어 비용 후 포트 수익을 직접 배우게 한다.",
+          "why": "초안 — 등록은 BE·BF 결과 뒤."
+        },
+        {
+          "category": "RL",
+          "date": "2026-09-28",
+          "doc": "docs/protocols/final-model-round-2026-10.md",
+          "id": "BG",
+          "ledger": [],
+          "result": "진행중",
+          "source": "catalog",
+          "title": "잔차 RL",
+          "what": "GBM 상위 24 동일가중 주위로 종목별 ±5%p 기울기만 내는 강화학습 — 외울 자유도를 뺐다.",
+          "why": "마지막 모델 회차 — BF 뒤에 측정한다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-28",
+          "doc": "docs/protocols/final-model-round-2026-10.md",
+          "id": "BF",
+          "ledger": [],
+          "result": "진행중",
+          "source": "catalog",
+          "title": "LambdaRank v2",
+          "what": "맨 위 100자리를 겨냥하되 라벨 잡음을 덜 믿게 한 LambdaRank.",
+          "why": "마지막 모델 회차 — BE 뒤에 측정한다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-28",
+          "doc": "docs/protocols/final-model-round-2026-10.md",
+          "id": "BE",
+          "ledger": [],
+          "result": "진행중",
+          "source": "catalog",
+          "title": "트랜스포머 v2",
+          "what": "전 피처 76열과 종목 사이 주의(attention)를 보는 트랜스포머, 과적합 억제 규칙을 모두 걸었다.",
+          "why": "마지막 모델 회차 — 대조군 굽기 뒤 등록을 고정(9/28)하고 측정 중."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-27",
+          "doc": "docs/protocols/kr-valueup-2026-09.md",
+          "id": "BA",
+          "ledger": [
+            {
+              "at": "2026-09-27T01:44:08.399157+09:00",
+              "detail": "기각 |  | ①평균 -3.3%p × · ②0/3 × · ③국면 -0.5%p/-7.0%p × · ④ΔIC -0.0211 × · ⑤MDD·회전 × | 판정: 기각",
+              "entity_id": "kr-valueup-2026-09:BA"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "밸류업·주주환원 공시",
+          "what": "밸류업 계획·소각·자사주·배당 공시 개수를 랭커에 더했다.",
+          "why": "다섯 기준 전부 탈락(평균 −3.3%p, IC 0.096 → 0.075). 공시 개수는 '무엇이 새로 알려졌나' 가 아니라 '어떤 회사인가' 를 말했다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/v2-hmm-exposure-2026-10.md",
+          "id": "BB",
+          "ledger": [
+            {
+              "at": "2026-09-26T07:34:04.380915+09:00",
+              "detail": "기각 — shadow 승격 후보(4/4·샤프 +0.05) |  | E2: ①샤프 +1.65 vs +1.53 (+0.10) ○ · ②MDD -19.3% vs -21.9% ○ · ③연수익 -1.2%p × · ④4/4 ○ · ⑤샤프 vs 노출 끔 +1.60 ○ | 판정: 기각 — shadow 승격 후보(4/4·샤프 +0.05)",
+              "entity_id": "v2-hmm-exposure-2026-10:BB"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "HMM 국면 확률 노출",
+          "what": "비지도 학습(HMM)이 추정한 국면 확률로 주식 비중을 정했다.",
+          "why": "샤프 +0.12·낙폭 2.6%p 개선으로 규칙보다 위험 대비 나았지만, 연수익이 문턱보다 0.2%p 더 줄어 기각. shadow 승격 후보로 전방 기록 중."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/kr-index-tilt-2026-09.md",
+          "id": "AZ",
+          "ledger": [
+            {
+              "at": "2026-09-26T07:32:32.821119+09:00",
+              "detail": "기각 |  | K1: ①IR(K200) -1.67 (≥0.30) × · ②두 국면 초과 -1.8%/-8.0% × · ③K0 대비 0/4 × · ④MDD -23.2% vs -23.6% ○ → 탈락 | K2: ①IR(K200) -1.73 (≥0.30) × · ②두 국면 초과 -3.1%/-15.7% × · ③K0 대비 0/4 × · ④MDD -22.4% vs -23.6% ○ → 탈락 | 판정: 기각",
+              "entity_id": "kr-index-tilt-2026-09:AZ"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "국장 K200 기울이기",
+          "what": "코스피200 유동시총 비중을 랭커 점수로 기울였다.",
+          "why": "네 원천 모두 졌고 세게 기울일수록 더 졌다. 랭커의 실력은 대형주 순서가 아니라 중소형주에서 나온다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/us-index-tilt-2026-09.md",
+          "id": "AY",
+          "ledger": [
+            {
+              "at": "2026-09-26T01:16:03.272051+09:00",
+              "detail": "기각 — Y0 유지 | SPY 같은 창: 연 +18.4% · 샤프 +1.21 · MDD -19.0% |  | Y1: ①샤프 +1.22 vs +1.25 (+0.10) × · ②MDD -16.3% vs -19.7% (+3%p) ○ · ③연수익 -3.3%p (≥ −2%p) × · ④샤프 0/3 × → 탈락 | 판정: 기각 — Y0 유지",
+              "entity_id": "us-index-tilt-2026-09:AY"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "기울인 지수 + 국면",
+          "what": "기울인 지수에 국면별 주식 비중 조절을 더했다.",
+          "why": "수익이 −3.3%p 줄었다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/us-index-tilt-2026-09.md",
+          "id": "AX",
+          "ledger": [
+            {
+              "at": "2026-09-26T01:15:19.446921+09:00",
+              "detail": "채택 X3 |  | X2: ①IR(SPY) +0.27 (≥0.30) × · ②두 국면 초과 +0.9%/+1.4% ○ · ③X1 대비 2/3 × · ④MDD -19.7% vs -20.2% ○ → 탈락 | X3: ①IR(SPY) +0.32 (≥0.30) ○ · ②두 국면 초과 +0.7%/+2.4% ○ · ③X1 대비 3/3 ○ · ④MDD -19.7% vs -20.2% ○ → 통과 | 판정: 채택 X3",
+              "entity_id": "us-index-tilt-2026-09:AX"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "미장 지수 기울이기",
+          "what": "지수 비중을 랭커 점수로 조금씩 기울였다(X3).",
+          "why": "등록 기준으로는 채택이지만 알파는 사실상 0 — 점수 없는 같은 구성이 이미 더 높았다. 실전 적용 안 함."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/us-selection-chain-2026-09.md",
+          "id": "AW",
+          "ledger": [
+            {
+              "at": "2026-09-26T01:13:53.751187+09:00",
+              "detail": "기각 — E0 유지 |  | E1: ①MDD -19.1% vs -20.1% (+3%p 이상) × · ②연수익 -3.5%p (≥ −1%p) × · ③샤프 0/3 × → 탈락 | SPY 같은 창 연 +18.4% | 판정: 기각 — E0 유지",
+              "entity_id": "us-selection-chain-2026-09:AW"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 국면 노출",
+          "what": "S&P500 국면에 따라 미장 주식 비중을 줄였다.",
+          "why": "연수익 −3.5%p, 낙폭 개선도 기준에 못 미쳤다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/us-selection-chain-2026-09.md",
+          "id": "AV",
+          "ledger": [
+            {
+              "at": "2026-09-26T01:13:20.048664+09:00",
+              "detail": "기각 — N24 유지 |  | N72: ①평균 -4.0%p × · ②0/3 × · ③국면 +0.7%p/-10.1%p × · ④MDD -18.7% vs -20.1% ○ · ⑤회전 22.2 vs 25.8 ○ → 탈락 | SPY 같은 창 연 +18.4% | 판정: 기각 — N24 유지",
+              "entity_id": "us-selection-chain-2026-09:AV"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 72종목",
+          "what": "미장 보유 종목 수를 24 에서 72 로 넓혔다.",
+          "why": "연 −4.0%p, 급등장 −10%p. 24 유지."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-26",
+          "doc": "docs/protocols/us-selection-chain-2026-09.md",
+          "id": "AU",
+          "ledger": [
+            {
+              "at": "2026-09-26T01:12:48.401382+09:00",
+              "detail": "채택 C10 | C5: ①평균 +12.7%p ○ · ②3/3 ○ · ③국면 +13.0%p/+12.3%p ○ · ④MDD -20.0% vs -35.5% ○ · ⑤회전 36.6 vs 76.2 ○ → 통과 | C10: ①평균 +13.6%p ○ · ②3/3 ○ · ③국면 +12.5%p/+15.0%p ○ · ④MDD -20.1% vs -35.5% ○ · ⑤회전 25.8 vs 76.2 ○ → 통과 | SPY 같은 창 연 +18.4% | 판정: 채택 C10",
+              "entity_id": "us-selection-chain-2026-09:AU"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "미장 10세션 재조정",
+          "what": "미장도 매일 대신 10세션마다 종목을 다시 골랐다.",
+          "why": "세 시드 모두 연 +13.6%p(+2.5% → +16.1%). 국장 AO 보다 컸지만 SPY +18.4% 에는 못 미친다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-25",
+          "doc": "docs/protocols/filing-text-embedding-2026-09.md",
+          "id": "X",
+          "ledger": [
+            {
+              "at": "2026-09-25T12:30:18.828978+09:00",
+              "detail": "판정: 기각 | X 주 시장 KR 판정 100세션 · 처리 IC +0.1043 (t +6.41) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0015 · NW t -1.17 × | ② 상위24 h5 z-수익 처리 +0.1590 대 대조 +0.1687 ○ | ③ 블록별 ΔIC -0.008 +0.002 +0.002 -0.003 -0.001 · 최악 -0.008 ○ | ④ US 판정 104세션 · ΔIC +0.0002 (NW t +0.71) ○ | 기록(기준 아님) ② 시드별 처리−대조",
+              "entity_id": "filing-text-embedding-2026-09:X"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "공시 원문 임베딩",
+          "what": "DART 공시 원문 38,557건을 언어모델로 숫자화해 랭커에 더했다.",
+          "why": "ΔIC −0.0015(t −1.17), 상위 24 도 세 시드 모두 낮아졌다. 뽑힌 축이 공시 '유형' 이라 event 가 이미 아는 정보였다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-25",
+          "doc": "docs/protocols/us-missing-fundamental-2026-09.md",
+          "id": "AT",
+          "ledger": [
+            {
+              "at": "2026-09-25T16:19:12.050189+09:00",
+              "detail": "채택 M1 | M1: ①평균 +6.0%p ○ · ②3/3 ○ · ③국면 +8.2%p/+3.0%p ○ · ④MDD -31.3% vs -40.4% ○ · ⑤회전 77.2 vs 91.7 ○ → 통과 | M2: ①평균 -2.1%p × · ②0/3 × · ③국면 -2.2%p/-2.1%p × · ④MDD -47.1% vs -40.4% × · ⑤회전 110.1 vs 91.7 × → 탈락 | 판정: 채택 M1",
+              "entity_id": "us-missing-fundamental-2026-09:AT"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "미장 재무 결측 처리",
+          "what": "재무 자료가 없는 미장 종목의 점수를 계산할 때 빈칸을 0 으로 두게(M1) 바꿨다.",
+          "why": "연 +6.0%p, 세 시드 모두, 두 국면·낙폭·회전 모두 나아졌다. 다만 절대 수익 +1.0% 로 SPY(+17.9%)엔 한참 못 미친다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-25",
+          "doc": "docs/protocols/lambdarank-top24-2026-10.md",
+          "id": "AN",
+          "ledger": [
+            {
+              "at": "2026-09-25T00:09:05.863361+09:00",
+              "detail": "기각 — 회귀 목적 유지 | 기록: 상위 24 겹침(시드별) 23% / 24% / 24% · 시드 평균 일별 차 NW t -1.55 | AN: ①평균 -7.9%p × · ②0/3 × · ③국면 × · ④MDD × · ⑤회전 ○ → 탈락 | 판정: 기각 — 회귀 목적 유지",
+              "entity_id": "lambdarank-top24-2026-10:AN"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "맨 위 24 직접 학습",
+          "what": "목적함수를 LambdaRank(맨 위 24자리 정답률)로 바꿨다.",
+          "why": "시드 평균 연 −7.9%p, 세 시드 모두 졌다. 맨 위 몇십 개 라벨의 잡음에 맞췄다 — 전 종목에서 배우는 회귀가 잡음을 더 잘 평균한다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/raw-feature-ranker-2026-09.md",
+          "id": "W",
+          "ledger": [
+            {
+              "at": "2026-09-24T22:24:45.307234+09:00",
+              "detail": "판정: 기각 | W 주 시장 KR 판정 100세션 · 처리 IC +0.0971 (t +5.47) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0086 · NW t -0.75 × | ② 상위24 h5 z-수익 처리 +0.2157 대 대조 +0.1687 ○ | ③ 블록별 ΔIC +0.002 +0.015 +0.016 -0.008 -0.068 · 최악 -0.068 × | ④ US 판정 104세션 · ΔIC +0.0008 (NW t +0.08) ○ | 기록(기준 아님) ② 시드별 처리−대조",
+              "entity_id": "raw-feature-ranker-2026-09:W"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "점수 대신 원피처",
+          "what": "애널리스트 점수 7개 대신 그 재료인 원피처 35개를 랭커에 직접 넣었다.",
+          "why": "ΔIC −0.0086(t −0.75). 애널리스트 점수가 원피처를 이미 잘 요약하고 있었다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G7",
+          "ledger": [
+            {
+              "at": "2026-09-24T15:36:18.997021+09:00",
+              "detail": "판정: 기각 | G7 주 시장 US 판정 104세션 · 처리 IC +0.0798 (t +3.44) 대 대조 +0.0795 (t +3.23) | ① ΔIC +0.0003 · NW t +0.05 × | ② 상위24 h5 z-수익 처리 +0.0719 대 대조 +0.0031 ○ | ③ 블록별 ΔIC +0.005 -0.011 +0.009 +0.010 -0.011 · 최악 -0.011 ○ | ④ KR 판정 100세션 · ΔIC -0.0020 (NW t -0.52) × | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G7"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 내부자(Form 4)",
+          "what": "미국 내부자 거래 신고(SEC Form 4)를 랭커에 더했다(6차 재료).",
+          "why": "IC 는 그대로라 기각. 국장 G4 와 같은 모양으로 상위 24 수익은 세 시드 모두 올랐다 — 기록으로 남겼다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G6",
+          "ledger": [
+            {
+              "at": "2026-09-24T15:29:56.447447+09:00",
+              "detail": "판정: 기각 | G6 주 시장 US 판정 104세션 · 처리 IC +0.0811 (t +3.43) 대 대조 +0.0795 (t +3.23) | ① ΔIC +0.0016 · NW t +0.78 × | ② 상위24 h5 z-수익 처리 -0.0323 대 대조 +0.0031 × | ③ 블록별 ΔIC -0.004 -0.004 +0.007 +0.004 +0.006 · 최악 -0.004 ○ | ④ KR 판정 100세션 · ΔIC -0.0010 (NW t -0.44) × | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G6"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 실적 드리프트(8-K)",
+          "what": "미국 실적 발표(8-K) 뒤 주가 흐름 피처를 랭커에 더했다(6차 재료).",
+          "why": "ΔIC +0.0016(t 0.78)로 기준 미달, 상위 24 수익도 낮아졌다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G5",
+          "ledger": [
+            {
+              "at": "2026-09-24T15:23:26.610090+09:00",
+              "detail": "판정: 기각 | G5 주 시장 KR 판정 100세션 · 처리 IC +0.0976 (t +5.63) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0082 · NW t -2.92 × | ② 상위24 h5 z-수익 처리 +0.1091 대 대조 +0.1687 × | ③ 블록별 ΔIC -0.006 -0.003 -0.004 -0.021 -0.006 · 최악 -0.021 ○ | ④ US 판정 104세션 · ΔIC +0.0011 (NW t +0.38) ○ | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G5"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "회계 품질",
+          "what": "회계 품질 피처 묶음을 랭커에 더했다(6차 재료).",
+          "why": "점수 정확도를 유의하게 깎았다(ΔIC −0.0082, t −2.92)."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G4",
+          "ledger": [
+            {
+              "at": "2026-09-24T15:16:45.543327+09:00",
+              "detail": "판정: 기각 | G4 주 시장 KR 판정 100세션 · 처리 IC +0.1054 (t +6.10) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0004 · NW t -0.09 × | ② 상위24 h5 z-수익 처리 +0.2341 대 대조 +0.1687 ○ | ③ 블록별 ΔIC -0.018 -0.001 +0.003 -0.001 +0.015 · 최악 -0.018 ○ | ④ US 판정 104세션 · ΔIC +0.0008 (NW t +1.72) ○ | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G4"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "국장 내부자 거래",
+          "what": "임원·주요주주 지분 변동(DART)을 랭커에 더했다(6차 재료).",
+          "why": "IC 는 그대로(±0.0004)라 기각. 다만 상위 24 수익은 세 시드 모두 올랐다 — 새 창에서 상위 N 기준으로 다시 잴 단서로 남겼다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G3",
+          "ledger": [
+            {
+              "at": "2026-09-24T15:10:08.147024+09:00",
+              "detail": "판정: 기각 | G3 주 시장 US 판정 104세션 · 처리 IC +0.0815 (t +3.30) 대 대조 +0.0795 (t +3.23) | ① ΔIC +0.0020 · NW t +0.92 × | ② 상위24 h5 z-수익 처리 +0.0155 대 대조 +0.0031 ○ | ③ 블록별 ΔIC +0.006 +0.005 -0.002 +0.010 -0.010 · 최악 -0.010 ○ | ④ KR 판정 100세션 · ΔIC -0.0026 (NW t -0.77) × | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G3"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 공매도",
+          "what": "미국 공매도 자료를 랭커에 더했다(6차 재료).",
+          "why": "ΔIC +0.0020(t 0.92)로 기준 미달, 국장 쪽 IC 는 깎였다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G2",
+          "ledger": [
+            {
+              "at": "2026-09-24T15:03:24.787675+09:00",
+              "detail": "판정: 기각 | G2 주 시장 KR 판정 100세션 · 처리 IC +0.0876 (t +5.00) 대 대조 +0.1058 (t +6.29) | ① ΔIC -0.0182 · NW t -2.62 × | ② 상위24 h5 z-수익 처리 +0.1175 대 대조 +0.1687 × | ③ 블록별 ΔIC -0.019 -0.002 -0.003 -0.014 -0.053 · 최악 -0.053 × | ④ US 판정 104세션 · ΔIC +0.0014 (NW t +0.30) ○ | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G2"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "부실·희석 공시",
+          "what": "부실·증자 같은 나쁜 공시 피처를 랭커에 더했다(6차 재료).",
+          "why": "점수 정확도를 오히려 유의하게 깎았다(ΔIC −0.0182, t −2.62). 랭커의 기존 판단과 부딪혔다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/ranker-sources-round6-2026-09.md",
+          "id": "G1",
+          "ledger": [
+            {
+              "at": "2026-09-24T14:56:34.118554+09:00",
+              "detail": "판정: 기각 | G1 주 시장 KR 판정 100세션 · 처리 IC +0.1063 (t +7.12) 대 대조 +0.1058 (t +6.29) | ① ΔIC +0.0005 · NW t +0.09 × | ② 상위24 h5 z-수익 처리 +0.1233 대 대조 +0.1687 × | ③ 블록별 ΔIC -0.015 +0.003 +0.007 +0.014 -0.006 · 최악 -0.015 ○ | ④ US 판정 104세션 · ΔIC +0.0047 (NW t +0.45) ○ | 기록(기준 아님) ② 시드별 처리−대",
+              "entity_id": "ranker-sources-round6-2026-09:G1"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "유동성 고갈",
+          "what": "거래가 말라 가는 종목을 잡는 피처 묶음을 랭커에 더했다(6차 재료).",
+          "why": "점수 정확도 개선 없음(ΔIC +0.0005, t 0.09), 상위 24 수익은 세 시드 모두 낮아졌다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/temporal-uncertainty-breadth-2026-10.md",
+          "id": "AP",
+          "ledger": [],
+          "result": "보류",
+          "source": "catalog",
+          "title": "시간 불일치로 종목 수",
+          "what": "모델 판단이 시간에 따라 흔들리는 날엔 종목 수를 늘리려 했다.",
+          "why": "등록 전 점검에서 규칙이 켜지는 날이 7%(급등장 0%)뿐이라 측정하지 않았다(시도 미소진)."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/rebalance-cadence-2026-10.md",
+          "id": "AO",
+          "ledger": [
+            {
+              "at": "2026-09-24T14:24:52.261533+09:00",
+              "detail": "채택 C10 | C5: ①평균 +1.1%p ○ · ②3/4 ○ · ③흩어짐 4.2%p vs 4.6%p ○ · ④국면 +3.0%p/-1.4%p × · ⑤MDD -21.4% ○ → 탈락 | C10: ①평균 +6.2%p ○ · ②4/4 ○ · ③흩어짐 4.5%p vs 4.6%p ○ · ④국면 +9.3%p/+2.4%p ○ · ⑤MDD -19.8% ○ → 통과 | 판정: 채택 C10",
+              "entity_id": "rebalance-cadence-2026-10:AO"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "10세션마다 재조정",
+          "what": "매일 대신 10세션마다 종목을 다시 골랐다.",
+          "why": "네 원천 모두 연 +4~7%p, 평균 +6.2%p, 박스장 −4.3% → +5.0%. 포트는 예측이 아니라 매매 빈도에서 가장 많이 샜다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-24",
+          "doc": "docs/protocols/portfolio-variance-2026-10.md",
+          "id": "AM",
+          "ledger": [
+            {
+              "at": "2026-09-24T14:23:42.229953+09:00",
+              "detail": "기각 — 현행 24 유지 |  | V1: ①평균 +1.9%p ○ · ②3/4 원천 ○ · ③흩어짐 2.4%p vs V0 4.6%p × · ④국면 +2.3%p/+1.4%p ○ · ⑤MDD -20.1%·회전 23.7 ○ → 탈락 | V2: ①평균 -11.6%p × · ②0/4 원천 × · ③흩어짐 2.8%p vs V0 4.6%p × · ④국면 -15.3%p/-6.9%p × · ⑤MDD -36.6%·회전 58.1 × → 탈락 | 판정: 기각 — 현행 24 유지",
+              "entity_id": "portfolio-variance-2026-10:AM"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "72종목 동일가중",
+          "what": "상위 24 대신 72종목을 담아 포트 흔들림(분산)을 줄이려 했다.",
+          "why": "평균 +1.9%p 에 흩어짐 4.6 → 2.4%p 로 나아졌지만 문턱(절반 = 2.3%p)을 0.1%p 차로 못 넘었다. 결과를 보고 기준을 바꾸지 않는다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/uncertainty-breadth-2026-09.md",
+          "id": "AL",
+          "ledger": [
+            {
+              "at": "2026-09-22T14:33:30.424474+09:00",
+              "detail": "기각 — 24 고정 유지 | 기록: gap(24위−72위) 중앙값 0.0145 · unc(se 중앙값) 중앙값 0.0037 · gap/unc 5%~50%~95% 1.86/3.77/6.50 | 기록: 넓게 든 세션 0% (박스 0% · 급등 0%) · 전환 0회(톱니 0) · 5시드 IC +0.0965 vs seed0 +0.0963 · L0 vs seed0 연수익 -3.7%p |  | | 변형 | 연수익 | 박스 | 급등 | 샤프 | MDD | β | 비대칭 | 회전 | 평균 N | IR(K200)",
+              "entity_id": "uncertainty-breadth-2026-09:AL"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "확신 없으면 72종목",
+          "what": "모델이 24위와 72위를 구분 못 하는 날엔 72종목을 들게 했다.",
+          "why": "규칙이 한 번도 켜지지 않았다. 대신 큰 발견 — 같은 모델도 시드만 바꾸면 상위 24 포트가 연 3.7%p 달라진다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/collapse-classifier-2026-09.md",
+          "id": "AK",
+          "ledger": [
+            {
+              "at": "2026-09-22T13:20:28.336869+09:00",
+              "detail": "기각 — 현행 위험 하한 유지 | 기록: 집합별 h5 z-수익 (전체/박스/급등, 낮을수록 패자를 잘 가림) — 랭커 하위10% -0.217/-0.205/-0.232 · risk 하위20% -0.097/-0.092/-0.104 · 분류기 상위10% -0.195/-0.205/-0.183 · 분류기 상위20% -0.142/-0.143/-0.141 | 기록: 랭커 하위10% ∩ 분류기 상위10% 겹침 71% · 분류기 AUC(세션 평균) 0.741 |  | | 변형 | 연수익 | 박스 | 급등 | 샤프",
+              "entity_id": "collapse-classifier-2026-09:AK"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "무너질 종목 분류기",
+          "what": "하위 10% 로 떨어질 종목을 직접 맞히는 분류기로 배제 명단을 만들었다.",
+          "why": "분류기는 패자를 잘 가렸지만 랭커 자신의 하위 명단과 71% 겹쳤다. 상위 24 는 그대로였다(연 +11.6% 대 +11.5%)."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/ranker-market-state-2026-09.md",
+          "id": "AJ",
+          "ledger": [
+            {
+              "at": "2026-09-22T12:58:29.087141+09:00",
+              "detail": "기각 — 현행 피처 유지 | 기록: 국면 피처 gain 비중 6.2% · 국면 체류 bull 41% · bear 25% · volatile 28% · crisis 7% | 기록: 하위 10% h5 z-수익 (전체/박스/급등) — J0 -0.217/-0.205/-0.232 · J1 -0.219/-0.204/-0.239 |  | | 변형 | 연수익 | 박스 | 급등 | 샤프 | MDD | β | IC 전체 | IC 박스/급등 | 비대칭 | 회전 | IR(K200) | | |---|---|---|---",
+              "entity_id": "ranker-market-state-2026-09:AJ"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "랭커에 국면 입력",
+          "what": "시장 국면(상승·하락·변동·위기)을 랭커 입력에 더했다.",
+          "why": "IC 는 조금 올랐는데 상위 24 포트는 박스장 −7.2%p. 국면 피처가 맨 위 몇 자리를 흔들었다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/regime-blend-2026-09.md",
+          "id": "AI",
+          "ledger": [
+            {
+              "at": "2026-09-22T11:58:55.456080+09:00",
+              "detail": "기각 | | H0 | -26.7% | -1.0% | -4.6% | -0.24 | -20.7% | -37.3% | -44.7% | 0.43 | 35.4 | | | D1 | -36.2% | +25.3% | +16.7% | +0.71 | -23.0% | -19.5% | -30.1% | 0.79 | 8.5 | | | R1 | -26.7% | +14.3% | +8.6% | +0.36 | -20.7% | -41.5% | -48.4% | 0.76 | 30.5 | | | R2 | -67.8% | +3.4% | ",
+              "entity_id": "regime-blend-2026-09:AI"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "국면 따라 구성 바꾸기",
+          "what": "오르는 장엔 넓게, 내리는 장엔 골라 담도록 국면 신호로 두 구성을 오갔다.",
+          "why": "느린 신호는 회복을 146세션 늦게 알았고, 빠른 신호는 112번 흔들렸다. 두 구성이 종목을 공유하지 않아 전환 비용이 우위를 먹었다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/reverse-window-index-minus-losers-2026-09.md",
+          "id": "AH",
+          "ledger": [
+            {
+              "at": "2026-09-22T09:28:26.107076+09:00",
+              "detail": "기각 | K200 같은 창: 연 -37.0% · MDD -23.9% | 기록: 판정 창 IC(h5) 평균 +0.0835 (t +6.47, 165세션) | 기록: 제외 하위10% 연 -50.3% · 잔류 -26.1% · 제외−잔류 -24.2%p | 기록: (H1 − H0) 일별 NW t -0.49 | | H0 | -30.6% | +6.0% | -1.52 | -20.6% | 0.97 | 0.95 | 0.92 | +0.026 | 25.8 | nan | — | | | H1 | -36.3% | +0.2% ",
+              "entity_id": "reverse-window-index-minus-losers-2026-09:AH"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "안 본 하락장 역검증",
+          "what": "'넓게 들고 하위 빼기' 를 2021-11~2022-06 하락장에서 채점했다.",
+          "why": "하락장에선 현행이 덜 잃었다(−30.6% 대 −36.3%). 빼는 종목은 비중이 작은 소형주라 포트에 닿지 않았다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/us-index-minus-losers-2026-09.md",
+          "id": "AG",
+          "ledger": [
+            {
+              "at": "2026-09-22T03:31:57.096774+09:00",
+              "detail": "채택 G1 | SPY 같은 창(가격수익): 연 +18.4% · 비용 편도 0.25% | 기록: 박스 제외 하위10% 연 +7.7% · 잔류 +10.7% · 제외−잔류 -3.0%p | 기록: 급등 제외 하위10% 연 +13.5% · 잔류 +15.8% · 제외−잔류 -2.3%p | 기록: 전체 제외 하위10% 연 +10.2% · 잔류 +12.9% · 제외−잔류 -2.7%p |  | | 변형 | 연수익 | 박스 | 급등 | 샤프 | MDD | β | 박스 초과 | 급등 초과 | 비대칭 | 회전 | 유효",
+              "entity_id": "us-index-minus-losers-2026-09:AG"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "미장 넓게 들고 하위 빼기",
+          "what": "국장의 '넓게 들고 하위 10% 만 뺀다' 를 미장에서 검증했다.",
+          "why": "현행 −7.6% → +17.9%(t 2.57)로 이겼지만 SPY(+18.4%)와 사실상 같다. 현행이 약하면 '현행보다 낫다' 는 쉽게 넘는다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/price-transformer-2026-09.md",
+          "id": "AC",
+          "ledger": [
+            {
+              "at": "2026-09-22T02:53:57.472798+09:00",
+              "detail": "기각 — 현행 GBM 유지 | 기록: GBM·트랜스포머 세션별 순위 상관 평균 +0.550 (5%~95%: +0.332~+0.665) · 학습+추론 489분(seed 0) |  | | 변형 | 연수익 | 박스 | 급등 | 샤프 | MDD | β | IR(K200) | 상승 | 하락 | 비대칭 | 시총2 상위24 세션 | | |---|---|---|---|---|---|---|---|---|---|---|---| | | C0 | +15.3% | +9.7% | +21.8% | +0.77 | -19.0",
+              "entity_id": "price-transformer-2026-09:AC"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "가격 트랜스포머",
+          "what": "60일 가격·거래대금을 보는 소형 트랜스포머를 랭커 옆에 세웠다.",
+          "why": "단독 연 −5.6%, GBM 과 섞으면 +2.7%(GBM 단독 +15.3%). GBM 과 다른 것을 봤지만 그 다른 것은 잡음이었다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-22",
+          "doc": "docs/protocols/ranker-target-beta-2026-09.md",
+          "id": "AA",
+          "ledger": [
+            {
+              "at": "2026-09-22T03:18:16.615348+09:00",
+              "detail": "기각 — 현행 타깃 유지 | 기록: β 추정 안정성(60 vs 120세션 β 순위상관) 0.859 · T0 연 회전 33.9 |  | | 변형 | 연수익 | 박스 | 급등 | 샤프 | MDD | β 박스/급등 | IC 박스/급등 | 상승 | 하락 | 비대칭 | 회전 | IR(K200) | | |---|---|---|---|---|---|---|---|---|---|---|---|---| | | T0 | +12.0% | +2.4% | +24.3% | +0.59 | -20.7% | 0.77/0.32 ",
+              "entity_id": "ranker-target-beta-2026-09:AA"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "시장 몫 뺀 타깃",
+          "what": "랭커가 맞힐 수익에서 시장 몫(β)을 빼 고β 종목을 고르게 하려 했다.",
+          "why": "반대로 움직였다 — 포트 β 가 0.77 → 0.55 로 내려갔다. β 를 바꾸려면 타깃이 아니라 비중에서 바꿔야 한다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-21",
+          "doc": "docs/protocols/beta-target-megacap-2026-09.md",
+          "id": "Z",
+          "ledger": [
+            {
+              "at": "2026-09-21T14:30:40.992332+09:00",
+              "detail": "채택 Z2 | | Z0 | -1.0% | -11.3% | +16.6% | -15.7% | -92.0% | -0.05 | -37.3% | 0.40 | -1.88 | 0.39 | 0.53 | -0.139 | 36.9 | 24.0 | 4.2% | 153 | | | Z1 | +7.5% | +1.4% | +17.9% | -3.0% | -90.7% | +0.41 | -21.6% | 0.39 | -1.56 | 0.41 | 0.49 | -0.079 | 15.2 | 24.0 | 4.2% | 352 | | | Z2",
+              "entity_id": "beta-target-megacap-2026-09:Z"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "K200 · 유동시총 10%",
+          "what": "코스피200 안에서 고르고 유동시총 비례(종목 상한 10%)로 담았다.",
+          "why": "현행 대비 연 +12.8%p(t 2.16), 낙폭 −37.3% → −20.6%, 회전 36.9 → 19.1. 다만 지수는 못 이겼다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-21",
+          "doc": "docs/protocols/cap-relaxation-2026-09.md",
+          "id": "AF",
+          "ledger": [
+            {
+              "at": "2026-09-21T17:02:26.769702+09:00",
+              "detail": "기각 — 상한 10% 유지 | | F10 | 10% | +25.2% | -2.0% | -44.9% | 11.2% | -1.60 | +1.04 | -19.5% | -15.6% | 0.78 | -0.071 | 9.2 | 35 | 10%/11% | 18%/21% | | | F15 | 15% | +27.7% | -2.0% | -37.8% | 9.7% | -1.57 | +1.12 | -20.2% | -15.9% | 0.82 | -0.063 | 9.1 | 25 | 15%/16% | 23%/31% | | | ",
+              "entity_id": "cap-relaxation-2026-09:AF"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "종목 상한 풀기",
+          "what": "종목당 최대 비중 10% 를 15~35%, 무제한까지 풀어 봤다.",
+          "why": "상한을 다 풀어도 지수보다 연 7.7%p 낮았다. '상한만 풀면 지수를 이긴다' 는 틀렸다 — 나머지는 비용과 제외 종목 문제다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-21",
+          "doc": "docs/protocols/beta-overlay-extended-2026-09.md",
+          "id": "AE",
+          "ledger": [
+            {
+              "at": "2026-09-21T16:59:24.318273+09:00",
+              "detail": "기록만 — 채택 없음 | | BASE | -1.0% | 19.4% | -0.05 | -37.3% | 0.40 | -1.88 | -11.3% / -0.60 / -35.4% | +16.6% / +0.82 / -17.7% | | | H50 | -12.2% | 16.6% | -0.74 | -48.3% | 0.21 | -2.01 | -16.9% / -1.05 / -42.7% | -4.4% / -0.25 / -25.8% | | | H100 | -23.5% | 16.1% | -1.46 | -66.5% | 0.",
+              "entity_id": "beta-overlay-extended-2026-09:AE"
+            }
+          ],
+          "result": "보류",
+          "source": "catalog",
+          "title": "헤지 오버레이 재측정",
+          "what": "지수 헤지·변동성 조절을 4년 창(박스장·급등장)에서 다시 쟀다.",
+          "why": "기록만, 채택 없음. 넷 다 기준 미달이고 박스장 낙폭도 더 깊었다. 확장 패널에도 진짜 하락장(2022 상반기)이 판정 창 밖이었다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-21",
+          "doc": "docs/protocols/index-minus-losers-2026-09.md",
+          "id": "AD",
+          "ledger": [
+            {
+              "at": "2026-09-21T15:12:56.607868+09:00",
+              "detail": "기각 | | D0 | -1.0% | -15.7% | -92.0% | 23.4% | -1.88 | -0.05 | -37.3% | 0.40 | 0.39 | 0.53 | -0.139 | nan | nan | nan | +nan% | | | D1 | +25.2% | -2.0% | -44.9% | 11.2% | -1.60 | +1.04 | -19.5% | 0.78 | 0.79 | 0.86 | -0.071 | 9.2 | 35 | 27 | +15.9% | | | D2 | +20.8% | -3.9% | -53.",
+              "entity_id": "index-minus-losers-2026-09:AD"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "지수에서 패자만 빼기",
+          "what": "지수를 넓게 들고 랭커 하위 10~30% 종목만 뺐다.",
+          "why": "빼는 것은 값을 했다(현행보다 모든 면에서 나음). 그러나 종목 상한 10% 때문에 삼성·하이닉스를 지수만큼 못 들어 지수를 못 이겼다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-20",
+          "doc": "docs/protocols/market-beta-selection-2026-09.md",
+          "id": "Y",
+          "ledger": [
+            {
+              "at": "2026-09-20T04:38:55.470042+09:00",
+              "detail": "기각 — 현행 유지 | | Y0 | +12.0% | +0.57 | -17.7% | 0.25 | -3.34 | -126.4% | 0.19 | 0.27 | -0.079 | 21.9 | 24.0 | 0.92 | -3.93/-3.49 | | | Y1 | +16.2% | +0.74 | -17.7% | 0.27 | -3.29 | -122.2% | 0.21 | 0.29 | -0.074 | 21.9 | 24.0 | 1.00 | -3.62/-3.54 | | | Y2 | +15.3% | +0.70 | -21.3% ",
+              "entity_id": "market-beta-selection-2026-09:Y"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "K200 안에서 고르기",
+          "what": "코스피200 구성종목 안에서만 골라 시장 민감도(β)를 시장만큼 올리려 했다.",
+          "why": "K200 안에서 골라도 β 가 0.25~0.29 였다. '하락을 잘 막는다' 는 인상은 방어가 아니라 덜 들고 덜 움직인 결과였다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-20",
+          "doc": "docs/protocols/ranker-ensemble-horizons-2026-09.md",
+          "id": "AB",
+          "ledger": [
+            {
+              "at": "2026-09-20T17:09:46.388883+09:00",
+              "detail": "기각 — 현행 h5 유지 | | B0 | h5 | +13.7% | +5.9% | +22.5% | +0.70 | -19.3% | 0.39 | -1.59 | 0.42 | 0.48 | -0.062 | | | B1 | h5+h20 | +7.4% | +1.5% | +14.1% | +0.38 | -17.9% | 0.40 | -1.85 | 0.39 | 0.49 | -0.100 | | | B2 | h5+h20+h60 | +6.0% | -0.3% | +13.2% | +0.31 | -18.6% | 0.40 | -1",
+              "entity_id": "ranker-ensemble-horizons-2026-09:AB"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "예측 기간 앙상블",
+          "what": "5일·20일·60일 뒤 순위를 각각 배운 모델을 평균했다.",
+          "why": "기간을 늘리면 두 국면 모두에서 나빠졌다(박스장 +5.9% → −5.2%). 지평은 5일이 맞다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-18",
+          "doc": "docs/protocols/exposure-axes-2026-09.md",
+          "id": "V",
+          "ledger": [
+            {
+              "at": "2026-09-18T09:11:05.740214+09:00",
+              "detail": "채택 V6 — 켠 축 ('regime',) | 축별 발동 세션 {'trend': 77, 'regime': 85, 'squeeze': 56} / 360 |  | | 변형 | 켠 축 | 비용 후 연수익 | MDD | 최악20 | 전환 | 평균 배수 | 전반 | 후반 | | |---|---|---|---|---|---|---|---|---| | | V0 | trend·regime·squeeze | +9.2% | -17.7% | -9.5% | 42 | 0.83 | +18.7% | -0.3% | | | V",
+              "entity_id": "exposure-axes-2026-09:V"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "노출 축 셋 중 국면만",
+          "what": "비중을 줄이는 세 장치(추세·국면·압축) 중 무엇이 값을 하는지 조합별로 쟀다.",
+          "why": "국면 축만 켠 V6 채택 — 위험은 같고 연수익 +3.40%p, 전환 42 → 26. 다만 승자를 가른 차이가 1.1bp 로 잡음이었다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-18",
+          "doc": "docs/protocols/exposure-timing-2026-09.md",
+          "id": "U",
+          "ledger": [
+            {
+              "at": "2026-09-18T08:43:07.235765+09:00",
+              "detail": "판정: 채택 U2 (정정) | 앞선 '채택 U4' 는 부동소수 래칫 탓이다 — 1.0-0.8=0.19999999999999996 이 밴드 0.20 안으로 판정돼 0.8 이 흡수 상태가 됐고 눌린 노출이 MDD·전환을 좋게 보이게 했다. BAND_EPSILON 으로 경계를 고치고 같은 변형·같은 창(360세션)으로 재측정: U0 +9.2%/-17.7%/42 | U1 +16.9%/-17.7%/0 | U2 +9.2%/-17.7%/42 | U3 +9.5%/-17.7%/36 | U4 +9.4%/-17.7%",
+              "entity_id": "exposure-timing-2026-09:U"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "노출 변경 데드밴드",
+          "what": "주식 비중을 조금씩 바꾸지 않게, 일정 폭 이상 달라질 때만 바꾸는 여유 폭을 뒀다.",
+          "why": "채택 U2 는 현행과 소수점까지 같은 형식적 채택이다 — 데드밴드는 제대로 재니 아무것도 해결하지 못했다. 첫 측정의 U4 채택은 부동소수 오류라 바로잡았다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-07",
+          "doc": "docs/protocols/regime-crisis-rule-2026-09.md",
+          "id": "R(노출)",
+          "ledger": [
+            {
+              "at": "2026-09-07T18:14:55.999331+09:00",
+              "detail": "| 변형 | 비용 후 연수익 | MDD | 전환 | crisis 세션 | 평균 배수 | 전반 | 후반 | | |---|---|---|---|---|---|---|---| | | R0 | +12.6% | -17.7% | 26 | 23 | 0.91 | +23.9% | +1.2% | | | R1 | +14.1% | -16.9% | 20 | 12 | 0.93 | +23.9% | +4.3% | | | R2 | +9.4% | -20.4% | 28 | 32 | 0.90 | +22.9% | -4.1% | | |",
+              "entity_id": "regime-crisis-rule-2026-09:R"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "위기 국면 판정 문턱",
+          "what": "'살짝 하락' 을 위기(crisis)로 읽지 않게 문턱을 −3% 로 넓혔다.",
+          "why": "위기 세션이 23 → 12 로 줄고 연수익 +12.6% → +14.1%, 낙폭 −17.7% → −16.9%, 전환 26 → 20."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-05",
+          "doc": "docs/protocols/us-entry-timing-2026-09.md",
+          "id": "T",
+          "ledger": [
+            {
+              "at": "2026-09-05T21:33:32.219715+09:00",
+              "detail": "① Δ연수익(시차1 − 시차0) -5.9% · NW t -0.32 × | ② MDD 시차1 -13.2% 대 시차0 -14.1% ○ | ③ 연회전 시차1 155.6 대 시차0 150.3 ○ | 판정: 기각",
+              "entity_id": "us-entry-timing-2026-09:T"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 진입 하루 늦추기",
+          "what": "미장 신호가 나온 날 대신 하루 뒤에 사면 나은지 봤다.",
+          "why": "당일 진입(+20.9%)이 하루 지연(+10.1%)보다 나았다. 미장 회전 150 은 어느 시차에서도 그대로였다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/selection-q-r-2026-09.md",
+          "id": "R(미장)",
+          "ledger": [
+            {
+              "at": "2026-09-04T18:54:46.954123+09:00",
+              "detail": "① Δ연수익 -3.9% · NW t -0.22 × | ② MDD 처리 -17.5% 대 대조 -23.8% ○ | ③ 연회전 처리 71.1 대 대조 150.6 (max_ratio 0.67) ○ | 판정: 기각",
+              "entity_id": "selection-r-2026-09:R"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 평활·완충",
+          "what": "국장에서 통한 점수 평활(EMA5)·완충 확대를 미장에도 적용.",
+          "why": "회전은 반으로 줄었지만 비용 전 수익이 +32% → +5% 로 꺾였다. 미장 순위 변화는 잡음이 아니라 정보였다(빨리 갈아타야 이득)."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/selection-q-r-2026-09.md",
+          "id": "Q",
+          "ledger": [
+            {
+              "at": "2026-09-04T18:56:47.369425+09:00",
+              "detail": "① Δ연수익 +9.9% · NW t +1.54 × | ② MDD 처리 -10.9% 대 대조 -16.5% ○ | ③ 연회전 처리 14.0 대 대조 32.1 (max_mult 1.50) ○ | 판정: 기각",
+              "entity_id": "selection-q-2026-09:Q"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "국장 K200 안에서만",
+          "what": "국장 후보를 코스피200 구성종목으로 좁혔다.",
+          "why": "연 +9.9%p 로 방향은 맞지만 t 1.54 로 기준(2.0) 미달. 시행 P 와 같은 방향이라 홀드아웃 개봉 때 다시 잰다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/float-cap-construction-2026-09.md",
+          "id": "P",
+          "ledger": [
+            {
+              "at": "2026-09-04T18:14:06.998773+09:00",
+              "detail": "EW 샤프 +0.74 IR -3.29 | FCW10 샤프 +0.68 IR -3.34 | FCW15 샤프 +0.73 IR -3.31 | FCW10-K200 샤프 +1.19 IR -2.99 | FCW10: Δ연수익 -0.1% NW t -0.02 × · MDD ○ · 유효N 13.3 ○ → 탈락 | FCW15: Δ연수익 +1.9% NW t +0.23 × · MDD ○ · 유효N 10.3 × → 탈락 | FCW10-K200: Δ연수익 +11.9% NW t +1.35 × · MDD ○ · 유효N 13.6 ",
+              "entity_id": "float-cap-construction-2026-09:P"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "유동시총 가중",
+          "what": "동일가중 대신 유동시가총액 비례로 담았다(종목 상한 10%).",
+          "why": "가중 방식 자체는 동일가중과 차이가 없었다(t −0.02). K200 안에서만 고르는 변형이 +11.9%p 였지만 t 1.35 라 방향 표시로만 남겼다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/selection-smoothing-2026-09.md",
+          "id": "N",
+          "ledger": [
+            {
+              "at": "2026-09-04T14:23:45.081052+09:00",
+              "detail": "① Δ연수익 +20.2% · NW t +3.55 ○ | ② MDD 처리 -16.5% 대 대조 -30.6% ○ | ③ 연회전 처리 32.3 대 대조 88.2 (≤2/3) ○ | 판정: 채택",
+              "entity_id": "selection-smoothing-2026-09:N"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "점수 평활 + 완충 72",
+          "what": "랭커 점수를 5일 평균처럼 부드럽게(EMA5) 하고, 72위 밖으로 밀려야 팔게 했다.",
+          "why": "안 본 구간에서 연수익 +20.2%p(t 3.55), 낙폭 −30.6% → −16.5%, 회전 88 → 32."
+        },
+        {
+          "category": "RL",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/e2e-drl-final-2026-09.md",
+          "id": "M4-5",
+          "ledger": [
+            {
+              "at": "2026-09-04T17:37:09.879178+09:00",
+              "detail": "판정 100세션 · 정책 순수익 연 -34.8% (IR -1.29) 대 대조 +6.7% (IR +0.23) | ① Δ순일수익 -41.4%/년 · NW t -2.96 × | ② MDD 정책 -25.0% 대 대조 -14.7% × | ③ 유효종목 평균 25.7 · 최대 비중 6.4% · 회전/일 0.39 ○ | ④ IC(h5) 정책 +0.1084 대 ranker +0.1123 ○ | ⑤ 블록별 Δ누적 +0.5% -4.0% -1.8% -5.6% -4.2% · 최악 -5.6% × | 판정: 기각",
+              "entity_id": "e2e-drl-final-2026-09:M4-5"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "매매 전반 DRL 마지막",
+          "what": "지난 실패마다 장치를 하나씩 넣고(비중 상한·잔차 정책·비용 반영 등) 매매 전반을 다시 학습.",
+          "why": "장치는 다 작동했지만 대조보다 연 −41%p(t −2.96), 낙폭도 더 깊었다. 학습 구간에서조차 못 올랐다 — 외운 게 아니라 배울 신호가 없었다."
+        },
+        {
+          "category": "RL",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/drl-round4-2026-09.md",
+          "id": "M4-4",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "랭커 위 배분 RL 4회차",
+          "what": "후보를 랭커로 바꾸고 보상 기준선을 후보 균등가중으로 맞춘 뒤 비중 배분을 다시 학습.",
+          "why": "파일럿에서 검증 우위가 마지막 셋 모두 음수(−0.00004·−0.00007·−0.00004)로 불합격. 3회차와 같은 그림이라 배분 RL 은 여기서 닫았다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-04",
+          "doc": "docs/protocols/selection-ranker-2026-09.md",
+          "id": "M",
+          "ledger": [
+            {
+              "at": "2026-09-04T14:15:40.553095+09:00",
+              "detail": "EW24 샤프 +0.25 IR -3.65 MDD -19.2% | EW36 샤프 +0.21 IR -3.77 MDD -19.9% | EW48 샤프 +0.39 IR -3.65 MDD -19.9% | CW24 샤프 +0.50 IR -3.48 MDD -20.7% | CW36 샤프 +0.46 IR -3.64 MDD -20.2% | EWALL 샤프 +0.12 IR -4.08 MDD -28.5% | EW36: Δ연수익 -0.8% NW t -0.18 × · MDD ○ · 회전 ○ → 탈락 | EW48: Δ연수익 ",
+              "entity_id": "selection-ranker-2026-09:M"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "랭커 위 종목 수·가중",
+          "what": "랭커 점수로 24·36·48종목, 시총가중(상한 10%) 등을 비교했다.",
+          "why": "어느 변형도 t 2 를 못 넘었다. 대신 진짜 문제가 보였다 — 회전 비용이 알파의 5/6 을 먹는다(비용 전 +31.7% → 비용 후 +5.2%)."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-03",
+          "doc": "docs/protocols/pooled-ranker-2026-09.md",
+          "id": "합침 랭커",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "국장+미장 합친 랭커",
+          "what": "국장·미장 표본을 합쳐 5배로 늘리고 규제를 세게 건 랭커 4가지.",
+          "why": "넷 다 fundamental 을 못 이겼다. 뒤이은 진단이 진짜 원인을 찾았다 — 표본이 아니라 목적함수(수익률 오차를 줄이게 가르친 것)였다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-09-03",
+          "doc": "docs/protocols/rank-objective-ranker-2026-09.md",
+          "id": "L",
+          "ledger": [
+            {
+              "at": "2026-09-03T11:21:11.432613+09:00",
+              "detail": "국장 판정 100세션 · 랭커 IC +0.1052 (t +6.23) 대 fundamental +0.0772 (t +4.76) | ① ΔIC +0.0280 · NW t +2.88 ○ | ② 상위24 h5 z-수익 랭커 +0.1687 대 대조 +0.1428 ○ | ③ 블록별 ΔIC +0.059 +0.028 +0.003 +0.030 +0.020 · 최악 +0.003 ○ | ④ 미장 판정 104세션 · 랭커 +0.0795 대 fund +0.0485 · ΔIC +0.0310 (NW t +4.40) ○ | ",
+              "entity_id": "rank-objective-ranker-2026-09:L"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "순위 목적 GBM 랭커",
+          "what": "수익률 대신 '그날 종목 순위' 를 맞히도록 가르친 GBM 랭커.",
+          "why": "국장 IC +0.105 대 fundamental +0.077(t 2.88), 미장 +0.080 대 +0.049(t 4.40). 지금 두 시장에서 매매를 하고 있는 모델이다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-03",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "J",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 실적 서프라이즈",
+          "what": "분기 순이익이 전년보다 얼마나 놀라웠나(SUE)를 신호로 썼다.",
+          "why": "방향은 맞았지만(11시점 전부 양수) 크기가 합격선 0.03 의 절반이었다. 10-Q 공시일 기준이라 드리프트 앞부분이 빠진다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/benchmark-aligned-construction-2b-2026-09.md",
+          "id": "벤치마크 정렬 2b",
+          "ledger": [],
+          "result": "보류",
+          "source": "catalog",
+          "title": "지수 닮은 구성 2차",
+          "what": "대용 지수를 고치고 β 를 1.0 에 묶어 다시 쟀다.",
+          "why": "셋 다 기록만. 1차의 '+63%p' 는 SK하이닉스 한 종목이 포트의 6할이었던 결과였다 — 알파가 아니라 한 종목 베팅."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/benchmark-aligned-construction-2026-09.md",
+          "id": "벤치마크 정렬 1",
+          "ledger": [],
+          "result": "보류",
+          "source": "catalog",
+          "title": "지수 닮은 구성 1차",
+          "what": "시총 상위 200 안에서 고르고 시총가중으로 담는 등 구성을 지수에 붙였다.",
+          "why": "등록 기준으로는 기록만. CAP200 이 지수를 연 +63%p 이겼지만 β 1.21 이 남았고 대용 지수 오차가 판정을 가렸다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/beta-aligned-selection-2026-09.md",
+          "id": "베타 정렬",
+          "ledger": [],
+          "result": "보류",
+          "source": "catalog",
+          "title": "베타 맞춘 종목 선정",
+          "what": "포트의 시장 민감도(β)를 지수에 가깝게 맞추도록 종목을 골랐다.",
+          "why": "셋 다 기록만. 어떻게 골라도 β 가 0.4~0.6 에 머물렀다 — 유니버스 자체의 β 가 0.4 라서, 동일가중 24 로는 시총가중 지수를 못 쫓는다."
+        },
+        {
+          "category": "노출",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/beta-overlay-2026-09.md",
+          "id": "베타 오버레이",
+          "ledger": [],
+          "result": "보류",
+          "source": "catalog",
+          "title": "지수 헤지·변동성 조절",
+          "what": "지수를 공매도해 시장 몫을 걷거나(헤지), 변동성이 큰 날 비중을 줄였다.",
+          "why": "넷 다 기록만. 지수가 연 +153% 오른 창이라 헤지는 정의상 손실이다 — 이 표본으로는 헤지를 잴 수 없다는 것을 확인했다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "I",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "미장 공매도 잔고",
+          "what": "미국 공매도 잔고(FINRA)가 큰 종목을 피하는 신호.",
+          "why": "11개 시점 전부 음수 — 가설과 반대로 잔고가 큰 종목이 더 올랐다. 부호는 사후에 뒤집지 않는다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "H",
+          "ledger": [],
+          "result": "보류",
+          "source": "catalog",
+          "title": "국장 공매도 비중",
+          "what": "공매도가 많은 종목은 뒤에 못 간다는 가설로 공매도 비중을 신호로 썼다.",
+          "why": "표본이 87세션으로 규칙(120세션) 미만이라 보류. 이 구간에선 오히려 반대 방향(공매도 많은 종목이 더 오름)이 나왔다."
+        },
+        {
+          "category": "RL",
+          "date": "2026-09-02",
+          "doc": "docs/protocols/e2e-rl-2026-09.md",
+          "id": "E2E-베타",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "매매 전반 RL 베타",
+          "what": "선정·비중·회전을 신경망 하나가 한 번에 정하게 했다(2,872종목 전체에 비중).",
+          "why": "학습 구간에서 종목 하나를 외워 +360~680% 를 냈다(유효 종목 1). 안 본 구간의 점수 정확도(IC)는 fundamental 의 절반이었다."
+        },
+        {
+          "category": "RL",
+          "date": "2026-09-01",
+          "doc": "docs/rl-postmortem.md",
+          "id": "M4-3",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "배분 RL 3회차 파일럿",
+          "what": "현금 고정·보유 상태 출발·검증 구간으로 체크포인트 선택 — 외울 자유도를 뺀 설계.",
+          "why": "정책 결정의 95% 가 실제로 집행됐는데도 균등가중과 차이가 0 이었다. 상위 24 안에서 비중을 바꿔 얻을 알파가 없다 — 레버는 '얼마씩' 이 아니라 '무엇을' 이다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-01",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "D",
+          "ledger": [
+            {
+              "at": "2026-09-01T02:39:54.340779+09:00",
+              "detail": "{\"rows\": 564520, \"ic5\": 0.005774618558868366, \"t5\": 1.527516511978855, \"ic20\": 0.008727221474929483, \"t20\": 1.1434751029939374, \"delta_ic\": -0.018170202646197946, \"delta_t\": -7.469591099019013, \"top_excess_delta\": -0.012857594296467309, \"adopt\": false, \"event_study\": {\"순매수\": {\"n\"",
+              "entity_id": "new-sources-2026-09:D"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "new-sources-2026-09",
+          "what": "",
+          "why": "{\"rows\": 564520, \"ic5\": 0.005774618558868366, \"t5\": 1.527516511978855, \"ic20\": 0.008727221474929483, \"t20\": 1.1434751029939374, \"delta_ic\": -0.018170202646197946, \"delta_t\": -7.469591099019013, \"top_excess_delta\": -0.012857594296467309, \"adopt\": false, \"event_study\": {\"순매수\": {\"n\""
+        },
+        {
+          "category": "재료",
+          "date": "2026-09-01",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "C",
+          "ledger": [
+            {
+              "at": "2026-09-01T02:40:15.008817+09:00",
+              "detail": "{\"rows\": 97399, \"ic5\": 0.00964951056151755, \"t5\": 0.6615161423339253, \"ic20\": 0.03333797033377, \"t20\": 1.5133542603680026, \"delta_ic\": -0.0031225577562691694, \"delta_t\": -3.4821873905236784, \"top_excess_delta\": 0.0039472983984917805, \"adopt\": false, \"event_study\": {\"n\": 4659, \"to",
+              "entity_id": "new-sources-2026-09:C"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "new-sources-2026-09",
+          "what": "",
+          "why": "{\"rows\": 97399, \"ic5\": 0.00964951056151755, \"t5\": 0.6615161423339253, \"ic20\": 0.03333797033377, \"t20\": 1.5133542603680026, \"delta_ic\": -0.0031225577562691694, \"delta_t\": -3.4821873905236784, \"top_excess_delta\": 0.0039472983984917805, \"adopt\": false, \"event_study\": {\"n\": 4659, \"to"
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-31",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "G",
+          "ledger": [
+            {
+              "at": "2026-08-31T18:01:47.251849+09:00",
+              "detail": "{\"ic5\": 0.030936636973992866, \"t5\": 2.056814520290693, \"ic20\": 0.08066789511176263, \"t20\": 5.0474044226542105, \"delta_ic\": -0.0003385213182018914, \"delta_t\": -1.7999999565708902, \"top_excess_delta\": 0.0009078176586818008, \"adopt\": false, \"sessions\": 60, \"rows\": 7193, \"model\": \"cl",
+              "entity_id": "new-sources-2026-09:G"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "new-sources-2026-09",
+          "what": "",
+          "why": "{\"ic5\": 0.030936636973992866, \"t5\": 2.056814520290693, \"ic20\": 0.08066789511176263, \"t20\": 5.0474044226542105, \"delta_ic\": -0.0003385213182018914, \"delta_t\": -1.7999999565708902, \"top_excess_delta\": 0.0009078176586818008, \"adopt\": false, \"sessions\": 60, \"rows\": 7193, \"model\": \"cl"
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-31",
+          "doc": "docs/protocols/analyst-features-2026-09.md",
+          "id": "A",
+          "ledger": [
+            {
+              "at": "2026-08-31T18:31:52.457291+09:00",
+              "detail": "{\"chart_passed\": [\"high_52w\"], \"volume_best\": \"volume_surge\", \"volume_pass\": true, \"delta_ic\": -0.002421316187874537, \"delta_t\": -0.45694755882333393, \"top_excess_base\": 0.03004387976641892, \"top_excess_combined\": 0.07864010756626703, \"adopt_chart\": false}",
+              "entity_id": "analyst-features-2026-09:A"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "analyst-features-2026-09",
+          "what": "",
+          "why": "{\"chart_passed\": [\"high_52w\"], \"volume_best\": \"volume_surge\", \"volume_pass\": true, \"delta_ic\": -0.002421316187874537, \"delta_t\": -0.45694755882333393, \"top_excess_base\": 0.03004387976641892, \"top_excess_combined\": 0.07864010756626703, \"adopt_chart\": false}"
+        },
+        {
+          "category": "선정",
+          "date": "2026-08-30",
+          "doc": "docs/protocols/new-sources-2026-09.md",
+          "id": "E",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "월 1회 재선정",
+          "what": "매일 대신 20세션마다 상위 24 를 다시 골랐다.",
+          "why": "순IR +1.15 로 현행 +1.24 보다 낮고, 오히려 회전이 더 높았다(1.90 대 1.32). 한 번에 갈아치우는 것이 완충 구간보다 비쌌다."
+        },
+        {
+          "category": "RL",
+          "date": "2026-08-29",
+          "doc": "docs/rl-postmortem.md",
+          "id": "M4-2",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "배분 RL 2회차",
+          "what": "1회차 결함을 고쳐 다시 학습. 첫 판(r5)은 관측값에 환율 원값 1,478 이 들어간 코드 결함으로 중단하고 고친 뒤 완주했다.",
+          "why": "학습 구간에선 균등가중을 이겼지만 안 본 구간(OOS)에선 졌다. 배운 것은 현금 타이밍뿐이었고 그것을 통째로 외운 것이었다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-29",
+          "doc": "docs/protocols/analyst-features-2026-09.md",
+          "id": "B",
+          "ledger": [
+            {
+              "at": "2026-08-29T17:49:09.613937+09:00",
+              "detail": "{\"B1 직교화 잔차\": {\"ic5\": 0.004868025003723666, \"t5\": 0.8917780419169928, \"ic20\": 0.010022647296473177, \"t20\": 0.9651766962245683, \"delta_ic\": -0.0008211465862496929, \"delta_t\": -0.2545311994063863, \"net_ir\": 2.099085471479116, \"adopt\": false}, \"B2 사건창 20세션\": {\"ic5\": 0.04121566819395",
+              "entity_id": "analyst-features-2026-09:B"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "event 신호 변형",
+          "what": "공시 사건 점수에서 재무 점수와 겹치는 부분을 빼거나(B1), 사건 뒤 20세션만 쓰게(B2) 바꿨다.",
+          "why": "둘 다 재무 점수 위에 더하는 정보가 0 이었다(한계기여 t −0.25 / −0.10). event 는 어떻게 잘라도 fundamental 과 겹친다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-08-27",
+          "doc": "docs/protocols/selection-2026-08-27.md",
+          "id": "완충 48",
+          "ledger": [
+            {
+              "at": "2026-08-27T18:17:16.772921+09:00",
+              "detail": "완충 구간(진입24/퇴출 36·48·72) + 지평별 IC — 퇴출48: 회전 5.57→1.27, 순IR -0.14→+0.05 → 채택 exit_rank=48",
+              "entity_id": "selection-buffer-2026-08-27"
+            }
+          ],
+          "result": "채택",
+          "source": "catalog",
+          "title": "완충 구간(진입24·퇴출48)",
+          "what": "상위 24 에 들면 사고, 48위 밖으로 밀려나야 판다 — 매일 전부 갈아타지 않게 여유를 뒀다.",
+          "why": "연 회전이 5.6회에서 1.3회로 줄었다."
+        },
+        {
+          "category": "선정",
+          "date": "2026-08-27",
+          "doc": "docs/protocols/selection-2026-08-27.md",
+          "id": "섹터 중립",
+          "ledger": [
+            {
+              "at": "2026-08-27T18:17:16.772921+09:00",
+              "detail": "섹터 중립화(KSIC 24군 z) vs 전체 z — ΔIC(h5) -0.0033 t -1.51, h20 -0.0040 t -0.94 → 기각 (docs/protocols/selection-2026-08-27.md)",
+              "entity_id": "selection-sector-neutral-2026-08-27"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "섹터 중립화",
+          "what": "점수를 업종(KSIC 24군) 안에서 따로 표준화해 업종 쏠림을 없앴다.",
+          "why": "섹터 중립화는 기각 — 채택 기준(점수 정확도 개선 t ≥ 2)을 못 넘었다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-08-27",
+          "doc": "docs/protocols/ranker-2026-08-27b.md",
+          "id": "랭커B-0827",
+          "ledger": [
+            {
+              "at": "2026-08-27T18:37:09.191610+09:00",
+              "detail": "변형 B(재무 7피처·확장창 150+·얕은 모델): IC +0.018 vs +0.081, 선형도 +0.027 → 기각. 학습된 가중 < 사전 부호",
+              "entity_id": "ranker-lgbm-b-2026-08-27"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "LightGBM 랭커 2차",
+          "what": "재무 피처 7개만, 학습창을 늘리고 모델을 얕게 해서 다시.",
+          "why": "IC +0.018 대 fundamental +0.081. 같은 피처의 선형 결합도 +0.027 — 이 표본에선 데이터로 가중을 배우는 것 자체가 손으로 정한 부호보다 못했다."
+        },
+        {
+          "category": "랭커",
+          "date": "2026-08-27",
+          "doc": "docs/protocols/ranker-2026-08-27.md",
+          "id": "랭커A-0827",
+          "ledger": [
+            {
+              "at": "2026-08-27T18:33:39.030871+09:00",
+              "detail": "LightGBM 13피처 워크포워드(120→20, 퍼지5): IC -0.0006 vs fundamental +0.0769, ΔIC t -4.66 → 기각 (docs/protocols/ranker-2026-08-27.md)",
+              "entity_id": "ranker-lgbm-2026-08-27"
+            }
+          ],
+          "result": "기각",
+          "source": "catalog",
+          "title": "LightGBM 랭커 1차",
+          "what": "피처 13개로 비선형 모델(LightGBM)이 종목 순위를 배우게 했다.",
+          "why": "점수 정확도(IC) −0.0006 대 fundamental +0.0769, 7구간 전부 열세. 학습창에서 강했던 피처가 다음 20세션엔 예측력 0 이었다."
+        },
+        {
+          "category": "기타",
+          "date": "2026-08-25",
+          "doc": "",
+          "id": "retro-rl-diagnostics",
+          "ledger": [
+            {
+              "at": "2026-08-25T09:00:00+09:00",
+              "detail": "M4 준비 수동 실험 — 지도 200스텝 용량, advantage 정렬도 r, §8 분해 전후 비교, EV 기준 검토 등 (추정, 과대 쪽)",
+              "entity_id": "retro-rl-diagnostics"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "M4 준비 수동 실험 — 지도 200스텝 용량, advantage 정렬도 r, §8 분해 전후 비교, EV 기준 검토 등 (추정, 과대 쪽)"
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-25",
+          "doc": "",
+          "id": "retro-ic-registry2",
+          "ledger": [
+            {
+              "at": "2026-08-25T09:00:00+09:00",
+              "detail": "사전등록 2차 — C군 8(처녀) + A군 4(확인) 측정분. B군 3은 커버리지 미달로 미측정 (docs/feature-registry-2.md)",
+              "entity_id": "retro-ic-registry2"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "사전등록 2차 — C군 8(처녀) + A군 4(확인) 측정분. B군 3은 커버리지 미달로 미측정 (docs/feature-registry-2.md)"
+        },
+        {
+          "category": "RL",
+          "date": "2026-08-25",
+          "doc": "docs/rl-postmortem.md",
+          "id": "M4-1",
+          "ledger": [],
+          "result": "기각",
+          "source": "catalog",
+          "title": "배분 RL 1회차",
+          "what": "규칙이 고른 24종목의 비중을 강화학습(PPO)으로 나눴다. 38.6시간 학습.",
+          "why": "보상이 학습 내내 −0.017 에서 안 움직였고, 정책은 현금으로 도망갔다(6.5% → 13.8%). 손익만 보상으로 주면 '덜 행동하기' 부터 배운다."
+        },
+        {
+          "category": "RL",
+          "date": "2026-08-23",
+          "doc": "docs/rl-postmortem.md",
+          "id": "카나리",
+          "ledger": [
+            {
+              "at": "2026-08-22T09:00:00+09:00",
+              "detail": "카나리 설정 변형 로그 + 대규모 확인사살 1 + 본학습 2라운드 (logs/canary*.log)",
+              "entity_id": "retro-rl-canary"
+            }
+          ],
+          "result": "보류",
+          "source": "catalog",
+          "title": "오라클 카나리 배관 점검",
+          "what": "정답(미래 수익)을 몰래 보여 주고 학습 장치가 그것을 배우는지 확인했다.",
+          "why": "배관은 정상이었다. 다만 합격 기준(기여도 10배)이 돈 버는 것과 무관한 것을 쟀고, 필요한 학습량의 0.7% 만 주고 '못 배운다' 고 오판했다 — 기준을 필요조건 셋으로 바꿨다."
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-19",
+          "doc": "",
+          "id": "retro-ic-feature-31",
+          "ledger": [
+            {
+              "at": "2026-08-19T09:00:00+09:00",
+              "detail": "피처 34개 전수 측정 (#31, docs/feature-registry.md)",
+              "entity_id": "retro-ic-feature-31"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "피처 34개 전수 측정 (#31, docs/feature-registry.md)"
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-18",
+          "doc": "",
+          "id": "retro-ic-chart-trend",
+          "ledger": [
+            {
+              "at": "2026-08-18T09:00:00+09:00",
+              "detail": "차트 추세 8종 (docs/ic-2026-08-18-chart-trend.md)",
+              "entity_id": "retro-ic-chart-trend"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "차트 추세 8종 (docs/ic-2026-08-18-chart-trend.md)"
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-18",
+          "doc": "",
+          "id": "retro-ic-analyst-sweeps",
+          "ledger": [
+            {
+              "at": "2026-08-18T09:00:00+09:00",
+              "detail": "logs/ic-*.log 파일 수 — adj·rank2·v02·US·marginal·워크포워드 무저장 스윕 (큐 로그는 여러 건 포함이라 하한)",
+              "entity_id": "retro-ic-analyst-sweeps"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "logs/ic-*.log 파일 수 — adj·rank2·v02·US·marginal·워크포워드 무저장 스윕 (큐 로그는 여러 건 포함이라 하한)"
+        },
+        {
+          "category": "기타",
+          "date": "2026-08-14",
+          "doc": "",
+          "id": "retro-evolution",
+          "ledger": [
+            {
+              "at": "2026-08-14T09:00:00+09:00",
+              "detail": "Selector 진화 smoke 개체 평가 8건 (logs/evo-smoke2.log). 16x15 본판은 평가 0건에서 죽음",
+              "entity_id": "retro-evolution"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "Selector 진화 smoke 개체 평가 8건 (logs/evo-smoke2.log). 16x15 본판은 평가 0건에서 죽음"
+        },
+        {
+          "category": "재료",
+          "date": "2026-08-05",
+          "doc": "",
+          "id": "retro-ic-analyst-saved",
+          "ledger": [
+            {
+              "at": "2026-08-05T09:00:00+09:00",
+              "detail": "창고 analyst_weights source=ic-measure 행 수 (M2~M3 저장 측정)",
+              "entity_id": "retro-ic-analyst-saved"
+            }
+          ],
+          "result": null,
+          "source": "ledger_only",
+          "title": "",
+          "what": "",
+          "why": "창고 analyst_weights source=ic-measure 행 수 (M2~M3 저장 측정)"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
   }
 }
