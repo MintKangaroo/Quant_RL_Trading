@@ -22,6 +22,27 @@ function changeTag(change, pct) {
   return `<span class="dim">유지</span>`;
 }
 
+/** 가장 최근 분기말(YYYY-MM-DD). 기관마다 신고가 달라 첫 줄이 최신이라는 보장이 없다. */
+function latestReport(filers) {
+  return filers.map((f) => f.report_date).filter(Boolean).sort().slice(-1)[0] || "—";
+}
+
+/** 다음 13F 가 언제 이 화면에 들어오나 — **법정 규칙(분기말 + 45일 제출 마감)** 에서 계산한다.
+ *  수집은 마감 달 20일(크론 `collect_13f.py`, 2·5·8·11월 20일 20:30)이라 그 날짜를 '갱신' 으로 보여 준다.
+ *  사용자 질문(2026-09-29 "최신 기준일이 6/30 인데?") — 늦은 게 아니라 원래 45일 늦게 공개되는 자료다. */
+function nextUpdateKpi(latest) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(latest || "");
+  if (!m) return kpi("다음 갱신", "—", "기준일을 모른다");
+  // 다음 분기말: 기준일 달 + 3 의 말일.
+  const nextEnd = new Date(Date.UTC(+m[1], +m[2] - 1 + 3 + 1, 0));
+  const deadline = new Date(nextEnd.getTime() + 45 * 86400000);
+  const refresh = new Date(Date.UTC(deadline.getUTCFullYear(), deadline.getUTCMonth(), 20));
+  if (refresh < deadline) refresh.setUTCMonth(refresh.getUTCMonth() + 1);
+  const d = (x) => `${x.getUTCMonth() + 1}/${x.getUTCDate()}`;
+  return kpi("다음 갱신", `${refresh.getUTCFullYear()}-${String(refresh.getUTCMonth() + 1).padStart(2, "0")}-20 경`,
+             `${d(nextEnd)} 기준분 · 기관 제출 마감 ${d(deadline)}(분기말+45일) 뒤 자동 수집`);
+}
+
 async function loadFilers() {
   // fetchJson 은 봉투째 준다 — as_of 가 응답마다 실려 오기 때문이다(불변식 9).
   const { filers } = (await fetchJson("thirteen-f/filers")).data;
@@ -39,7 +60,8 @@ async function loadFilers() {
         "각 기관의 최신 분기"),
     // **낡음을 KPI 로 올린다.** 화면에서 제일 중요한 사실이다.
     kpi("가장 낡은 신고", `${worst}일`, "분기말 → 공개까지", worst >= 45),
-    kpi("최신 기준일", filers[0].report_date, "지금이 아니다"),
+    kpi("최신 기준일", latestReport(filers), "지금이 아니다 — 분기말 기준"),
+    nextUpdateKpi(latestReport(filers)),
   ].join("");
 
   document.getElementById("filers").innerHTML = `
