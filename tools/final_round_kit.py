@@ -512,6 +512,107 @@ def _build_market(store: Store, market: str, window: tuple[date, date],
     return panel
 
 
+def release_memory() -> None:
+    """풀어 둔 메모리를 OS 에 돌려준다 — 값에는 닿지 않는다(할당기만 건드린다).
+
+    parquet 을 pandas 로 읽으면 pyarrow 의 메모리 풀(mimalloc)이 읽기 버퍼를 **풀어도 쥐고 있다** — 실자료 조각
+    60만 행으로 재면 표 190MB 에 RSS +650MB, `release_unused()` 뒤 +315MB 였다. glibc 힙도 큰 배열을 풀고 나서
+    꼭대기를 쥐고 있을 때가 있어 `malloc_trim` 을 같이 부른다. 둘 다 없으면 아무것도 안 한다.
+    """
+    import gc
+    gc.collect()
+    try:
+        import pyarrow as pa
+        pa.default_memory_pool().release_unused()
+    except (ImportError, AttributeError):  # pragma: no cover - pyarrow 가 없거나 옛 판
+        pass
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):  # pragma: no cover - glibc 가 아닌 곳
+        pass
+
+
+def _read_part(path: Path) -> pd.DataFrame:
+    """패널 조각 하나 — `pd.read_parquet(path)` 와 같은 표(pandas 가 부르는 것과 같은 `read_table(use_pandas_metadata)`
+    → `to_pandas`)다. 다른 것은 두 옵션뿐이다: 열마다 블록을 따로 두고(``split_blocks`` — 76열을 한 블록으로 합치는
+    사본이 없다), 옮긴 열의 arrow 버퍼를 바로 놓는다(``self_destruct``). 읽는 동안 arrow 표와 pandas 표가 통째로 두 벌
+    살지 않는다. 블록 배치는 `lean_concat` 이 다시 한 블록으로 짠다."""
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 창고가 아닌 작업 파일(패널 조각)
+
+    table = pq.read_table(path, use_pandas_metadata=True)  # invariant-allow: data-access — 창고가 아닌 작업 파일
+    frame = table.to_pandas(split_blocks=True, self_destruct=True)
+    del table
+    return frame
+
+
+def share_objects(frame: pd.DataFrame, cols: Sequence[str] = ("entity_id", "session", "market")) -> pd.DataFrame:
+    """객체 열의 **같은 값이 같은 객체를 가리키게** 한다(제자리). 값·dtype(object)·순서는 그대로다 — 비교·병합·
+    groupby 는 값으로 하므로 결과가 같다. 결측이 있는 열은 건드리지 않는다."""
+    for col in cols:
+        if col not in frame.columns or frame[col].dtype != object:
+            continue
+        codes, uniques = pd.factorize(frame[col].to_numpy(dtype=object))
+        if (codes < 0).any():
+            continue
+        frame[col] = np.asarray(uniques, dtype=object).take(codes)
+    return frame
+
+
+def _as_dates(col: pd.Series) -> pd.Series:
+    """`pd.to_datetime(col).dt.date` 와 **같은 값**(object · datetime.date) — 다만 변환을 서로 다른 값에만 하고
+    같은 날은 같은 객체를 가리키게 한다. 행마다 새 date 객체(3.69M 행 × 32B + 중간 datetime64)를 만들지 않는다.
+    결측이 있으면 원래 방식 그대로 한다(분해 코드 −1 을 take 가 끝 원소로 읽는 사고를 막는다)."""
+    codes, uniques = pd.factorize(col.to_numpy(dtype=object) if col.dtype == object else col.to_numpy())
+    if len(codes) == 0 or (codes < 0).any():
+        return pd.to_datetime(col).dt.date
+    days = pd.to_datetime(pd.Series(uniques)).dt.date.to_numpy(dtype=object)
+    return pd.Series(days.take(codes), index=col.index, name=col.name, dtype=object)
+
+
+def lean_concat(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """`pd.concat(frames, ignore_index=True)` 와 **같은 표**(열 순서·dtype·값·인덱스) — 최대 메모리만 낮다.
+
+    9/29 에 FA 패널 조립이 최대 RSS 4.8GB 를 찍었다(조각 2.4GB → concat). 열 집합이 다른 조각(미장에만 있는
+    `has_fund`·`fund_raw`)을 concat 하면 pandas 가 조각마다 열을 맞춘 **사본**을 만들고 결과를 또 만든다 — 조각 · 사본 ·
+    결과가 한꺼번에 산다. 여기서는
+
+    - 모든 조각에 같은 dtype 으로 있는 float32 열(피처 76 + y5)을 미리 잡은 float32 블록 하나에 **조각별로** 채우고,
+      한 조각을 다 옮기면 그 조각을 놓는다(``frames`` 목록에서 뺀다 — 부른 쪽이 이름을 쥐지 않아야 풀린다).
+    - 나머지 열(종목·세션·시장·조각마다 다른 열)은 그 열만 pandas concat 한다 — dtype 규칙이 원래와 같다.
+    - 열 순서는 원래 concat 의 순서로 되돌린다(블록을 복사하지 않고 끼워 넣는다).
+
+    값이 같다는 것은 tests/tools/test_final_round_kit.py 가 `pd.testing.assert_frame_equal`(정확 비교)로 지킨다.
+    """
+    order = pd.concat([f.iloc[:0] for f in frames], ignore_index=True).columns
+    f32 = np.dtype(np.float32)
+    if any(f.columns.duplicated().any() for f in frames):
+        return pd.concat(frames, ignore_index=True)
+    fast = [c for c in order if all(c in f.columns and f[c].dtype == f32 for f in frames)]
+    if not fast:
+        return pd.concat(frames, ignore_index=True)
+    fast_set = set(fast)
+    rest = [c for c in order if c not in fast_set]
+    other = (pd.concat([f[[c for c in rest if c in f.columns]] for f in frames], ignore_index=True)
+             .reindex(columns=rest) if rest else None)
+    n = sum(len(f) for f in frames)
+    block = np.empty((len(fast), n), dtype=np.float32)   # 블록 배치(열 × 행) — DataFrame 이 사본 없이 받는다
+    at = 0
+    while frames:
+        part = frames.pop(0)
+        size = len(part)
+        for j, c in enumerate(fast):
+            block[j, at: at + size] = part[c].to_numpy()
+        at += size
+        del part
+    out = pd.DataFrame(block.T, columns=pd.Index(fast, dtype=order.dtype), copy=False)
+    del block
+    if other is not None:
+        for c in rest:                                    # 원래 자리(order 순)로 끼운다 — 앞 칸부터라 위치가 맞다
+            out.insert(order.get_loc(c), c, other[c])
+    return out
+
+
 def load_full_panel(markets: Sequence[str] = ("KR", "US"),
                     window: tuple[date, date] = (JUDGE_START, JUDGE_END),
                     *, root: str | Path = "data", include: Sequence[str] | None = BLOCK_ORDER,
@@ -539,10 +640,12 @@ def load_full_panel(markets: Sequence[str] = ("KR", "US"),
         path = cache_dir / f"panel-{market}-{tag}.parquet"  # invariant-allow: data-access — 창고가 아닌 작업 파일
         if path.exists() and not rebuild:
             _log(f"{market} 캐시 사용 {path}")
-            cached = pd.read_parquet(path)  # invariant-allow: data-access — 창고가 아닌 작업 파일
+            cached = _read_part(path)
             # 조각을 다시 읽으면 session 이 datetime64 로 올 수 있다 — 포트·블록이 date 를 키로 쓴다.
-            cached["session"] = pd.to_datetime(cached["session"]).dt.date
+            cached["session"] = _as_dates(cached["session"])
             frames.append(cached)
+            del cached                  # 이름을 쥐고 있으면 lean_concat 이 조각을 놓아도 안 풀린다
+            release_memory()            # parquet 읽기 버퍼 — arrow(mimalloc) 가 쥐고 안 돌려준다
             continue
         one = _build_market(store, market, window, groups)
         one, _feats = finalize(one, groups)
@@ -550,8 +653,9 @@ def load_full_panel(markets: Sequence[str] = ("KR", "US"),
         _log(f"{market} 패널 캐시 {path} · {len(one):,}행 × {one.shape[1]}열")
         frames.append(one)
         del one
-    panel = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    panel = lean_concat(frames)
     del frames
+    release_memory()
     feats = feature_names(groups)                           # 값은 시장별로 이미 정규화됐다 — 이름만 모은다
     # 조각에 없던 열이 있으면(옛 조각을 섞어 읽는 경우) 등록 규칙대로 메운다: 피처 0(순위 중앙) · 표지 1(자료 없음).
     for name, group in groups.items():
@@ -561,7 +665,8 @@ def load_full_panel(markets: Sequence[str] = ("KR", "US"),
         if group.flag and group.flag not in panel.columns:
             panel[group.flag] = np.float32(1.0)
         del name
-    missing = panel[feats].isna().sum()
+    # 열마다 센다 — `panel[feats].isna()` 는 피처 76열 사본(1.1GB)과 같은 크기의 불리언 표를 한꺼번에 만든다.
+    missing = pd.Series({c: int(panel[c].isna().sum()) for c in feats}, dtype="int64")
     if int(missing.sum()):
         for c in missing[missing > 0].index:
             panel[c] = panel[c].fillna(1.0 if c.startswith("miss_") else 0.0).astype(np.float32)
@@ -859,7 +964,9 @@ def controls(panel: pd.DataFrame, feats: list[str], sessions: list[date], bl: li
         for s in seeds:
             path = control_path(arm, int(s), tag, cache_dir=cache_dir)
             if path.exists():
-                got[int(s)] = pd.read_pickle(path)  # invariant-allow: data-access — 창고가 아닌 작업 캐시
+                # 객체를 나눠 든다 — 한 벌 3.1M 행이 그대로면 480MB(세션이 행마다 새 date 객체), 나누면 ≈120MB.
+                # 열 벌(C0·C1 × 시드 5)을 드는 BG·D1 은 4.8GB → ≈1.2GB 다. 값·dtype·순서는 그대로다.
+                got[int(s)] = share_objects(pd.read_pickle(path))  # invariant-allow: data-access — 창고가 아닌 작업 캐시
             else:
                 todo.append(int(s))
         if todo:

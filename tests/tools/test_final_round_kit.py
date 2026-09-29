@@ -582,3 +582,118 @@ def test_current_spec_leaves_the_transformer_window_full() -> None:
     bl = kit.blocks(axis)
     kit.require_full_window(axis, axis[bl[0][0]], 60)
     assert kit.FIRST_JUDGED_OFFSET >= 60, "이 부등식이 깨지면 워밍업이 필요 없다는 판단이 무너진다"
+
+
+# --------------------------------------------------------------------------- 패널 로드 메모리(9/29) — 값은 그대로
+#
+# 조립이 최대 RSS 4.8GB 를 찍어 BF 가 OOM 으로 죽은 뒤 로드 경로의 사본을 줄였다. BE·BF·BG·D1·대조군이 모두 이
+# 패널을 받으므로 **표가 한 비트도 달라지면 안 된다** — 옛 경로(pd.read_parquet → to_datetime().dt.date →
+# pd.concat → isna 채우기)를 여기 얼려 두고 정확 비교한다.
+
+
+def _part(market: str, n_days: int, n_names: int, seed: int, *, extra: bool) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    days = [date(2024, 1, 2) + timedelta(days=i) for i in range(n_days)]
+    n = n_days * n_names
+    frame = pd.DataFrame({
+        "entity_id": [f"{market}:A:{i:04d}" for _ in days for i in range(n_names)],
+        "session": [d for d in days for _ in range(n_names)],
+        "s1": rng.normal(size=n).astype(np.float32),
+        "y5": rng.normal(size=n).astype(np.float32),
+        "r1": rng.normal(size=n).astype(np.float32),
+        "miss_raw": (rng.random(n) < 0.3).astype(np.float32),
+        "s2": rng.normal(size=n).astype(np.float32),
+        "market": market,
+        "is_us": np.float32(market == "US"),
+    })
+    frame.loc[rng.random(n) < 0.05, "s2"] = np.nan           # 조각 사이 빈 칸 → 등록 규칙으로 메운다
+    frame.loc[rng.random(n) < 0.05, "y5"] = np.nan
+    if extra:                                                # 미장에만 있는 열 — concat 이 열을 맞추는 자리
+        frame["has_fund"] = rng.random(n) < 0.5
+        frame["fund_raw"] = rng.normal(size=n)
+        frame["r2"] = rng.normal(size=n).astype(np.float32)  # 한 시장에만 있는 float32 피처
+        frame = frame[["y5", *[c for c in frame.columns if c != "y5"]]]   # 열 순서도 다르게
+    return frame
+
+
+def _old_load(paths: list) -> pd.DataFrame:
+    frames = []
+    for path in paths:
+        cached = pd.read_parquet(path)
+        cached["session"] = pd.to_datetime(cached["session"]).dt.date
+        frames.append(cached)
+    return pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+
+
+def test_lean_concat_is_exactly_pd_concat() -> None:
+    kr = _part("KR", 6, 7, 1, extra=False)
+    us = _part("US", 5, 9, 2, extra=True)
+    us["s1"] = us["s1"].astype(np.float64)                   # 한 조각에서만 float64 — 빠른 길에서 빠져야 한다
+    want = pd.concat([kr, us], ignore_index=True)
+    got = kit.lean_concat([kr.copy(), us.copy()])
+    pd.testing.assert_frame_equal(got, want, check_exact=True)
+    assert list(got.columns) == list(want.columns)
+    assert got["has_fund"].dtype == want["has_fund"].dtype == object   # 옛 경로의 dtype 그대로(fillna 경고까지)
+    single = kit.lean_concat([kr.copy()])
+    pd.testing.assert_frame_equal(single, kr, check_exact=True)
+
+
+def test_as_dates_matches_to_datetime_dt_date() -> None:
+    days = [date(2024, 1, 2), date(2024, 1, 3), date(2024, 1, 2)]
+    for col in (pd.Series(days, dtype=object, name="session"),
+                pd.Series(pd.to_datetime(days), name="session"),
+                pd.Series([days[0], None, days[1]], dtype=object, name="session")):
+        want = pd.to_datetime(col).dt.date
+        got = kit._as_dates(col)
+        pd.testing.assert_series_equal(got, want, check_exact=True)
+    got = kit._as_dates(pd.Series(days, dtype=object))
+    assert got.iloc[0] is got.iloc[2]                        # 같은 날은 같은 객체
+
+
+def test_read_part_matches_read_parquet(tmp_path) -> None:
+    frame = _part("US", 4, 5, 3, extra=True)
+    path = tmp_path / "part.parquet"
+    frame.to_parquet(path, index=False)
+    pd.testing.assert_frame_equal(kit._read_part(path), pd.read_parquet(path), check_exact=True)
+
+
+def test_share_objects_keeps_values(tmp_path) -> None:
+    frame = _part("KR", 3, 4, 4, extra=False)
+    frame["session"] = [date(d.year, d.month, d.day) for d in frame["session"]]   # 행마다 새 객체(pickle 을 읽은 꼴)
+    want = frame.copy()
+    got = kit.share_objects(frame)
+    pd.testing.assert_frame_equal(got, want, check_exact=True)
+    assert got["session"].iloc[0] is got["session"].iloc[1]
+
+
+def test_load_full_panel_table_is_unchanged(tmp_path, monkeypatch) -> None:
+    """옛 로드 경로와 **같은 표**(열 순서·dtype·값·인덱스) — 모든 시행 도구의 입력이 여기서 나온다."""
+    window = (date(2022, 7, 1), date(2026, 6, 30))
+    groups = {"score": kit.Group("score", ("s1", "s2"), None, ("KR", "US")),
+              "raw": kit.Group("raw", ("r1", "r2", "r3"), "miss_raw", ("KR", "US"))}
+    monkeypatch.setattr(kit, "blocks_of", lambda markets, include=None: groups)
+    parts = {"KR": _part("KR", 6, 7, 5, extra=False), "US": _part("US", 5, 9, 6, extra=True)}
+    tag = f"KR+US-{window[0]:%Y%m%d}-{window[1]:%Y%m%d}"
+    paths = []
+    for market, frame in parts.items():
+        path = tmp_path / f"panel-{market}-{tag}.parquet"
+        frame.to_parquet(path, index=False)
+        paths.append(path)
+
+    panel, feats, _bundles, sessions = kit.load_full_panel(("KR", "US"), window, cache_dir=tmp_path, store=object())
+
+    want = _old_load(paths)                                  # 옛 경로 그대로 — 빈 열 채우기까지
+    for group in groups.values():
+        for c in group.cols:
+            if c not in want.columns:
+                want[c] = np.float32(0.0)
+        if group.flag and group.flag not in want.columns:
+            want[group.flag] = np.float32(1.0)
+    missing = want[feats].isna().sum()
+    for c in missing[missing > 0].index:
+        want[c] = want[c].fillna(1.0 if c.startswith("miss_") else 0.0).astype(np.float32)
+    pd.testing.assert_frame_equal(panel, want, check_exact=True)
+    assert list(panel.columns) == list(want.columns)
+    assert panel[feats].to_numpy(np.float32).tobytes() == want[feats].to_numpy(np.float32).tobytes()
+    assert sessions == sorted(want.loc[want["market"] == "KR", "session"].unique())
+    assert "r3" in panel.columns and (panel["r3"] == 0.0).all()   # 조각에 없던 열은 0(순위 중앙)
