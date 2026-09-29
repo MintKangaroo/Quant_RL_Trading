@@ -418,3 +418,67 @@ def test_휴장일엔_오늘_수익_칸이_휴장이라고_말한다(tmp_path: P
 
     assert "휴장" in kpi_html
     assert "9/23(수)" in kpi_html and "9/28(월)" in kpi_html
+
+
+def _fill(**over: object) -> dict[str, object]:
+    base: dict[str, object] = {
+        "quantity_rate": None, "count_rate": None, "sent_quantity": 0.0, "filled_quantity": 0.0,
+        "sent_count": 0, "filled_count": 0, "partial_count": 0,
+        "unfilled": {"cancelled": 0, "rejected": 0, "pending": 0},
+        "holiday_excluded": 0, "not_sent": 0, "sessions": 0,
+    }
+    base.update(over)
+    return base
+
+
+def _kpi_cells(html: str) -> list[tuple[str, str]]:
+    """KPI 칸을 (라벨, 칸 HTML) 순서대로."""
+    import re
+
+    parts = re.split(r'<div class="kpi(?=[ "])', html)[1:]  # 칸 머리만 — kpi-label·kpi-value 에서 자르지 않는다
+    out = []
+    for part in parts:
+        label = re.search(r'<div class="kpi-label">([^<]+)</div>', part)
+        if label:
+            out.append((label.group(1), part))
+    return out
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_체결율_칸은_주문_거부_바로_오른쪽이다(tmp_path: Path) -> None:
+    """사용자 요청 2026-09-29 — 당일 수량 기준 큰 숫자, 부제에 건수·최근 N 세션·미체결 사유."""
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    trading["data"]["fill_rate"] = {
+        "today": _fill(quantity_rate=0.75, count_rate=0.8, sent_count=5, filled_count=4, partial_count=1,
+                       unfilled={"cancelled": 1, "rejected": 0, "pending": 0}),
+        "window": _fill(quantity_rate=0.9, count_rate=0.95, sent_count=100, filled_count=95, sessions=20),
+        "window_sessions": 20, "window_note": None,
+    }
+
+    cells = _kpi_cells(_render(tmp_path, trading, chart)["kpis"])
+    labels = [label for label, _ in cells]
+    assert labels.index("체결율") == labels.index("주문 거부") + 1
+    cell = dict(cells)["체결율"]
+    assert "75.0%" in cell
+    assert "건수 4/5" in cell and "부분 1" in cell
+    assert "최근 20세션 90.0%" in cell
+    assert "미체결 취소 1 · 거부 0 · 대기 0" in cell
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_당일_전송이_없으면_체결율은_0이_아니라_대시다(tmp_path: Path) -> None:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    trading["data"]["fill_rate"] = {
+        "today": _fill(), "window": None, "window_sessions": None,
+        "window_note": "설정 dashboard.fill_rate_window_sessions 가 창고에 없다",
+    }
+
+    cell = dict(_kpi_cells(_render(tmp_path, trading, chart)["kpis"]))["체결율"]
+
+    assert '<div class="kpi-value">—' in cell
+    assert "0.0%" not in cell and "오늘 전송 없음" in cell
+    assert "설정 없음" in cell

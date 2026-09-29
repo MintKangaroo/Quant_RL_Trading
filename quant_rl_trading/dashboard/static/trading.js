@@ -355,7 +355,7 @@ function renderKpis(body) {
     kpi("총자산", num(Math.round(navValue)), navFoot(k, liveOn, closed), false,
         { unit: unitCode(), spark: navLine, tone: useLive ? tone(k.live_change) : "" }),
     // 2열(폰)에서 짝이 맞게 순서를 둔다(사용자 요청 2026-09-02): 총자산|익스포저,
-    // 오늘 수익금|오늘 수익률, 총 수익금|총 수익률, 승률|MDD, 반영률|AI, 거부|정지.
+    // 오늘 수익금|오늘 수익률, 총 수익금|총 수익률, 승률|MDD, 반영률|AI, 거부|체결율(2026-09-29).
     kpi("익스포저", pct(k.exposure),
         (params().get("market") || "KR") === "US"
           ? `현금 $${num(Math.round(k.cash_usd || 0))}`
@@ -405,11 +405,42 @@ function renderKpis(body) {
         (risk.reject_rate === null ? "주문 없음" : `거부율 ${pct(risk.reject_rate, 1)}`)
           + (risk.orders_holiday_rejected ? ` · 휴장일 거부 ${risk.orders_holiday_rejected}건 별도` : ""),
         risk.reject_rate !== null && risk.reject_rate > risk.killswitch.order_fail_rate),
+    // 주문 거부 칸 바로 오른쪽(사용자 지정 2026-09-29). 경고색은 없다 — 합격선이 설정에 없다(불변식 10).
+    fillRateCard(body.data.fill_rate),
   ];
   document.getElementById("kpis").innerHTML = cards.join("");
   document.getElementById("emergency-control").innerHTML =
     emergencyStopCard(risk.killswitch.engaged, !body.live || body.data.market === "ALL");
   bindEmergencyStop();
+}
+
+/* 주문 체결율 칸 (사용자 요청 2026-09-29, dashboard.md §4).
+   큰 숫자 = 당일 수량 기준(체결 수량 ÷ 전송 수량). 부제 = 건수 기준 · 최근 N 세션 · 미체결 사유.
+   **분모는 증권사에 실제로 나간 조각만** — 예약·가드 차단·휴장일 거부는 빼고, 일반 거부는 넣는다.
+   당일 전송이 0 이면 "—" — 0% 는 "나갔는데 하나도 안 찼다" 로 읽힌다. */
+function fillRateCard(f) {
+  if (!f || !f.today) return kpi("체결율", "—", "미측정 — 이 장부는 체결율을 내지 않는다");
+  const t = f.today;
+  const w = f.window;
+  const rate = (v) => (v === null || v === undefined ? "—" : pct(v, 1));
+  const parts = [];
+  parts.push(t.sent_count
+    ? `오늘 수량 기준 · 건수 ${t.filled_count}/${t.sent_count}`
+      + (t.partial_count ? ` (부분 ${t.partial_count})` : "")
+    : "오늘 전송 없음");
+  if (w && w.sent_count) {
+    parts.push(`최근 ${w.sessions}세션 ${rate(w.quantity_rate)} · 건수 ${rate(w.count_rate)}`);
+  } else if (w) {
+    parts.push(`최근 ${f.window_sessions}세션 전송 없음`);
+  }
+  const u = t.unfilled || {};
+  if (t.sent_count && (u.cancelled || u.rejected || u.pending)) {
+    parts.push(`미체결 취소 ${u.cancelled} · 거부 ${u.rejected} · 대기 ${u.pending}`);
+  }
+  if (t.holiday_excluded) parts.push(`휴장일 거부 ${t.holiday_excluded}건 제외`);
+  // 창 설정이 창고에 없으면(새 키, 시딩 전) 맨 뒤에 짧게 — 두 줄에서 잘려도 앞의 사실이 먼저 읽힌다.
+  if (!w && f.window_note) parts.push("최근 세션 창: 설정 없음(시딩 전)");
+  return kpi("체결율", t.sent_count ? rate(t.quantity_rate) : "—", parts.join(" · "));
 }
 
 /* 정지 버튼은 KPI 줄의 마지막 칸이다 — 숫자와 같은 눈높이에 있어야 한다. */

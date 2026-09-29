@@ -51,7 +51,7 @@ from quant_rl_trading.collectors.market_hours import (
     trading_days,
 )
 from quant_rl_trading.selector.weights import analyst_weights
-from quant_rl_trading.store import Store
+from quant_rl_trading.store import ConfigNotFound, Store
 from quant_rl_trading.store import mode as mode_module
 from quant_rl_trading.store import names as names_module
 from quant_rl_trading.store.prices import read_prices
@@ -321,7 +321,7 @@ def combined_payload(
     return {
         # risk 는 국장 장부의 것 — KPI 줄이 킬스위치·낙폭 밴드 문구를 여기서 읽는다(None 이면 화면이 죽는다).
         "market": "ALL", "system": system(store_kr, ctx_kr), "kpis": k, "risk": risk(store_kr, ctx_kr), "alerts": [],
-        "positions": [], "watchlist": [], "decision": None, "orders": [],
+        "positions": [], "watchlist": [], "decision": None, "orders": [], "fill_rate": fill_rates(store_kr, ctx_kr),
         "equity": {"sessions": sessions, "nav": navs, "index": index, "drawdown": drawdown,
                    "benchmark": [None] * len(navs), "benchmark_drawdown": [None] * len(navs),
                    "benchmark_note": "종합 — 벤치마크 없음(두 시장 합산)", "benchmark_label": {"label": "—"}},
@@ -657,6 +657,13 @@ def risk(store: Store, context: Context) -> dict[str, Any]:
     }
 
 
+def _latest_orders(orders: pd.DataFrame) -> pd.DataFrame:
+    """주문을 조각 자연키(entity_id, session_id, slice_seq)마다 **최신 revision 한 행**으로 접는다."""
+    keys = [key for key in ("entity_id", "session_id", "slice_seq") if key in orders.columns]
+    sort = [col for col in ("revision", "observed_at") if col in orders.columns]
+    return orders.sort_values(sort).drop_duplicates(subset=keys, keep="last") if sort else orders
+
+
 def reject_counts(orders: pd.DataFrame, *, day: Any = None) -> dict[str, Any]:
     """주문 거부율. **주문 하나를 한 번만 센다 — 최신 revision 으로.** ``day`` 를 주면 그날(한국시간) 마지막으로 움직인 주문만.
 
@@ -668,9 +675,7 @@ def reject_counts(orders: pd.DataFrame, *, day: Any = None) -> dict[str, Any]:
     """
     if orders.empty:
         return {"total": 0, "rejected": 0, "holiday_rejected": 0, "rate": None}
-    keys = [key for key in ("entity_id", "session_id", "slice_seq") if key in orders.columns]
-    sort = [col for col in ("revision", "observed_at") if col in orders.columns]
-    latest = orders.sort_values(sort).drop_duplicates(subset=keys, keep="last") if sort else orders
+    latest = _latest_orders(orders)
     if day is not None and "observed_at" in latest.columns:
         # 주문을 최신 revision 으로 접은 **뒤에** 날짜로 자른다 — 그날 마지막으로 움직인 주문만(주문표와 같은 기준).
         latest = latest[latest["observed_at"].map(lambda v: _as_kst(v).date()) == day]
@@ -687,6 +692,163 @@ def reject_counts(orders: pd.DataFrame, *, day: Any = None) -> dict[str, Any]:
         "rejected": rejected,
         "holiday_rejected": int(holiday.sum()),
         "rate": rejected / total if total else None,
+    }
+
+
+#: 체결율 창 길이(세션 수)의 설정 이름 (불변식 10 — 화면이 20 을 들지 않는다).
+FILL_WINDOW_KEY = "dashboard.fill_rate_window_sessions"
+#: **증권사에 닿지 않은** 조각 — 체결율 분모에서 뺀다. 일반 거부(rejected)는 나갔다가 거절된 것이라 분모에 남는다
+#: (휴장일 거부만 따로 뺀다). 파이프라인의 "시장에 닿지 않은 상태" 목록에서 거부만 덜어낸 것이다.
+NOT_SENT_STATUSES = executor_pipeline.NOT_REACHED_STATUSES - {executor_pipeline.STATUS_REJECTED}
+#: 미체결 사유 — 마감 취소·슬리피지 포기·만료는 "취소" 로 묶는다. 나머지(sent·paper·submitting·*_unknown)는 "대기".
+CANCELLED_STATUSES = frozenset({"cancelled", "abandoned", "expired"})
+#: 주문 감시(executor.lifecycle)가 전량 체결로 닫은 상태.
+FILLED_STATUS = "filled"
+
+
+def _fill_quantities(trades: pd.DataFrame) -> tuple[dict[str, float], dict[str, float]]:
+    """체결 수량을 (조각 키 → 수량, 세션·종목 키 → 수량) 으로. 주문표(``orders``)와 같은 맞춤 규칙이다.
+
+    브로커 체결의 ``order_id`` 는 ``{세션}|{종목}|{조각}#{누적}`` 이라 조각 단위로 붙고, 백테스트(shadow simulated)
+    체결은 ``{세션}|{종목}|{방향}`` 이라 조각 없이 세션·종목 단위로 붙는다. 한 조각의 부분 체결 여러 행은 더한다.
+    """
+    pieces: dict[str, float] = {}
+    bases: dict[str, float] = {}
+    if trades.empty:
+        return pieces, bases
+    for order_id, entity, quantity in zip(trades["order_id"], trades["entity_id"], trades["quantity"], strict=True):
+        base, piece = performance_module.order_keys(str(order_id), str(entity))
+        target = pieces if piece else bases
+        key = piece or base
+        target[key] = target.get(key, 0.0) + float(quantity)
+    return pieces, bases
+
+
+def _empty_fill_rate() -> dict[str, Any]:
+    return {
+        "quantity_rate": None, "count_rate": None,
+        "sent_quantity": 0.0, "filled_quantity": 0.0, "sent_count": 0, "filled_count": 0, "partial_count": 0,
+        "unfilled": {"cancelled": 0, "rejected": 0, "pending": 0},
+        "holiday_excluded": 0, "not_sent": 0, "sessions": 0,
+    }
+
+
+def fill_rate_counts(
+    orders: pd.DataFrame,
+    trades: pd.DataFrame,
+    *,
+    market: str | None = None,
+    day: Any = None,
+    sessions: int | None = None,
+) -> dict[str, Any]:
+    """주문 체결율 (사용자 요청 2026-09-29). **분모는 증권사에 실제로 나간 조각만.**
+
+    - 조각은 ``reject_counts`` 와 같이 (entity_id, session_id, slice_seq) 최신 revision 한 행으로 센다.
+    - 분모 제외: 아직 안 나간 것(planned·reserved·withdrawn), 리스크 가드가 막은 것(risk_blocked), 휴장일 거부
+      (``is_holiday_rejection`` — 날짜 탓이다). **일반 거부는 분모에 남는다** — 나갔다가 거절됐으니 못 채운 주문이다.
+    - 체결 수량은 ``trades`` 에서 온다(주문 행의 상태가 아니라). 마감 취소된 조각도 그 전에 일부 채워졌을 수 있다.
+      조각보다 많이 채워진 것으로 읽히면 조각 수량에서 자른다(체결율 100% 초과 금지). 단 주문 감시가 ``filled``
+      (전량 체결)로 닫은 조각은 체결 행이 조각 키로 안 붙어도 전량으로 센다(대사 스냅샷이 메운 체결).
+    - shadow 의 백테스트 체결은 조각 없이 세션·종목 한 건이라, 그 수량을 조각 순서대로 앞에서부터 나눠 채운다.
+    - ``day`` 를 주면 그날(한국시간) 마지막으로 움직인 조각만 — 주문표·거부율과 같은 당일 기준이다.
+    - ``sessions`` 를 주면 **전송 조각이 있는** 최근 N 세션만(휴장·전송 없는 세션은 창을 먹지 않는다).
+
+    전송 조각이 0 이면 비율은 ``None`` — 0% 가 아니라 "잴 것이 없다" 다.
+    """
+    out = _empty_fill_rate()
+    if orders.empty:
+        return out
+    latest = _latest_orders(orders)
+    if market is not None:
+        latest = latest[latest["entity_id"].astype(str).str.startswith(f"{market}:")]
+    if day is not None and not latest.empty:
+        latest = latest[latest["observed_at"].map(lambda v: _as_kst(v).date()) == day]
+    if latest.empty:
+        return out
+    status = latest["status"].astype(str)
+    holiday = latest.apply(lambda row: executor_pipeline.is_holiday_rejection(row.to_dict()), axis=1).astype(bool)
+    not_sent = status.isin(NOT_SENT_STATUSES)
+    sent = latest[~holiday & ~not_sent]
+    if sessions is not None and not sent.empty:
+        recent = sent.groupby("session_id")["valid_from"].max().sort_values()
+        keep = set(recent.index[-int(sessions):])
+        in_window = latest["session_id"].isin(keep)
+        sent = sent[sent["session_id"].isin(keep)]
+        holiday, not_sent = holiday & in_window, not_sent & in_window
+    out["holiday_excluded"] = int(holiday.sum())
+    out["not_sent"] = int((not_sent & ~holiday).sum())
+    if sent.empty:
+        return out
+
+    pieces, bases = _fill_quantities(trades)
+    remaining = dict(bases)
+    rows = sent.sort_values(["session_id", "entity_id", "slice_seq"]).to_dict(orient="records")
+    sent_qty = filled_qty = 0.0
+    filled_count = partial_count = 0
+    unfilled = {"cancelled": 0, "rejected": 0, "pending": 0}
+    for row in rows:
+        quantity = float(row["quantity"])
+        base = f"{row['session_id']}|{row['entity_id']}"
+        seq = row.get("slice_seq")
+        piece = f"{base}|{int(seq)}" if seq is not None and pd.notna(seq) else None
+        if piece is not None and piece in pieces:
+            got = min(quantity, pieces[piece])
+        elif base in remaining:
+            got = min(quantity, remaining[base])
+            remaining[base] -= got
+        else:
+            got = 0.0
+        if str(row["status"]) == FILLED_STATUS:
+            # 주문 감시가 "잔량까지 다 채워졌다" 로 닫은 조각. 그 체결이 조각 키로 안 붙은 경우가 있다 — 체결 조회가
+            # 빠져 대사 스냅샷(snapshot-recon-…)이 수량을 메운 날(8/31·9/4·9/7 실측 22조각). 증권사가 전량이라고
+            # 한 것을 "대기" 로 세지 않는다.
+            got = quantity
+        sent_qty += quantity
+        filled_qty += got
+        if got > 0:
+            filled_count += 1
+            if got < quantity:
+                partial_count += 1
+        else:
+            state = str(row["status"])
+            if state == executor_pipeline.STATUS_REJECTED:
+                unfilled["rejected"] += 1
+            elif state in CANCELLED_STATUSES:
+                unfilled["cancelled"] += 1
+            else:
+                unfilled["pending"] += 1
+    out.update(
+        quantity_rate=filled_qty / sent_qty if sent_qty > 0 else None,
+        count_rate=filled_count / len(rows),
+        sent_quantity=sent_qty, filled_quantity=filled_qty,
+        sent_count=len(rows), filled_count=filled_count, partial_count=partial_count,
+        unfilled=unfilled, sessions=int(sent["session_id"].nunique()),
+    )
+    return out
+
+
+def fill_rates(store: Store, context: Context) -> dict[str, Any]:
+    """트레이딩 탭 체결율 칸 — 당일 + 최근 N 세션(``dashboard.fill_rate_window_sessions``).
+
+    **창고는 한 번씩만 읽는다.** 창(세션 N 개)이 달력으로 며칠인지 모르니 넉넉히(2N+10 일) 읽고 세션으로 자른다.
+    설정이 창고에 아직 없으면(새 키 — ``tools/seed_config.py --apply`` 전) 창은 비우고 이유를 적는다. 당일은 그대로 잰다.
+    """
+    as_of = context.as_of
+    try:
+        window: int | None = int(store.config(FILL_WINDOW_KEY, as_of=as_of))
+    except ConfigNotFound:
+        window = None
+    days = 2 * (window or 0) + 10
+    orders_frame = store.get(ORDERS, as_of=as_of, lookback=days)
+    trades_frame = store.get(TRADES, as_of=as_of, lookback=days + 5)
+    return {
+        "today": fill_rate_counts(orders_frame, trades_frame, market=context.market, day=_as_kst(as_of).date()),
+        "window": (
+            fill_rate_counts(orders_frame, trades_frame, market=context.market, sessions=window)
+            if window else None
+        ),
+        "window_sessions": window,
+        "window_note": None if window else f"설정 {FILL_WINDOW_KEY} 가 창고에 없다 — tools/seed_config.py --apply 로 심는다",
     }
 
 
@@ -1734,6 +1896,7 @@ def payload(
             "watchlist": [],
             "decision": None,
             "orders": [],
+            "fill_rate": None,
             "equity": {"sessions": [], "nav": [], "index": [], "drawdown": [], "benchmark": []},
             "calendar": {"days": [], "months": []},
             "performance": None,
@@ -1750,6 +1913,8 @@ def payload(
         "watchlist": watchlist(store, context),
         "decision": decision(store, context, entity_id=entity_id),
         "orders": orders(store, context),
+        # 주문 체결율 — 당일 + 최근 N 세션. 주문표와 같은 당일 기준(observed_at 한국시간)이다.
+        "fill_rate": fill_rates(store, context),
         "equity": equity_curve(store, context, lookback=lookback),
         "calendar": returns_calendar(store, as_of=context.as_of, lookback=lookback, market=market),
         # 성과 넷(매매내역·수익률·총수익률·자산증감)은 **회계가 접어 준다.**

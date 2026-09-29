@@ -175,6 +175,8 @@ dashboard:                     # 학습 탭 "마지막 모델 회차" 카드의 
   training_stall_factor: 3     # 마지막 진행 기록이 평균 단위(블록·폴드) 시간 × 이 배수보다 오래되면 "느림/멈춤 의심"
   training_trend_window: 5     # 최근 이 단위 수에서 학습 손실↓ · 학습창 안쪽 검증↓(나빠짐) 이면 "과적합 의심".
                                # 판정 창은 보지 않는다 — 사전등록. 새 키라 기존 창고엔 tools/seed_config.py --apply 로 심는다
+  fill_rate_window_sessions: 20  # 트레이딩 탭 "체결율" 칸의 두 번째 기간 — 전송 조각이 있는 최근 N 세션 (dashboard.md §4).
+                               # 새 키(2026-09-29) — 창고에 없으면 화면은 당일만 재고 창 칸에 이유를 적는다
 
 allocator:                     # 유동시총 가중(float_cap — Z2·미장 G1 트랙). portfolio-construction.md "Z2 트랙"
   float_cap_limit: 0.10        # 한 종목 상한. 샌드박스 덮어쓰기로 켠다

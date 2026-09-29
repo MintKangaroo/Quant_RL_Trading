@@ -341,6 +341,24 @@ def test_거부율은_당일_주문만_센다() -> None:
     assert service.reject_counts(frame, day=datetime(2026, 9, 27).date())["rate"] is None
 
 
+def test_체결율은_as_of_로_되감긴다(client) -> None:
+    """사용자 요청(2026-09-29). 되감으면 그 시점에 알 수 있던 체결만 — 체결 전이면 0%, 전송 전이면 — (None)."""
+    now = client.get(f"/api/trading?as_of={NOW.isoformat()}").get_json()["data"]["fill_rate"]
+    assert now["today"]["quantity_rate"] == pytest.approx(1.0)
+    assert now["today"]["sent_count"] == 1
+    assert now["window_sessions"] == 20  # 설정(dashboard.fill_rate_window_sessions)에서 온다
+    assert now["window"]["quantity_rate"] == pytest.approx(1.0)
+
+    before_fill = client.get(f"/api/trading?as_of={(NOW - timedelta(hours=1)).isoformat()}").get_json()
+    early = before_fill["data"]["fill_rate"]["today"]
+    assert early["quantity_rate"] == pytest.approx(0.0)
+    assert early["unfilled"] == {"cancelled": 0, "rejected": 0, "pending": 1}
+
+    back = client.get(f"/api/trading?as_of={YESTERDAY.isoformat()}").get_json()["data"]["fill_rate"]
+    assert back["today"]["quantity_rate"] is None  # 어제는 계획만 — 나간 것이 없다
+    assert back["window"]["quantity_rate"] is None
+
+
 def test_as_of_에_타임존이_없으면_거부한다(client) -> None:
     assert client.get("/api/trading?as_of=2026-08-12T15:40:00").status_code == 400
 

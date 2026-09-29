@@ -720,6 +720,9 @@ dashboard:
   # "과적합 의심" 을 볼 최근 단위(블록·폴드) 수. 이 창에서 학습 손실은 내려가는데
   # **학습창 안쪽 검증**은 나빠지면 켠다. 판정 창은 보지 않는다(사전등록).
   training_trend_window: 5
+  # 트레이딩 탭 "체결율" 칸의 두 번째 기간 — **전송 조각이 있는** 최근 이 세션 수 (dashboard.md §4 주문 체결율).
+  # 당일 값은 조각 몇 개라 흔들린다. 한 달쯤이면 "평소에 얼마나 채워지나" 를 말한다.
+  fill_rate_window_sessions: 20
 
 # 랭커 ModelOps (docs/design/modelops-ranker.md ①) — 감쇠 경보의 기준. 화면이 이 값을 읽는다(불변식 10).
 modelops:
