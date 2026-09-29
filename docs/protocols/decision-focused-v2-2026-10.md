@@ -1,7 +1,6 @@
 # 사전등록 — 결정 중심 학습 D1 v2: 머리 채택 규칙 재설계 (2026-09-29 작성 · family `selection` · 시행 D1a·D1b v2 · 각 1회)
 
-> **초안 — 해시 고정 전.** 사용자 승인("D1 은 안 쓸 거야? 다시 학습 돌려봐" · "D1 학습 다시 돌려줘", 2026-09-29)을 받아 리드가 고정한다.
-> 고정하면 이 줄을 "고정 …" 으로 바꾸고, 이 파일의 sha256 앞 16자가 판정 기록의 `protocol_hash` 다 — 측정이 끝날 때까지 고치지 않는다.
+> **고정 2026-09-29 23:51 KST** — 사용자 승인(9/29 "승인 — 해시 고정하고 BE2 뒤에 돌리기"). 이 파일의 sha256 앞 16자가 판정 기록의 `protocol_hash` 다 — 측정이 끝날 때까지 고치지 않는다. 실행은 BE2 얼리기 뒤 하룻밤.
 
 v1 등록: [`decision-focused-2026-10.md`](decision-focused-2026-10.md)(해시 **24a52320cdcfc2c2** — 고치지 않는다). 설계 문서: [`docs/design/ai-full-stack.md`](../design/ai-full-stack.md) §2·§3.1~3.3.
 도구: `tools/trial_final_dfl.py --track v2`(v1 경로는 `--track v1` 기본값으로 그대로 남는다) · 테스트 `tests/tools/test_final_dfl.py`(v2 절) · 러너 `scripts/final_round_D1v2.sh`(준비만).
