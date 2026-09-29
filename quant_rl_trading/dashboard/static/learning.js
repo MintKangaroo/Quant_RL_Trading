@@ -552,18 +552,19 @@ function frDrawCharts(t) {
     .map((c, i) => {
       const color = COLOR.series[i % COLOR.series.length];
       return {
-        type: "line", name: `시드 ${c.seed ?? "—"}`, showSymbol: c.x.length < 3, connectNulls: false,
+        type: "line", name: `시드 ${c.seed ?? "—"}${c.market ? ` · ${c.market}` : ""}`, showSymbol: c.x.length < 3, connectNulls: false,
         data: c.x.map((x, k) => [x, c[which][k]]),
         itemStyle: { color }, lineStyle: { width: faded ? 1 : 1.6, color, opacity: faded ? 0.5 : 1 },
       };
     });
   // x 축 이름(블록·폴드)은 축 끝에 세우면 오른쪽 여백에 눌려 세로로 찍혔다 — 눈금 값 뒤에 붙인다.
   const axes = (name, top, ticks) => ({
-    grid: { left: 48, right: 14, top, bottom: 22 },
+    grid: { left: 64, right: 14, top, bottom: 22 },  // 64: 0.00029 같은 긴 눈금이 잘리지 않게
     xAxis: { type: "value", minInterval: 1, axisLabel: { formatter: (v) => `${v}` } },
     yAxis: { type: "value", scale: true, name, nameLocation: "end", nameGap: 8, splitNumber: ticks,
              nameTextStyle: { color: COLOR.muted, fontSize: 11, align: "left" },
-             axisLabel: { formatter: (v) => Number(v).toFixed(ticks <= 2 ? 3 : 2) } },
+             // 자릿수는 값 크기에 맞춘다 — BG 우위는 0.0002 수준이라 고정 소수 둘째 자리면 눈금이 전부 0.00 이었다.
+             axisLabel: { formatter: (v) => { const a = Math.abs(Number(v)); return a === 0 ? "0" : a >= 0.1 ? Number(v).toFixed(ticks <= 2 ? 3 : 2) : Number(v).toPrecision(2); } } },
   });
   const scoreId = frChartId(t.trial, "score");
   if (document.getElementById(scoreId)) {

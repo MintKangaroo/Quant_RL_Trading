@@ -685,9 +685,10 @@ def _progress_rows(frame: pd.DataFrame) -> pd.DataFrame:
     """
     frame = frame.sort_values("valid_from").copy()
     keys = ["entity_id"]
-    for key in ("seed", "block", "fold"):
+    for key in ("seed", "block", "fold", "market"):
         column = f"_key_{key}"
         # 없는 축(BG 의 block · BE 의 fold)은 -1 로 묶는다 — NaN 은 groupby 에서 조용히 떨어진다.
+        # market 도 키다(2026-09-29): BG 는 시장마다 같은 (시드, 폴드) 를 따로 적는다 — 빼면 KR 폴드 1 을 US 폴드 1 이 덮었다.
         frame[column] = frame[key].fillna(-1) if key in frame.columns else -1
         keys.append(column)
     return frame.groupby(keys, sort=False).tail(1).drop(columns=keys[1:])
@@ -842,6 +843,10 @@ def _health(*, done: bool, since_last_s: float, mean_unit_s: float | None, unit:
 #: 시행 → 그 시행 도구의 스크립트 이름. 도는 중인데 아직 진행 기록이 없는 시행을 "대기" 가 아니라
 #: "시작됨(첫 기록 전)" 으로 보이려고 쓴다(2026-09-29 사용자: "왜 BG 가 대시보드에 안 뜨지" — BG 는 폴드가
 #: 끝날 때만 적어 첫 기록까지 수십 분 걸린다).
+#: 시장마다 **따로** 학습·기록하는 시행과 그 시장 수(러너가 --markets 로 준다). 이런 시행은 기록 한 줄이
+#: (시드, 시장, 폴드) 하나라, 시장을 세지 않으면 분모가 절반이 되고 두 시장의 같은 폴드가 한 점에 겹친다(2026-09-29 BG).
+FINAL_ROUND_SPLIT_MARKETS = {"BG": 2}
+
 FINAL_ROUND_SCRIPTS = {
     "BE": "trial_final_transformer", "BF": "trial_final_lambdarank",
     "BG": "trial_final_residual_rl", "D1": "trial_final_dfl",
@@ -896,7 +901,8 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
         n_seeds = _int(part["n_seeds"].dropna().max()) if "n_seeds" in part.columns and part["n_seeds"].notna().any() else None
         seeds_seen = sorted({v for s in part["seed"] if (v := _int(s)) is not None})
         done = len(part)
-        total = (per_seed * n_seeds) if (per_seed and n_seeds) else None
+        split = FINAL_ROUND_SPLIT_MARKETS.get(str(trial)[:2], 1)
+        total = (per_seed * n_seeds * split) if (per_seed and n_seeds) else None
         elapsed = [v for v in (_num(v) for v in part["elapsed_s"]) if v is not None and v > 0]
         mean_unit_s = sum(elapsed[-20:]) / len(elapsed[-20:]) if elapsed else None
         slowest_unit_s = max(elapsed[-20:]) if elapsed else None
@@ -910,11 +916,15 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
         curves: list[dict[str, Any]] = []
         latest_curve: dict[str, Any] | None = None
         latest_at: pd.Timestamp | None = None
-        for seed, grp in part.groupby("seed", dropna=False, sort=True):
+        keys = ["seed", "market"] if split > 1 else ["seed"]
+        for key, grp in part.groupby(keys, dropna=False, sort=True):
+            seed = key[0] if isinstance(key, tuple) else key
             grp = grp.sort_values(axis if axis in grp.columns else "valid_from")
             val = [_num(v) for v in grp["val_loss"]]
             curve = {
                 "seed": _int(seed),
+                # 시장별로 따로 배우는 시행은 선 이름에 시장을 붙인다(같은 폴드 번호가 두 시장에 있다).
+                "market": (str(key[1]) if split > 1 and isinstance(key, tuple) else None),
                 "x": [_int(v) for v in grp[axis]] if axis in grp.columns else list(range(len(grp))),
                 "train": [_num(v) for v in grp["train_loss"]],
                 "val": val,

@@ -32,7 +32,7 @@ ALLOWED_TRIAL_KEYS = {
     "since_last_s", "status", "status_reason",
 }
 #: 곡선 칸. `score` 는 `val`(학습창 안쪽 검증)의 부호를 사람이 읽는 방향으로 되돌린 것뿐이다.
-ALLOWED_CURVE_KEYS = {"seed", "x", "train", "val", "score"}
+ALLOWED_CURVE_KEYS = {"seed", "market", "x", "train", "val", "score"}  # market: 시장별로 따로 배우는 시행(BG)의 선 이름
 #: 칸 이름에 이 말이 들어가면 판정 창 성적이 새어 나간 것이다.
 FORBIDDEN_WORDS = ("return", "ret", "ic", "mdd", "drawdown", "turnover", "sharpe", "ir", "judge")
 
@@ -115,7 +115,7 @@ def test_같은_블록을_다시_돌리면_마지막_기록만_그린다(store: 
 
 
 def test_폴드_축_시행은_폴드로_센다(store: Any) -> None:
-    """BG 는 블록이 아니라 워크포워드 폴드로 돈다. 축 이름을 뭉개면 3/41 과 1/2 가 같은 칸에 섞인다."""
+    """BG 는 블록이 아니라 워크포워드 폴드로 돈다. 축 이름을 뭉개면 3/41 과 1/2 가 같은 칸에 섞인다. 시장 둘로 따로 배워 분모 = 폴드 2 × 시드 3 × 시장 2."""
     row = {
         "entity_id": "BG", "valid_from": NOW - timedelta(hours=2), "observed_at": NOW - timedelta(hours=2),
         "source": "test", "market": "KR", "seed": 0, "n_seeds": 3, "fold": 1, "n_folds": 2,
@@ -124,7 +124,7 @@ def test_폴드_축_시행은_폴드로_센다(store: Any) -> None:
     }
     store.append("trial_progress", [row], ingest_run_id="bg-1")
     trial = service.final_round_progress(store, as_of=NOW)["trials"][0]
-    assert trial["axis"] == "fold" and trial["units_total"] == 6 and trial["units_done"] == 1
+    assert trial["axis"] == "fold" and trial["units_total"] == 12 and trial["units_done"] == 1
 
 
 def test_대조군은_모델과_구분해_표시한다(store: Any) -> None:
@@ -457,3 +457,18 @@ def test_도는_중인데_기록이_없는_시행은_시작됨으로_보인다(s
     assert not next(q for q in got["queued"] if q["trial"] == "D1")["started"]
     # 되감은 화면(running_scripts=None)은 도는 여부를 지어내지 않는다.
     assert not any(q["started"] for q in service.final_round_progress(store, as_of=NOW)["queued"])
+
+
+def test_시장별로_배우는_시행은_분모에_시장을_세고_선을_가른다(store: Any) -> None:
+    """2026-09-29 BG: (시드, 시장, 폴드) 한 줄씩 적는데 시장을 안 세 분모가 6(실제 12)·두 시장이 한 점에 겹쳤다."""
+    store.seed_config_defaults()
+    rows = []
+    for market, minutes in (("KR", 30), ("US", 20)):
+        row = progress_row("BG", 0, 0, at=NOW - timedelta(minutes=minutes))
+        row.update({"block": None, "n_blocks": None, "fold": 1, "n_folds": 2, "n_seeds": 3, "market": market,
+                    "metric": "reward(−) / valid edge(−)"})
+        rows.append(row)
+    store.append("trial_progress", rows, ingest_run_id="bg-split")
+    bg = one(store, "BG")
+    assert bg["units_total"] == 2 * 3 * 2 and bg["units_done"] == 2
+    assert sorted(c["market"] for c in bg["curves"]) == ["KR", "US"]
