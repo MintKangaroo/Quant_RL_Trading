@@ -1054,6 +1054,53 @@ def _target_weights(store: Store, *, as_of: datetime) -> dict[str, float]:
 # -- 결정 ----------------------------------------------------------------------
 
 
+#: 막대 옆 역할 표시(2026-09-29 사용자 요청) — "랭커만 초록 막대" 가 "다른 Analyst 는 안 쓴다" 로 읽혔다.
+ROLE_LABELS = {
+    "direct": "최종 점수를 정한다",
+    "ranker_input": "랭커 입력으로 반영",
+    "constraint": "위험 필터로 사용(점수 합산 제외)",
+    "observe": "관찰 모드(가중치 0)",
+}
+
+
+def _tag_roles(breakdown: list[dict[str, Any]], store: Store, *, as_of: datetime) -> dict[str, Any] | None:
+    """기여 행마다 이 Analyst 가 **어떻게** 쓰이는지 붙인다. 판정·점수는 건드리지 않는다(표시만).
+
+    랭커 입력 여부는 as_of 에 실전 랭커가 집을 모델의 피처 목록에서 읽는다(모델 폴더 = 연구 창고 옆 models/ranker).
+    모델을 못 찾으면 입력 여부를 **말하지 않는다**(관찰/가중치로만)."""
+    from pathlib import Path
+
+    from quant_rl_trading.dashboard.services.model_story import _ranker_model
+    from quant_rl_trading.selector.constraints import CONSTRAINT_ANALYSTS
+
+    root = Path(getattr(store, "root", "data"))
+    research = root.parent if root.name.startswith("_") else root
+    try:
+        model = _ranker_model(research, as_of)
+    except Exception:  # noqa: BLE001 — 표시용 부가 정보가 결정 패널을 죽이면 안 된다
+        model = None
+    gains = {g["feature"]: g["share"] for g in (model or {}).get("gain", [])}
+    inputs = set((model or {}).get("features", []))
+    for row in breakdown:
+        name = row["analyst"]
+        if name == "ranker":
+            role = "direct"
+        elif name in CONSTRAINT_ANALYSTS:
+            role = "constraint"
+        elif name in inputs:
+            role = "ranker_input"
+        else:
+            role = "observe" if not row.get("weight") else "direct"
+        row["role"] = role
+        row["role_label"] = ROLE_LABELS[role]
+        if role == "constraint" and name in inputs:
+            # risk 는 둘 다다 — 랭커의 입력이면서(점수에 섞인다) 따로 하위 N% 를 걸러 낸다.
+            row["role_label"] = "랭커 입력 + 위험 필터"
+        if name in gains:
+            row["ranker_gain"] = gains[name]   # 랭커가 이 입력에 기대는 몫(gain, 합 1)
+    return model
+
+
 def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[str, Any]:
     """한 종목의 결정 분해.
 
@@ -1085,6 +1132,7 @@ def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[s
                 }
             )
     breakdown.sort(key=lambda row: abs(row["share"]), reverse=True)
+    model = _tag_roles(breakdown, store, as_of=as_of)
 
     realized = store.get(REALIZED_WEIGHTS, as_of=as_of, lookback=5)
     target_weight = realized_weight = None
@@ -1104,6 +1152,14 @@ def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[s
         "engine_note": "Allocator(RL)는 M4 다. 지금 비중은 규칙이 정한다",
         "entity_id": target,
         "score": scores.get(target) if target else None,
+        # **지금 점수를 내는 모델** — as_of 에 실전 랭커가 집는 파일 그대로(사용자 2026-09-29: 새 모델이 채택돼
+        # 실전에 들어오면 이 패널에서 무엇으로 결정하는지 보이게). 새 모델이 들어오면 파일·학습일·구성이 바뀐다.
+        "model": None if model is None else {
+            "file": model.get("file"), "version": model.get("version"),
+            "trained_through": model.get("trained_through"), "usable_from": model.get("usable_from"),
+            "objective": model.get("objective"), "protocol_hash": model.get("protocol_hash"),
+            "n_inputs": len(model.get("features", [])),
+        },
         "contributions": breakdown,
         "target_weight": target_weight,
         "realized_weight": realized_weight,

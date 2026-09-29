@@ -522,8 +522,12 @@ const arrow = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "�
 
 function renderDecision(body) {
   const d = body.data.decision;
+  // 점수 모델 한 줄 — 새 모델이 실전에 들어오면 여기가 바뀐다(파일·학습일).
+  const m = d.model;
   document.getElementById("decision-engine").textContent = d.engine;
-  document.getElementById("decision-note").textContent = d.engine_note;
+  document.getElementById("decision-note").textContent = m
+    ? `점수 모델 ${m.version} · 학습 ~${m.trained_through} · ${m.usable_from}부터 사용 · 입력 ${m.n_inputs}개`
+    : d.engine_note;
 
   if (!d.entity_id) {
     document.getElementById("decision").innerHTML =
@@ -537,8 +541,11 @@ function renderDecision(body) {
         .map((c) => {
           const value = c.share * c.score;
           const width = Math.min(100, (Math.abs(value) / max) * 100);
+          // 역할 표시(서버가 붙인다) — 0 막대가 "안 쓴다" 로 읽히지 않게. 랭커 입력이면 랭커가 기대는 몫(gain)도.
+          const gain = c.ranker_gain == null ? "" : ` · 비중 ${(c.ranker_gain * 100).toFixed(0)}%`;
+          const role = c.role_label ? `<span class="bar-role role-${c.role || ""}">${c.role_label}${gain}</span>` : "";
           return `<div class="bar-row">
-            <span class="bar-label">${c.analyst}</span>
+            <span class="bar-label">${c.analyst}${role}</span>
             <span class="bar-track"><span class="bar-fill ${value >= 0 ? "up" : "down"}"
                   style="width:${width}%"></span></span>
             <span class="bar-value mono">${dec(value, 3)}</span>

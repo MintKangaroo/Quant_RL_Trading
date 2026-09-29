@@ -147,3 +147,10 @@
 /* 장중참고 칸 — 현재가 아래 줄에 등락률(2026-09-29). `.hint` 에 규칙이 없어 `3,132-0.89%` 처럼 붙어 읽혔다.
    종목 칸이 이미 두 줄(이름·코드)이라 행 높이는 그대로다. */
 #positions td .hint { display: block; font-size: 11px; line-height: 1.3; opacity: .85; }
+
+/* AI 결정 막대의 역할 표시(2026-09-29) — 이름 아래 작은 줄. 이름 칸을 넓혀 두 줄이 들어가게. */
+#decision .bar-row { grid-template-columns: minmax(150px, 42%) 1fr 56px; margin: 5px 0; }
+#decision .bar-label { line-height: 1.3; }
+.bar-role { display: block; font-size: 10.5px; color: var(--dim); }
+.bar-role.role-direct { color: var(--up); }
+.bar-role.role-constraint { color: var(--warn); }
