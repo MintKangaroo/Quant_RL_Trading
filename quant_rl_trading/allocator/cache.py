@@ -624,6 +624,7 @@ CONFIG_DEPENDENCIES: tuple[str, ...] = (
     "execution.settlement_days_us",
     "execution.slice_count",
     "execution.slice_interval_sec",
+    "execution.plan_source",       # E1 집행 계획 출처(2026-09-28) — executor/plans.py 가 읽는다
     "exposure",
     "killswitch.drawdown_trigger",
     "risk",
