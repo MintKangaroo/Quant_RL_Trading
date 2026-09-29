@@ -618,12 +618,13 @@ def curriculum(store: Store, *, as_of: datetime, lookback: int = 90) -> dict[str
 #: 스크립트는 창고에 안 적히므로 화면에 없었다 — 사용자 지적. 프로세스와 로그로 보여준다.
 RESEARCH_CMD = re.compile(
     r"(?:tools/(trial_[a-z_0-9]+|backfill_[a-z_]+|measure_[a-z_]+|repair_[a-z_]+|collect_consensus_naver|"
-    r"train_[a-z_]+|build_rl_cache|select_checkpoint|evaluate_policy|promotion_gate)\.py"
+    r"train_[a-z_]+|build_rl_cache|select_checkpoint|evaluate_policy|promotion_gate|freeze_[a-z0-9_]+|score_be2|vault_judge)\.py"
     r"|scripts/(chain_[a-z_0-9]+|pilot_[a-z_0-9]+)\.sh)"
 )
 RESEARCH_LOG_PREFIXES = (
     "trial-", "ic-", "repair-", "consensus-", "backfill-", "headroom-",
     "train-", "chain-", "pilot-", "rl-cache", "select-", "evaluate-", "promotion-",
+    "freeze-", "score-be2", "vault-",   # BE2 얼리기·매일 점수·금고 심사(2026-09-29)
 )
 RESEARCH_LOG_ROWS = 8
 
