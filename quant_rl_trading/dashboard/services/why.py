@@ -41,6 +41,8 @@ SESSION_LOOKBACK_DAYS = exposure_module.HELD_LOOKBACK_DAYS
 _SCREEN_CACHE: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
 _SCREEN_CACHE_SIZE = 4
 _SCREEN_LOCK = Lock()
+#: 위험 점수 분포 막대의 칸 수 — **표시용**(판정에 안 쓴다). 좁은 패널(~380px)에서 칸당 ~12px.
+RISK_HIST_BINS = 24
 
 
 # -- 세션 기록 -------------------------------------------------------------------
@@ -213,7 +215,23 @@ def _filter_step(store: Store, *, as_of: datetime, entity_id: str, summary: dict
         "risk_threshold": summary["risk_threshold"],
         "risk_percentile": percentile,
         "counts": summary["counts"],
+        # 화면의 '위험 필터 자' — 세션이 본 위험 점수(거래 가능 종목)의 분포. 표시용 숫자뿐, 판정은 위 임계가 한다.
+        "risk_hist": _histogram(summary["risk"].values()),
     }
+
+
+def _histogram(values: Any, bins: int = RISK_HIST_BINS) -> dict[str, Any] | None:
+    """``{"lo", "hi", "counts"}`` — 값이 둘 미만이거나 폭이 0 이면 ``None``(화면은 분포를 숨긴다)."""
+    data = [float(v) for v in values if v is not None and pd.notna(v)]
+    if len(data) < 2:
+        return None
+    lo, hi = min(data), max(data)
+    if hi <= lo:
+        return None
+    counts = [0] * bins
+    for v in data:
+        counts[min(bins - 1, int((v - lo) / (hi - lo) * bins))] += 1
+    return {"lo": lo, "hi": hi, "counts": counts}
 
 
 def _rule_step(

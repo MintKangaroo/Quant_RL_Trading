@@ -554,3 +554,70 @@ def test_설명이_없으면_모름이다(tmp_path: Path) -> None:
     html = _decision_html(tmp_path, None)
     assert "모름" in html
     assert "undefined" not in html and "NaN" not in html
+
+
+# -- 결정 패널 시각화 (2026-09-29, 사용자 "눈에 안 들어와") ------------------------------
+
+WHY_HELD_VIZ = json.loads(json.dumps(WHY_HELD))
+WHY_HELD_VIZ["filters"]["risk_hist"] = {"lo": -1.2, "hi": 1.4, "counts": [1, 3, 8, 20, 40, 60, 80, 60, 30, 10, 4, 2]}
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_시각화_다섯이_그려진다(tmp_path: Path) -> None:
+    html = _decision_html(tmp_path, WHY_HELD_VIZ)
+    # 판정 띠 — 칩 다섯, 기호와 글자가 같이(색만으로 말하지 않는다)
+    assert html.count('class="why-chip ') == 5
+    assert "△</b>43위" in html                                    # 24 밖·72 안 = 경계
+    assert "✓</b>통과" in html and "✓</b>유지" in html and "✓</b>9.3%" in html
+    assert "△</b>1/4 체결" in html
+    # 순위 자 — 설정값 24·72 눈금, 살 수 있는 710종목, 점은 유지 구간
+    assert 'class="viz rank-ruler"' in html
+    assert ">24</span>" in html and ">72</span>" in html and ">710</span>" in html
+    assert "rr-dot rr-keep" in html and "▼ 43위" in html and "보유 유지 구간" in html
+    # 위험 필터 자 — 분포 막대 12칸, 임계선, 이 종목 자리
+    assert 'class="viz risk-ruler"' in html
+    assert html.count('class="rh-bar') == 12 and 'class="rh-thr"' in html and 'class="rh-me"' in html
+    assert "하위 20% 선 <span class=\"mono\">−0.20</span> 왼쪽 = 잘림" in html
+    # 비중 막대 — 목표 vs 지금
+    assert "wb-fill target" in html and "wb-fill real" in html
+    assert "실제가 목표보다 ▲ 2.26%p 많다" in html
+    # 주문 조각 — 체결 1 채움, 예약 3 테두리
+    assert html.count("os-cell filled") == 1 and html.count("os-cell pending") == 3
+    assert "■ 체결 1" in html and "□ 대기 3" in html
+    # 점수 분해는 접힌 칸으로 남는다
+    assert "점수 분해" in html and "undefined" not in html and "NaN" not in html
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_후보_밖_종목은_처음_걸린_칩이_보인다(tmp_path: Path) -> None:
+    why = json.loads(json.dumps(WHY_HELD_VIZ))
+    why["rule"].update(verdict="not_top", rank=300, held=False, selected=False)
+    why["weight"].update(allocated=None, target=None, realized=None)
+    why["orders"] = {"count": 0}
+    html = _decision_html(tmp_path, why)
+    assert "✗</b>300위" in html and "✗</b>순위 밖" in html
+    assert html.count("first-bad") == 1                           # 첫 ✗ 하나만 강조 — 점수 칩
+    assert "rr-dot rr-out" in html and "구간 밖" in html
+    assert "—</b>0%" in html and "—</b>없음" in html
+    assert 'class="viz order-slices"' not in html                 # 주문 없으면 조각 칸 없음
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_값이_없으면_그림을_숨기고_모름이다(tmp_path: Path) -> None:
+    why = json.loads(json.dumps(WHY_HELD))                         # risk_hist 없음(옛 응답)
+    why["rule"].update(n_passed=None)
+    why["weight"].update(allocator=None, allocated=None, target=None, realized=None)
+    why["orders"] = {"count": 2, "side": "buy", "quantity": 10.0, "filled_slices": 0, "partial_slices": 0,
+                     "filled_quantity": 0.0, "statuses": {"cancelled": 2}}
+    html = _decision_html(tmp_path, why)
+    assert 'class="viz rank-ruler"' not in html and "순위 자 — 모름" in html
+    assert 'class="viz risk-ruler"' not in html and "위험 분포 — 모름" in html
+    assert 'class="viz weight-bars"' not in html and "비중 막대 — 모름" in html
+    assert html.count("os-cell cancelled") == 2 and "✗</b>전부 취소" in html
+    assert "undefined" not in html and "NaN" not in html
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_설명이_없으면_판정_띠도_없다(tmp_path: Path) -> None:
+    html = _decision_html(tmp_path, None)
+    assert "why-chips" not in html and "rank-ruler" not in html

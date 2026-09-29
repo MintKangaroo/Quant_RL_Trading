@@ -176,3 +176,75 @@
 .why-more[open] > summary::before { content: "− "; }
 #decision .why-more .bar-row { grid-template-columns: minmax(0, 46%) minmax(0, 1fr) 48px; }
 .why-rl { color: var(--dim); font-size: 11px; margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--border); }
+
+/* -- AI 결정 시각화 (2026-09-29, 사용자 "눈에 안 들어와") -----------------------------------------------
+   판정 띠 · 순위 자 · 위험 분포 · 비중 막대 · 주문 조각. CSS 막대만 — 차트 라이브러리 없음.
+   의미색: 통과/걸림은 --ok/--bad(손익색 --up/--down 을 빌리지 않는다), 경계는 --warn, 모름은 --dim.
+   색만으로 말하지 않는다 — 칩에 ✓ ✗ △ — 기호, 자에 글자 눈금·범례. */
+.why-chips { list-style: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+.why-chip { position: relative; min-width: 0; padding: 4px 5px 5px; border: 1px solid var(--border); border-top-width: 2px; background: var(--panel2); }
+.chip-label { display: block; color: var(--dim); font-size: 10px; line-height: 1.2; white-space: nowrap; }
+.chip-val { display: block; font-size: 11.5px; line-height: 1.35; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.chip-mark { font-weight: 700; margin-right: 3px; }
+.why-chip.st-ok { border-top-color: var(--ok); }
+.why-chip.st-ok .chip-mark { color: var(--ok); }
+.why-chip.st-bad { border-top-color: var(--bad); }
+.why-chip.st-bad .chip-mark { color: var(--bad); }
+.why-chip.st-warn { border-top-color: var(--warn); }
+.why-chip.st-warn .chip-mark { color: var(--warn); }
+.why-chip.st-none { border-top-color: var(--faint); }
+.why-chip.st-none .chip-mark, .why-chip.st-none .chip-val { color: var(--dim); font-weight: 500; }
+.why-chip.first-bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, var(--panel2)); }
+
+.viz { margin: 8px 0 2px; padding: 0; }
+.viz-title { color: var(--dim); font-size: 10.5px; margin-bottom: 2px; }
+.viz-unknown { color: var(--dim); font-size: 11px; margin-top: 4px; }
+.viz-cap { color: var(--muted); font-size: 11px; line-height: 1.4; margin-top: 3px; }
+.viz-cap b { color: var(--text); font-weight: 600; }
+.viz-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 3px; color: var(--dim); font-size: 10px; line-height: 1.4; }
+.viz-legend .lg i { display: inline-block; width: 8px; height: 8px; margin-right: 3px; vertical-align: -0.5px; background: var(--faint); }
+.viz-legend .lg.buy i { background: var(--ok); }
+.viz-legend .lg.keep i { background: var(--warn); }
+.viz-legend .lg.pass i { background: var(--muted); }
+.viz-legend .lg.cut i { background: repeating-linear-gradient(135deg, var(--bad) 0 2px, transparent 2px 4px); outline: 1px solid var(--bad); outline-offset: -1px; }
+
+/* 핀(▼ 43위)과 눈금 — 양 끝 눈금은 안쪽으로 붙여 잘리지 않게. */
+.rr-pins { position: relative; height: 15px; margin: 0 6px; }
+.rr-pin { position: absolute; bottom: 0; transform: translateX(-50%); font-size: 10.5px; line-height: 1.2; color: var(--text); white-space: nowrap; }
+.rr-ticks { position: relative; height: 14px; margin: 2px 6px 0; }
+.rr-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; color: var(--dim); white-space: nowrap; }
+.rr-tick:first-child { transform: none; }
+.rr-tick:last-child { transform: translateX(-100%); }
+
+
+.rr-track { position: relative; height: 12px; margin: 0 6px; background: var(--panel2); }
+.rr-zone { position: absolute; top: 3px; bottom: 3px; }
+.rr-zone.buy { background: color-mix(in srgb, var(--ok) 55%, transparent); }
+.rr-zone.keep { background: color-mix(in srgb, var(--warn) 45%, transparent); }
+.rr-zone.out { background: var(--faint); opacity: .6; }
+.rr-line { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--text); opacity: .55; }
+.rr-dot { position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--bg); box-shadow: 0 0 0 1px var(--text); background: var(--text); }
+.rr-dot.rr-buy { background: var(--ok); }
+.rr-dot.rr-keep { background: var(--warn); }
+.rr-dot.rr-out { background: var(--muted); }
+
+.rh-plot { position: relative; height: 34px; margin: 0 6px; display: flex; align-items: flex-end; gap: 1px; border-bottom: 1px solid var(--rule); }
+.rh-bar { flex: 1 1 0; min-width: 0; background: color-mix(in srgb, var(--muted) 55%, transparent); }
+.rh-bar.cut { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad) 70%, transparent) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 55%, transparent); }
+.rh-thr { position: absolute; top: -3px; bottom: -3px; width: 0; border-left: 1px dashed var(--bad); }
+.rh-me { position: absolute; top: 3px; bottom: -3px; width: 2px; transform: translateX(-1px); background: var(--text); }
+
+.wb-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) 56px; align-items: center; gap: 6px; margin: 3px 0; }
+.wb-label { color: var(--dim); font-size: 10.5px; }
+.wb-track { position: relative; height: 10px; background: var(--panel2); }
+.wb-fill { position: absolute; left: 0; top: 0; bottom: 0; box-sizing: border-box; }
+.wb-fill.target { background: transparent; border: 1px solid var(--text); }
+.wb-fill.real { background: var(--muted); }
+.wb-val { font-size: 11px; text-align: right; color: var(--text); }
+
+.os-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.os-cell { width: 18px; height: 18px; box-sizing: border-box; border: 1px solid var(--muted); }
+.os-cell.filled { background: var(--text); border-color: var(--text); }
+.os-cell.partial { background: linear-gradient(90deg, var(--text) 50%, transparent 50%); border-color: var(--text); }
+.os-cell.pending { background: transparent; }
+.os-cell.cancelled { border-color: var(--bad); background: repeating-linear-gradient(135deg, var(--bad) 0 2px, transparent 2px 5px); }

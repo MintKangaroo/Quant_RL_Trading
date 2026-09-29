@@ -158,6 +158,10 @@ def test_기본은_보유_비중_1위_완충으로_남은_이유를_말한다(de
     assert f["risk_score"] == pytest.approx(0.3)
     assert f["risk_threshold"] == pytest.approx(0.1)               # 6종목 위험 점수의 20% 분위
     assert f["counts"]["risk_floor"] == 5
+    # 화면의 위험 필터 자 — 세션 screen 이 본 위험 점수 6개의 분포(표시용, 판정은 임계가 한다)
+    hist = f["risk_hist"]
+    assert sum(hist["counts"]) == 6 and len(hist["counts"]) == why_module.RISK_HIST_BINS
+    assert hist["lo"] <= f["risk_threshold"] <= hist["hi"]
 
     r = w["rule"]
     assert r["verdict"] == "buffer_keep"

@@ -598,6 +598,157 @@ function contributionBars(d) {
     .join("");
 }
 
+/* -- 결정 패널 시각화 (2026-09-29, 사용자 "눈에 안 들어와") ------------------------
+ * 값은 전부 응답(`decision.why`)에 있는 것을 그린다 — 여기서 판정을 새로 내리지 않는다. 없으면 그 그림을 숨기고
+ * "모름" 한 줄. 색만으로 말하지 않는다 — 칩은 ✓ ✗ △ — 기호, 자는 글자 눈금·범례를 같이 둔다.
+ * 차트 라이브러리를 쓰지 않는다(CSS 막대) — ECharts 인스턴스 다섯 개를 좁은 패널에 띄울 이유가 없다. */
+const MARK = { ok: "✓", bad: "✗", warn: "△", none: "—" };
+const MARK_WORD = { ok: "통과", bad: "걸림", warn: "경계", none: "해당 없음·모름" };
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const vizUnknown = (what) => `<div class="viz-unknown">${what} — ${UNKNOWN}</div>`;
+
+/* 주문 조각 상태 → 네 갈래. 상태 이름은 주문표(`orders`)와 같은 코드. */
+const CANCELLED_STATUSES = new Set(["cancelled", "cancel_unknown", "withdrawn", "rejected", "risk_blocked"]);
+function sliceKinds(o) {
+  const kinds = [];
+  const order = { filled: 0, partial: 1, pending: 2, cancelled: 3 };
+  for (const [status, count] of Object.entries(o.statuses || {})) {
+    const kind = status === "filled" || status === "partial" ? status : CANCELLED_STATUSES.has(status) ? "cancelled" : "pending";
+    for (let i = 0; i < count; i++) kinds.push(kind);
+  }
+  return kinds.sort((a, b) => order[a] - order[b]);
+}
+
+/* 판정 띠 — 점수 → 걸러짐 → 선정 → 비중 → 주문. 서버 판정 코드(verdict·risk_status·statuses)에 기호만 붙인다.
+ * 처음 ✗ 가 난 칩에 테두리 — "어디서 걸렸나". */
+function verdictChips(s, f, r, wt, o) {
+  const rank = r.rank, n = r.n_candidates, m = r.exit_rank;
+  const score = !isKnown(rank) ? { st: "none", word: f.known ? "순위 없음" : UNKNOWN }
+    : isKnown(n) && rank <= n ? { st: "ok", word: `${num(rank)}위` }
+    : isKnown(m) && rank <= m ? { st: "warn", word: `${num(rank)}위` }
+    : { st: "bad", word: `${num(rank)}위` };
+  const filt = !f.known ? { st: "none", word: UNKNOWN }
+    : f.gate_reason || f.risk_status === "cut" || f.risk_status === "not_reached" ? { st: "bad", word: "탈락" }
+    : { st: "ok", word: "통과" };
+  const RULE = {
+    buy: ["ok", "매수"], keep: ["ok", "유지"], buffer_keep: ["ok", "유지"],
+    sell_out_of_buffer: ["bad", "매도"], sell: ["bad", "매도"], pushed_out: ["bad", "밀림"],
+    not_top: ["bad", "순위 밖"], filtered: ["none", "못 감"], unknown: ["none", UNKNOWN],
+  };
+  const [rs, rw] = RULE[r.verdict] || RULE.unknown;
+  const weight = !isKnown(wt.allocator) ? { st: "none", word: UNKNOWN }
+    : isKnown(wt.target) ? { st: "ok", word: pct(wt.target, 1) }
+    : isKnown(wt.allocated) ? { st: "ok", word: pct(wt.allocated, 1) }
+    : { st: "none", word: "0%" };
+  let order = { st: "none", word: "없음" };
+  if (o.count) {
+    const cancelled = sliceKinds(o).filter((k) => k === "cancelled").length;
+    order = o.filled_slices === o.count ? { st: "ok", word: `${o.count}/${o.count} 체결` }
+      : cancelled === o.count ? { st: "bad", word: "전부 취소" }
+      : { st: "warn", word: `${o.filled_slices}/${o.count} 체결` };
+  }
+  const chips = [["점수", score], ["걸러짐", filt], ["선정", { st: rs, word: rw }], ["비중", weight], ["주문", order]];
+  const firstBad = chips.findIndex(([, c]) => c.st === "bad");
+  return `<ol class="why-chips" aria-label="다섯 단계 판정">${chips.map(([label, c], i) =>
+    `<li class="why-chip st-${c.st}${i === firstBad ? " first-bad" : ""}" title="${label} — ${MARK_WORD[c.st]}">
+      <span class="chip-label">${label}</span>
+      <span class="chip-val"><b class="chip-mark" aria-label="${MARK_WORD[c.st]}">${MARK[c.st]}</b>${controlEsc(c.word)}</span>
+    </li>`).join("")}</ol>`;
+}
+
+/* 순위 자 — 관문을 통과한(살 수 있는) N종목 안에서 이 종목의 자리.
+ * 로그 눈금 — 선형이면 24·72 가 710 중 왼쪽 10% 에 몰려 안 보인다. 선·구간 경계는 설정값(n_candidates·exit_rank). */
+function rankRuler(r) {
+  const n = r.n_candidates, m = r.exit_rank, total = r.n_passed, rank = r.rank;
+  if (!isKnown(total) || !isKnown(n) || !isKnown(m) || total < 2) return vizUnknown("순위 자");
+  const at = (k) => clamp01(Math.log(Math.max(1, Math.min(k, total))) / Math.log(total)) * 100;
+  const buyX = at(Math.min(total, n + 0.5)), keepX = Math.max(buyX, at(Math.min(total, m + 0.5)));
+  const zone = !isKnown(rank) ? null : rank <= n ? ["buy", "매수 구간"] : rank <= m ? ["keep", "보유 유지 구간"] : ["out", "구간 밖"];
+  const marker = isKnown(rank)
+    ? `<span class="rr-dot rr-${zone[0]}" style="left:${at(rank)}%" aria-hidden="true"></span>`
+    : "";
+  const pin = isKnown(rank) ? `<span class="rr-pin mono" style="left:${at(rank)}%">▼ ${num(rank)}위</span>` : "";
+  const seen = new Set();
+  const ticks = [[1, "1"], [n, `${n}`], [m, `${m}`], [total, num(total)]]
+    .filter(([k]) => k <= total && !seen.has(k) && seen.add(k))
+    .map(([k, t]) => `<span class="rr-tick mono" style="left:${at(k)}%">${t}</span>`).join("");
+  const caption = isKnown(rank)
+    ? `${num(total)}종목 중 <b>${num(rank)}위</b> — ${zone[1]}${zone[0] === "keep" ? " (새로 사지는 않고, 들고 있으면 남긴다)" : ""}`
+    : "앞 단계에서 걸러져 순위 경쟁에 없다 — 자 위에 점이 없다";
+  return `<figure class="viz rank-ruler" aria-label="순위 자">
+    <div class="viz-title">순위 자 — 살 수 있는 ${num(total)}종목</div>
+    <div class="rr-pins">${pin}</div>
+    <div class="rr-track">
+      <span class="rr-zone buy" style="left:0;width:${buyX}%"></span>
+      <span class="rr-zone keep" style="left:${buyX}%;width:${keepX - buyX}%"></span>
+      <span class="rr-zone out" style="left:${keepX}%;width:${100 - keepX}%"></span>
+      <span class="rr-line" style="left:${buyX}%"></span><span class="rr-line" style="left:${keepX}%"></span>
+      ${marker}
+    </div>
+    <div class="rr-ticks">${ticks}</div>
+    <div class="viz-legend"><span class="lg buy"><i></i>1~${n} 매수</span><span class="lg keep"><i></i>${n + 1}~${m} 보유 유지</span><span class="lg out"><i></i>${m + 1}~ 밖</span><span class="lg">눈금 로그</span></div>
+    <figcaption class="viz-cap">${caption}</figcaption>
+  </figure>`;
+}
+
+/* 위험 필터 자 — 세션이 본 위험 점수 분포(서버 `risk_hist`), 하위 P% 임계선, 이 종목 자리. */
+function riskRuler(f) {
+  const h = f.risk_hist;
+  if (!f.known || !h || !h.counts || !h.counts.length || !isKnown(f.risk_threshold)) return vizUnknown("위험 분포");
+  const span = h.hi - h.lo;
+  const x = (v) => clamp01((v - h.lo) / span) * 100;
+  const peak = Math.max(1, ...h.counts);
+  const thrX = x(f.risk_threshold);
+  const bars = h.counts.map((c, i) => {
+    const mid = h.lo + ((i + 0.5) / h.counts.length) * span;
+    return `<span class="rh-bar${mid < f.risk_threshold ? " cut" : ""}" style="height:${c ? Math.max(6, (c / peak) * 100) : 0}%"></span>`;
+  }).join("");
+  const known = isKnown(f.risk_score);
+  const me = known ? `<span class="rh-me" style="left:${x(f.risk_score)}%"></span>` : "";
+  const pin = known ? `<span class="rr-pin mono" style="left:${x(f.risk_score)}%">▼ 이 종목 ${signedScore(f.risk_score, 2)}</span>` : "";
+  const p = isKnown(f.risk_percentile) ? `하위 ${Math.round(f.risk_percentile * 100)}%` : "임계";
+  return `<figure class="viz risk-ruler" aria-label="위험 필터 자">
+    <div class="viz-title">위험 점수 분포 — 거래 가능 종목</div>
+    <div class="rr-pins">${pin}</div>
+    <div class="rh-plot">${bars}<span class="rh-thr" style="left:${thrX}%"></span>${me}</div>
+    <div class="rr-ticks"><span class="rr-tick mono" style="left:0%">${signedScore(h.lo, 2)}</span><span class="rr-tick mono" style="left:100%">${signedScore(h.hi, 2)}</span></div>
+    <div class="viz-legend"><span class="lg cut"><i></i>${p} 선 <span class="mono">${signedScore(f.risk_threshold, 2)}</span> 왼쪽 = 잘림</span><span class="lg pass"><i></i>통과</span><span class="lg">← 위험 · 안전 →</span></div>
+    ${known ? "" : `<figcaption class="viz-cap">이 종목 위험 점수 ${UNKNOWN} — 자 위에 점이 없다</figcaption>`}
+  </figure>`;
+}
+
+/* 비중 막대 — 목표(리스크 패리티 × 노출) vs 지금 실제, 같은 눈금 두 줄. */
+function weightBars(wt, r) {
+  if (!isKnown(wt.allocator)) return vizUnknown("비중 막대");
+  // 명단 밖이면 목표 0% (4단계 문장과 같은 규칙), 안 들고 있으면 실제 0% — 장부가 안다.
+  const target = isKnown(wt.target) ? wt.target : isKnown(wt.allocated) ? null : 0;
+  const real = isKnown(wt.realized) ? wt.realized : r.held === false ? 0 : null;
+  if (!isKnown(target) && !isKnown(real)) return vizUnknown("비중 막대");
+  const top = Math.max(1e-9, target || 0, real || 0) * 1.1;
+  const row = (label, v, cls) => `<div class="wb-row">
+      <span class="wb-label">${label}</span>
+      <span class="wb-track">${isKnown(v) && v > 0 ? `<span class="wb-fill ${cls}" style="width:${(v / top) * 100}%"></span>` : ""}</span>
+      <span class="wb-val mono">${isKnown(v) ? pct(v) : UNKNOWN}</span></div>`;
+  const gap = isKnown(target) && isKnown(real) ? real - target : null;
+  const note = isKnown(gap) && Math.abs(gap) >= 1e-4
+    ? `실제가 목표보다 ${gap > 0 ? "▲" : "▼"} ${(Math.abs(gap) * 100).toFixed(2)}%p ${gap > 0 ? "많다" : "적다"}` : "";
+  return `<figure class="viz weight-bars" aria-label="비중 막대">${row("목표", target, "target")}${row("지금", real, "real")}${
+    note ? `<figcaption class="viz-cap">${note}</figcaption>` : ""}</figure>`;
+}
+
+/* 주문 조각 — 체결=채움 · 부분=반 채움 · 대기=테두리 · 취소=빗금. */
+function orderSlices(o) {
+  if (!o.count) return "";
+  const kinds = sliceKinds(o);
+  if (!kinds.length) return vizUnknown("조각 상태");
+  const WORD = { filled: ["■", "체결"], partial: ["◧", "부분"], pending: ["□", "대기"], cancelled: ["▨", "취소"] };
+  const tally = Object.entries(WORD).map(([k, [g, w]]) => [g, w, kinds.filter((x) => x === k).length]).filter(([, , c]) => c);
+  return `<figure class="viz order-slices" aria-label="주문 조각">
+    <div class="os-row">${kinds.map((k, i) => `<span class="os-cell ${k}" title="조각 ${i + 1}: ${WORD[k][1]}"></span>`).join("")}</div>
+    <div class="viz-legend">${tally.map(([g, w, c]) => `<span class="lg">${g} ${w} ${c}</span>`).join("")}</div>
+  </figure>`;
+}
+
 function renderDecision(body) {
   const d = body.data.decision;
   // 점수 모델 한 줄 — 새 모델이 실전에 들어오면 여기가 바뀐다(파일·학습일).
@@ -653,7 +804,8 @@ function renderDecision(body) {
     ? `관문: 거래 가능 ${num(c.universe)} → 부실 공시 제외 ${num(c.healthy)} → 위험 하위 ${p} 제외 ${num(c.risk_floor)}${
         isKnown(c.after_verdicts) && c.after_verdicts !== c.risk_floor ? ` → 뉴스 매수금지 제외 ${num(c.after_verdicts)}` : ""}`
     : "";
-  const step2 = whyStep(2, "걸러짐", [`<span class="${filterTag ? "why-cut" : ""}">${filterLine}</span>`, funnel]);
+  const step2 = whyStep(2, "걸러짐", [`<span class="${filterTag ? "why-cut" : ""}">${filterLine}</span>`, funnel],
+    f.risk_status === "not_reached" || f.gate_reason ? "" : riskRuler(f));
 
   // ③ 선정 규칙
   const cadence = isKnown(r.rebalance_every)
@@ -665,7 +817,7 @@ function renderDecision(body) {
       ? `규칙: 점수 상위 ${r.n_candidates}종목을 산다 · 이미 가진 종목은 ${r.exit_rank}위 안이면 남긴다 · ${cadence}`
       : "",
     `다음 교체일 ${r.next_rebalance ? whyDate(r.next_rebalance) : UNKNOWN}${r.next_rebalance ? " (그날 종가로 고르고 다음 거래일 아침 주문)" : ""}`,
-  ]);
+  ], r.verdict === "unknown" ? vizUnknown("순위 자") : rankRuler(r));
 
   // ④ 비중
   let weightLine;
@@ -679,7 +831,7 @@ function renderDecision(body) {
       : r.held === false && isKnown(wt.allocator) ? "지금 들고 있지 않다 (0%)" : `지금 실제 비중 ${UNKNOWN}`,
     isKnown(wt.allocated) && wt.exposure_notes && wt.exposure_notes.length
       ? `노출 ${pct(wt.exposure_scale, 0)} 의 이유 — ${controlEsc(wt.exposure_notes[wt.exposure_notes.length - 1])}` : "",
-  ]);
+  ], weightBars(wt, r));
 
   // ⑤ 오늘 주문
   let orderLine;
@@ -689,7 +841,7 @@ function renderDecision(body) {
     const partial = o.partial_slices ? ` · 부분 체결 ${o.partial_slices}` : "";
     orderLine = `${side} ${num(o.quantity)}주 · ${o.count}조각 중 ${o.filled_slices}조각 체결${partial} (${num(o.filled_quantity)}주)`;
   }
-  const step5 = whyStep(5, "오늘 주문", [orderLine]);
+  const step5 = whyStep(5, "오늘 주문", [orderLine], orderSlices(o));
 
   document.getElementById("decision").innerHTML = `
     <div class="why-head">
@@ -697,6 +849,7 @@ function renderDecision(body) {
         <span class="code">${controlEsc(d.entity_id)} · ${session}${r.held ? " · 보유 중" : ""}</span></div>
       <span class="sig ${verdict.cls}">${verdict.tag}</span>
     </div>
+    ${d.why ? verdictChips(s, f, r, wt, o) : ""}
     <ol class="why-steps">${step1}${step2}${step3}${step4}${step5}</ol>
     <p class="why-rl">${controlEsc(d.engine_note)}</p>`;
 }
