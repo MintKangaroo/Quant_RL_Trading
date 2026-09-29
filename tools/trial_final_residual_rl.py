@@ -1189,9 +1189,10 @@ def require_same_span(bg_days: list, controls: dict[str, dict], market: str) -> 
             f"대조군 {len(ctrl_days)}세션 (BG 가 못 쓴 {missing} = 재조정 창 끝)")
 
 
-def require_keys(where: str, metrics: dict[str, float]) -> dict[str, float]:
-    """`judge` 에 넘기기 전 마지막 점검. 조용히 떨어지는 관문보다 시끄럽게 멈추는 것이 낫다."""
-    bad = [k for k in JUDGE_KEYS if k not in metrics or not np.isfinite(metrics[k])]
+def require_keys(where: str, metrics: dict[str, float], *, keys: tuple[str, ...] | None = None) -> dict[str, float]:
+    """`judge` 에 넘기기 전 마지막 점검. 조용히 떨어지는 관문보다 시끄럽게 멈추는 것이 낫다.
+    ``keys`` 를 주면 그 키만 본다(판정에 안 들어가는 학습창 지표 — 과적합 격차에 쓰는 키만)."""
+    bad = [k for k in (keys or JUDGE_KEYS) if k not in metrics or not np.isfinite(metrics[k])]
     if bad:
         raise SystemExit(f"{where}: 판정 키가 없거나 nan 이다 {bad} — 이대로 judge 에 넘기면 관문이 조용히 떨어진다")
     return metrics
@@ -1303,7 +1304,11 @@ def cmd_judge(args: argparse.Namespace) -> int:
                                              float(np.mean(trained.abs_turnover) * ANN / EVERY) if trained.abs_turnover else 0.0,
                                              ic_of[seed])
         results[seed] = require_keys(f"BG 시드 {seed}", kit.pooled_metrics(per_market))   # type: ignore[attr-defined]
-        train_m[seed] = require_keys(f"BG 학습창 시드 {seed}", kit.pooled_metrics(per_train))  # type: ignore[attr-defined]
+        # 학습창 지표는 **판정에 안 쓰고** 과적합 격차(gap_ann·gap_sharpe·gap_ic)에만 쓴다. 학습창은 판정 구간 앞(2023~2024
+        # 박스장)이라 급등 국면 세션이 없어 rally_ann 이 nan 인 것이 정상이다 — 9/29 16:26 판정 전체 키를 요구하다
+        # 시드 0 뒤 rc=1 로 멈췄고, 대기열이 처음부터 다시 돌렸다. 격차에 쓰는 키만 요구한다(판정 규칙 변경 아님).
+        train_m[seed] = require_keys(f"BG 학습창 시드 {seed}", kit.pooled_metrics(per_train),  # type: ignore[attr-defined]
+                                     keys=("ann", "sharpe", "ic"))
 
     # **대조군을 같은 구간으로 자른다.** BG 는 채점 구간이 뒤쪽 일부이므로, C0·C1 을 전 구간으로 두면
     # 서로 다른 구간을 견주게 된다 — 국면 구성이 달라 ①③⑤ 가 전부 뜻을 잃는다.

@@ -517,3 +517,17 @@ def test_내부_검증은_적합창_안에_있고_채점과_안_겹친다() -> N
         assert valid.stop - valid.start >= 1, "내부 검증이 비면 조기 종료가 뜻이 없다"
         assert valid.stop <= judge.start, "내부 검증이 채점 구간을 넘보면 하이퍼파라미터를 판정 창에서 고르는 셈이다"
         assert fit.stop + GAP_DECISIONS <= valid.start, "적합과 내부 검증 사이에도 퍼지"
+
+
+def test_학습창_지표는_격차에_쓰는_키만_요구한다() -> None:
+    """2026-09-29: 학습창(박스장뿐)에 급등 국면이 없어 rally_ann=nan → 판정 키 전부를 요구하다 rc=1, 대기열이 처음부터 다시 돌렸다."""
+    import math
+
+    import pytest
+
+    from tools.trial_final_residual_rl import require_keys
+
+    train = {"ann": 0.05, "sharpe": 0.8, "ic": 0.01, "box_ann": 0.04, "rally_ann": math.nan, "mdd": -0.1, "turn": 10.0}
+    assert require_keys("학습창", train, keys=("ann", "sharpe", "ic")) is train
+    with pytest.raises(SystemExit):
+        require_keys("판정창", train)   # 판정 쪽은 여전히 전부 요구한다
