@@ -16,11 +16,12 @@ mkdir -p data/_locks logs
 exec 9>"${LOCK}"
 flock -n 9 || { echo "$(date '+%F %T') 대기열이 이미 돈다"; exit 0; }
 
-# 시행 · 러너 · 판정 로그 · 필요한 판정 줄 수 · 최대 RSS 추정(MB, 2026-09-29 — 에이전트 실측으로 갱신한다)
+# 시행 · 러너 · 판정 로그 · 필요한 판정 줄 수 · 최대 RSS(MB). 2026-09-29 메모리 줄이기(1b6e3f8·19d48af) 뒤 추정:
+# BF ≈4.8GB(±0.5, 마지막 블록 ~350만 행 외삽) · BG ≈5.0~5.3GB · D1 ≈5.3GB(자료 준비) — 구성요소 합, 실측 뒤 갱신한다.
 TRIALS=(
-  "BF|scripts/final_round_BF.sh|logs/trial-final-lambdarank-BF.log|1|${P_BF:-6000}"
-  "BG|scripts/final_round_BG.sh|logs/trial-final-residual-rl-BG.log|1|${P_BG:-6000}"
-  "D1|scripts/final_round_D1.sh|logs/trial-final-dfl-D1.log|2|${P_D1:-6000}"
+  "BF|scripts/final_round_BF.sh|logs/trial-final-lambdarank-BF.log|1|${P_BF:-5300}"
+  "BG|scripts/final_round_BG.sh|logs/trial-final-residual-rl-BG.log|1|${P_BG:-5300}"
+  "D1|scripts/final_round_D1.sh|logs/trial-final-dfl-D1.log|2|${P_D1:-5300}"
 )
 MARGIN_MB=800
 SWAP_CREDIT_MAX_MB=1024
