@@ -8,6 +8,17 @@
     .venv/bin/python tools/trial_final_dfl.py judge --i-registered [--variant D1a|D1b|both]
                                                     [--backbone C1|C2 --features FA|FA+] [--save]
 
+    # v2 재설계(docs/protocols/decision-focused-v2-2026-10.md) — 같은 명령에 --track v2(기본 v1 = 해시 고정 판, 그대로 재현)
+    .venv/bin/python tools/trial_final_dfl.py shuffle --track v2 --i-registered                 # 실자료 여백(재학습별 시드 평균 t)을 얼린다
+    .venv/bin/python tools/trial_final_dfl.py canary --track v2 --i-registered                  # 합성 카나리 — 그 여백을 건다
+    .venv/bin/python tools/trial_final_dfl.py shuffle --synthetic --track v2 --i-registered     # 합성 섞기 — 그 여백을 건다
+    .venv/bin/python tools/trial_final_dfl.py judge --track v2 --i-registered --variant both --save
+
+**v2 가 바꾸는 것은 머리 채택 규칙(`Accept`) 하나다** — 조기 종료·채택 지표를 연수익 차이에서 **일수익 차이의 t 값**으로,
+채택 결정을 머리마다에서 **재학습마다 시드 5개 평균 한 번**으로(`walk_pooled`), 여백도 섞은 라벨 이득의 재학습별 시드 평균에서.
+모델·손실·고정값·검증 창(20%)·판정 기준은 v1 과 같다(`Accept` 의 창·분위 칸은 합성 비교용으로 남긴다 — 등록 v2 §후보표).
+v1(rc 7): 실자료 섞기 여백(연수익 최댓값 46.1%)이 척도가 다른 합성 카나리 이득(중앙값 16.5%)을 통째로 막았다.
+
 설계는 `docs/design/ai-full-stack.md` §2(과적합 규율 20조)·§3.1~3.3, 사전등록은 `docs/protocols/decision-focused-2026-10.md`.
 공통 틀은 `tools/final_round_kit` 이고 **이 파일은 kit 을 읽기만 한다**(패널·블록·내부 분할·대조군·규칙 포트·지표·판정).
 
@@ -130,6 +141,59 @@ CHECK_EXIT = 7
 MARGIN_PATH = SEED_CACHE / "shuffle-margin.json"
 
 torch.set_num_threads(2)
+
+
+@dataclass(frozen=True)
+class Accept:
+    """머리 채택 규칙 — 조기 종료 지표 · 내부 검증 창 · 여백의 분위. v1 은 기본값 그대로(등록 해시 24a52320cdcfc2c2).
+
+    - ``metric``: ``"ann"`` = 하드 규칙 포트 내부 검증 **연수익** 차이(v1) · ``"t"`` = 같은 포트의 **일수익 차이(머리 − h 0)의 t 값**(v2).
+      연수익 차이는 창 길이·변동성에 척도가 묶여 합성과 실자료가 다른 자로 잰다(실자료 섞기 최댓값 46% 대 합성 10%) — t 는 척도가 없다.
+    - ``val_share``: 학습창에서 내부 검증으로 떼는 마지막 몫(v1 0.20 = kit 기본).
+    - ``margin_q``: 여백 = 실자료 라벨 섞기 이득(시드·재학습 합동)의 이 분위. 1.0 = 최댓값(v1).
+    - ``pool``: False = 머리마다 따로 채택(v1) · True = **재학습마다 시드 전부를 합친 한 번의 결정**(v2) — 같은 학습창·같은 내부 검증 창의
+      시드 5개 이득의 **평균**이 여백을 넘으면 그 재학습의 머리를 시드 전부 쓰고, 못 넘으면 시드 전부 h = 0. 여백도 섞은 라벨 이득의
+      재학습별 시드 평균(실자료 7개)에서 잰다. 한 창의 잡음 한 번이 머리 하나를 켜는 길을 막고, 시드 사이에 일관된 이득만 남긴다.
+    """
+
+    metric: str = "ann"
+    val_share: float = kit.INNER_VAL_SHARE
+    margin_q: float = 1.0
+    pool: bool = False
+
+
+ACCEPT_V1 = Accept()
+#: v2(docs/protocols/decision-focused-v2-2026-10.md) — 합성 비교에서 고른 규칙(t 값 · 재학습별 시드 합동 결정). 후보표는 등록 문서.
+ACCEPT_V2 = Accept(metric="t", val_share=0.20, margin_q=1.0, pool=True)
+
+
+@dataclass(frozen=True)
+class Track:
+    """등록 한 벌 — 문서 · 여백 파일 · 채택 규칙 · 캐시 꼬리표 · 기록 이름. v1 경로는 그대로 남겨 재현할 수 있게 한다."""
+
+    name: str
+    protocol: Path
+    margin_path: Path
+    accept: Accept
+    cache_tag: str             # 시드 캐시·여백 조각 이름에 붙는다(v1 은 빈 문자열 — 기존 파일 이름 그대로)
+    entity: str                # research_trials 기록 이름
+
+
+PROTOCOL_V2 = Path("docs/protocols/decision-focused-v2-2026-10.md")
+TRACKS = {
+    "v1": Track("v1", PROTOCOL, MARGIN_PATH, ACCEPT_V1, "", "decision-focused-2026-10"),
+    "v2": Track("v2", PROTOCOL_V2, SEED_CACHE / "shuffle-margin-v2.json", ACCEPT_V2, "v2-",
+                "decision-focused-v2-2026-10"),
+}
+
+
+def margin_from(gains: Sequence[float], q: float) -> float:
+    """얼린 여백 — 섞은 라벨 이득(0 포함)의 분위 ``q``. 1.0 이면 최댓값(v1). 분위는 **관측값 하나**(method="higher" —
+    두 값 사이를 보간해 여백을 낮추지 않는다)."""
+    vals = [0.0, *[float(g) for g in gains]]
+    if q >= 1.0:
+        return max(vals)
+    return float(np.quantile(np.asarray(gains if gains else [0.0], dtype=float), q, method="higher"))
 
 
 @dataclass(frozen=True)
@@ -516,6 +580,9 @@ class TrainLog:
     stopped_early: bool = False
     margin: float = 0.0                                              # 채택 여백(shuffle 에서 얼린 값)
     accepted: bool = False                                           # 머리를 썼나(아니면 h = 0 = 백본)
+    metric: str = "ann"                                              # 이득의 단위 — v1 연수익 · v2 t 값(`Accept.metric`)
+    fit: list[tuple[str, date]] = field(default_factory=list)       # 적합 결정(v2 합동 결정의 되감기용)
+    best_state: dict[str, torch.Tensor] | None = None               # 최고 에포크 머리(조기 종료가 고른 개선이 있을 때만)
 
     @property
     def dfl_improved(self) -> bool:
@@ -645,10 +712,10 @@ def training_pool(variant: str, data: dict[str, MarketData], inp: Inputs, cut: d
     return out
 
 
-def split_pool(data: dict[str, MarketData], pool: list[tuple[str, date]]) -> tuple[list[tuple[str, date]],
-                                                                                  list[tuple[str, date]]]:
-    """(적합, 내부 검증) — `kit.inner_split`(마지막 20%, 퍼지 = D1_GAP). 적합 라벨의 마지막 가격일 < 검증 첫 날."""
-    fit_days, val_days = kit.inner_split(sorted({d for _, d in pool}), purge=D1_GAP)
+def split_pool(data: dict[str, MarketData], pool: list[tuple[str, date]], *,
+               share: float = kit.INNER_VAL_SHARE) -> tuple[list[tuple[str, date]], list[tuple[str, date]]]:
+    """(적합, 내부 검증) — `kit.inner_split`(마지막 `share` — v1 20% · v2 40%, 퍼지 = D1_GAP). 적합 라벨의 마지막 가격일 < 검증 첫 날."""
+    fit_days, val_days = kit.inner_split(sorted({d for _, d in pool}), share=share, purge=D1_GAP)
     if not val_days:
         return pool, []
     val_start = min(val_days)
@@ -829,6 +896,46 @@ def hard_score(variant: str, pred: pd.DataFrame, data: dict[str, MarketData], bo
     return float(tilt_book(pred, data, books, None, lam=hyper.lam)[0].get("ann", np.nan))
 
 
+def hard_daily(variant: str, pred: pd.DataFrame, data: dict[str, MarketData], books: dict[str, kit.MarketBook],
+               hyper: Hyper = HYPER) -> dict[str, pd.Series]:
+    """하드 규칙 포트의 **일수익**(시장별) — v2 조기 종료 지표의 재료. D1a = 이 파일의 규칙 장부(kit 규칙 포트와 일수익이 같다 —
+    테스트), D1b = 기울이기 장부. 둘 다 `hard_score` 가 연수익을 내는 바로 그 장부다."""
+    out: dict[str, pd.Series] = {}
+    for m, md in data.items():
+        part = pred[pred["market"] == m]
+        if part.empty:
+            continue
+        wide = selection_wide(part, books[m])
+        if variant == "D1a":
+            days = sorted(d for d in set(part["session"]) if d in md.sets)
+            target = rule_target(md, wide)
+        else:
+            days = sorted(d for d in set(part["session"]) if d in md.sets and md.sets[d].idx_code is not None)
+            target = tilt_target(md, wide, hyper.lam)
+        out[m] = run_book(md, days, target)[0]
+    return out
+
+
+def diff_t(head: dict[str, pd.Series], base: dict[str, pd.Series]) -> float:
+    """일수익 차이(머리 − h 0)의 t 값 — 시장별 차이를 한 줄로 이어 평균 / (표준편차 / √n). 차이가 없으면 0.
+
+    척도가 없다: 창 길이·변동성이 달라도 "잡음이면 ~N(0,1)" 이다. 그래서 실자료로 얼린 여백을 합성 카나리에 걸 수 있다
+    (v1 의 연수익 차이는 실자료 잡음 폭이 합성의 4배라 그 여백이 합성 신호를 통째로 막았다). 보유가 10세션 이어져도 일수익 차이는
+    그 날의 수익이라 계열상관이 작다 — 평범한 t 를 쓴다(기록: 등록 문서)."""
+    parts = []
+    for m, h in head.items():
+        b = base.get(m)
+        if b is None:
+            continue
+        both = pd.concat([h, b], axis=1, join="inner").dropna()
+        parts.append((both.iloc[:, 0] - both.iloc[:, 1]).to_numpy(np.float64))
+    d = np.concatenate(parts) if parts else np.zeros(0)
+    if len(d) < 2:
+        return 0.0
+    sd = float(d.std(ddof=1))
+    return float(d.mean() / (sd / np.sqrt(len(d)))) if sd > 1e-12 else 0.0
+
+
 # ── 학습 ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -892,14 +999,17 @@ def calibrate(variant: str, inp: Inputs, data: dict[str, MarketData], fit: list[
 def train_head(variant: str, inp: Inputs, data: dict[str, MarketData], books: dict[str, kit.MarketBook],
                fit: list[tuple[str, date]], val: list[tuple[str, date]], seed: int, calib: Calib, *,
                aug: Aug | None = None, hyper: Hyper = HYPER, log: TrainLog | None = None,
-               margin: float = 0.0, val_data: dict[str, MarketData] | None = None) -> tuple[nn.Module, TrainLog]:
+               margin: float = 0.0, val_data: dict[str, MarketData] | None = None,
+               accept: Accept = ACCEPT_V1) -> tuple[nn.Module, TrainLog]:
     """잔차 머리 학습. 에포크 0 = h 0 = 백본. 조기 종료 지표 = **하드 규칙 포트**의 내부 검증 연수익(높을수록 좋다, 부호 뒤집어 기록).
+    ``accept.metric == "t"``(v2)면 지표는 같은 장부의 **일수익 차이(이 에포크 − h 0)의 t 값**이다(에포크 0 = 0).
 
     **채택 여백** — 최고 에포크의 내부 검증 이득이 `margin`(라벨을 섞은 학습에서 관측된 이득의 최댓값, 시드별로 얼린 값)을
     **넘을 때만** 머리를 쓴다. 못 넘으면 h = 0(백본 그대로)으로 되돌린다 — 조기 종료가 검증 창의 잡음을 줍는 것을 막는다.
     """
     log = log if log is not None else TrainLog(margin=margin)
     log.margin = margin
+    log.metric = accept.metric
     head = make_head(seed, inp.X.shape[1])
     torch.manual_seed(seed)
     opt = torch.optim.AdamW(head.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
@@ -909,11 +1019,21 @@ def train_head(variant: str, inp: Inputs, data: dict[str, MarketData], books: di
     if not markets:
         raise ValueError("사슬을 만들 적합 결정이 없다 — 학습 끝점이 너무 이르다")
 
+    base_daily: dict[str, pd.Series] | None = None
+
     def validate() -> float:
+        nonlocal base_daily
         pred = predict(head, inp, data, val)
         log.val_days |= set(val)
         # 내부 검증 장부는 **실제 수익**으로 잰다(`val_data`) — 라벨 섞기에서 학습만 섞은 자료를 쓰고 검증은 진짜로 본다.
-        score = hard_score(variant, pred, val_data if val_data is not None else data, books, hyper)
+        book_data = val_data if val_data is not None else data
+        if accept.metric == "t":
+            daily = hard_daily(variant, pred, book_data, books, hyper)
+            if base_daily is None:            # 에포크 0 = h 0 — 비교의 기준
+                base_daily = daily
+            head.train()
+            return -diff_t(daily, base_daily)
+        score = hard_score(variant, pred, book_data, books, hyper)
         head.train()
         return -score if np.isfinite(score) else float("inf")
 
@@ -952,9 +1072,18 @@ def train_head(variant: str, inp: Inputs, data: dict[str, MarketData], books: di
                 log.stopped_early = epoch < hyper.max_epochs
                 break
     log.accepted = log.best_epoch > 0 and log.gain > margin
+    log.fit = list(fit)
+    log.best_state = best_state if log.best_epoch > 0 else None
     head.load_state_dict(best_state if log.accepted else zero_state)
     head.eval()
     return head, log
+
+
+def fmt_gain(value: float, accept: Accept = ACCEPT_V1, *, sign: bool = True) -> str:
+    """이득·여백 표기 — v1 은 연수익(%), v2 는 t 값."""
+    if accept.metric == "t":
+        return f"t {value:+.2f}" if sign else f"t {value:.2f}"
+    return f"{value:+.2%}" if sign else f"{value:.2%}"
 
 
 def judged_keys(data: dict[str, MarketData], axis: list[date], first: int, last: int) -> list[tuple[str, date]]:
@@ -977,7 +1106,8 @@ def walk(variant: str, inp: Inputs, data: dict[str, MarketData], books: dict[str
          axis: list[date], blocks: list[tuple[int, int]], seed: int, *, aug: Aug | None = None,
          hyper: Hyper = HYPER, store: object = None, clock: object = None, n_seeds: int = 0,
          insample: int = 100, margin: float = 0.0, val_data: dict[str, MarketData] | None = None,
-         gains_only: bool = False) -> WalkResult:
+         gains_only: bool = False, accept: Accept = ACCEPT_V1,
+         replay: Sequence[TrainLog] | None = None, decisions: Sequence[bool] | None = None) -> WalkResult:
     """확장창 워크포워드 — 블록 `first_block` 부터 채점, 5블록마다 재학습(학습 끝점 `d1_train_end`).
 
     온도·손실 척도는 **첫 재학습의 적합 결정**으로 정하고 이 시드 안에서 얼린다.
@@ -985,6 +1115,9 @@ def walk(variant: str, inp: Inputs, data: dict[str, MarketData], books: dict[str
 
     ``gains_only`` — 여백 굽기(실자료 라벨 섞기) 전용: 재학습만 하고 **판정 블록·학습창 예측을 하나도 내지 않는다**
     (판정 블록 수익을 볼 길 자체를 없앤다). 로그의 내부 검증 이득만 남는다.
+
+    ``replay`` + ``decisions`` — v2 합동 결정(`walk_pooled`)의 둘째 걸음: **다시 학습하지 않고** 첫 걸음이 남긴 머리(`TrainLog.best_state`)를
+    재학습마다 정해진 결정대로 얹어(False 면 h = 0) 판정 블록·학습창 예측만 낸다. 블록·재학습 경계는 이 함수 하나가 정한다.
     """
     began = mark = monotonic()  # invariant-allow: wallclock — 소요 시간 기록
     head: nn.Module | None = None
@@ -1000,11 +1133,22 @@ def walk(variant: str, inp: Inputs, data: dict[str, MarketData], books: dict[str
         if head is None or (number - hyper.first_block) % hyper.retrain_every == 0:
             cut = d1_train_end(axis, first)
             judged_first = kit.block_span(axis, first, last)[0]
-            fit, val = split_pool(data, training_pool(variant, data, inp, cut, judged_first))
-            if calib is None:
-                calib = calibrate(variant, inp, data, fit, hyper, seed)
-            head, log = train_head(variant, inp, data, books, fit, val, seed, calib, aug=aug, hyper=hyper,
-                                   margin=margin, val_data=val_data)
+            if replay is not None and decisions is not None:
+                log = copy.copy(replay[len(logs)])
+                fit, val = log.fit, sorted(log.val_days)
+                log.margin, log.accepted = margin, bool(decisions[len(logs)]) and log.best_state is not None
+                head = make_head(seed, inp.X.shape[1])
+                if log.accepted:
+                    assert log.best_state is not None
+                    head.load_state_dict(log.best_state)
+                head.eval()
+            else:
+                fit, val = split_pool(data, training_pool(variant, data, inp, cut, judged_first),
+                                      share=accept.val_share)
+                if calib is None:
+                    calib = calibrate(variant, inp, data, fit, hyper, seed)
+                head, log = train_head(variant, inp, data, books, fit, val, seed, calib, aug=aug, hyper=hyper,
+                                       margin=margin, val_data=val_data, accept=accept)
             logs.append(log)
             cuts.append(cut)
             if not gains_only:
@@ -1015,7 +1159,7 @@ def walk(variant: str, inp: Inputs, data: dict[str, MarketData], books: dict[str
             prev_cut = cut
             print(f"  {variant} seed {seed} · 재학습 {len(logs)} · 적합 {len(fit)} / 검증 {len(val)} 결정 (~{cut}) · "
                   f"에포크 {log.epochs}{' (조기종료)' if log.stopped_early else ''} · "
-                  f"검증 이득 {log.gain:+.2%} (여백 {margin:.2%}) → {'머리 채택' if log.accepted else '백본 그대로'} · "
+                  f"검증 이득 {fmt_gain(log.gain, accept)} (여백 {fmt_gain(margin, accept, sign=False)}) → {'머리 채택' if log.accepted else '백본 그대로'} · "
                   f"누적 {(monotonic() - began) / 60:.1f}분", flush=True)  # invariant-allow: wallclock
         assert head is not None
         if gains_only:
@@ -1037,6 +1181,48 @@ def walk(variant: str, inp: Inputs, data: dict[str, MarketData], books: dict[str
                       pd.concat(train_out, ignore_index=True).drop_duplicates(["entity_id", "session", "market"],
                                                                              keep="last") if train_out else empty,
                       logs, cuts, (monotonic() - began) / 60, calib)  # invariant-allow: wallclock
+
+
+def pooled_means(gains: Sequence[float], n_seeds: int) -> list[float]:
+    """시드 순서로 이어 붙인 이득(시드 0 의 재학습 1..R, 시드 1 의 …) → 재학습별 시드 평균 R 개."""
+    g = np.asarray(gains, dtype=float)
+    if n_seeds <= 0 or len(g) == 0 or len(g) % n_seeds:
+        raise ValueError(f"이득 {len(g)}개를 시드 {n_seeds}개로 나눌 수 없다")
+    return [float(v) for v in g.reshape(n_seeds, -1).mean(axis=0)]
+
+
+def walk_pooled(variant: str, inputs: dict[int, Inputs], data: dict[str, MarketData],
+                books: dict[str, kit.MarketBook], axis: list[date], blocks: list[tuple[int, int]], *,
+                margin: float, accept: Accept, aug: Aug | None = None, hyper: Hyper = HYPER,
+                val_data: dict[str, MarketData] | None = None, store: object = None, clock: object = None,
+                trained: dict[int, WalkResult] | None = None,
+                data_by_seed: dict[int, dict[str, MarketData]] | None = None) -> dict[int, WalkResult]:
+    """v2 합동 결정 — ① 시드마다 학습(판정 예측 없음, `gains_only`) ② 재학습마다 **시드 평균 이득 > 여백** 이면 그 재학습의 머리를 시드
+    전부 채택 ③ 결정대로 머리를 얹어 예측(다시 학습하지 않는다). ``trained`` = ①을 이미 끝낸 시드(이어 쓰기).
+    ``data_by_seed`` — 시드마다 다른 학습 자료(라벨 섞기 점검: 시드마다 다른 섞기, v1 과 같다)."""
+    seeds = sorted(inputs)
+    first: dict[int, WalkResult] = dict(trained or {})
+    for s in seeds:
+        if s not in first:
+            first[s] = walk(variant, inputs[s], (data_by_seed or {}).get(s, data), books, axis, blocks, s, aug=aug, hyper=hyper, margin=float("inf"),
+                            val_data=val_data, gains_only=True, accept=accept)
+    n = {len(first[s].logs) for s in seeds}
+    if len(n) != 1:
+        raise ValueError(f"시드마다 재학습 수가 다르다 {n} — 합동 결정을 할 수 없다")
+    means = pooled_means([lg.gain for s in seeds for lg in first[s].logs], len(seeds))
+    decisions = [m > margin for m in means]
+    print(f"  {variant} 합동 결정(재학습마다 시드 {len(seeds)}개 평균 > 여백 {fmt_gain(margin, accept, sign=False)}): "
+          + " · ".join(f"{j + 1}:{fmt_gain(m, accept)}{'✓' if d else '·'}" for j, (m, d) in enumerate(zip(means, decisions,
+                                                                                                      strict=True))),
+          flush=True)
+    out = {}
+    for s in seeds:
+        res = walk(variant, inputs[s], (data_by_seed or {}).get(s, data), books, axis, blocks, s, aug=aug, hyper=hyper,
+                   margin=margin,
+                   val_data=val_data, accept=accept, store=store, clock=clock, n_seeds=len(seeds),
+                   replay=first[s].logs, decisions=decisions)
+        out[s] = replace(res, calib=first[s].calib, minutes=first[s].minutes + res.minutes)
+    return out
 
 
 # ── 판정 ──────────────────────────────────────────────────────────────────────────────
@@ -1188,7 +1374,7 @@ def judge_variant(variant: str, preds: dict[int, WalkResult], data: dict[str, Ma
         f" · ℓ_port {np.mean([c.l_port for c in calibs]) if calibs else float('nan'):.4f}",
         f"기록: 재학습 {len(logs)}회 · 머리 채택 {sum(lg.accepted for lg in logs)}/{len(logs)} "
         f"(조기 종료가 고른 개선 {sum(lg.dfl_improved for lg in logs)} · 여백 "
-        f"{', '.join(sorted({f'{lg.margin:.2%}' for lg in logs}))}) · "
+        f"{', '.join(sorted({fmt_gain(lg.margin, Accept(metric=lg.metric), sign=False) for lg in logs}))}) · "
         f"조기 종료 {sum(lg.stopped_early for lg in logs)} · 학습 {sum(p.minutes for p in preds.values()):.0f}분 · "
         f"최대 RSS {kit.rss_mb():.0f}MB",
         f"판정: {verdict}",
@@ -1327,12 +1513,13 @@ def feature_include(features: str, backbone: str) -> tuple[str, ...]:
     return (*kit.BLOCK_ORDER, *FA_PLUS_EXTRA)
 
 
-def _cache_path(backbone: str, variant: str, seed: int, kind: str) -> Path:
-    return SEED_CACHE / f"{backbone}-{variant}-seed{seed}-{kind}.parquet"  # invariant-allow: data-access — 작업 파일
+def _cache_path(backbone: str, variant: str, seed: int, kind: str, tag: str = "") -> Path:
+    """시드 캐시. ``tag`` = 등록 벌의 꼬리표(v1 "" — 기존 이름 그대로 · v2 "v2-") — 두 등록의 예측이 섞이지 않는다."""
+    return SEED_CACHE / f"{tag}{backbone}-{variant}-seed{seed}-{kind}.parquet"  # invariant-allow: data-access — 작업 파일
 
 
-def _load_seed(backbone: str, variant: str, seed: int) -> WalkResult | None:
-    paths = [_cache_path(backbone, variant, seed, k) for k in ("judge", "train")]
+def _load_seed(backbone: str, variant: str, seed: int, tag: str = "") -> WalkResult | None:
+    paths = [_cache_path(backbone, variant, seed, k, tag) for k in ("judge", "train")]
     if not all(p.exists() for p in paths):
         return None
     frames = []
@@ -1343,23 +1530,60 @@ def _load_seed(backbone: str, variant: str, seed: int) -> WalkResult | None:
     return WalkResult(frames[0], frames[1], [], [], 0.0)
 
 
-def _save_seed(backbone: str, variant: str, seed: int, res: WalkResult) -> None:
+def _save_seed(backbone: str, variant: str, seed: int, res: WalkResult, tag: str = "") -> None:
     SEED_CACHE.mkdir(parents=True, exist_ok=True)
-    res.judge.to_parquet(_cache_path(backbone, variant, seed, "judge"), index=False)  # invariant-allow: data-access — 작업 파일
-    res.train.to_parquet(_cache_path(backbone, variant, seed, "train"), index=False)  # invariant-allow: data-access — 작업 파일
+    res.judge.to_parquet(_cache_path(backbone, variant, seed, "judge", tag), index=False)  # invariant-allow: data-access — 작업 파일
+    res.train.to_parquet(_cache_path(backbone, variant, seed, "train", tag), index=False)  # invariant-allow: data-access — 작업 파일
+
+
+def _heads_path(backbone: str, variant: str, seed: int, tag: str) -> Path:
+    return SEED_CACHE / f"{tag}{backbone}-{variant}-seed{seed}-heads.pkl"  # invariant-allow: data-access — 작업 파일
+
+
+def _judge_pooled(variant: str, prep: Prepared, controls: dict[str, dict[int, pd.DataFrame]],
+                  books: dict[str, kit.MarketBook], seeds: Sequence[int], backbone: str, track: Track, margin: float, *,
+                  store: object = None, clock: object = None) -> dict[int, WalkResult]:
+    """v2 합동 결정의 판정 경로 — 시드마다 첫 걸음(학습)을 조각으로 남기고(`-heads.pkl`, 내려가도 잇는다), 모두 끝나면 결정·예측."""
+    import pickle
+
+    done = {s: _load_seed(backbone, variant, s, track.cache_tag) for s in seeds}
+    if all(v is not None for v in done.values()):
+        print(f"  {variant} 시드 {len(seeds)}개 캐시 사용 — 다시 학습하지 않는다", flush=True)
+        return {s: v for s, v in done.items() if v is not None}
+    inputs = {s: with_backbone(prep, controls[backbone][s]) for s in seeds}
+    trained: dict[int, WalkResult] = {}
+    for s in seeds:
+        path = _heads_path(backbone, variant, s, track.cache_tag)
+        if path.exists():
+            trained[s] = pickle.loads(path.read_bytes())  # 이 도구가 쓴 작업 파일
+            print(f"  {variant} seed {s} · 학습 조각 캐시 사용", flush=True)
+            continue
+        trained[s] = walk(variant, inputs[s], prep.data, books, prep.axis, prep.blocks, s, aug=prep.aug,
+                          margin=float("inf"), gains_only=True, accept=track.accept)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(pickle.dumps(trained[s]))
+    preds = walk_pooled(variant, inputs, prep.data, books, prep.axis, prep.blocks, margin=margin, accept=track.accept,
+                        aug=prep.aug, store=store, clock=clock, trained=trained)
+    for s, res in preds.items():
+        _save_seed(backbone, variant, s, res, track.cache_tag)
+    return preds
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
-    """본 학습 + 판정. 관문: 등록(거부) → 피처 세트(rc 3) → 굽기(rc 4) → 대조군·백본(rc 3) → 창(rc 5) → 지수 구성(D1b, rc 6)."""
-    hashed = require_registered(args, "판정")
+    """본 학습 + 판정. 관문: 등록(거부) → 피처 세트(rc 3) → 굽기(rc 4) → 대조군·백본(rc 3) → 창(rc 5) → 지수 구성(D1b, rc 6).
+
+    ``--track v2`` 는 v2 등록(문서·여백 파일·채택 규칙·캐시 꼬리표·기록 이름)으로 같은 경로를 돈다. 기본 v1 은 해시 고정 판 그대로다."""
+    track = TRACKS[getattr(args, "track", "v1")]
+    hashed = require_registered(args, "판정", track.protocol)
     from quant_rl_trading.replay.clock import LiveClock
     from quant_rl_trading.store import Store
 
     variants = VARIANTS if args.variant == "both" else (args.variant,)
     seeds = tuple(SEEDS[: args.seeds])
     include = feature_include(args.features, args.backbone)
-    margins = load_margins(variants, protocol_hash=hashed, backbone=args.backbone, seeds=seeds)   # 실자료 shuffle 이 얼린 여백 — 없으면 rc 7
-    print(f"=== 시행 D1 — {PROTOCOL} (해시 {hashed}) · 변형 {','.join(variants)} · 백본 {args.backbone}·{args.features} "
+    margins = load_margins(variants, track.margin_path, protocol_hash=hashed, backbone=args.backbone, seeds=seeds,
+                           accept=_accept_check(track))   # 실자료 shuffle 이 얼린 여백 — 없으면 rc 7
+    print(f"=== 시행 D1{'' if track.name == 'v1' else ' ' + track.name} — {track.protocol} (해시 {hashed}) · 변형 {','.join(variants)} · 백본 {args.backbone}·{args.features} "
           f"· 시드 {len(seeds)} ===", flush=True)
     store = Store(root=Path(args.root))
     panel, feats, groups, sessions = kit.load_full_panel(("KR", "US"), root=args.root, store=store, include=include)
@@ -1384,22 +1608,28 @@ def cmd_judge(args: argparse.Namespace) -> int:
     verdicts = []
     for variant in variants:
         preds: dict[int, WalkResult] = {}
+        if track.accept.pool:
+            preds = _judge_pooled(variant, prep, controls, books, seeds, args.backbone, track, margins[variant],
+                                  store=progress, clock=clock)
         for seed in seeds:
-            done = _load_seed(args.backbone, variant, seed)
+            if track.accept.pool:
+                break
+            done = _load_seed(args.backbone, variant, seed, track.cache_tag)
             if done is not None:
                 preds[seed] = done
                 print(f"  {variant} seed {seed} · 캐시 사용 — 다시 학습하지 않는다", flush=True)
                 continue
             inp = with_backbone(prep, controls[args.backbone][seed])
             preds[seed] = walk(variant, inp, prep.data, books, prep.axis, prep.blocks, seed, aug=prep.aug,
-                               store=progress, clock=clock, n_seeds=len(seeds), margin=margins[variant])
-            _save_seed(args.backbone, variant, seed, preds[seed])
+                               store=progress, clock=clock, n_seeds=len(seeds), margin=margins[variant],
+                               accept=track.accept)
+            _save_seed(args.backbone, variant, seed, preds[seed], track.cache_tag)
         verdicts.append(judge_variant(variant, preds, prep.data, controls, books, prep.y, prep.inp.X,
                                       prep.index_of, since, backbone=args.backbone))
         print("\n" + "\n".join(verdicts[-1].lines), flush=True)
     if args.save:
         for v in verdicts:
-            rkit.record(store, entity=f"decision-focused-2026-10:{v.variant}-{args.backbone}", source="trial_final_dfl",
+            rkit.record(store, entity=f"{track.entity}:{v.variant}-{args.backbone}", source="trial_final_dfl",
                         family="selection", digest=hashed, verdict=v.verdict, lines=v.lines[-6:],
                         market="KR,US", run_tag=f"{v.variant}-{args.backbone}")
         print(f"research_trials 기록: selection/{','.join(v.variant for v in verdicts)} · protocol {hashed}")
@@ -1438,7 +1668,7 @@ class Synthetic:
 
 
 def synthetic(seed: int = 0, n_sessions: int = 300, n_entities: int = 90, *, alpha: float = 0.004,
-              planted: float = 0.0, box_share: float = 0.7) -> Synthetic:
+              planted: float = 0.0, box_share: float = 0.7, noise: float = 0.02) -> Synthetic:
     """작은 합성 두 시장. 배선·계약·자기 점검용 — 수치는 뜻이 없다.
 
     - 국장·미장 달력이 어긋난다(국장 휴장일에 미장만 열린 날). 창은 BOX_END 를 `box_share` 지점에 걸쳐 두 국면이 다 있다.
@@ -1474,7 +1704,7 @@ def synthetic(seed: int = 0, n_sessions: int = 300, n_entities: int = 90, *, alp
         # 심은 신호: 상위 8% 에선 +, 나머지에선 −(0.08/0.92 배) — 전 종목 공분산이 정확히 0 이 되게 상쇄한다(IC ~0).
         share = float(top.mean())
         plant = planted * xt * np.where(top, 1.0, -share / (1.0 - share))
-        R = beta[None, :] * mkt[:, None] + alpha * x0 + plant + rng.normal(0, 0.02, (T, n))
+        R = beta[None, :] * mkt[:, None] + alpha * x0 + plant + rng.normal(0, noise, (T, n))
         ret = pd.DataFrame(R, index=days, columns=ents)
         X = rng.normal(size=(T, n, len(feats)))
         X[:, :, 0] = x0
@@ -1537,23 +1767,36 @@ CHECK_HYPER = replace(HYPER, first_block=6)
 
 
 def self_check(kind: str, seeds: Sequence[int], *, hyper: Hyper = CHECK_HYPER, n_sessions: int = 420,
-               n_entities: int = 150, margin: float = 0.0) -> tuple[bool, list[str], list[float]]:
+               n_entities: int = 150, margin: float = 0.0, accept: Accept = ACCEPT_V1,
+               shuffle_margin: bool = False, data_seed: int = 7,
+               noise: float = 0.02) -> tuple[bool, list[str], list[float]]:
     """합성 자료 자기 점검 — ``canary``(심은 신호를 찾나) · ``shuffle``(섞은 라벨로는 못 이기나). D1a 만(선정 층의 점검).
 
     ``canary`` 는 **실자료 라벨 섞기로 얼린 채택 여백**을 건 채로 돈다 — 여백이 진짜 신호까지 막으면 카나리가 떨어진다.
     ``shuffle``(합성)은 누설 점검용이고 여백 0 으로 돈다(여백을 얼리는 것은 실자료 `bake_margin` 의 일이다).
     반환: (통과, 줄들, 재학습마다의 내부 검증 이득).
+
+    v2(``accept`` = `ACCEPT_V2`, ``shuffle_margin=True``)는 합성 라벨 섞기에도 **같은 여백을 건다** — 거짓 채택 억제 점검이다.
+    ``data_seed``·``noise`` 는 합성 자료의 뽑기·종목 잡음(v1 = 7 · 0.02). 여백을 다른 뽑기에서 굽는 합성 비교(등록 v2 §후보표)에만 바꾼다.
     """
-    syn = synthetic(7, n_sessions=n_sessions, n_entities=n_entities, planted=0.012)
+    syn = synthetic(data_seed, n_sessions=n_sessions, n_entities=n_entities, planted=0.012, noise=noise)
     prep = prepare(syn.panel, syn.feats, syn.groups, syn.sessions, syn.books, syn.index_raw)
     controls = synthetic_controls(syn, prep, seeds)
     since = d1_since(prep, hyper)
     preds = {}
+    used = margin if (kind != "shuffle" or shuffle_margin) else 0.0
+    if accept.pool:
+        per_seed = {s: shuffled(prep.data, 1000 + s) for s in seeds} if kind == "shuffle" else None
+        preds = walk_pooled("D1a", {s: with_backbone(prep, controls["C1"][s]) for s in seeds}, prep.data, syn.books,
+                            prep.axis, prep.blocks, margin=used, accept=accept, aug=prep.aug, hyper=hyper,
+                            val_data=prep.data, data_by_seed=per_seed)
     for s in seeds:
+        if accept.pool:
+            break
         inp = with_backbone(prep, controls["C1"][s])
         train_data = shuffled(prep.data, 1000 + s) if kind == "shuffle" else prep.data
         preds[s] = walk("D1a", inp, train_data, syn.books, prep.axis, prep.blocks, s, aug=prep.aug, hyper=hyper,
-                        margin=0.0 if kind == "shuffle" else margin, val_data=prep.data)
+                        margin=used, val_data=prep.data, accept=accept)
     v = judge_variant("D1a", preds, prep.data, controls, syn.books, prep.y, prep.inp.X, prep.index_of, since,
                       hyper=hyper)
     delta = float(np.mean(list(v.delta.values())))
@@ -1566,17 +1809,19 @@ def self_check(kind: str, seeds: Sequence[int], *, hyper: Hyper = CHECK_HYPER, n
     gains = [log.gain for p in preds.values() for log in p.logs]
     if kind == "canary":
         ok = delta >= CANARY_MIN
-        line = (f"카나리(심은 신호, 여백 {margin:.2%}): f_top 전 종목 IC {ic:+.3f} · D1 − C1 {delta:+.1%}p (≥ {CANARY_MIN:.0%}p) "
+        line = (f"카나리(심은 신호, 여백 {fmt_gain(margin, accept, sign=False)}): f_top 전 종목 IC {ic:+.3f} · D1 − C1 {delta:+.1%}p (≥ {CANARY_MIN:.0%}p) "
                 f"→ {'통과' if ok else '**불통과** — 배관이 포트 신호를 못 찾거나 여백이 막는다, 판정하지 않는다'}")
     else:
         ok = abs(delta) <= SHUFFLE_TOL
-        line = (f"라벨 섞기(합성): D1 − C1 {delta:+.1%}p (|·| ≤ {SHUFFLE_TOL:.0%}p) → "
-                f"{'통과' if ok else '**불통과** — 라벨이 아닌 길로 정보가 샌다'} · 이득 최댓값 {max([0.0, *gains]):.2%}")
+        line = (f"라벨 섞기(합성{', 여백 ' + fmt_gain(used, accept, sign=False) if shuffle_margin else ''}): "
+                f"D1 − C1 {delta:+.1%}p (|·| ≤ {SHUFFLE_TOL:.0%}p) → "
+                f"{'통과' if ok else '**불통과** — 라벨이 아닌 길로 정보가 샌다'} · "
+                f"이득 최댓값 {fmt_gain(max([0.0, *gains]), accept, sign=False)}")
     return ok, [*v.lines[-4:-1], line], gains
 
 
 def save_margins(margins: dict[str, float], gains: dict[str, list[float]], path: Path = MARGIN_PATH, *,
-                 protocol_hash: str, backbone: str, seeds: Sequence[int]) -> None:
+                 protocol_hash: str, backbone: str, seeds: Sequence[int], accept: Accept | None = None) -> None:
     """여백을 얼린다 — 변형마다 **하나**(시드 전체 · 재학습 전체 이득의 최댓값). 만든 조건(등록 해시·백본·시드)을 같이 적는다."""
     import json
 
@@ -1584,12 +1829,14 @@ def save_margins(margins: dict[str, float], gains: dict[str, list[float]], path:
     path.write_text(json.dumps({"margins": margins, "gains": gains, "protocol_hash": protocol_hash,
                                 "backbone": backbone, "seeds": list(seeds),
                                 "hyper": {k: getattr(HYPER, k) for k in HYPER.__dataclass_fields__},
+                                **({"accept": {k: getattr(accept, k) for k in accept.__dataclass_fields__}}
+                                   if accept is not None else {}),
                                 "source": "실자료 라벨 섞기 — 학습 창 안 내부 검증만(판정 블록 수익 안 봄)"},
                                ensure_ascii=False, indent=1))
 
 
 def load_margins(variants: Sequence[str], path: Path = MARGIN_PATH, *, protocol_hash: str,
-                 backbone: str, seeds: Sequence[int] = ()) -> dict[str, float]:
+                 backbone: str, seeds: Sequence[int] = (), accept: Accept | None = None) -> dict[str, float]:
     """얼린 여백 — 판정이 읽기만 한다. 없거나, 다른 등록 해시·다른 백본으로 만든 것이면 rc 7(러너가 `shuffle` 을 먼저 돌린다)."""
     import json
 
@@ -1598,6 +1845,8 @@ def load_margins(variants: Sequence[str], path: Path = MARGIN_PATH, *, protocol_
         raise SystemExit(CHECK_EXIT)
     got = json.loads(path.read_text())
     stale = [k for k, want in (("protocol_hash", protocol_hash), ("backbone", backbone)) if got.get(k) != want]
+    if accept is not None and got.get("accept") != {k: getattr(accept, k) for k in accept.__dataclass_fields__}:
+        stale.append("accept")            # v2: 다른 채택 규칙(지표·창·분위·합동)으로 구운 여백은 쓰지 않는다
     missing = [v for v in variants if v not in got.get("margins", {})]
     missing += [f"시드 {s}" for s in seeds if s not in set(got.get("seeds", []))]
     if stale or missing:
@@ -1608,7 +1857,8 @@ def load_margins(variants: Sequence[str], path: Path = MARGIN_PATH, *, protocol_
 
 def bake_margin(variant: str, prep: Prepared, controls: dict[str, dict[int, pd.DataFrame]],
                 books: dict[str, kit.MarketBook], seeds: Sequence[int], *, backbone: str = "C1",
-                hyper: Hyper = HYPER, parts: Path | None = None, tag: str = "") -> list[float]:
+                hyper: Hyper = HYPER, parts: Path | None = None, tag: str = "",
+                accept: Accept = ACCEPT_V1) -> list[float]:
     """실자료 라벨 섞기 — 학습 라벨(수익·y5)을 세션 안에서 섞어 **판정과 같은 재학습**을 돌리고, 내부 검증 이득만 모은다.
 
     내부 검증은 학습 창 안이고 **진짜 수익**으로 잰다(`val_data`) — 섞은 라벨로 배운 머리가 우연히 얻는 이득의 크기다.
@@ -1627,7 +1877,7 @@ def bake_margin(variant: str, prep: Prepared, controls: dict[str, dict[int, pd.D
             continue
         inp = with_backbone(prep, controls[backbone][seed])
         res = walk(variant, inp, shuffled(prep.data, 1000 + seed), books, prep.axis, prep.blocks, seed,
-                   aug=prep.aug, hyper=hyper, margin=0.0, val_data=prep.data, gains_only=True)
+                   aug=prep.aug, hyper=hyper, margin=0.0, val_data=prep.data, gains_only=True, accept=accept)
         got = [log.gain for log in res.logs]
         if part is not None:
             part.parent.mkdir(parents=True, exist_ok=True)
@@ -1636,13 +1886,28 @@ def bake_margin(variant: str, prep: Prepared, controls: dict[str, dict[int, pd.D
     return gains
 
 
+def _accept_check(track: Track) -> Accept | None:
+    """여백 파일의 채택 규칙 대조 — v1 여백 파일은 규칙 칸이 없다(해시 고정 판 그대로 읽는다)."""
+    return None if track.name == "v1" else track.accept
+
+
 def cmd_shuffle(args: argparse.Namespace) -> int:
-    """``--synthetic``: 합성 누설 점검(통과/불통과). 기본: **실자료로 채택 여백을 얼린다**(등록 뒤, 판정 블록 수익 안 봄)."""
+    """``--synthetic``: 합성 누설 점검(통과/불통과). 기본: **실자료로 채택 여백을 얼린다**(등록 뒤, 판정 블록 수익 안 봄).
+
+    v2 의 ``--synthetic`` 은 **실자료로 얼린 여백을 건 채로** 합성 라벨을 섞는다(거짓 채택 억제 점검 — 등록 뒤에만)."""
+    track = TRACKS[getattr(args, "track", "v1")]
     if args.synthetic:
-        ok, lines, _gains = self_check("shuffle", tuple(range(args.seeds)))
+        if track.name == "v1":
+            ok, lines, _gains = self_check("shuffle", tuple(range(args.seeds)))
+        else:
+            hashed = require_registered(args, "합성 라벨 섞기(얼린 여백을 건다)", track.protocol)
+            margin = load_margins(("D1a",), track.margin_path, protocol_hash=hashed, backbone=args.backbone,
+                                  accept=track.accept)["D1a"]
+            ok, lines, _gains = self_check("shuffle", tuple(range(args.seeds)), margin=margin, accept=track.accept,
+                                           shuffle_margin=True)
         print("\n".join(lines), flush=True)
         return 0 if ok else 1
-    hashed = require_registered(args, "여백 굽기(실자료 라벨 섞기)")
+    hashed = require_registered(args, "여백 굽기(실자료 라벨 섞기)", track.protocol)
     from quant_rl_trading.store import Store
 
     seeds = tuple(SEEDS[: args.seeds])
@@ -1658,19 +1923,27 @@ def cmd_shuffle(args: argparse.Namespace) -> int:
     margins, gains = {}, {}
     for variant in VARIANTS:
         gains[variant] = bake_margin(variant, prep, controls, books, seeds, backbone=args.backbone,
-                                     parts=SEED_CACHE / "margin-parts", tag=f"{hashed}-{args.backbone}")
-        margins[variant] = max([0.0, *gains[variant]])
-        print(f"{variant}: 섞은 라벨 이득 {len(gains[variant])}개 · 최댓값 = 채택 여백 {margins[variant]:.2%}", flush=True)
-    save_margins(margins, gains, protocol_hash=hashed, backbone=args.backbone, seeds=seeds)
-    print(f"채택 여백을 얼렸다 → {MARGIN_PATH} (해시 {hashed})", flush=True)
+                                     parts=SEED_CACHE / "margin-parts", tag=f"{track.cache_tag}{hashed}-{args.backbone}",
+                                     accept=track.accept)
+        null = pooled_means(gains[variant], len(seeds)) if track.accept.pool else gains[variant]
+        margins[variant] = margin_from(null, track.accept.margin_q)
+        what = ("최댓값" if track.accept.margin_q >= 1.0 else f"상위 {track.accept.margin_q:.0%} 분위") + \
+            (f"(재학습별 시드 평균 {len(null)}개)" if track.accept.pool else "")
+        print(f"{variant}: 섞은 라벨 이득 {len(gains[variant])}개 · {what} = 채택 여백 "
+              f"{fmt_gain(margins[variant], track.accept, sign=False)}", flush=True)
+    save_margins(margins, gains, track.margin_path, protocol_hash=hashed, backbone=args.backbone, seeds=seeds,
+                 accept=_accept_check(track))
+    print(f"채택 여백을 얼렸다 → {track.margin_path} (해시 {hashed})", flush=True)
     return 0
 
 
 def cmd_canary(args: argparse.Namespace) -> int:
     """합성 카나리 — 실자료로 얼린 D1a 여백을 건 채로(여백이 없으면 rc 7)."""
-    hashed = require_registered(args, "카나리(얼린 여백을 건다)")
-    margin = load_margins(("D1a",), protocol_hash=hashed, backbone=args.backbone)["D1a"]
-    ok, lines, _gains = self_check("canary", tuple(range(args.seeds)), margin=margin)
+    track = TRACKS[getattr(args, "track", "v1")]
+    hashed = require_registered(args, "카나리(얼린 여백을 건다)", track.protocol)
+    margin = load_margins(("D1a",), track.margin_path, protocol_hash=hashed, backbone=args.backbone,
+                          accept=_accept_check(track))["D1a"]
+    ok, lines, _gains = self_check("canary", tuple(range(args.seeds)), margin=margin, accept=track.accept)
     print("\n".join(lines), flush=True)
     return 0 if ok else 1
 
@@ -1705,6 +1978,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--seeds", type=int, default=len(SEEDS), help="판정 시드 전부")
         p.add_argument("--i-registered", action="store_true")
         p.add_argument("--backbone", choices=sorted(BACKBONES), default="C1")
+        p.add_argument("--track", choices=sorted(TRACKS), default="v1", help="등록 벌(v1 해시 고정 · v2 재설계)")
         if name == "shuffle":
             p.add_argument("--synthetic", action="store_true", help="합성 누설 점검만(여백을 얼리지 않는다)")
             p.add_argument("--features", choices=sorted(set(BACKBONES.values())), default="FA")
@@ -1719,6 +1993,7 @@ def build_parser() -> argparse.ArgumentParser:
     judge.add_argument("--seeds", type=int, default=len(SEEDS))
     judge.add_argument("--root", default="data")
     judge.add_argument("--save", action="store_true")
+    judge.add_argument("--track", choices=sorted(TRACKS), default="v1", help="등록 벌(v1 해시 고정 · v2 재설계)")
     judge.add_argument("--no-progress", action="store_true", help="trial_progress 기록을 끈다(기본은 적는다)")
     return parser
 

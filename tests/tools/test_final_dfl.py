@@ -538,10 +538,15 @@ def test_초안이면_판정을_거부한다(tmp_path: Path) -> None:
         require_registered(argparse.Namespace(i_registered=False), "판정", fixed)
 
 
-def test_실제_등록_문서는_지금_초안이다() -> None:
-    from tools.trial_final_dfl import PROTOCOL
+def test_v1_등록은_해시_고정_그대로이고_v2_등록은_지금_초안이다() -> None:
+    """v1 은 2026-09-29 15:47 해시 고정(24a52320cdcfc2c2) — rc 7 로 판정 전 멈췄고 **고치지 않는다**. v2 는 새 문서(초안)."""
+    import hashlib
 
-    assert any(line.startswith("> **초안") for line in PROTOCOL.read_text().splitlines()[:5])
+    from tools.trial_final_dfl import PROTOCOL, PROTOCOL_V2
+
+    assert hashlib.sha256(PROTOCOL.read_bytes()).hexdigest()[:16] == "24a52320cdcfc2c2", "v1 등록 문서가 바뀌었다"
+    assert not any(line.startswith("> **초안") for line in PROTOCOL.read_text().splitlines()[:5])
+    assert any(line.startswith("> **초안") for line in PROTOCOL_V2.read_text().splitlines()[:5])
 
 
 def test_관문_순서() -> None:
@@ -635,3 +640,251 @@ def test_고정값은_등록_문서의_값이고_명령행으로_못_바꾼다()
     doc = Path("docs/protocols/decision-focused-2026-10.md").read_text()
     for token in ("k = 24", "λ = 0.5", "α = 0.5", "η = 0.5", "간격 16", "유효 종목 수 27"):
         assert token in doc, f"등록 문서에 고정값 {token!r} 이 없다"
+
+
+# --------------------------------------------------------------------------- v2 (docs/protocols/decision-focused-v2-2026-10.md)
+
+V2_FIXTURE = Path(__file__).parent / "fixtures" / "dfl-v2-synthetic-candidates.json"
+
+
+def _choices() -> dict[str, argparse.ArgumentParser]:
+    from tools.trial_final_dfl import build_parser
+
+    choices = build_parser()._subparsers._group_actions[0].choices  # type: ignore[union-attr]
+    assert isinstance(choices, dict)
+    return choices
+
+
+def test_v1_경로는_그대로다() -> None:
+    """v1 은 해시 고정 판을 재현할 수 있어야 한다 — 기본값이 전부 v1 이고, v1 벌의 파일 이름·기록 이름이 그대로다."""
+    from tools.trial_final_dfl import (
+        ACCEPT_V1,
+        MARGIN_PATH,
+        PROTOCOL,
+        TRACKS,
+        Accept,
+        _cache_path,
+        bake_margin,
+        self_check,
+    )
+
+    assert Accept() == ACCEPT_V1 == Accept("ann", kit.INNER_VAL_SHARE, 1.0) and kit.INNER_VAL_SHARE == 0.20
+    v1 = TRACKS["v1"]
+    assert (v1.protocol, v1.margin_path, v1.accept, v1.cache_tag, v1.entity) == \
+        (PROTOCOL, MARGIN_PATH, ACCEPT_V1, "", "decision-focused-2026-10")
+    assert _cache_path("C1", "D1a", 0, "judge").name == "C1-D1a-seed0-judge.parquet", "v1 시드 캐시 이름이 바뀌면 이어 쓰기가 깨진다"
+    for fn in (train_head, walk, bake_margin, self_check):
+        assert inspect.signature(fn).parameters["accept"].default == ACCEPT_V1, fn.__name__
+    assert inspect.signature(split_pool).parameters["share"].default == 0.20
+    assert inspect.signature(self_check).parameters["shuffle_margin"].default is False, "v1 합성 섞기는 여백 0 으로 돈다"
+    for cmd in ("shuffle", "canary", "judge"):
+        track = next(a for a in _choices()[cmd]._actions if "--track" in a.option_strings)
+        assert track.default == "v1" and set(track.choices or ()) == {"v1", "v2"}
+
+
+def test_v1_여백_파일은_채택_규칙_칸_없이_읽힌다() -> None:
+    """해시 고정 v1 의 여백 파일(규칙 칸 없음)을 v1 벌은 그대로 읽는다 — v2 벌로 읽으면 rc 7."""
+    from tools.trial_final_dfl import ACCEPT_V2, CHECK_EXIT, load_margins
+
+    assert load_margins(("D1a",), FIXTURE, protocol_hash="synthetic", backbone="C1") == {"D1a": 0.10442957316851809}
+    with pytest.raises(SystemExit) as info:
+        load_margins(("D1a",), FIXTURE, protocol_hash="synthetic", backbone="C1", accept=ACCEPT_V2)
+    assert info.value.code == CHECK_EXIT
+
+
+def test_v2_여백은_분위_하나이고_채택_규칙과_같이_얼린다(tmp_path: Path) -> None:
+    from tools.trial_final_dfl import (
+        ACCEPT_V1,
+        ACCEPT_V2,
+        CHECK_EXIT,
+        Accept,
+        load_margins,
+        margin_from,
+        save_margins,
+    )
+
+    gains = [0.0] * 11 + [float(i) for i in range(1, 25)]            # 35개(실자료 여백 굽기와 같은 수 — 시드 5 × 재학습 7)
+    assert margin_from(gains, 1.0) == 24.0 == max(gains), "v1 = 최댓값"
+    q = margin_from(gains, 0.95)
+    assert q in gains and q == 23.0, "35개의 95% 분위(관측값, 보간 없음) = 두 번째로 큰 값"
+    assert margin_from([], 0.95) == 0.0 and margin_from([], 1.0) == 0.0
+    assert ACCEPT_V2 != ACCEPT_V1 and ACCEPT_V2.metric == "t"
+    path = tmp_path / "m.json"
+    save_margins({"D1a": q, "D1b": 1.0}, {"D1a": gains, "D1b": [1.0]}, path, protocol_hash="h", backbone="C1",
+                 seeds=(0,), accept=ACCEPT_V2)
+    assert load_margins(("D1a", "D1b"), path, protocol_hash="h", backbone="C1", seeds=(0,), accept=ACCEPT_V2) == \
+        {"D1a": q, "D1b": 1.0}
+    for other in (ACCEPT_V1, Accept(ACCEPT_V2.metric, ACCEPT_V2.val_share, 1.0)):
+        with pytest.raises(SystemExit) as info:
+            load_margins(("D1a",), path, protocol_hash="h", backbone="C1", accept=other)
+        assert info.value.code == CHECK_EXIT, "다른 채택 규칙으로 구운 여백은 쓰지 않는다"
+
+
+def test_t_값은_척도가_없다() -> None:
+    """v1 의 연수익 차이는 변동성·창 길이에 묶인다(실자료 섞기 최댓값 46% 대 합성 10%) — t 는 수익 척도를 바꿔도 같다."""
+    from tools.trial_final_dfl import diff_t
+
+    rng = np.random.default_rng(0)
+    days = [date(2024, 1, 1) + timedelta(days=i) for i in range(80)]
+    base = {m: pd.Series(rng.normal(0, 0.01, 80), index=days) for m in ("KR", "US")}
+    head = {m: s + rng.normal(0.001, 0.002, 80) for m, s in base.items()}
+    t = diff_t(head, base)
+    for c in (0.25, 4.0):
+        assert np.isclose(diff_t({m: s * c for m, s in head.items()}, {m: s * c for m, s in base.items()}), t)
+    d = np.concatenate([(head[m] - base[m]).to_numpy() for m in ("KR", "US")])
+    assert np.isclose(t, d.mean() / (d.std(ddof=1) / np.sqrt(len(d))))
+    assert diff_t(base, base) == 0.0 and diff_t({}, base) == 0.0
+
+
+def test_v2_검증_지표는_같은_규칙_장부의_일수익_차이_t_다(prep, inp, syn) -> None:  # type: ignore[no-untyped-def]
+    from tools.trial_final_dfl import ACCEPT_V2, Calib, diff_t, hard_daily
+
+    calib = Calib({"KR": 0.1, "US": 0.1}, 1.0, 0.01)
+    cut, judged_first = _block(prep)
+    fit, val = split_pool(prep.data, training_pool("D1a", prep.data, inp, cut, judged_first), share=0.40)
+    _fit1, val1 = _fit_val(prep, inp)
+    assert len(val) > len(val1) and max(d for _m, d in fit) < min(d for _m, d in val)
+    val_start = min(d for _m, d in val)
+    assert all((prep.data[m].label_end(d) or val_start) < val_start for m, d in fit), "적합 라벨은 검증 첫 날 전에 끝난다"
+    free, log0 = train_head("D1a", inp, prep.data, syn.books, fit, val, 0, calib, hyper=TINY, margin=0.0,
+                            accept=ACCEPT_V2)
+    assert log0.metric == "t" and log0.val_scores[0] == 0.0, "에포크 0 = h 0 이 기준(t = 0)"
+    assert log0.gain >= 0.0 and log0.accepted == (log0.best_epoch > 0 and log0.gain > 0.0)
+    held, log1 = train_head("D1a", inp, prep.data, syn.books, fit, val, 0, calib, hyper=TINY, margin=1e9,
+                            accept=ACCEPT_V2)
+    assert not log1.accepted and log1.val_scores == log0.val_scores, "여백은 학습을 바꾸지 않고 채택만 가른다"
+    day = next(d for m, d in val if m == "KR")
+    assert np.array_equal(predict(held, inp, prep.data, [("KR", day)])["pred"].to_numpy(),
+                          inp.bb[prep.data["KR"].sets[day].rows]), "여백 미달이면 h = 0"
+    # 이득 t 는 채택된 머리의 규칙 장부와 h 0 장부의 일수익 차이에서 다시 잰 값과 같다(D1a 장부 = kit 규칙 포트 — 위 테스트).
+    base = hard_daily("D1a", predict(make_head(0, inp.X.shape[1]), inp, prep.data, val), prep.data, syn.books)
+    again = diff_t(hard_daily("D1a", predict(free, inp, prep.data, val), prep.data, syn.books), base)
+    assert np.isclose(again, log0.gain if log0.accepted else 0.0)
+
+
+def test_합동_결정은_재학습별_시드_평균이다() -> None:
+    from tools.trial_final_dfl import pooled_means
+
+    assert pooled_means([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 3) == [3.0, 4.0], "시드 순서(시드 0 의 재학습 1..R, 시드 1 …)"
+    with pytest.raises(ValueError):
+        pooled_means([1.0, 2.0, 3.0], 2)
+
+
+def test_합동_결정의_되감기는_다시_학습하지_않고_같은_머리를_얹는다(prep, controls, syn, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """둘째 걸음(replay)은 첫 걸음의 머리를 그대로 쓴다 — 전부 채택이면 여백 −∞ 로 학습한 walk 와 예측이 같고, 전부 기각이면 백본."""
+    from tools import trial_final_dfl as dfl
+
+    blocks = prep.blocks[: TINY.first_block + 6]
+    acc = replace(dfl.ACCEPT_V2, pool=True)
+    inputs = {s: with_backbone(prep, controls["C1"][s]) for s in (0, 1)}
+    direct = {s: walk("D1a", inputs[s], prep.data, syn.books, prep.axis, blocks, s, aug=prep.aug, hyper=TINY,
+                      margin=float("-inf"), accept=acc) for s in (0, 1)}
+    calls: list[int] = []
+    real = dfl.train_head
+    def counted(*a, **kw):  # type: ignore[no-untyped-def]
+        calls.append(1)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(dfl, "train_head", counted)
+    pooled = dfl.walk_pooled("D1a", inputs, prep.data, syn.books, prep.axis, blocks, margin=float("-inf"),
+                             accept=acc, aug=prep.aug, hyper=TINY)
+    n_retrain = len(direct[0].logs)
+    assert len(calls) == 2 * n_retrain, "학습은 첫 걸음에서 시드 × 재학습 한 번씩뿐"
+    for s in (0, 1):
+        assert len(pooled[s].judge) and pooled[s].judge.equals(direct[s].judge)
+        assert [lg.accepted for lg in pooled[s].logs] == [lg.best_state is not None for lg in pooled[s].logs]
+    shut = dfl.walk_pooled("D1a", inputs, prep.data, syn.books, prep.axis, blocks, margin=float("inf"),
+                           accept=acc, aug=prep.aug, hyper=TINY)
+    bb = shut[0].judge.merge(controls["C1"][0].assign(session=lambda f: pd.to_datetime(f["session"]).dt.date),
+                             on=["entity_id", "session", "market"], suffixes=("", "_c1"))
+    assert len(bb) == len(shut[0].judge) and np.allclose(bb["pred"], bb["pred_c1"]), "전부 기각이면 h = 0 = 백본"
+    assert not any(lg.accepted for s in (0, 1) for lg in shut[s].logs)
+
+
+def test_v2_합성_섞기는_여백을_건다_v1_은_0(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from tools import trial_final_dfl as dfl
+
+    seen: list[float] = []
+    real = dfl.walk
+
+    def spy(*a, **kw):  # type: ignore[no-untyped-def]
+        seen.append(kw["margin"])
+        return real(*a, **kw)
+
+    monkeypatch.setattr(dfl, "walk", spy)
+    hyper = replace(TINY, first_block=6, max_epochs=1)
+    dfl.self_check("shuffle", (0,), hyper=hyper, n_sessions=420, n_entities=60, margin=0.7)
+    dfl.self_check("shuffle", (0,), hyper=hyper, n_sessions=420, n_entities=60, margin=0.7,
+                   accept=replace(dfl.ACCEPT_V2, pool=False), shuffle_margin=True)
+    assert seen == [0.0, 0.7]
+
+
+def test_v2_명령은_v2_등록_뒤에만_돌고_v2_파일을_쓴다() -> None:
+    from tools.trial_final_dfl import PROTOCOL_V2, SEED_CACHE, TRACKS, _cache_path, main
+
+    v2 = TRACKS["v2"]
+    assert v2.protocol == PROTOCOL_V2 and v2.margin_path == SEED_CACHE / "shuffle-margin-v2.json"
+    assert v2.entity == "decision-focused-v2-2026-10" and v2.cache_tag == "v2-"
+    assert _cache_path("C1", "D1a", 0, "judge", v2.cache_tag).name == "v2-C1-D1a-seed0-judge.parquet"
+    for cmd in (["shuffle", "--track", "v2"], ["canary", "--track", "v2"], ["judge", "--track", "v2"],
+                ["shuffle", "--synthetic", "--track", "v2"],
+                ["shuffle", "--track", "v2", "--i-registered"], ["judge", "--track", "v2", "--i-registered"]):
+        with pytest.raises(SystemExit) as info:
+            main(cmd)
+        assert info.value.code != 0, f"{cmd} 은 v2 등록(해시 고정) 전에 돌면 안 된다"
+
+
+def test_v2_러너는_네_단계를_v2_벌로_돈다() -> None:
+    text = Path("scripts/final_round_D1v2.sh").read_text()
+    body = text[text.index("set -u"):]
+    steps = ["shuffle --track v2 --i-registered", "canary --track v2 --i-registered",
+             "shuffle --synthetic --track v2 --i-registered", "judge --track v2 --i-registered --variant both --save"]
+    where = [body.index(s) for s in steps]
+    assert where == sorted(where), "여백 굽기 → canary → 합성 섞기 → 판정"
+    assert "decision-focused-v2-2026-10.md" in body and "shuffle-margin-v2.json" in body
+    assert "trial-final-dfl-D1v2.log" in body and "trial-final-dfl-D1.log" not in body, "v1 로그의 판정 줄을 세면 안 된다"
+    assert "--track" not in Path("scripts/final_round_D1.sh").read_text(), "v1 러너는 그대로"
+
+
+def test_v2_등록_문서는_고른_규칙과_v1_기준을_적는다() -> None:
+    from tools.trial_final_dfl import ACCEPT_V2, PROTOCOL_V2
+
+    doc = PROTOCOL_V2.read_text()
+    assert ACCEPT_V2.pool and ACCEPT_V2.metric == "t", "v2 = t 값 · 재학습별 시드 합동 결정"
+    for token in ("24a52320cdcfc2c2", "rc 7", "t 값", "재학습마다 시드 5개", "평균",
+                  "k = 24", "λ = 0.5", "α = 0.5", "η = 0.5", "간격 16", "유효 종목 수 27",
+                  "① 시드 평균 연수익 ≥ 대조0 + 2%p", "⑦ 지수 대비 IR ≥ 0.30", "family `selection`", "금고"):
+        assert token in doc, f"v2 등록 문서에 {token!r} 이 없다"
+
+
+def test_v2_합성_후보표에서_고른_규칙이_둘_다_통과한다() -> None:
+    """합성 비교(등록 v2 §후보표) 기록 — 고른 규칙은 canary ≥ 1%p **그리고** 합성 섞기 |·| ≤ 2%p. v1 은 실자료 여백으로 canary 불통과."""
+    import json
+
+    from tools.trial_final_dfl import ACCEPT_V2, CANARY_MIN, SHUFFLE_TOL
+
+    fx = json.loads(V2_FIXTURE.read_text())
+    chosen = fx["candidates"][fx["chosen"]]
+    assert (chosen["metric"], chosen["val_share"], chosen["margin_q"], chosen["pool"]) == \
+        (ACCEPT_V2.metric, ACCEPT_V2.val_share, ACCEPT_V2.margin_q, ACCEPT_V2.pool)
+    for name in ("v1_synthetic_margin", "t_per_head"):
+        assert fx["candidates"][name]["canary"] < CANARY_MIN, f"{name} — 머리마다 결정은 합성 여백으로도 canary 를 막았다"
+    assert chosen["canary"] >= CANARY_MIN and abs(chosen["shuffle"]) <= SHUFFLE_TOL
+    assert fx["v1_real"]["canary"] < CANARY_MIN, "v1(실자료 여백 46.1%)은 canary 를 막았다 — 9/29 기록"
+
+
+@pytest.mark.slow
+def test_v2_합성_canary_와_섞기를_등록_값으로_통과한다(request) -> None:  # type: ignore[no-untyped-def]
+    """등록 값 그대로(시드 5) — 합성 여백(픽스처)을 건 canary ≥ 1%p · 섞기 |·| ≤ 2%p. 수 분 걸린다: `-m slow`."""
+    import json
+
+    from tools.trial_final_dfl import ACCEPT_V2, self_check
+
+    if "slow" not in str(request.config.getoption("-m") or ""):
+        pytest.skip("느린 시험 — `-m slow` 로 따로 돌린다")
+    fx = json.loads(V2_FIXTURE.read_text())
+    margin = fx["candidates"][fx["chosen"]]["margin"]
+    ok_c, lines_c, _g = self_check("canary", (0, 1, 2, 3, 4), margin=margin, accept=ACCEPT_V2)
+    ok_s, lines_s, _g = self_check("shuffle", (0, 1, 2, 3, 4), margin=margin, accept=ACCEPT_V2, shuffle_margin=True)
+    assert ok_c, lines_c[-1]
+    assert ok_s, lines_s[-1]

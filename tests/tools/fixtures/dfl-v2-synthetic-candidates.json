@@ -1,0 +1,27 @@
+{
+ "source": "D1 v2 후보 합성 비교(2026-09-29). 등록 값 그대로(CHECK_HYPER, 시드 5, 420세션 × 150종목). 여백은 합성 data_seed 11 의 라벨 섞기(여백 0)에서 굽고 canary·섞기는 data_seed 7. ann 여백 'real' 은 9/29 실자료 섞기(shuffle-margin.json) 값. 이득은 시드 순서(시드 0 의 재학습 1·2, 시드 1 …). 테스트 픽스처 — 실행 여백은 실자료가 다시 얼린다.",
+ "bake": {
+  "ann": {"gains": [0.017, 0.069, 0.0, 0.0, 0.042, 0.017, 0.0, 0.0, 0.236, 0.11], "shuffle_margin0": -0.017},
+  "t": {"gains": [0.445, 1.45, 0.0, 0.0, 0.491, 0.261, 0.0, 0.0, 2.766, 2.295], "shuffle_margin0": -0.017}
+ },
+ "real_v1": {
+  "D1a_max": 0.4611, "D1a_q95_of_35": 0.2794, "D1a_pooled_means": [0.144, 0.108, 0.079, 0.098, 0.059, 0.09, 0.021],
+  "D1b_max": 0.1547, "D1b_pooled_means": [0.017, 0.022, 0.051, 0.011, 0.014, 0.017, 0.053]
+ },
+ "v1_real": {"margin": 0.4611, "canary": 0.0, "accepted": "0/10", "note": "9/29 실행 — rc 7"},
+ "chosen": "t_pooled",
+ "candidates": {
+  "v1_synthetic_margin": {"metric": "ann", "val_share": 0.2, "margin_q": 1.0, "pool": false, "margin": 0.2359,
+                          "canary": 0.001, "shuffle": null,
+                          "canary_gains": [0.133, 0.19, 0.0, 0.144, 0.241, 0.143, 0.286, 0.0, 0.186, 0.277]},
+  "t_per_head": {"metric": "t", "val_share": 0.2, "margin_q": 1.0, "pool": false, "margin": 2.766,
+                 "canary": -0.007, "shuffle": null,
+                 "canary_gains": [1.211, 2.021, 0.0, 1.859, 1.876, 1.822, 2.566, 0.0, 0.839, 3.037]},
+  "ann_pooled_real_margin": {"metric": "ann", "val_share": 0.2, "margin_q": 1.0, "pool": true, "margin": 0.1436,
+                             "canary": 0.047, "shuffle": 0.0, "canary_means": [0.1695, 0.1508],
+                             "shuffle_means": [0.0001, 0.0427]},
+  "t_pooled": {"metric": "t", "val_share": 0.2, "margin_q": 1.0, "pool": true, "margin": 0.8012,
+               "canary": 0.024, "shuffle": 0.0, "canary_means": [1.298, 1.748], "shuffle_means": [0.0, 0.645],
+               "shuffle_gains": [0.0, 0.63, 0.0, 0.252, 0.0, 0.668, 0.0, 0.0, 0.005, 1.695]}
+ }
+}
