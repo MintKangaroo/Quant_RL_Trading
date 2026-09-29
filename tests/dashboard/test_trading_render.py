@@ -482,3 +482,75 @@ def test_당일_전송이_없으면_체결율은_0이_아니라_대시다(tmp_pa
     assert '<div class="kpi-value">—' in cell
     assert "0.0%" not in cell and "오늘 전송 없음" in cell
     assert "설정 없음" in cell
+
+
+# -- AI 결정 = 왜 샀나 / 왜 안 샀나 (2026-09-29) ------------------------------------
+
+WHY_HELD = {
+    "session": {"run_id": "session-KR-2026-09-28", "as_of": "2026-09-28T16:00:00+09:00"},
+    "score": {"ranker_score": 0.634, "composite": 0.634, "rank_all": 148, "n_all": 2799,
+              "rank_tradable": 43, "n_tradable": 888, "smoothing_span": 5},
+    "filters": {"known": True, "gate_reason": None, "risk_status": "pass", "risk_score": 0.457,
+                "risk_threshold": -0.197, "risk_percentile": 0.2,
+                "counts": {"universe": 949, "healthy": 888, "scored": 888, "risk_floor": 710, "after_verdicts": 710}},
+    "rule": {"recorded": True, "verdict": "buffer_keep", "buffer_slots": 9, "selected": True, "held": True,
+             "rank": 43, "n_passed": 710, "n_candidates": 24, "exit_rank": 72, "n_selected": 24,
+             "rebalance_every": 10, "rebalance_anchor": "2026-09-28", "holding_day": False,
+             "cadence": "10세션 주기 재조정일", "next_rebalance": "2026-10-14"},
+    "weight": {"allocator": "risk_parity:volatile", "allocated": 0.0928, "exposure_scale": 1.0,
+               "exposure_driver": "deadband", "exposure_notes": ["데드밴드 — 유지 (밴드 10%)"],
+               "target": 0.0928, "recorded_target": 0.0928, "realized": 0.1154},
+    "orders": {"count": 4, "side": "sell", "quantity": 4846.0, "filled_slices": 1, "partial_slices": 0,
+               "filled_quantity": 1212.0, "statuses": {"filled": 1, "reserved": 3}},
+    "rl": {"active": False, "allocator": "risk_parity:volatile"},
+}
+
+
+def _decision_html(tmp_path: Path, why: dict | None) -> str:
+    payloads = Path(__file__).parent / "payloads"
+    trading = json.loads((payloads / "trading.json").read_text())
+    chart = json.loads((payloads / "chart.json").read_text())
+    d = trading["data"]["decision"]
+    d["engine_note"] = "RL(강화학습) 꺼짐 — 비중은 규칙이 정한다"
+    d["name"] = "ESR켄달스퀘어리츠"
+    if why is not None:
+        d["why"] = why
+    return _render(tmp_path, trading, chart)["decision"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_결정_패널은_다섯_단계로_왜를_말한다(tmp_path: Path) -> None:
+    html = _decision_html(tmp_path, WHY_HELD)
+    for title in ("점수", "걸러짐", "선정 규칙", "비중", "오늘 주문"):
+        assert f'<div class="why-title">{title}</div>' in html, title
+    assert "2,799종목 중 148위" in html and "888종목 중 43위" in html
+    assert "평활 EMA" in html and "점수 분해" in html           # 막대 분해는 접힌 칸으로
+    assert "통과 — 위험 점수 +0.457" in html and "하위 20%" in html
+    assert "72위 안이라 팔지 않고 남긴다" in html and "다음 교체일 10/14" in html
+    assert "리스크 패리티 9.28% × 노출 100% = 목표 9.28%" in html and "11.54%" in html
+    assert "매도 4,846주 · 4조각 중 1조각 체결" in html
+    assert "보유 유지" in html
+    # RL 자리는 한 줄뿐 — Q값·행동 확률·신뢰도 고리는 없다.
+    assert "RL(강화학습) 꺼짐" in html
+    assert "Q값" not in html and "행동별 확률" not in html and "donut" not in html
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_탈락_종목은_사유를_적는다(tmp_path: Path) -> None:
+    why = json.loads(json.dumps(WHY_HELD))
+    why["filters"].update(risk_status="cut", risk_score=-0.9)
+    why["rule"].update(verdict="filtered", rank=None, held=False, selected=False)
+    why["weight"].update(allocated=None, target=None, realized=None)
+    why["orders"] = {"count": 0}
+    html = _decision_html(tmp_path, why)
+    assert 'class="why-cut">탈락 — 너무 위험하다: 위험 점수 −0.900' in html
+    assert "순위 경쟁에 못 들어갔다" in html and "안 삼" in html
+    assert "목표 0% — 명단 밖" in html and "오늘 이 종목 주문 없음" in html
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
+def test_설명이_없으면_모름이다(tmp_path: Path) -> None:
+    """옛 응답(why 없음)·세션 기록 없는 시점 — 지어내지 않고 "모름" 이라 적는다."""
+    html = _decision_html(tmp_path, None)
+    assert "모름" in html
+    assert "undefined" not in html and "NaN" not in html

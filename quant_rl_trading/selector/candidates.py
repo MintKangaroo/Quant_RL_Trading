@@ -108,6 +108,8 @@ class SelectionTrace:
     counts: dict[str, int] = field(default_factory=dict)
     dropped: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    #: 단계가 잰 값(예: 위험 하한 임계). 화면이 "임계 얼마에 걸렸나" 를 문구가 아니라 숫자로 읽는다.
+    measures: dict[str, float] = field(default_factory=dict)
 
     def stage(self, name: str, remaining: int) -> None:
         self.counts[name] = remaining
@@ -117,6 +119,9 @@ class SelectionTrace:
 
     def note(self, message: str) -> None:
         self.notes.append(message)
+
+    def measure(self, name: str, value: float) -> None:
+        self.measures[name] = float(value)
 
 
 @dataclass(frozen=True)

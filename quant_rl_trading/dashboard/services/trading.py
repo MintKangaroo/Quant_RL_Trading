@@ -18,10 +18,9 @@
 
 ## 없는 것은 없다고 말한다
 
-- **Allocator 는 M4 다.** Q값·행동확률 자리에 지금 있는 것은 룰 베이스라인의
-  목표 비중과 Analyst 기여도다. 그 사실을 응답에 `decision.engine` 으로 싣고
-  화면이 그대로 띄운다. RL 이 아닌 것을 RL 처럼 그리면 M4 에서 무엇이 달라졌는지
-  아무도 모른다
+- **RL 은 꺼져 있다**(배분 RL 종료, 2026-09-04). 결정 패널은 Q값 자리 대신 "이 종목은 왜 샀나/왜 안 샀나"
+  다섯 단계(`why.py`)를 싣고, RL 이 켜졌는지는 세션 기록(allocate 의 actor)에서 읽어 한 줄로 말한다.
+  RL 이 아닌 것을 RL 처럼 그리면 무엇이 달라졌는지 아무도 모른다
 - 체결 지연(latency)·호가는 실거래 기록이 없으면 ``null`` 이다. 0 으로 채우면
   "빠르다" 로 읽힌다
 """
@@ -1101,21 +1100,42 @@ def _tag_roles(breakdown: list[dict[str, Any]], store: Store, *, as_of: datetime
     return model
 
 
-def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[str, Any]:
-    """한 종목의 결정 분해.
+def _top_holding(context: Context) -> str | None:
+    """이 시장 보유 중 평가액 1위(마지막 종가 기준). 없으면 None."""
+    prefix = f"{context.market}:"
+    best, best_value = None, -1.0
+    for entity, position in context.book.positions.items():
+        if not str(entity).startswith(prefix) or position.quantity <= 0:
+            continue
+        value = position.quantity * float(context.prices.get(entity) or 0.0)
+        if value > best_value:
+            best, best_value = str(entity), value
+    return best
 
-    **M4 전에는 Q값이 없다.** 있는 것은 Analyst 기여도(score × confidence ×
-    가중치)와 룰 베이스라인의 목표 비중이다. 응답에 그 사실을 적어 보낸다 —
-    화면이 이것을 RL 처럼 그리면 M4 에서 무엇이 달라졌는지 알 수 없다.
+
+def decision(
+    store: Store, context: Context, *, entity_id: str | None, order_rows: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    """한 종목의 결정 분해 — **"이 종목은 왜 샀나 / 왜 안 샀나"** (2026-09-29 재설계, 사용자 승인).
+
+    기본 종목은 **지금 보유 중 비중 1위**(보유가 없으면 합성 점수 1위). 다섯 단계(점수·걸러짐·선정 규칙·비중·오늘 주문)는
+    ``why.explain`` 이 세션 기록(`events`)과 세션이 쓴 선정 함수(`selector.pipeline.screen`)에서 읽는다 — 화면이 규칙을
+    따로 재현하지 않는다(불변식 5). RL 은 꺼져 있고 그 사실만 한 줄로 싣는다 — Q값 자리를 비워 두면 "미측정" 이
+    무언가 재야 할 것으로 읽혔다.
     """
+    from quant_rl_trading.dashboard.services import why as why_module
+
     as_of = context.as_of
     params = AllocatorParams.from_store(store, as_of=as_of)
     weights = analyst_weights(store, as_of=as_of, market=context.market)
     scores = _latest_scores(store, as_of=as_of)
 
-    target = entity_id
+    target = entity_id or _top_holding(context)
     if target is None:
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        prefix = f"{context.market}:"
+        ranked = sorted(
+            ((e, v) for e, v in scores.items() if str(e).startswith(prefix)), key=lambda item: item[1], reverse=True
+        )
         target = ranked[0][0] if ranked else None
 
     breakdown: list[dict[str, Any]] = []
@@ -1145,12 +1165,28 @@ def decision(store: Store, context: Context, *, entity_id: str | None) -> dict[s
 
     position = context.book.positions.get(target) if target else None
     price = context.prices.get(target) if target else None
+    why = None
+    if target is not None:
+        ranker = next((row["score"] for row in breakdown if row["analyst"] == "ranker"), None)
+        why = why_module.explain(
+            store, as_of=as_of, market=context.market, entity_id=target,
+            held_quantity=position.quantity if position else 0.0,
+            ranker_score=ranker, all_scores=scores,
+            order_rows=order_rows if order_rows is not None else orders(store, context),
+            realized={"target_weight": target_weight, "realized_weight": realized_weight},
+        )
+    rl_active = bool(why and why["rl"]["active"])
     return {
-        # **RL 이 아니다.** 화면이 이 문자열을 그대로 띄운다.
-        "engine": f"룰 베이스라인 ({params.baseline})",
-        "rl_active": False,
-        "engine_note": "Allocator(RL)는 M4 다. 지금 비중은 규칙이 정한다",
+        # **RL 이 아니다.** 화면이 이 문자열을 그대로 띄운다. 켜졌는지는 세션 기록(allocate 의 actor)이 말한다.
+        "engine": "RL 정책" if rl_active else f"룰 베이스라인 ({params.baseline})",
+        "rl_active": rl_active,
+        "engine_note": (
+            "RL(강화학습) 켜짐 — 비중은 정책이 정한다" if rl_active
+            else "RL(강화학습) 꺼짐 — 비중은 규칙이 정한다"
+        ),
         "entity_id": target,
+        "name": _names(store, as_of=as_of, entities=[target]).get(target, target) if target else None,
+        "why": why,
         "score": scores.get(target) if target else None,
         # **지금 점수를 내는 모델** — as_of 에 실전 랭커가 집는 파일 그대로(사용자 2026-09-29: 새 모델이 채택돼
         # 실전에 들어오면 이 패널에서 무엇으로 결정하는지 보이게). 새 모델이 들어오면 파일·학습일·구성이 바뀐다.
@@ -1959,6 +1995,7 @@ def payload(
         }
     kpi = kpis(store, context)
     risk_state = risk(store, context)
+    order_rows = orders(store, context)
     view = {
         "market": market,
         "system": system(store, context),
@@ -1967,8 +2004,8 @@ def payload(
         "alerts": alerts(kpi, risk_state),
         "positions": positions(store, context),
         "watchlist": watchlist(store, context),
-        "decision": decision(store, context, entity_id=entity_id),
-        "orders": orders(store, context),
+        "decision": decision(store, context, entity_id=entity_id, order_rows=order_rows),
+        "orders": order_rows,
         # 주문 체결율 — 당일 + 최근 N 세션. 주문표와 같은 당일 기준(observed_at 한국시간)이다.
         "fill_rate": fill_rates(store, context),
         "equity": equity_curve(store, context, lookback=lookback),

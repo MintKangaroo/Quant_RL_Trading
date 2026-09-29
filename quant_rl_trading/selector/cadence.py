@@ -46,8 +46,8 @@ def decide(anchor: date | None, every: int, day: date, market: Market) -> Cadenc
     return Cadence(rebalance=index % every == 0, every=every, index=index)
 
 
-def for_session(store: Store, *, as_of: datetime, market: str) -> Cadence:
-    """설정에서 주기·anchor 를 읽는다. 키가 없으면 매일(옛 동작)."""
+def settings(store: Store, *, as_of: datetime, market: str) -> tuple[int, date | None]:
+    """(주기, anchor). 키가 없으면 (1, None) = 매일(옛 동작)."""
     try:
         every = int(market_config(store, "selector.rebalance_every", as_of=as_of, market=market))
     except ConfigNotFound:
@@ -59,4 +59,29 @@ def for_session(store: Store, *, as_of: datetime, market: str) -> Cadence:
         except ConfigNotFound:
             raw = ""
         anchor = date.fromisoformat(raw) if raw else None
+    return every, anchor
+
+
+def for_session(store: Store, *, as_of: datetime, market: str) -> Cadence:
+    """설정에서 주기·anchor 를 읽는다. 키가 없으면 매일(옛 동작)."""
+    every, anchor = settings(store, as_of=as_of, market=market)
     return decide(anchor, every, as_of.date(), Market(market))
+
+#: 다음 재조정일을 찾는 창(달력일). 주기 10세션에 연휴를 넉넉히 넘긴다.
+NEXT_SEARCH_DAYS = 120
+
+
+def next_rebalance(store: Store, *, as_of: datetime, market: str) -> date | None:
+    """as_of **다음** 첫 재조정 세션의 날짜. 매일 재조정이면 다음 거래일, 창 안에 없으면 None.
+
+    판정은 ``for_session`` 과 같은 ``decide`` 를 날마다 부른 것이다 — 화면이 주기를 따로 세면 세션과 어긋난다.
+    설정은 **as_of 시점 값**으로 한 번만 읽는다(미래 날짜로 config 를 물으면 되감은 화면이 뒤에 바뀐 설정을 본다).
+    """
+    from datetime import timedelta
+
+    every, anchor = settings(store, as_of=as_of, market=market)
+    start = as_of.date() + timedelta(days=1)
+    for day in trading_days(Market(market), start, start + timedelta(days=NEXT_SEARCH_DAYS)):
+        if decide(anchor, every, day, Market(market)).rebalance:
+            return day
+    return None

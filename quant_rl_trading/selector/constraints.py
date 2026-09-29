@@ -62,6 +62,9 @@ RISK_ANALYST = "risk"
 #: 움직인다" 는 정의에 가까운 사실이지 예측이 아니다.
 CONSTRAINT_ANALYSTS = frozenset({RISK_ANALYST})
 
+#: ``SelectionTrace.measures`` 의 키 — 그날 위험 하한 임계(이 값 **미만**이면 탈락).
+RISK_FLOOR_THRESHOLD = "risk_floor_threshold"
+
 
 @dataclass(frozen=True)
 class ConstraintParams:
@@ -153,6 +156,7 @@ def apply_risk_floor(
     threshold = float(observed.quantile(floor))
     cut = observed[observed < threshold]
     if trace is not None:
+        trace.measure(RISK_FLOOR_THRESHOLD, threshold)
         missing = int(len(scores) - len(observed))
         trace.note(
             f"위험 하한 하위 {floor:.0%} 컷 — {len(cut)}종목 제외 "

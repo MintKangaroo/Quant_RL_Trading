@@ -520,6 +520,84 @@ const arrow = (v) => (v === null || v === undefined || v === 0 ? "" : v > 0 ? "�
 
 /* -- 결정 패널 ------------------------------------------------------------ */
 
+/* "이 종목은 왜 샀나 / 왜 안 샀나" (2026-09-29 재설계, 사용자 승인).
+ *
+ * 다섯 단계 — 점수 · 걸러짐 · 선정 규칙 · 비중 · 오늘 주문. 숫자는 전부 서버(`decision.why`)가 세션 기록과
+ * 세션이 쓴 선정 함수에서 읽어 온다. **여기서 판정을 다시 내리지 않는다** — 서버가 붙인 판정 코드에 말만 붙인다.
+ * 값이 없으면 "모름" 이라 적는다(0·짐작 금지). */
+const UNKNOWN = "모름";
+const isKnown = (v) => v !== null && v !== undefined;
+const rankText = (rank, total) => (isKnown(rank) ? `${total ? num(total) + "종목 중 " : ""}${num(rank)}위` : UNKNOWN);
+const signedScore = (v, digits = 3) => (isKnown(v) ? `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(digits)}` : UNKNOWN);
+const whyDate = (iso) => (iso ? `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}` : UNKNOWN);
+
+const RULE_VERDICT = {
+  buy: { tag: "매수 대상", cls: "buy" },
+  keep: { tag: "보유 유지", cls: "hold" },
+  buffer_keep: { tag: "보유 유지", cls: "hold" },
+  sell_out_of_buffer: { tag: "매도", cls: "sell" },
+  sell: { tag: "매도", cls: "sell" },
+  pushed_out: { tag: "안 삼", cls: "hold" },
+  not_top: { tag: "안 삼", cls: "hold" },
+  filtered: { tag: "안 삼", cls: "hold" },
+  unknown: { tag: UNKNOWN, cls: "hold" },
+};
+
+function ruleSentence(r) {
+  const n = r.n_candidates, m = r.exit_rank, rank = r.rank;
+  switch (r.verdict) {
+    case "buy": return `점수 상위 ${n}위 안(${rank}위)이라 새로 산다`;
+    case "keep": return `점수 상위 ${n}위 안(${rank}위)이라 계속 들고 간다`;
+    case "buffer_keep": return `상위 ${n}위 밖(${rank}위)이지만 이미 보유 중이고 ${m}위 안이라 팔지 않고 남긴다`;
+    case "sell_out_of_buffer": return `보유 중인데 ${m}위 밖(${rank}위)으로 밀려 판다`;
+    case "sell": return `명단에서 빠졌다(${rank}위) — 판다`;
+    case "pushed_out": return `순위는 상위 ${n}위 안(${rank}위)이지만 명단에 못 들었다 — ${
+      r.buffer_slots ? `이번 명단 ${r.buffer_slots}자리를 이미 가진 종목이 지켰고(완충), ` : ""
+    }이미 뽑힌 종목과 너무 비슷하거나(상관) 같은 업종이 꽉 찼을 수도 있다. 어느 쪽인지는 기록이 없다`;
+    case "not_top": return `상위 ${n}위 밖(${rank}위)이라 사지 않는다`;
+    case "filtered": return "앞 단계에서 걸러져 순위 경쟁에 못 들어갔다";
+    default: return "모름 — 이 시점에 세션 기록이 없다";
+  }
+}
+
+function allocatorLabel(actor) {
+  if (!actor) return UNKNOWN;
+  if (actor.startsWith("risk_parity")) return "리스크 패리티";
+  if (actor === "hold:cadence") return "보유일 — 지금 비중 그대로";
+  if (actor === "rl") return "RL 정책";
+  if (actor.startsWith("float_cap")) return "유동시총 가중";
+  return actor;
+}
+
+function whyStep(no, title, lines, extra = "") {
+  return `<li class="why-step">
+    <span class="why-no mono">${no}</span>
+    <div class="why-body"><div class="why-title">${title}</div>${lines
+      .filter(Boolean)
+      .map((line, i) => `<div class="${i === 0 ? "why-line" : "why-sub"}">${line}</div>`)
+      .join("")}${extra}</div>
+  </li>`;
+}
+
+function contributionBars(d) {
+  if (!d.contributions.length) return `<p class="empty">이 종목에 점수를 낸 Analyst 가 없다 (가중치 0 은 빠진다).</p>`;
+  const max = Math.max(1e-9, ...d.contributions.map((c) => Math.abs(c.share * c.score)));
+  return d.contributions
+    .map((c) => {
+      const value = c.share * c.score;
+      const width = Math.min(100, (Math.abs(value) / max) * 100);
+      // 역할 표시(서버가 붙인다) — 0 막대가 "안 쓴다" 로 읽히지 않게. 랭커 입력이면 랭커가 기대는 몫(gain)도.
+      const gain = c.ranker_gain == null ? "" : ` · 비중 ${(c.ranker_gain * 100).toFixed(0)}%`;
+      const role = c.role_label ? `<span class="bar-role role-${c.role || ""}">${c.role_label}${gain}</span>` : "";
+      return `<div class="bar-row">
+        <span class="bar-label">${controlEsc(c.analyst)}${role}</span>
+        <span class="bar-track"><span class="bar-fill ${value >= 0 ? "up" : "down"}" style="width:${width}%"></span></span>
+        <span class="bar-value mono">${dec(value, 3)}</span>
+      </div>`;
+    })
+    .join("");
+}
+
 function renderDecision(body) {
   const d = body.data.decision;
   // 점수 모델 한 줄 — 새 모델이 실전에 들어오면 여기가 바뀐다(파일·학습일).
@@ -531,86 +609,96 @@ function renderDecision(body) {
 
   if (!d.entity_id) {
     document.getElementById("decision").innerHTML =
-      `<p class="empty">신호가 없어 분해할 결정이 없다.</p>`;
+      `<p class="empty">신호도 보유도 없어 설명할 종목이 없다.</p>`;
     return;
   }
+  const w = d.why || {};
+  const s = w.score || {}, f = w.filters || {}, r = w.rule || { verdict: "unknown" };
+  const wt = w.weight || {}, o = w.orders || {};
+  const verdict = RULE_VERDICT[r.verdict] || RULE_VERDICT.unknown;
+  const session = w.session ? `${whyDate(w.session.as_of.slice(0, 10))} 세션 기준` : "세션 기록 모름";
 
-  const max = Math.max(1e-9, ...d.contributions.map((c) => Math.abs(c.share * c.score)));
-  const bars = d.contributions.length
-    ? d.contributions
-        .map((c) => {
-          const value = c.share * c.score;
-          const width = Math.min(100, (Math.abs(value) / max) * 100);
-          // 역할 표시(서버가 붙인다) — 0 막대가 "안 쓴다" 로 읽히지 않게. 랭커 입력이면 랭커가 기대는 몫(gain)도.
-          const gain = c.ranker_gain == null ? "" : ` · 비중 ${(c.ranker_gain * 100).toFixed(0)}%`;
-          const role = c.role_label ? `<span class="bar-role role-${c.role || ""}">${c.role_label}${gain}</span>` : "";
-          return `<div class="bar-row">
-            <span class="bar-label">${c.analyst}${role}</span>
-            <span class="bar-track"><span class="bar-fill ${value >= 0 ? "up" : "down"}"
-                  style="width:${width}%"></span></span>
-            <span class="bar-value mono">${dec(value, 3)}</span>
-          </div>`;
-        })
-        .join("")
-    : `<p class="empty">이 종목에 기여한 Analyst 가 없다 (가중치 0 은 빠진다).</p>`;
+  // ① 점수
+  const scoreValue = isKnown(s.ranker_score) ? s.ranker_score : s.composite;
+  const step1 = whyStep(1, "점수", [
+    `점수 ${dec(scoreValue, 3)} · 전체 ${rankText(s.rank_all, s.n_all)}`,
+    `살 수 있는 종목 안에서는 ${rankText(s.rank_tradable, s.n_tradable)}`,
+    s.smoothing_span > 1 ? `점수는 최근 ${s.smoothing_span}세션을 섞어 누른 값(평활 EMA) — 하루 흔들림에 명단이 안 바뀌게` : "",
+    m ? `점수 모델 <span class="mono">${controlEsc(m.file || m.version)}</span> · ${controlEsc(m.trained_through)}까지 학습`
+      : "점수 모델 모름",
+  ], `<details class="why-more"><summary>점수 분해 — 무엇이 점수를 만들었나</summary>${contributionBars(d)}</details>`);
 
-  const p = d.position;
-  const row = (body.data.watchlist || []).find((item) => item.entity_id === d.entity_id);
-  const action = row ? row.signal : "HOLD";
-  // 신뢰도는 기여 가중 평균이다. Analyst 각자의 confidence 는 롤링 IC 에서
-  // 오고(agents.md §1), 합성 점수에 실린 몫만큼만 이 화면의 신뢰도가 된다.
-  const confidence = d.contributions.length
-    ? d.contributions.reduce((sum, c) => sum + Math.abs(c.share) * c.confidence, 0) /
-      Math.max(1e-9, d.contributions.reduce((sum, c) => sum + Math.abs(c.share), 0))
-    : null;
+  // ② 걸러짐
+  let filterLine;
+  let filterTag = "";
+  const p = isKnown(f.risk_percentile) ? `${Math.round(f.risk_percentile * 100)}%` : UNKNOWN;
+  if (!f.known) {
+    filterLine = "모름 — 이 시점 세션 기록(자본)이 없어 필터를 다시 못 돌렸다";
+  } else if (f.gate_reason) {
+    filterLine = `탈락 — ${controlEsc(f.gate_reason)}`;
+    filterTag = "cut";
+  } else if (f.risk_status === "cut") {
+    filterLine = `탈락 — 너무 위험하다: 위험 점수 ${signedScore(f.risk_score)} 가 하위 ${p} 선(${signedScore(f.risk_threshold)}) 아래`;
+    filterTag = "cut";
+  } else if (f.risk_status === "pass") {
+    filterLine = `통과 — 위험 점수 ${signedScore(f.risk_score)}, 하위 ${p} 선(${signedScore(f.risk_threshold)}) 위`;
+  } else if (f.risk_status === "no_score") {
+    filterLine = "통과 — 위험 점수가 없어(상장 초기 등) 자르지 않았다";
+  } else {
+    filterLine = "탈락 — 거래 가능 명단에 없다(사유 기록 없음)";
+    filterTag = "cut";
+  }
+  const c = f.counts || {};
+  const funnel = f.known && isKnown(c.universe)
+    ? `관문: 거래 가능 ${num(c.universe)} → 부실 공시 제외 ${num(c.healthy)} → 위험 하위 ${p} 제외 ${num(c.risk_floor)}${
+        isKnown(c.after_verdicts) && c.after_verdicts !== c.risk_floor ? ` → 뉴스 매수금지 제외 ${num(c.after_verdicts)}` : ""}`
+    : "";
+  const step2 = whyStep(2, "걸러짐", [`<span class="${filterTag ? "why-cut" : ""}">${filterLine}</span>`, funnel]);
 
-  const facts = [
-    ["종목", d.entity_id],
-    ["합성 점수", dec(d.score, 4)],
-    ["목표 비중", pct(d.target_weight)],
-    ["실현 비중", pct(d.realized_weight)],
-    ["보유 수량", p.quantity ? num(p.quantity) : "—"],
-    ["평균 단가", p.avg_price ? num(Math.round(p.avg_price)) : "—"],
-    ["현재가", p.price ? num(Math.round(p.price)) : "—"],
-    ["평가손익", p.pnl === null ? "—" : num(Math.round(p.pnl))],
-  ];
+  // ③ 선정 규칙
+  const cadence = isKnown(r.rebalance_every)
+    ? (r.rebalance_every > 1 ? `${r.rebalance_every}세션마다 명단 교체` : "매일 명단 교체")
+    : "교체 주기 모름";
+  const step3 = whyStep(3, "선정 규칙", [
+    `${r.holding_day ? "오늘은 교체일이 아니라 명단을 안 바꾼다. " : ""}${ruleSentence(r)}`,
+    isKnown(r.n_candidates)
+      ? `규칙: 점수 상위 ${r.n_candidates}종목을 산다 · 이미 가진 종목은 ${r.exit_rank}위 안이면 남긴다 · ${cadence}`
+      : "",
+    `다음 교체일 ${r.next_rebalance ? whyDate(r.next_rebalance) : UNKNOWN}${r.next_rebalance ? " (그날 종가로 고르고 다음 거래일 아침 주문)" : ""}`,
+  ]);
+
+  // ④ 비중
+  let weightLine;
+  if (!isKnown(wt.allocator)) weightLine = "모름 — 세션 기록이 없다";
+  else if (!isKnown(wt.allocated)) weightLine = `목표 0% — 명단 밖이라 비중이 없다${r.held ? " (들고 있으면 판다)" : ""}`;
+  else weightLine = `${allocatorLabel(wt.allocator)} ${pct(wt.allocated)} × 노출 ${pct(wt.exposure_scale, 0)} = 목표 ${pct(wt.target)}`;
+  const step4 = whyStep(4, "비중", [
+    weightLine,
+    // 실현 비중 기록이 없고 장부에도 없으면 "안 들고 있다"(0%) — 모름이 아니다(장부가 안다).
+    isKnown(wt.realized) ? `지금 실제 비중 ${pct(wt.realized)}`
+      : r.held === false && isKnown(wt.allocator) ? "지금 들고 있지 않다 (0%)" : `지금 실제 비중 ${UNKNOWN}`,
+    isKnown(wt.allocated) && wt.exposure_notes && wt.exposure_notes.length
+      ? `노출 ${pct(wt.exposure_scale, 0)} 의 이유 — ${controlEsc(wt.exposure_notes[wt.exposure_notes.length - 1])}` : "",
+  ]);
+
+  // ⑤ 오늘 주문
+  let orderLine;
+  if (!o.count) orderLine = "오늘 이 종목 주문 없음";
+  else {
+    const side = { buy: "매수", sell: "매도" }[o.side] || "매수·매도";
+    const partial = o.partial_slices ? ` · 부분 체결 ${o.partial_slices}` : "";
+    orderLine = `${side} ${num(o.quantity)}주 · ${o.count}조각 중 ${o.filled_slices}조각 체결${partial} (${num(o.filled_quantity)}주)`;
+  }
+  const step5 = whyStep(5, "오늘 주문", [orderLine]);
 
   document.getElementById("decision").innerHTML = `
-    <div class="decision-head">
-      <div class="decision-action">
-        <div class="k">현재 행동</div>
-        <div class="v ${action.toLowerCase()}">${action}</div>
-      </div>
-      ${donut(confidence)}
+    <div class="why-head">
+      <div class="why-name"><b>${controlEsc(d.name || d.entity_id)}</b>
+        <span class="code">${controlEsc(d.entity_id)} · ${session}${r.held ? " · 보유 중" : ""}</span></div>
+      <span class="sig ${verdict.cls}">${verdict.tag}</span>
     </div>
-    <h3>행동별 확률 <span class="sub">Q값</span></h3>
-    <p class="pending">— 미측정 <span class="why">· Q값은 정책(RL)이 내는 값이다. 지금 비중은
-      규칙이 정하므로 잴 대상이 없다 (M4)</span></p>
-    <div class="facts">${facts
-      .map(([label, value]) => `<div class="fact"><span>${label}</span><b class="mono">${value}</b></div>`)
-      .join("")}</div>
-    <h3>Analyst 기여도 <span class="sub">score × confidence × weight</span></h3>
-    ${bars}
-    <p class="note">
-      목표와 실현이 벌어지는 것은 라운딩·상한이 한 일이다. 그 차이를 되먹이지
-      않으면 Allocator 는 자기가 하지 않은 행동으로 보상받는다 (불변식 7).
-    </p>`;
-}
-
-/* 신뢰도 고리. 못 잰 값은 고리를 비우고 "—" 를 적는다 — 0% 로 그리면
- * "쟀는데 신뢰가 없다" 로 읽히고, 그건 다른 사실이다. */
-function donut(value) {
-  const r = 26;
-  const circumference = 2 * Math.PI * r;
-  const filled = value === null || value === undefined ? 0 : Math.max(0, Math.min(1, value));
-  return `<div class="donut" title="기여 가중 평균 신뢰도">
-    <svg width="62" height="62" viewBox="0 0 62 62">
-      <circle class="ring-bg" cx="31" cy="31" r="${r}" fill="none" stroke-width="5"/>
-      <circle class="ring" cx="31" cy="31" r="${r}" fill="none" stroke-width="5"
-              stroke-dasharray="${(filled * circumference).toFixed(1)} ${circumference.toFixed(1)}"/>
-    </svg>
-    <span class="mid">${value === null || value === undefined ? "—" : pct(value, 0)}</span>
-  </div>`;
+    <ol class="why-steps">${step1}${step2}${step3}${step4}${step5}</ol>
+    <p class="why-rl">${controlEsc(d.engine_note)}</p>`;
 }
 
 /* -- 리스크 --------------------------------------------------------------- */

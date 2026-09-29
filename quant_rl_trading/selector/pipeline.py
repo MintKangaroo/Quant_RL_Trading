@@ -7,7 +7,7 @@ Session 이 부르는 진입점이다. 단계별 로직은 각 모듈에 있고 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -47,27 +47,30 @@ class Selection:
     fault: str = ""
 
 
-def run(
-    store: Store,
-    *,
-    as_of: datetime,
-    market: str,
-    equity: float,
-    sectors: Mapping[str, str] | None = None,
-    held: Iterable[str] | None = None,
-) -> Selection:
-    """후보 선정 한 번.
+@dataclass(frozen=True)
+class Screen:
+    """``screen`` 의 결과 — 상위 N 을 고르기 직전까지. 비면 그 단계에서 멈춘 것이다(``trace`` 에 이유)."""
 
-    ``sectors`` 는 **None 이면 창고에서 읽는다.** 예전에는 주입만 받았고
-    기본이 "상한 없음" 이었는데, 그건 그때 창고에 있던 값이 업종이 아니라
-    KOSDAQ 소속부였기 때문이다 — 지금은 DART 표준산업분류가 들어와 있다
-    (아래 4~6 단계 주석). 호출부(session/daily.py · allocator/cache.py)는
-    둘 다 이 인자를 안 넘기므로, 여기서 읽지 않으면 어느 경로에서도 상한이
-    안 걸린다.
+    as_of: datetime
+    market: str
+    params: SelectionParams
+    weights: dict[str, float]
+    trace: SelectionTrace
+    fault: str = ""
+    #: 합성 점수 — 유니버스·부실 필터 뒤, 위험 하한 **전**.
+    scored: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    #: 위 종목들의 위험(``risk``) 점수. 없는 종목은 빠져 있다(위험 하한이 자르지 않는다).
+    risk: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    #: 위험 하한·거부까지 거친 점수 — ``candidates.select`` 가 받는 그대로.
+    scores: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
 
-    명시적으로 넘기면 그것을 쓴다. **빈 dict 를 넘기면 상한을 끄는 뜻**이고,
-    그때는 그 사실이 흔적에 남는다. 조용히 건너뛰면 나중에 "섹터 상한이 왜
-    안 걸렸지" 를 아무도 묻지 않게 된다.
+
+def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Screen:
+    """0~3 단계 — 입력 점검·유니버스·부실·합성 점수·위험 하한·News·SNS 거부. ``run`` 이 이 위에 4~6 을 얹는다.
+
+    **화면(트레이딩 탭 '왜 샀나')도 이 함수를 그대로 부른다** (불변식 5). 화면이 필터를 따로 짜면 세션이 실제로
+    쓴 규칙과 어긋난다 — 그래서 단계를 쪼개 같은 코드를 두 곳이 읽게 했다. 상관·섹터·상위 N(4~6)은 비싸고
+    보유 목록이 필요해 화면은 그 결과를 세션 기록(`events` 의 select)에서 읽는다.
     """
     trace = SelectionTrace()
     params = SelectionParams.from_store(store, as_of=as_of, market=market)
@@ -90,8 +93,10 @@ def run(
             f"알파 Analyst 가 0종이다 — {census.describe()}. 동일가중으로 "
             "때우지 않는다 — 관찰 모드 Analyst 에게 실제 가중치를 주는 것과 같다"
         )
-        return Selection(as_of, market, (), {}, trace, fault=census.fault)
+        return Screen(as_of, market, params, {}, trace, fault=census.fault)
     weights = census.alpha_map
+    empty = pd.Series(dtype=float)
+    scored = risk = empty
 
     # 1. 유니버스 필터
     universe = filters_module.tradable_universe(
@@ -108,11 +113,12 @@ def run(
             trace.drop(entity, "부실 공시(관리종목·불성실공시 등)")
     trace.stage("healthy", len(kept))
     if not kept:
-        return Selection(as_of, market, (), weights, trace)
+        return Screen(as_of, market, params, weights, trace)
 
     # 2. 합성 점수
     signals = store.get(SIGNALS, as_of=as_of, entity=kept, lookback=5)
     scores = combined_scores(signals, weights, missing_as_zero=missing_as_zero(store, as_of=as_of, market=market))
+    scored = scores
     trace.stage("scored", len(scores))
     if scores.empty:
         if not signals.empty:
@@ -126,7 +132,7 @@ def run(
             # 이었다(롤링 IC 이력이 그날까지 관측된 적이 없다) — 문구가
             # 가리키지 않아 원인을 찾는 데 시간이 들었다.
             trace.note(_silent_score_reason(signals, weights))
-        return Selection(as_of, market, (), weights, trace)
+        return Screen(as_of, market, params, weights, trace, scored=scored, risk=risk, scores=scores)
 
     # 2-b. 위험 하한 — **제약이지 점수가 아니다** (태스크 #32).
     #      `risk` 는 위 합성에서 이미 빠져 있다(constraints.CONSTRAINT_ANALYSTS).
@@ -136,6 +142,7 @@ def run(
     #
     #      거부(3번)보다 먼저다. 거부는 LLM 판정이라 비싸고 상한이 걸려 있는데,
     #      여기서 잘릴 종목까지 판정 정원을 쓸 이유가 없다.
+    risk = constraints_module.constraint_scores(signals, constraints_module.RISK_ANALYST).reindex(scores.index).dropna()
     scores = constraints_module.apply_risk_floor(
         scores,
         signals=signals,
@@ -144,7 +151,7 @@ def run(
     )
     trace.stage("risk_floor", len(scores))
     if scores.empty:
-        return Selection(as_of, market, (), weights, trace)
+        return Screen(as_of, market, params, weights, trace, scored=scored, risk=risk, scores=scores)
 
     # 3. News·SNS 거부 — 상관보다 **먼저**. 상관 계산은 비싸고, 거부될 종목까지
     #    계산할 이유가 없다.
@@ -157,6 +164,36 @@ def run(
     )
     scores = scores[~scores.index.isin(rejected)]
     trace.stage("after_verdicts", len(scores))
+    return Screen(as_of, market, params, weights, trace, scored=scored, risk=risk, scores=scores)
+
+
+def run(
+    store: Store,
+    *,
+    as_of: datetime,
+    market: str,
+    equity: float,
+    sectors: Mapping[str, str] | None = None,
+    held: Iterable[str] | None = None,
+) -> Selection:
+    """후보 선정 한 번.
+
+    ``sectors`` 는 **None 이면 창고에서 읽는다.** 예전에는 주입만 받았고
+    기본이 "상한 없음" 이었는데, 그건 그때 창고에 있던 값이 업종이 아니라
+    KOSDAQ 소속부였기 때문이다 — 지금은 DART 표준산업분류가 들어와 있다
+    (아래 4~6 단계 주석). 호출부(session/daily.py · allocator/cache.py)는
+    둘 다 이 인자를 안 넘기므로, 여기서 읽지 않으면 어느 경로에서도 상한이
+    안 걸린다.
+
+    명시적으로 넘기면 그것을 쓴다. **빈 dict 를 넘기면 상한을 끄는 뜻**이고,
+    그때는 그 사실이 흔적에 남는다. 조용히 건너뛰면 나중에 "섹터 상한이 왜
+    안 걸렸지" 를 아무도 묻지 않게 된다.
+    """
+    first = screen(store, as_of=as_of, market=market, equity=equity)
+    trace, params, weights = first.trace, first.params, first.weights
+    if first.fault:
+        return Selection(as_of, market, (), {}, trace, fault=first.fault)
+    scores = first.scores
     if scores.empty:
         return Selection(as_of, market, (), weights, trace)
 

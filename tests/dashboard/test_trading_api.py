@@ -236,8 +236,8 @@ def test_rl_이_아닌_것을_rl_처럼_그리지_않는다(client) -> None:
     decision = client.get("/api/trading").get_json()["data"]["decision"]
 
     assert decision["rl_active"] is False
-    assert "M4" in decision["engine_note"]
-    assert decision["entity_id"] == ENTITY  # 합성 점수 최상위
+    assert decision["engine_note"] == "RL(강화학습) 꺼짐 — 비중은 규칙이 정한다"
+    assert decision["entity_id"] == ENTITY  # 보유 비중 1위(이 창고에선 합성 점수 1위이기도 하다)
     assert [item["analyst"] for item in decision["contributions"]] == ["fundamental"]
     # 목표와 실현이 벌어진 사실이 화면까지 온다 (불변식 7).
     assert decision["target_weight"] == pytest.approx(0.15)

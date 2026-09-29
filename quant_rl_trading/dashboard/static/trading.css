@@ -154,3 +154,25 @@
 .bar-role { display: block; font-size: 10.5px; color: var(--dim); }
 .bar-role.role-direct { color: var(--up); }
 .bar-role.role-constraint { color: var(--warn); }
+
+/* AI 결정 = "왜 샀나 / 왜 안 샀나" 다섯 단계(2026-09-29). 시트 문법 — 상자 없이 괘선과 번호.
+   좁은 패널(데스크톱 ~380px)·폰에서 한 단으로 흐른다: 번호 칸만 고정폭, 나머지는 줄바꿈. */
+.why-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin: 2px 0 8px; }
+.why-name { min-width: 0; }
+.why-name b { font-size: 14px; font-weight: 600; display: block; overflow-wrap: anywhere; }
+.why-name .code { display: block; color: var(--dim); font-size: 11px; margin-top: 2px; }
+.why-head .sig { flex: none; }
+.why-steps { list-style: none; margin: 0; padding: 0; }
+.why-step { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 0 8px; padding: 8px 0; border-top: 1px solid var(--border); }
+.why-no { color: var(--dim); font-size: 11px; line-height: 18px; }
+.why-title { color: var(--dim); font-size: 10.5px; line-height: 18px; }
+.why-line { font-size: 12.5px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.why-sub { font-size: 11px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; margin-top: 1px; }
+.why-cut { color: var(--bad); }
+.why-more { margin-top: 6px; }
+.why-more > summary { cursor: pointer; color: var(--muted); font-size: 11px; list-style: none; }
+.why-more > summary::-webkit-details-marker { display: none; }
+.why-more > summary::before { content: "+ "; color: var(--dim); }
+.why-more[open] > summary::before { content: "− "; }
+#decision .why-more .bar-row { grid-template-columns: minmax(0, 46%) minmax(0, 1fr) 48px; }
+.why-rl { color: var(--dim); font-size: 11px; margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--border); }
