@@ -34,7 +34,8 @@ for row in "${TRIALS[@]}"; do
   while :; do
     done_n=$(grep -c '^판정:' "${log}" 2>/dev/null); done_n=${done_n:-0}
     if [ "${done_n}" -ge "${need}" ]; then say "${name}: 판정 있음 — 다음"; break; fi
-    if pgrep -f "run_chart_cnn_minutes_nigh[t]|measure_chart_cnn_minute[s]" > /dev/null; then
+    # SKIP_OTHER_WAIT=1 이면 다른 프로젝트 학습을 기다리지 않는다 — 메모리 기준만 본다(2026-09-29 사용자: 여유 7GB 면 돌리자).
+    if [ "${SKIP_OTHER_WAIT:-0}" != "1" ] && pgrep -f "run_chart_cnn_minutes_nigh[t]|measure_chart_cnn_minute[s]" > /dev/null; then
       sleep 300; continue   # 다른 프로젝트 학습이 먼저다(사용자: 21:00 쯤 끝난다)
     fi
     avail=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)
