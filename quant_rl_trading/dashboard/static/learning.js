@@ -588,8 +588,10 @@ function frDrawCharts(t) {
 function frQueue(queued) {
   if (!queued.length) return "";
   const items = queued.map((q, i) => `<li><span class="fr-order">${i + 1}</span>
-    <strong>${frEsc(q.trial)}</strong> ${frBadge("queued")}
-    <span class="fr-about">${frEsc(q.about)}</span></li>`).join("");
+    <strong>${frEsc(q.trial)}</strong> ${q.started
+      ? `<span class="fr-badge st-ok"><i></i>시작됨 — 첫 진행 기록 전</span>`
+      : frBadge("queued")}
+    <span class="fr-about">${frEsc(q.about)}${q.started ? " · 학습 프로그램이 돌고 있다. 진행 기록은 한 구간(블록·폴드)이 끝날 때 적힌다" : ""}</span></li>`).join("");
   return `<section class="fr-queue"><h3>대기 <span class="sub">등록 순서 · 앞 시행이 끝나면 다음 것이 돈다</span></h3>
     <ol>${items}</ol></section>`;
 }

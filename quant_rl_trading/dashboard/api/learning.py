@@ -108,6 +108,16 @@ def walk_forward() -> Any:
     )
 
 
+def _running_scripts(live: bool) -> set[str] | None:
+    """라이브일 때만 지금 도는 연구 스크립트 이름들(/proc). 되감은 화면은 None — 그때 무엇이 돌았는지 모른다."""
+    if not live:
+        return None
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    return {str(p.get("script", "")).rsplit("/", 1)[-1] for p in service.research_jobs(root)["running"]}
+
+
 @bp.get("/final-round")
 def final_round() -> Any:
     """마지막 모델 회차(BE·BF·BG·D1·C0·C1)의 **학습 진행**. 판정 창 수익·IC 는 담기지 않는다 —
@@ -119,7 +129,7 @@ def final_round() -> Any:
     return envelope(
         current,
         service.final_round_progress(research_store(), as_of=current.as_of, lookback=current.lookback,
-                                     config_store=store()),
+                                     config_store=store(), running_scripts=_running_scripts(current.live)),
     )
 
 

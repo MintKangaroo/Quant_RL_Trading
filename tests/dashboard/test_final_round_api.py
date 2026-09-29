@@ -446,3 +446,14 @@ def test_재학습_사이_반복된_손실은_한_번으로_세어_추세를_꾸
     walk(store, "BE", last=NOW - timedelta(minutes=1), train=train, val=val)
     trial = one(store)
     assert trial["status"] == "ok" and "쌓이면 본다" in trial["status_reason"]
+
+
+def test_도는_중인데_기록이_없는_시행은_시작됨으로_보인다(store: Any) -> None:
+    """2026-09-29: BG 는 폴드가 끝날 때만 적어 첫 기록까지 '대기' 로 보였다. 라이브에서만 /proc 를 본다."""
+    store.seed_config_defaults()
+    got = service.final_round_progress(store, as_of=NOW, running_scripts={"trial_final_residual_rl"})
+    bg = next(q for q in got["queued"] if q["trial"] == "BG")
+    assert bg["started"] is True
+    assert not next(q for q in got["queued"] if q["trial"] == "D1")["started"]
+    # 되감은 화면(running_scripts=None)은 도는 여부를 지어내지 않는다.
+    assert not any(q["started"] for q in service.final_round_progress(store, as_of=NOW)["queued"])

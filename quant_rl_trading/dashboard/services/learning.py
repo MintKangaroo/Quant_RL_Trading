@@ -839,8 +839,18 @@ def _health(*, done: bool, since_last_s: float, mean_unit_s: float | None, unit:
     return "ok", f"{base} · 최근 학습 {window}번 내부 검증이 나빠지지 않는다"
 
 
+#: 시행 → 그 시행 도구의 스크립트 이름. 도는 중인데 아직 진행 기록이 없는 시행을 "대기" 가 아니라
+#: "시작됨(첫 기록 전)" 으로 보이려고 쓴다(2026-09-29 사용자: "왜 BG 가 대시보드에 안 뜨지" — BG 는 폴드가
+#: 끝날 때만 적어 첫 기록까지 수십 분 걸린다).
+FINAL_ROUND_SCRIPTS = {
+    "BE": "trial_final_transformer", "BF": "trial_final_lambdarank",
+    "BG": "trial_final_residual_rl", "D1": "trial_final_dfl",
+}
+
+
 def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
-                         config_store: Store | None = None) -> dict[str, Any]:
+                         config_store: Store | None = None,
+                         running_scripts: set[str] | None = None) -> dict[str, Any]:
     """마지막 모델 회차(BE·BF·BG·D1·C0·C1)의 **학습 진행**. 판정 창 지표는 담지 않는다.
 
     담는 것: 무엇을 배우나(한 줄), 진행 위치(시드 x/n · 블록 y/n), 예상 끝 시각(한국시간·as_of 기준 말),
@@ -861,7 +871,12 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
 
     def queue(seen: set[str]) -> list[dict[str, Any]]:
         # 기록이 있거나 판정이 적힌 시행은 대기가 아니다(기록이 조회 창 밖으로 밀려도 판정 줄이 남는다).
-        return [{"trial": name, "about": _about(name)} for name in FINAL_ROUND_QUEUE
+        # `running_scripts` 는 **라이브 화면에서만** 준다(지금 /proc 에 뜬 스크립트) — 되감은 화면은 None 이라
+        # 그때의 도는 여부를 지어내지 않는다.
+        running = running_scripts or set()
+        return [{"trial": name, "about": _about(name),
+                 "started": FINAL_ROUND_SCRIPTS.get(name, "") in running}
+                for name in FINAL_ROUND_QUEUE
                 if not any(t.startswith(name) for t in seen | judged)]
 
     if frame.empty:
