@@ -25,8 +25,8 @@ def test_마감_뒤면_오늘_장중이면_없음_개장_전이면_전_거래일
 class _Client:
     def request_tr(self, path, tr, payload):
         code = payload["t1511InBlock"]["upcode"]
-        if code == "301":
-            return {"t1511OutBlock": {"pricejisu": "0"}}  # 코스닥 응답 없음
+        if code in ("301", "101"):
+            return {"t1511OutBlock": {"pricejisu": "0"}}  # 코스닥·코스피200 응답 없음 — 빈 지수는 건너뛴다
         return {"t1511OutBlock": {
             "pricejisu": "6912.37", "openjisu": "6996.12", "highjisu": "6996.12",
             "lowjisu": "6841.88", "volume": 265457, "value": 22468982,
@@ -61,3 +61,10 @@ def test_관측시각은_벽시계가_아니라_공표_정책_시각이다(store
     early = ReplayClock(datetime(2026, 9, 1, 15, 50, tzinfo=seoul).astimezone(UTC))
     with pytest.raises(NotYetPublished):
         observed_moment(store, day=date(2026, 9, 1), clock=early)
+
+
+def test_코스피200_도_당일에_받는다() -> None:
+    """2026-09-29: HMM 노출 행동(22:50)이 그날 K200 종가를 요구하는데 KRX 원천은 다음날 아침에 온다 — LS 업종 101 로 받는다."""
+    from tools.collect_indices_ls import INDICES
+
+    assert INDICES["KR:IDX:KOSPI200"] == ("101", "KOSPI200")

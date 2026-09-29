@@ -54,6 +54,10 @@ PATH = "/indtp/market-data"
 INDICES: dict[str, tuple[str, str]] = {
     "KR:IDX:KOSPI": ("001", "KOSPI"),
     "KR:IDX:KOSDAQ": ("301", "KOSDAQ"),
+    # KOSPI200(업종 101) — 2026-09-29 추가. KRX 원천(krx_openapi·krx_etf_069500)은 **다음날 아침 09:10** 에야 들어와
+    # 22:50 HMM 노출 행동(tools/v2_hmm_daily.py, 등록: "그날 K200 종가까지로")이 매일 rc=1 이었다. LS 값은 KRX 와 같다
+    # (9/28 전일 1089.28 = krx_etf_069500 1089.28 확인). 같은 (entity, valid_from) 라 다음날 KRX 가 새 revision 으로 덮는다.
+    "KR:IDX:KOSPI200": ("101", "KOSPI200"),
 }
 
 
@@ -84,7 +88,7 @@ def _number(value: object) -> float | None:
 
 
 def rows_from_client(client, *, day: date, observed_at: datetime) -> list[dict]:
-    """t1511 두 번(코스피·코스닥) → indices 행. 종가가 없으면 그 지수는 뺀다."""
+    """t1511 세 번(코스피·코스닥·코스피200) → indices 행. 종가가 없으면 그 지수는 뺀다."""
     out: list[dict] = []
     for entity, (upcode, board) in INDICES.items():
         data = client.request_tr(PATH, TR, {f"{TR}InBlock": {"upcode": upcode}})
