@@ -1,6 +1,6 @@
 # 사전등록 — 결정 중심 학습(D1): 얼린 GBM 백본 + 잔차 머리를 비용 후 포트 수익으로 (2026-09-28 작성 · family `selection` · 시행 D1a·D1b · 각 1회)
 
-> **초안 — 해시 미고정.** 리드 검토 → 사용자 승인 → 이 머리줄을 지우고 해시를 고정한다. 측정은 마지막 모델 회차(BE·BF·BG) 판정 뒤.
+> **고정 2026-09-29 15:47 KST** — 사용자 승인(9/29 "BF→BG→D1 순서로 돌리자"), BE·BF 판정 뒤·BG 진행 중 고정. 이 파일의 sha256 앞 16자가 판정 기록의 `protocol_hash` 다 — 측정이 끝날 때까지 고치지 않는다. 실행은 대기열(scripts/final_round_queue.sh)이 BG 뒤에.
 
 설계 문서: [`docs/design/ai-full-stack.md`](../design/ai-full-stack.md) §2(과적합 규율 20조)·§3.1(함정 여섯)·§3.2(확정 설계)·§3.3(FA+).
 공통 틀: [`final-model-round-2026-10.md`](final-model-round-2026-10.md) — 패널·블록·대조군·규칙 포트·판정은 `tools/final_round_kit.py` 를 **읽기만** 한다.
