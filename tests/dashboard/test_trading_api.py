@@ -528,3 +528,20 @@ def test_휴장일이나_오늘_스냅샷_뒤엔_실시간을_종가로_안_쓴�
     assert _close_pending(ctx("2026-09-25 15:34+09:00"), curve) is False     # 추석 휴장
     assert _close_pending(ctx("2026-09-23 17:00+09:00"), curve) is False     # 오늘 스냅샷이 이미 있다
     assert _close_pending(ctx("2026-09-28 15:45+09:00"), curve) is True      # 거래일, 오늘 스냅샷 전
+
+
+def test_미장_신호가_더_늦게_들어와도_국장_점수가_빠지지_않는다(desk) -> None:  # type: ignore[no-untyped-def]
+    """2026-09-29: 두 시장 신호에서 '가장 늦은 valid_from' 만 남기자 미장 세션이 들어온 뒤 국장 점수가 통째로 비었다."""
+    from quant_rl_trading.dashboard.services import trading as service
+
+    later = NOW + timedelta(hours=14)   # 미장 세션은 한국시간 새벽에 닫힌다 — 국장 신호보다 늦다
+    desk.append("analyst_weights", [_row("fundamental", YESTERDAY + timedelta(hours=1), market="US", ic=0.05, weight=1.0)],
+                ingest_run_id="weights-us")
+    desk.append("signals", [
+        _row("US:AAPL", later, analyst="fundamental", analyst_version="fundamental-v0.1.0", score=0.5,
+             confidence=1.0, horizon_days=5, features_hash="x", evidence_json="[]", latency_ms=1.0)
+    ], ingest_run_id="signals-us")
+    as_of = later + timedelta(minutes=5)
+    kr = service._latest_scores(desk, as_of=as_of, market="KR")
+    assert set(kr) == {ENTITY, OTHER}
+    assert set(service._latest_scores(desk, as_of=as_of, market="US")) == {"US:AAPL"}

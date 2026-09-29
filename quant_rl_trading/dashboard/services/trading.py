@@ -902,7 +902,7 @@ def positions(store: Store, context: Context) -> list[dict[str, Any]]:
     valuation = context.snapshot.valuation
     nav = valuation.nav
     names = _names(store, as_of=context.as_of, entities=list(context.book.positions))
-    signals = _latest_scores(store, as_of=context.as_of)
+    signals = _latest_scores(store, as_of=context.as_of, market=context.market)
 
     rows: list[dict[str, Any]] = []
     # 장부 하나에 두 시장이 살 수 있다(shadow). 이 시장 것만 — 미장 보기에 국장
@@ -982,7 +982,7 @@ def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
     여기서 보여주는 것은 **기록된 신호**다.
     """
     as_of = context.as_of
-    scores = _latest_scores(store, as_of=as_of)
+    scores = _latest_scores(store, as_of=as_of, market=context.market)
     if not scores:
         return []
     targets = _target_weights(store, as_of=as_of)
@@ -1128,7 +1128,7 @@ def decision(
     as_of = context.as_of
     params = AllocatorParams.from_store(store, as_of=as_of)
     weights = analyst_weights(store, as_of=as_of, market=context.market)
-    scores = _latest_scores(store, as_of=as_of)
+    scores = _latest_scores(store, as_of=as_of, market=context.market)
 
     target = entity_id or _top_holding(context)
     if target is None:
@@ -1833,18 +1833,22 @@ def intraday_candles(
 # -- 내부 ----------------------------------------------------------------------
 
 
-def _latest_scores(store: Store, *, as_of: datetime) -> dict[str, float]:
-    """종목별 최신 합성 점수. 신호가 없으면 빈 dict — 0 으로 채우지 않는다."""
+def _latest_scores(store: Store, *, as_of: datetime, market: str = "KR") -> dict[str, float]:
+    """종목별 최신 합성 점수 — **그 시장 것만**. 신호가 없으면 빈 dict — 0 으로 채우지 않는다.
+
+    시장 필터는 SQL 에서(store.get(market=)) — 2026-09-29: 두 시장 신호를 한꺼번에 읽고 "가장 늦은 valid_from" 만
+    남겼더니, 미장 12:00 세션(valid_from 한국시간 새벽)이 들어오는 순간 국장 점수가 통째로 빠져 보유·후보 표의
+    점수 칸과 '왜 샀나' 의 전체 순위가 비었다."""
     # **하루치만 읽는다.** 5일창은 229,000행(0.9초)이고 합성은 최신 세션만 쓴다 —
     # 주말·연휴처럼 하루창이 비면 그때만 5일로 넓힌다 (2026-08-28 실측 3.4초 → 1.4초).
     columns = ["entity_id", "analyst", "score", "confidence", "observed_at", "valid_from"]
-    signals = store.get(SIGNALS, as_of=as_of, lookback=1, columns=columns)
+    signals = store.get(SIGNALS, as_of=as_of, lookback=1, columns=columns, market=market)
     if signals.empty:
-        signals = store.get(SIGNALS, as_of=as_of, lookback=5, columns=columns)
+        signals = store.get(SIGNALS, as_of=as_of, lookback=5, columns=columns, market=market)
     if signals.empty:
         return {}
     signals = signals[signals["valid_from"] == signals["valid_from"].max()]
-    weights = analyst_weights(store, as_of=as_of, market="KR")
+    weights = analyst_weights(store, as_of=as_of, market=market)
     if not weights:
         return {}
     from quant_rl_trading.selector.combine import combined_scores
