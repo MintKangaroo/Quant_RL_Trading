@@ -125,12 +125,23 @@ def bucket_labels(frame: pd.DataFrame, keys: list[str], target: str = "y5") -> p
     return label.astype(int).rename("label")
 
 
+def query_order(frame: pd.DataFrame, keys: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    """`query_groups` 의 정렬을 **행 위치**로 돌려준다 — (위치 순서, 그룹 크기).
+
+    정렬 열(쿼리 키 + entity_id)만 떼어 정렬한다. 정렬 결과는 그 열과 행 순서로만 정해지므로
+    피처 76열을 통째로 들고 정렬한 것과 순서가 한 칸도 다르지 않다 — 다른 것은 사본의 크기뿐이다.
+    """
+    cols = [*keys, "entity_id"]
+    ordered = frame[cols].reset_index(drop=True).sort_values(cols, kind="stable")
+    sizes = ordered.groupby(keys, sort=False).size().to_numpy()
+    return ordered.index.to_numpy(), sizes
+
+
 def query_groups(frame: pd.DataFrame, keys: list[str]) -> tuple[pd.DataFrame, np.ndarray]:
     """그룹이 **연속**하도록 정렬한 표와 그룹 크기 배열. LightGBM 은 group 을 행 순서로만 읽는다 —
     정렬을 빼먹으면 조용히 엉뚱한 쿼리를 학습한다."""
-    ordered = frame.sort_values([*keys, "entity_id"], kind="stable")
-    sizes = ordered.groupby(keys, sort=False).size().to_numpy()
-    return ordered, sizes
+    order, sizes = query_order(frame, keys)
+    return frame.iloc[order], sizes
 
 
 # --------------------------------------------------------------------------- 지표
@@ -179,10 +190,8 @@ def rank_average(a: pd.DataFrame, b: pd.DataFrame, keys: list[str]) -> pd.DataFr
 # --------------------------------------------------------------------------- 학습
 
 
-def split_frames(train: pd.DataFrame,
-                 inner_split: InnerSplit) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """`inner_split` 이 준 세션 목록으로 학습창을 자른다. 잘못된 분할은 여기서 **멈춘다** —
-    조기 종료가 판정 창을 보는 사고는 조용히 지나가면 결과 전체가 거짓이 된다."""
+def split_masks(train: pd.DataFrame, inner_split: InnerSplit) -> tuple[np.ndarray, np.ndarray]:
+    """`split_frames` 의 판정을 **불리언 마스크**로 돌려준다 — (적합 행, 검증 행). 검사는 같은 자리에 하나뿐이다."""
     fit_days, val_days = inner_split(train)
     if not len(fit_days) or not len(val_days):
         raise ValueError("내부 학습·검증 중 한쪽이 비었다 — inner_split 을 볼 것")
@@ -191,7 +200,141 @@ def split_frames(train: pd.DataFrame,
     if max(val_days) > train["session"].max():
         raise ValueError("내부 검증이 학습창 밖을 본다 — 판정 창 누설")
     fit_set, val_set = set(fit_days), set(val_days)
-    return (train[train["session"].isin(fit_set)], train[train["session"].isin(val_set)])
+    return (train["session"].isin(fit_set).to_numpy(), train["session"].isin(val_set).to_numpy())
+
+
+def split_frames(train: pd.DataFrame,
+                 inner_split: InnerSplit) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """`inner_split` 이 준 세션 목록으로 학습창을 자른다. 잘못된 분할은 여기서 **멈춘다** —
+    조기 종료가 판정 창을 보는 사고는 조용히 지나가면 결과 전체가 거짓이 된다."""
+    fit, val = split_masks(train, inner_split)
+    return train[fit], train[val]
+
+
+# --------------------------------------------------------------------------- 메모리 (9/29 OOM)
+#
+# 9/29 07:42~08:26 본 측정이 커널 OOM 으로 네 번 죽었다(anon-rss 6.7~7.2GB, 2024-10 블록 · 학습 1.95M 행).
+# 합성 벤치로 잰 옛 경로의 블록 증분은 **학습 1M 행당 ≈ 2.0GB** 였다 — 학습창 DataFrame 사본(panel[mask]),
+# 내부 분할 사본 둘(isin), 정렬 사본(sort_values), `ordered[feats]` 사본과 그 float32 배열, 예측 때 다시 만드는
+# 같은 배열이 **동시에** 살아 있었다. 아래는 같은 값·같은 행 순서를 **행 위치**로만 다룬다:
+# 키 네 열(entity_id·session·market·y5)만 떼어 정렬하고, 피처 행렬은 패널 열에서 위치로 바로 채운 C 순서
+# float32 하나뿐이며, Dataset 이 bin 을 만든 뒤 원배열을 놓는다(free_raw_data). 진단 예측은 조각으로 한다.
+# 모델·하이퍼파라미터·표본·행 순서·시드는 그대로다 — tests/tools/test_final_lambdarank.py 가 옛 경로와
+# 예측이 **비트 단위로 같은지**(np.array_equal) 지킨다.
+
+#: 진단 예측 조각의 행 수 — 76피처 × 4B × 262,144 ≈ 76MB. LightGBM 예측은 행마다 독립이라 조각 크기가
+#: 값에 닿지 않는다(행 하나의 점수는 트리를 같은 순서로 더한 합이다).
+PREDICT_CHUNK = 1 << 18
+
+
+def feature_matrix(source: pd.DataFrame, feats: list[str], rows: np.ndarray) -> np.ndarray:
+    """``source`` 의 행 위치 ``rows`` 에서 ``feats`` 를 **C 순서 float32** 로 뽑는다.
+
+    `source.iloc[rows][feats].to_numpy(np.float32)` 와 값이 같다(열마다 같은 float32 캐스트). 다른 것은
+    중간 사본이 없다는 것뿐이다 — 열 하나씩 채우므로 임시 메모리는 한 열(행 × 4B)이다.
+    """
+    out = np.empty((len(rows), len(feats)), dtype=np.float32)
+    for j, col in enumerate(feats):
+        out[:, j] = source[col].to_numpy()[rows]
+    return out
+
+
+def predict_rows(booster: Booster, source: pd.DataFrame, feats: list[str], rows: np.ndarray,
+                 *, chunk: int = PREDICT_CHUNK) -> np.ndarray:
+    """행 위치 ``rows`` 의 예측을 조각으로 낸다 — 학습창 전체의 피처 행렬을 한 번 더 들지 않는다."""
+    out = np.empty(len(rows), dtype=np.float64)
+    for lo in range(0, len(rows), chunk):
+        part = rows[lo: lo + chunk]
+        out[lo: lo + len(part)] = booster.predict(feature_matrix(source, feats, part),
+                                                  num_iteration=booster.best_iteration)
+    return out
+
+
+def _release() -> None:
+    """블록 사이에 비운 힙을 OS 에 돌려준다. glibc 는 큰 배열을 풀어도 힙 꼭대기에 쥐고 있을 때가 있어서
+    RSS 가 블록마다 계단처럼 오른다. 값에는 닿지 않는다(할당기만 건드린다). glibc 가 아니면 아무것도 안 한다."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):  # pragma: no cover - glibc 가 아닌 곳
+        pass
+
+
+def rss_now_mb() -> float:
+    """지금 RSS(MB) — 블록 줄에 적는다. 다음 OOM 이 어느 블록에서 얼마로 오르는지 로그만 보고 알도록."""
+    try:
+        with open("/proc/self/status") as handle:  # invariant-allow: data-access — /proc, 창고 아님
+            for line in handle:
+                if line.startswith("VmRSS:"):
+                    return float(line.split()[1]) / 1024.0
+    except OSError:
+        pass
+    return float("nan")
+
+
+def compact_objects(frame: pd.DataFrame, cols: tuple[str, ...] = ("entity_id", "session", "market")) -> pd.DataFrame:
+    """객체 열(종목·세션·시장)의 **같은 값이 같은 객체를 가리키게** 한다. 값·dtype(object)·순서는 그대로다.
+
+    예측 캐시(pickle)를 읽으면 세션이 행마다 새 `date` 객체라 대조군 한 벌(3.1M 행)이 메모리에서 480MB 다.
+    같은 값끼리 객체를 나누면 행마다 포인터 8B 만 남는다. 비교·병합·groupby 는 값으로 하므로 결과가 같다.
+    결측이 있는 열은 건드리지 않는다.
+    """
+    for col in cols:
+        if col not in frame.columns or frame[col].dtype != object:
+            continue
+        codes, uniques = pd.factorize(frame[col].to_numpy(dtype=object))
+        if (codes < 0).any():
+            continue
+        frame[col] = np.asarray(uniques, dtype=object).take(codes)
+    return frame
+
+
+def _fit_rank_rows(source: pd.DataFrame, rows: np.ndarray, feats: list[str], keys: list[str], seed: int,
+                   inner_split: InnerSplit, *, rounds: int = MAX_ROUNDS,
+                   min_data: int | None = None) -> tuple[Booster, dict[str, float]]:
+    """`fit_rank` 의 몸통 — 학습창을 ``source`` 의 **행 위치** ``rows``(원래 순서)로 받는다."""
+    import lightgbm as lgb  # 무거운 라이브러리는 실제로 쓸 때만 든다
+
+    key_cols = list(dict.fromkeys(["entity_id", "session", *keys, "y5"]))
+    # 키 몇 열만, 학습창 행만 — 피처 76열 사본도, 패널 전체 행의 키 사본도 만들지 않는다
+    train = pd.DataFrame({c: source[c].to_numpy()[rows] for c in key_cols})
+    fit_mask, val_mask = split_masks(train, inner_split)
+
+    params = {**PARAMS, "seed": seed, "bagging_seed": seed + 1, "feature_fraction_seed": seed + 2,
+              "data_random_seed": seed + 3}
+    if min_data is not None:
+        params["min_data_in_leaf"] = min_data
+    #: 스레드 수는 등록 대상이 아니다 — 다른 작업과 머신을 나눠 쓸 때(테스트·스모크) 밖에서 줄인다.
+    #: `deterministic=True` 라 스레드를 줄여도 같은 자료·같은 시드면 같은 모델이 나온다.
+    params["num_threads"] = int(os.environ.get("QUANT_RL_LGB_THREADS", "") or 6)
+    parts: dict[str, tuple[pd.DataFrame, np.ndarray]] = {}
+    sets: dict[str, Any] = {}
+    for name, mask in (("tr", fit_mask), ("va", val_mask)):
+        part = train[mask]
+        order, sizes = query_order(part, keys)
+        ordered = part.iloc[order]
+        at = rows[mask][order]               # 정렬된 쿼리 순서의 source 행 위치
+        parts[name] = (ordered, at)
+        # ``free_raw_data`` 기본(True) — Dataset 이 bin 을 만든 뒤 원배열을 놓는다. 여기서 이름을 쥐지 않아야
+        # 실제로 풀린다(그래서 변수에 담지 않고 바로 넘긴다).
+        sets[name] = lgb.Dataset(feature_matrix(source, feats, at),
+                                 bucket_labels(ordered, keys).to_numpy(), group=sizes, free_raw_data=True)
+    del train
+    booster = lgb.train(params, sets["tr"], num_boost_round=rounds,
+                        valid_sets=[sets["va"]], valid_names=["inner_valid"],
+                        callbacks=[lgb.early_stopping(EARLY_STOP, verbose=False)])
+    del sets
+    _release()
+    diag: dict[str, float] = {"best_iter": float(booster.best_iteration or rounds)}
+    for name, key in (("tr", "train_ndcg"), ("va", "inner_valid_ndcg")):
+        ordered, at = parts.pop(name)
+        ordered = ordered.assign(pred=predict_rows(booster, source, feats, at))
+        ordered["label"] = bucket_labels(ordered, keys)
+        diag[key] = ndcg_at(ordered, keys)
+        del ordered, at
+    return booster, diag
 
 
 def fit_rank(train: pd.DataFrame, feats: list[str], keys: list[str], seed: int,
@@ -205,39 +348,12 @@ def fit_rank(train: pd.DataFrame, feats: list[str], keys: list[str], seed: int,
 
     ``min_data``·``rounds`` 는 **합성 스모크·테스트만** 줄인다. 실측(main)은 주지 않는다 —
     min_data 2000 은 등록한 값이고, 3천 행짜리 합성 자료에서는 가지가 하나도 안 갈려 예측이 전부 0 이 된다.
+
+    `walk_rank` 는 학습창 사본을 만들지 않으려고 `_fit_rank_rows` 를 패널 행 위치로 직접 부른다 — 이 함수와
+    같은 몸통이다(inner_split 이 받는 표는 키 열만 든 학습창이다).
     """
-    import lightgbm as lgb  # 무거운 라이브러리는 실제로 쓸 때만 든다
-
-    inner_train, inner_valid = split_frames(train, inner_split)
-
-    params = {**PARAMS, "seed": seed, "bagging_seed": seed + 1, "feature_fraction_seed": seed + 2,
-              "data_random_seed": seed + 3}
-    if min_data is not None:
-        params["min_data_in_leaf"] = min_data
-    #: 스레드 수는 등록 대상이 아니다 — 다른 작업과 머신을 나눠 쓸 때(테스트·스모크) 밖에서 줄인다.
-    #: `deterministic=True` 라 스레드를 줄여도 같은 자료·같은 시드면 같은 모델이 나온다.
-    params["num_threads"] = int(os.environ.get("QUANT_RL_LGB_THREADS", "") or 6)
-    # ``free_raw_data`` 는 기본(True)으로 둔다 — 원배열을 Dataset 이 붙잡으면 학습창이 1GB 를 넘는 마지막
-    # 블록에서 같은 자료를 두 번 들게 된다. 예측용 배열은 학습이 끝난 뒤 다시 만든다.
-    frames: dict[str, pd.DataFrame] = {}
-    sets: dict[str, Any] = {}
-    for name, part in (("tr", inner_train), ("va", inner_valid)):
-        ordered, sizes = query_groups(part, keys)
-        frames[name] = ordered
-        sets[name] = lgb.Dataset(ordered[feats].to_numpy(np.float32),
-                                 bucket_labels(ordered, keys).to_numpy(), group=sizes)
-    booster = lgb.train(params, sets["tr"], num_boost_round=rounds,
-                        valid_sets=[sets["va"]], valid_names=["inner_valid"],
-                        callbacks=[lgb.early_stopping(EARLY_STOP, verbose=False)])
-    del sets
-    diag: dict[str, float] = {"best_iter": float(booster.best_iteration or rounds)}
-    for name, key in (("tr", "train_ndcg"), ("va", "inner_valid_ndcg")):
-        ordered = frames.pop(name)
-        ordered["pred"] = booster.predict(ordered[feats].to_numpy(np.float32),
-                                          num_iteration=booster.best_iteration)
-        ordered["label"] = bucket_labels(ordered, keys)
-        diag[key] = ndcg_at(ordered, keys)
-    return booster, diag
+    return _fit_rank_rows(train, np.arange(len(train)), feats, keys, seed, inner_split,
+                          rounds=rounds, min_data=min_data)
 
 
 def walk_rank(panel: pd.DataFrame, feats: list[str], keys: list[str], sessions: list[date],
@@ -265,25 +381,30 @@ def walk_rank(panel: pd.DataFrame, feats: list[str], keys: list[str], sessions: 
     mark = monotonic()  # invariant-allow: wallclock — 블록 하나에 걸린 시간
     for number, (first, last) in enumerate(bl):
         end = train_end(sessions, first) if train_end else sessions[first - gap - 1]
-        train = panel[(panel["session"] <= end) & panel["y5"].notna()]
+        #: 학습창은 **행 위치**로만 든다 — `panel[mask]` 사본(1.95M 행 × 80열 ≈ 0.7GB)을 만들지 않는다.
+        at = np.flatnonzero(((panel["session"] <= end) & panel["y5"].notna()).to_numpy())
+        n_train = len(at)
         test = rows(panel, sessions, first, last).copy()
-        if train.empty or test.empty:
+        if not n_train or test.empty:
             continue
-        booster, diag = fit_rank(train, feats, keys, seed, inner_split,
-                                 rounds=rounds, min_data=min_data)
+        booster, diag = _fit_rank_rows(panel, at, feats, keys, seed, inner_split,
+                                       rounds=rounds, min_data=min_data)
+        del at
         test["pred"] = booster.predict(test[feats].to_numpy(np.float32),
                                        num_iteration=booster.best_iteration)
+        del booster
         test["label"] = bucket_labels(test, keys)
         #: **조기 종료가 걸린 것과 라운드를 다 쓴 것을 구분해 적는다.** 둘을 섞으면 "조기 종료 N회" 가
         #: 예산을 다 쓴 회차까지 세서, 과적합 진단이 반대로 읽힌다(BE 가 자기 코드에서 찾은 결함).
         diag.update({"seed": float(seed), "first": float(first), "judge_ndcg": ndcg_at(test, keys),
-                     "train_rows": float(len(train)), "rounds": float(rounds),
+                     "train_rows": float(n_train), "rounds": float(rounds),
                      "stopped_early": float(diag["best_iter"] < rounds)})
         preds.append(test[["entity_id", *keys, "pred", "label"]])
         diags.append(diag)
-        print(f"  {label} seed{seed} 블록 {sessions[first]}~{sessions[last]} · 학습 {len(train):,}행 · "
+        _release()
+        print(f"  {label} seed{seed} 블록 {sessions[first]}~{sessions[last]} · 학습 {n_train:,}행 · "
               f"iter {diag['best_iter']:.0f} · 내부검증 NDCG {diag['inner_valid_ndcg']:.4f} · "
-              f"판정 {diag['judge_ndcg']:.4f}", flush=True)
+              f"판정 {diag['judge_ndcg']:.4f} · RSS {rss_now_mb():,.0f}MB", flush=True)
         if record is not None:
             record(store, clock, "BF", source="trial_final_lambdarank",
                    market="+".join(sorted(pd.unique(test["market"]))) if "market" in test.columns else "",
@@ -293,7 +414,7 @@ def walk_rank(panel: pd.DataFrame, feats: list[str], keys: list[str], sessions: 
                    train_loss=-float(diag["train_ndcg"]), val_loss=-float(diag["inner_valid_ndcg"]),
                    metric=f"ndcg@{NDCG_AT}(−)", stopped_early=bool(diag["stopped_early"]),
                    elapsed_s=monotonic() - mark,  # invariant-allow: wallclock
-                   note=f"{label} · 학습 {len(train):,}행 ~{end}")
+                   note=f"{label} · 학습 {n_train:,}행 ~{end}")
         mark = monotonic()  # invariant-allow: wallclock
     if not preds:
         raise ValueError("블록이 하나도 돌지 않았다 — 세션·퍼지·블록 설정을 볼 것")
@@ -476,6 +597,9 @@ def main(argv: list[str] | None = None) -> int:
     from quant_rl_trading.store import Store
 
     panel, feats, _bundles, sessions = kit.load_full_panel(MARKETS, WINDOW)
+    #: 세션 열은 캐시를 다시 읽을 때 행마다 새 `date` 객체다(3.69M 행 ≈ 150MB). 값은 그대로 두고 객체만 나눈다.
+    panel = compact_objects(panel)
+    _release()                        # 조각 조립(concat) 때 잡은 힙을 돌려준다 — 이 뒤로 블록마다 오르는 것만 남게
     keys = query_keys(panel)          # ``_bundles`` 는 묶음 피처다 — 쿼리 그룹이 아니다
     bl = kit.blocks(sessions)
     print(f"FA {len(feats)}피처 · 판정 블록 {len(bl)} · 국장 세션 {len(sessions)} · "
@@ -505,7 +629,11 @@ def main(argv: list[str] | None = None) -> int:
     seeds = [int(s) for s in args.seeds]
     #: **대조군이 먼저다.** 없으면 rc=3 으로 멈춘다 — 대조 없이 판정 예산을 쓰지 않고,
     #: 시행 도구가 자기 GBM 을 새로 짜서 시행마다 다른 C0 을 만드는 길도 막는다.
-    ctrl = kit.require_controls(panel, seeds=tuple(seeds))
+    #: 관문은 **파일이 있는지만** 본다 — 대조군 열 벌(C0·C1 × 시드 5)을 한꺼번에 들면 한 벌 480MB 라 4.8GB 다
+    #: (9/29 OOM 의 가장 큰 몫). 없으면 kit 의 `require_controls` 가 무엇이 없는지 밝히고 rc=3 으로 멈춘다.
+    tag = kit.control_tag(panel)
+    if any(not kit.control_path(arm, s, tag).exists() for arm in ("C0", "C1") for s in seeds):
+        kit.require_controls(panel, seeds=tuple(seeds))
     store = Store(root=Path("data"))
     #: ``panel`` 을 반드시 준다 — 미장 포트가 시행 AT 채택 M1 합성을 쓴다(빼면 evaluate 가 멈춘다).
     books = kit.market_books(store, sessions, MARKETS, panel=panel)
@@ -514,7 +642,10 @@ def main(argv: list[str] | None = None) -> int:
     all_diags: list[pd.DataFrame] = []
     overlaps: list[float] = []
     for seed in seeds:
-        c0p, c1p = ctrl["C0"][seed], ctrl["C1"][seed]
+        #: 시드 하나의 대조군만 든다 — 같은 파일·같은 값이고, 객체만 나눠 한 벌 480MB → ≈ 120MB(실측, 3.1M 행).
+        one = kit.require_controls(panel, seeds=(seed,))
+        c0p, c1p = compact_objects(one["C0"][seed]), compact_objects(one["C1"][seed])
+        del one
         res["C0"][seed] = evaluate_pooled(kit, c0p, books, y)
         res["C1"][seed] = evaluate_pooled(kit, c1p, books, y, control=c0p)
         bf1, diags = seed_preds(kit, panel, feats, keys, sessions, bl, seed,
@@ -529,7 +660,8 @@ def main(argv: list[str] | None = None) -> int:
         overlaps.append(top_overlap(bf1, c0p))
         res["BF1"][seed] = evaluate_pooled(kit, bf1, books, y, control=c0p)
         res["BF2"][seed] = evaluate_pooled(kit, rank_average(bf1, c1p, keys), books, y, control=c0p)
-        del bf1
+        del bf1, c0p, c1p
+        _release()
 
     _, line = gap_lines(pd.concat(all_diags, ignore_index=True))
     lines = [line,

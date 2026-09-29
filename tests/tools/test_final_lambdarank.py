@@ -23,9 +23,12 @@ from tools.trial_final_lambdarank import (
     _inner_split_fallback,
     _synthetic,
     bucket_labels,
+    compact_objects,
+    feature_matrix,
     fit_rank,
     gap_lines,
     ndcg_at,
+    predict_rows,
     query_groups,
     query_keys,
     rank_average,
@@ -387,3 +390,118 @@ def test_순위_평균은_척도가_아니라_순위로_섞는다() -> None:
     assert out["x"] == pytest.approx(out["z"])  # 한쪽 1위·다른쪽 3위 → 같은 자리
     assert out["y"] == pytest.approx(out["x"])
     assert set(rank_average(a, b.iloc[:2], keys)["entity_id"]) == {"x", "y"}
+
+
+# --------------------------------------------------------------------------- 메모리 수리(9/29 OOM)는 값을 안 바꾼다
+#
+# 아래 `_old_*` 는 9/29 메모리 수리 **직전**(3c5df85) 의 학습 경로를 그대로 얼린 사본이다. 수리는 사본을 줄였을
+# 뿐 같은 행·같은 순서·같은 float32 값·같은 시드로 학습해야 한다 — 예측이 한 비트라도 다르면 BF 가 등록
+# (해시 34abffde1d5e6bed) 과 다른 모델을 재는 것이다. 그래서 np.array_equal 로 잰다(allclose 가 아니다).
+
+
+def _old_fit_rank(train, feats, keys, seed, inner_split, *, rounds, min_data):
+    import os
+
+    import lightgbm as lgb
+
+    fit_days, val_days = inner_split(train)
+    fit_set, val_set = set(fit_days), set(val_days)
+    inner_train = train[train["session"].isin(fit_set)]
+    inner_valid = train[train["session"].isin(val_set)]
+    params = {**PARAMS, "seed": seed, "bagging_seed": seed + 1, "feature_fraction_seed": seed + 2,
+              "data_random_seed": seed + 3, "min_data_in_leaf": min_data}
+    params["num_threads"] = int(os.environ.get("QUANT_RL_LGB_THREADS", "") or 6)
+    frames, sets = {}, {}
+    for name, part in (("tr", inner_train), ("va", inner_valid)):
+        ordered = part.sort_values([*keys, "entity_id"], kind="stable")
+        sizes = ordered.groupby(keys, sort=False).size().to_numpy()
+        frames[name] = ordered
+        sets[name] = lgb.Dataset(ordered[feats].to_numpy(np.float32),
+                                 bucket_labels(ordered, keys).to_numpy(), group=sizes)
+    booster = lgb.train(params, sets["tr"], num_boost_round=rounds,
+                        valid_sets=[sets["va"]], valid_names=["inner_valid"],
+                        callbacks=[lgb.early_stopping(50, verbose=False)])
+    diag = {"best_iter": float(booster.best_iteration or rounds)}
+    for name, key in (("tr", "train_ndcg"), ("va", "inner_valid_ndcg")):
+        ordered = frames.pop(name)
+        ordered["pred"] = booster.predict(ordered[feats].to_numpy(np.float32),
+                                          num_iteration=booster.best_iteration)
+        ordered["label"] = bucket_labels(ordered, keys)
+        diag[key] = ndcg_at(ordered, keys)
+    return booster, diag
+
+
+def _old_walk_rank(panel, feats, keys, sessions, bl, seed, inner_split, *, gap, min_data, rounds):
+    preds, diags = [], []
+    for first, last in bl:
+        end = sessions[first - gap - 1]
+        train = panel[(panel["session"] <= end) & panel["y5"].notna()]
+        test = _block_rows_fallback(panel, sessions, first, last).copy()
+        booster, diag = _old_fit_rank(train, feats, keys, seed, inner_split, rounds=rounds, min_data=min_data)
+        test["pred"] = booster.predict(test[feats].to_numpy(np.float32), num_iteration=booster.best_iteration)
+        test["label"] = bucket_labels(test, keys)
+        diag.update({"judge_ndcg": ndcg_at(test, keys), "train_rows": float(len(train))})
+        preds.append(test[["entity_id", *keys, "pred", "label"]])
+        diags.append(diag)
+    return pd.concat(preds, ignore_index=True), pd.DataFrame(diags)
+
+
+@pytest.fixture(scope="module")
+def messy() -> tuple[pd.DataFrame, list[str], list[date]]:
+    """실자료가 가진 모양을 일부러 섞는다 — 행 순서가 섞여 있고(정렬 경로가 일을 해야 한다), 인덱스가 0..n 이
+    아니며(위치와 이름표를 혼동하면 드러난다), y5 결측이 있고, 피처 한 열이 float64 다(float32 캐스트가 같아야 한다)."""
+    frame, feats, days = _synthetic(seed=7, n_sessions=70, n_names=45)
+    rng = np.random.default_rng(11)
+    frame = frame.sample(frac=1.0, random_state=3)
+    frame.index = rng.permutation(len(frame)) * 3 + 100
+    frame.loc[rng.random(len(frame)) < 0.05, "y5"] = np.nan
+    frame["f3"] = frame["f3"].astype(np.float64) * (1.0 + 1e-9)
+    for c in feats:
+        if c != "f3":
+            frame[c] = frame[c].astype(np.float32)
+    return frame, feats, days
+
+
+def test_메모리_수리_뒤에도_예측이_비트_단위로_같다(messy) -> None:
+    frame, feats, days = messy
+    keys = query_keys(frame)
+    bl = _blocks_fallback(days, min_train=30, block=10)[:3]
+    kw = {"gap": 5, "min_data": 50, "rounds": 40}
+    old_pred, old_diag = _old_walk_rank(frame, feats, keys, days, bl, 2, _inner_split_fallback, **kw)
+    new_pred, new_diag = walk_rank(frame, feats, keys, days, bl, 2, _inner_split_fallback, label="t", **kw)
+    assert len(new_pred) == len(old_pred) > 0
+    assert np.array_equal(new_pred["pred"].to_numpy(), old_pred["pred"].to_numpy())
+    for c in ("entity_id", "session", "market", "label"):
+        assert new_pred[c].tolist() == old_pred[c].tolist()
+    for c in ("best_iter", "train_ndcg", "inner_valid_ndcg", "judge_ndcg", "train_rows"):
+        assert np.array_equal(new_diag[c].to_numpy(), old_diag[c].to_numpy()), c
+
+
+def test_피처_행렬은_열_사본과_값이_같다(messy) -> None:
+    """행 위치로 바로 채운 float32 행렬이 `iloc[rows][feats].to_numpy(float32)` 와 한 비트도 다르지 않다."""
+    frame, feats, _ = messy
+    rows = np.random.default_rng(0).permutation(len(frame))[:777]
+    got = feature_matrix(frame, feats, rows)
+    want = frame.iloc[rows][feats].to_numpy(np.float32)
+    assert got.dtype == np.float32
+    assert got.flags["C_CONTIGUOUS"]
+    assert np.array_equal(got, want, equal_nan=True)
+
+    # 조각 예측이 한 번에 낸 예측과 같다 — 조각 크기는 값에 닿지 않는다
+    keys = query_keys(frame)
+    booster, _ = fit_rank(frame[frame["y5"].notna()], feats, keys, 0, _inner_split_fallback,
+                          rounds=10, min_data=50)
+    whole = booster.predict(want, num_iteration=booster.best_iteration)
+    assert np.array_equal(predict_rows(booster, frame, feats, rows, chunk=100), whole)
+
+
+def test_객체_나누기는_값을_안_바꾼다() -> None:
+    days = [date(2024, 1, 2), date(2024, 1, 3)]
+    frame = pd.DataFrame({"entity_id": ["a", "b", "a"], "market": ["KR", "KR", "US"],
+                          "session": [date(d.year, d.month, d.day) for d in (days[0], days[1], days[0])],
+                          "pred": [0.1, 0.2, 0.3]})
+    before = frame.copy()
+    out = compact_objects(frame)
+    pd.testing.assert_frame_equal(out, before)
+    assert out["session"].iloc[0] is out["session"].iloc[2]      # 같은 값은 같은 객체를 가리킨다
+    assert out["session"].dtype == object
