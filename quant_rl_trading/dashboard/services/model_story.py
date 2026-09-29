@@ -214,7 +214,48 @@ SHADOW_TRACKS: list[dict[str, str]] = [
     {"name": "W72 / N24", "ledger": "data/_w72_shadow · data/_n24_shadow", "started": "2026-09-28",
      "compares": "지금 방식 그대로 폭만 72종목 vs 24종목. 기록만 하고 이 장부로 판정하지 않는다(11월 금고 심사 참고용).",
      "doc": "docs/protocols/breadth72-forward-2026-09.md"},
+    # 시작일을 적지 않는다("auto") — 장부에 첫 NAV 가 생긴 날이 시작일이고, 그 전에는 줄이 안 나간다.
+    # 수익은 회계가 적은 TWR 지수(nav_daily.index_value)끼리만 견준다 — 여기서 NAV 를 다시 계산하지 않는다.
+    {"name": "BE2", "ledger": "data/_be2_shadow", "started": "auto",
+     "compares": "마지막 모델 회차 채택 후보 BE2(트랜스포머 + GBM 순위 평균)를 얼린 모델로 — 지금 모의계좌와 규칙은 같고 "
+                 "종목 점수만 BE2. 모의계좌와 같은 창 수익을 나란히 본다(체결은 시뮬레이션이라 비용 차이가 섞인다).",
+     "doc": "docs/design/be2-shadow.md", "compare_ledger": "data/_paper", "compare_name": "모의계좌"},
 ]
+
+
+def _book_index(root: Path, as_of: datetime) -> pd.Series:
+    """장부의 TWR 지수(국장 원화, 세션 날짜 → index_value). 장부가 없으면 빈 계열 — 여기서 NAV 를 계산하지 않는다."""
+    from quant_rl_trading.accounting import ledger as ledger_module
+
+    if not (root / "curated" / "nav_daily").is_dir():
+        return pd.Series(dtype=float)
+    try:
+        nav = Store(root=root).get("nav_daily", as_of=as_of, entity=ledger_module.ACCOUNT, lookback=400,
+                                   columns=["index_value"])
+    except Exception:  # noqa: BLE001 — 병행 장부 하나가 깨져도 학습 탭 전체가 죽지 않는다
+        return pd.Series(dtype=float)
+    if nav.empty:
+        return pd.Series(dtype=float)
+    days = pd.to_datetime(nav["valid_from"]).dt.tz_convert(KST).dt.date
+    return nav.assign(day=days).sort_values("valid_from").groupby("day")["index_value"].last().astype(float)
+
+
+def track_returns(root: Path, track: dict[str, str], as_of: datetime) -> dict[str, Any] | None:
+    """병행 장부의 첫 세션부터 as_of 까지 수익과, 같은 창의 비교 장부 수익. 장부가 아직 없으면 None."""
+    book = _book_index(root / Path(track["ledger"]).name, as_of)
+    if book.empty:
+        return None
+    since = book.index[0]
+
+    def total(series: pd.Series) -> float | None:
+        return float(series.iloc[-1] / series.iloc[0] - 1.0) if len(series) >= 2 and series.iloc[0] else None
+
+    out: dict[str, Any] = {"since": since.isoformat(), "sessions": int(len(book)), "book": total(book),
+                           "compare": None, "compare_name": track.get("compare_name")}
+    if track.get("compare_ledger"):
+        other = _book_index(root / Path(track["compare_ledger"]).name, as_of)
+        out["compare"] = total(other[other.index >= since])
+    return out
 
 
 def _kst_day(as_of: datetime) -> date:
@@ -342,8 +383,22 @@ def live_models(store: Store, *, as_of: datetime, lookback: int = 90,
             "model": _ranker_model(models_root, as_of),
             "threshold": threshold["value"] if threshold["found"] else None,
         },
-        "tracks": [dict(t) for t in SHADOW_TRACKS if date.fromisoformat(t["started"]) <= day],
+        "tracks": _tracks(Path(models_root) if models_root is not None else Path(store.root), as_of, day),
     }
+
+
+def _tracks(root: Path, as_of: datetime, day: date) -> list[dict[str, Any]]:
+    """as_of 에 돌던 병행 장부. 시작일이 "auto" 인 장부는 첫 NAV 가 있어야 나가고, 수익 비교를 같이 싣는다."""
+    out: list[dict[str, Any]] = []
+    for track in SHADOW_TRACKS:
+        if track["started"] == "auto":
+            returns = track_returns(root, track, as_of)
+            if returns is None:
+                continue
+            out.append({**track, "started": returns["since"], "returns": returns})
+        elif date.fromisoformat(track["started"]) <= day:
+            out.append(dict(track))
+    return out
 
 
 # --------------------------------------------------------------------------- ③ 과거 학습 내역

@@ -727,8 +727,18 @@ function lsTracks(tracks, base) {
   if (!tracks.length) return `<p class="empty">이 시점에 돌던 병행 장부가 없다.</p>`;
   return `<ul class="ls-tracks">${tracks.map((t) => `<li>
       <div class="ls-track-head"><strong>${frEsc(t.name)}</strong><span class="ls-when">${frEsc(t.started)}~</span></div>
-      <p>${frEsc(t.compares)}</p>
+      <p>${frEsc(t.compares)}</p>${lsTrackReturns(t.returns)}
       <p class="ls-hint"><span class="mono">${frEsc(t.ledger)}</span> ${lsDocLink(base, t.doc)}</p></li>`).join("")}</ul>`;
+}
+
+/* 병행 장부 수익 한 줄 — 회계가 적은 TWR 지수끼리(같은 창). 서버가 준 숫자만 옮긴다. */
+function lsTrackReturns(r) {
+  if (!r) return "";
+  const pct = (v) => (v === null || v === undefined ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`);
+  const gap = r.book !== null && r.compare !== null && r.book !== undefined && r.compare !== undefined
+    ? ` · 차 ${r.book - r.compare >= 0 ? "+" : ""}${((r.book - r.compare) * 100).toFixed(2)}%p` : "";
+  const other = r.compare_name ? ` · ${frEsc(r.compare_name)} <span class="mono">${pct(r.compare)}</span>` : "";
+  return `<p class="ls-hint">${frEsc(r.since)}부터 ${r.sessions}세션 · 이 장부 <span class="mono">${pct(r.book)}</span>${other}${gap}</p>`;
 }
 
 async function renderLiveModels() {

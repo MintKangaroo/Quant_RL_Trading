@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pyarrow as pa
 
+from quant_rl_trading.schemas.fa import FA_FEATURES
 from quant_rl_trading.store.errors import UnknownTable
 from quant_rl_trading.store.schema import TableSpec
 
@@ -661,6 +662,24 @@ _SPECS: dict[str, TableSpec] = {
         doc=(
             "지수 구성종목 스냅샷(거래일마다). valid_from = 그 세션 16:00, observed_at = 수집 시각. Z2 트랙의 후보 필터"
             "(docs/design/portfolio-construction.md). 소스 pykrx(KRX 정보데이터시스템, 로그인 세션)."
+        ),
+    ),
+    # BE2 shadow 의 입력(docs/design/be2-shadow.md). 세션마다 FA 76열을 **이미 정규화한 모양**(시장·세션 안 rank-gauss,
+    # 결측 표지 0/1)으로 한 번 적는다 — 트랜스포머가 60세션 창을 읽을 때 과거 59세션을 다시 계산하지 않게.
+    "fa_features": TableSpec(
+        name="fa_features",
+        columns={
+            "market": pa.string(),
+            "session": pa.string(),        # 그 시장의 세션 날짜(YYYY-MM-DD) — valid_from 의 UTC 날짜와 다를 수 있다
+            "feature_set": pa.string(),    # schemas/fa.FEATURE_SET — 열 정의가 바뀌면 올린다
+            **{name: pa.float64() for name in FA_FEATURES},
+        },
+        natural_key=("entity_id", "valid_from", "feature_set"),
+        observation_lag_days=3,
+        doc=(
+            "FA(전 피처) 76열 — 마지막 모델 회차 BE2 가 먹는 입력. valid_from = observed_at = 그 세션 공표 시각(as_of) — "
+            "그 시각까지 관측된 창고 자료만으로 계산한 파생값이다(signals 와 같은 규약). 계산은 "
+            "analysts/fa_features.build_session 한 곳이고, 매일 경로와 금고 창 굽기가 같은 함수를 부른다(불변식 5)."
         ),
     ),
     "exposure_actions": TableSpec(

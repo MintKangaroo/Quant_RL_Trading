@@ -40,6 +40,10 @@ if TYPE_CHECKING:
 
 ANALYST_WEIGHTS = "analyst_weights"
 BLEND_KEY = "selector.weight_blend_sessions"
+#: **샌드박스 전용** 가중치 고정(docs/design/be2-shadow.md). 값이 있으면 `analyst_weights` 표 대신 이 {analyst: weight}.
+#: 실전 창고는 `config-overrides.yaml` 을 거부하고(store.__init__), 체크인 기본값은 빈 dict(끔)이다 —
+#: 그래서 이 키가 켜지는 곳은 BE2 shadow 처럼 "같은 규칙에 알파만 바꿔 끼운" 장부뿐이다.
+OVERRIDE_KEY = "selector.weights_override"
 
 
 def blend_sessions(store: Store, *, as_of: datetime, market: str) -> int:
@@ -114,6 +118,42 @@ def analyst_weights(
     )
 
 
+def weights_override(store: Store, *, as_of: datetime, market: str) -> dict[str, float] | None:
+    """`selector.weights_override`(시장 접미사 `_us` 우선). 비었거나 없으면 None — 측정값을 쓴다.
+
+    값은 {analyst: weight} 여야 한다. 모양이 틀리면 **크게 멈춘다**(ValueError) — 조용히 측정값으로 물러서면
+    BE2 shadow 가 현행 랭커로 도는데 화면은 "BE2 장부" 라고 말한다.
+    """
+    from quant_rl_trading.selector.candidates import market_config
+
+    try:
+        value = market_config(store, OVERRIDE_KEY, as_of=as_of, market=market)
+    except ConfigNotFound:
+        return None
+    if value is None or value == "" or value == {} or str(value).lower() in ("none", "{}"):
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"{OVERRIDE_KEY} 는 {{analyst: weight}} 여야 한다: {value!r}")
+    return {str(name): float(weight) for name, weight in value.items()}
+
+
+def _weight_rows(store: Store, *, as_of: datetime, market: str, lookback: int) -> dict[str, float] | None:
+    """{analyst: weight} 원본(0 이하 포함) — 덮어쓰기가 있으면 그것, 없으면 측정표. 측정이 없으면 None."""
+    override = weights_override(store, as_of=as_of, market=market)
+    if override is not None:
+        return override
+    frame = store.get(ANALYST_WEIGHTS, as_of=as_of, lookback=lookback)
+    if frame.empty:
+        return None
+    frame = frame[frame["market"] == market]
+    if frame.empty:
+        return None
+    return blended_rows(
+        frame, as_of=as_of, market=market,
+        sessions=blend_sessions(store, as_of=as_of, market=market),
+    )
+
+
 def measured_weights(
     store: Store, *, as_of: datetime, market: str, lookback: int = 400
 ) -> dict[str, float]:
@@ -122,17 +162,12 @@ def measured_weights(
     같은 Analyst 가 여러 번 측정됐으면 **가장 늦은 것**. IC 측정 결과를 있는
     그대로 보고 싶은 곳(진화의 유전자 목록, 배치 비교 도구)이 쓴다. 알파
     합성에 이걸 쓰면 `risk` 가 다시 점수로 섞인다 — `analyst_weights` 를 써라.
+
+    샌드박스에 `selector.weights_override` 가 있으면 그 값이다(`weights_override`).
     """
-    frame = store.get(ANALYST_WEIGHTS, as_of=as_of, lookback=lookback)
-    if frame.empty:
+    rows = _weight_rows(store, as_of=as_of, market=market, lookback=lookback)
+    if not rows:
         return {}
-    frame = frame[frame["market"] == market]
-    if frame.empty:
-        return {}
-    rows = blended_rows(
-        frame, as_of=as_of, market=market,
-        sessions=blend_sessions(store, as_of=as_of, market=market),
-    )
     return {name: value for name, value in rows.items() if value > 0.0}
 
 
@@ -232,16 +267,9 @@ def weight_census(
     함수만 보면 **"측정이 없다" 와 "측정은 있는데 다 떨어졌다" 가 같은 빈
     dict** 이다. 여기서는 지우기 전 원본을 세므로 둘이 갈린다.
     """
-    frame = store.get(ANALYST_WEIGHTS, as_of=as_of, lookback=lookback)
-    if frame.empty:
+    rows = _weight_rows(store, as_of=as_of, market=market, lookback=lookback)
+    if not rows:
         return WeightCensus((), (), (), (), {})
-    frame = frame[frame["market"] == market]
-    if frame.empty:
-        return WeightCensus((), (), (), (), {})
-    rows = blended_rows(
-        frame, as_of=as_of, market=market,
-        sessions=blend_sessions(store, as_of=as_of, market=market),
-    )
     passed = tuple(sorted(name for name, value in rows.items() if value > 0.0))
     alpha = tuple(sorted(alpha_weights({name: rows[name] for name in passed})))
     return WeightCensus(

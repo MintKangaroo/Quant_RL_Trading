@@ -1,0 +1,8 @@
+# BE2 shadow — docs/design/be2-shadow.md. scripts/run_shadow_be2.sh 가 첫 실행에 data/_be2_shadow/config-overrides.yaml 로 복사한다.
+# 이 샌드박스에서만 읽힌다(Store.get 의 config 표 조회 — 실전 창고는 덮어쓰기 파일을 거부한다).
+# 나머지는 현행 모의계좌 규칙 그대로(상위 24 · 완충 72 · C10 · 리스크 패리티 · 노출 V6 · 섹터 상한).
+# 바꾸는 것은 알파 자리 하나 — 현행 측정표 {ranker: 1, risk: 1} 의 ranker 를 be2 로. risk 는 제약이라 알파에서 빠지고
+# 위험 하한으로 그대로 쓰인다(selector/constraints.py).
+selector.weights_override:
+  be2: 1.0
+  risk: 1.0

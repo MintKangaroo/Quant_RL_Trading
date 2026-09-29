@@ -164,6 +164,8 @@ exposure:                      # 노출 제어 (selector/exposure.py)
 
 selector:
   exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
+  weights_override: {}         # 샌드박스 전용 {analyst: weight} — 비면 측정표(analyst_weights). BE2 shadow 가
+                               # {be2: 1.0, risk: 1.0} 로 켠다(be2-shadow.md). 실전 창고는 덮어쓰기 파일을 거부한다
 
 collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내보내는 문턱
   consensus_max_fail_ratio: 0.10   # 국장 컨센서스(tools/collect_consensus_naver.py) 종목 실패 비율.
