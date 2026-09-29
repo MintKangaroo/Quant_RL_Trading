@@ -97,7 +97,10 @@ BE1(세트 트랜스포머 — 종목마다 60세션 × FA 76열, 같은 날 종
    (7/1 첫 채점에 60세션 창이 필요 — 4월부터). 세션당 40~110초·최대 RSS ≈ 2.5GB → 약 125세션 2~4시간.
    6월 세션은 `--compare-panel` 로 판정 패널과 대조(2026-06-30 은 이미 비트 동일 확인).
 3. **금고 창 신호**는 금고 등록(해시 고정) 뒤에만: `--signals-from 2026-07-01`. 그 전에 적으면 be2 의 금고 성적이
-   창고·화면(IC)에 생긴다.
+   창고·화면(IC)에 생긴다. `score_be2` 가 앞당김 등록(`docs/protocols/vault-early-open-2026-10.md`)이 고정되기 전에는
+   금고 창(~9/30) `--signals-from` 을 거부한다(rc 2). 금고 **판정**은 이 신호를 읽지 않는다 — `tools/vault_judge.py --window early`
+   가 같은 `fa_features` 와 같은 함수(`be2.session_batch`·`Be2Model.seed_predictions`)로 시드별 예측을 직접 낸다.
+   대조 C0 는 `tools/freeze_be2.py --arm C0` 로 따로 얼린다(15~25분, RSS ≈ 5GB).
 4. **크론** (제안, 걸지 않았다): `10 0 * * 2-6 /home/mintkangaroo/Project/Quant_RL_Trading/scripts/run_shadow_be2.sh`
    · 일요일 압축 줄의 샌드박스 목록에 `data/_be2_shadow` 추가.
 5. 첫 세션 뒤 `logs/shadow-be2-YYYYMM.log` — score rc·후보 24·주문 수. 학습 탭 ② 병행 트랙에 BE2 줄이 뜬다.

@@ -23,6 +23,14 @@ import pytest
 
 from tools import vault_judge as vj
 
+
+@pytest.fixture(autouse=True)
+def _registered_window():  # type: ignore[no-untyped-def]
+    """main(--window …) 가 모듈 창 변수를 다시 묶는다 — 테스트마다 원래 등록 창으로 되돌린다."""
+    vj.use_window(vj.windows()["registered"])
+    yield
+    vj.use_window(vj.windows()["registered"])
+
 # --------------------------------------------------------------------------- 합성 지표
 
 
@@ -72,9 +80,10 @@ def test_unknown_model_name_refuses(tmp_path, monkeypatch) -> None:  # type: ign
 # --------------------------------------------------------------------------- (b) 날짜 잠금
 
 
-@pytest.mark.parametrize("argv", [["--judge"], ["--bake"], ["--judge", "--trials", "BD", "--save"]])
+@pytest.mark.parametrize("argv", [["--judge", "--window", "registered"], ["--bake", "--window", "registered"],
+                                  ["--judge", "--window", "registered", "--trials", "BD", "--save"]])
 def test_locked_before_opening(argv, monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    """개봉 하루 전이면 rc=2 로 멈춘다. 창고를 열기 전에 멈춰야 한다."""
+    """개봉 하루 전이면 rc=2 로 멈춘다. 창고를 열기 전에 멈춰야 한다. (원래 등록 창 — 앞당김 창은 test_vault_early_open)"""
     monkeypatch.setattr(vj, "_today", lambda: date(2026, 11, 22))
     monkeypatch.setattr(vj, "Store", lambda **_: pytest.fail("잠금 전에 창고를 열었다"))
     assert vj.main(argv) == 2
@@ -286,7 +295,7 @@ def test_save_records_each_trial_and_the_opening(store) -> None:  # type: ignore
     assert vj.record_verdicts(store, _results(), save=True) == len(vj.TRIALS)
     now = datetime.now(UTC)
     trials = store.get("research_trials", as_of=now, lookback=5)
-    assert set(trials["entity_id"]) == set(vj.ENTITY.values())
+    assert set(trials["entity_id"]) == {vj.ENTITY[t] for t in vj.TRIALS}
     assert set(trials["source"]) == {"vault_judge"}
     assert int(trials["n_trials"].sum()) == len(vj.TRIALS)
     opened = store.get("holdout_access", as_of=now, lookback=5)

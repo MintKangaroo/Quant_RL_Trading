@@ -176,6 +176,11 @@ class Be2Model:
         booster = lgb.Booster(model_file=str(self.gbm[seed]))
         return np.asarray(booster.predict(x), dtype=float)
 
+    def seed_predictions(self, x: np.ndarray, flat: np.ndarray) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+        """시드마다 (BE1 원점수, C1 원점수) — 백분위·평균 전. Analyst 와 금고 판정부(`tools/vault_judge.py`)가
+        **같은 이 함수**를 부른다: 판정은 시드마다 지표를 내고, Analyst 는 시드 평균 점수를 낸다."""
+        return {seed: (self.predict_transformer(seed, x), self.predict_gbm(seed, flat)) for seed in self.seeds}
+
 
 def usable_be2_model(root: Path, *, as_of: datetime, version: str = VERSION) -> Be2Model | None:
     """as_of 에 써도 되는 가장 최근 얼린 모델. `usable_from ≤ as_of 날짜` · 문제 없음. 없으면 None."""
@@ -241,6 +246,43 @@ def percentile(values: np.ndarray) -> np.ndarray:
     return np.asarray(pd.Series(values).rank(pct=True).to_numpy(float), dtype=float)
 
 
+@dataclass(frozen=True)
+class SessionBatch:
+    """세션 하나의 채점 입력 — 창(종목 × N_STEPS × 76)·그날 평평한 행·종목 순서."""
+
+    session: date
+    entities: list[str]
+    x: np.ndarray
+    flat: np.ndarray
+    today: pd.DataFrame
+
+
+def session_batch(store, market: str, as_of: datetime) -> SessionBatch | str:  # type: ignore[no-untyped-def]
+    """as_of 에 관측된 `fa_features` 로 그 세션의 채점 입력을 만든다. 못 만들면 **이유 문자열**을 돌려준다.
+
+    Analyst(매일)와 금고 판정부(`tools/vault_judge.py`)가 **같은 이 함수**를 부른다 — 창 규칙(국장 ∪ 미장 축,
+    국장 세션 빈칸이면 거부, 종목 하한)이 두 곳에서 갈라지지 않게.
+    """
+    session = fa_features.session_of(market, as_of)
+    history = fa_features.read_window(store, as_of=as_of, market=market, lookback_days=WINDOW_LOOKBACK_DAYS)
+    today = history[history["session"] == session] if not history.empty else history
+    if today.empty:
+        return f"{session} FA 행이 창고에 없다 — score_be2 가 먼저 적는다"
+    axis = time_axis(session)
+    window = axis[-WINDOW:]
+    have = set(history["session"])
+    missing = [d for d in window if d in set(trading_days(Market.KR, window[0], session)) and d not in have]
+    if missing:
+        return (f"60세션 창의 국장 세션 {len(missing)}개에 FA 행이 없다({missing[0]}~) — "
+                "0 으로 채운 창으로 채점하지 않는다")
+    entities = sorted(today["entity_id"].astype(str))
+    if len(entities) < MIN_SET:
+        return f"종목 {len(entities)}개 < {MIN_SET}"
+    x = window_batch(history[history["session"].isin(set(window))], window, entities)
+    flat = today.set_index("entity_id").loc[entities, list(FA_FEATURES)].to_numpy(np.float32)
+    return SessionBatch(session=session, entities=entities, x=x, flat=flat, today=today)
+
+
 # --------------------------------------------------------------------------- Analyst
 
 
@@ -283,34 +325,15 @@ class Be2Analyst(RankerAnalyst):
         if self._be2 is None:
             self.skip_reason = "쓸 수 있는 얼린 모델이 없다(usable_from 전이거나 파일·지문 문제)"
             return pd.DataFrame()
-        session = fa_features.session_of(str(self.market), as_of)
-        history = fa_features.read_window(self.store, as_of=as_of, market=str(self.market),
-                                          lookback_days=WINDOW_LOOKBACK_DAYS)
-        today = history[history["session"] == session] if not history.empty else history
-        if today.empty:
-            self.skip_reason = f"{session} FA 행이 창고에 없다 — score_be2 가 먼저 적는다"
+        batch = session_batch(self.store, str(self.market), as_of)
+        if isinstance(batch, str):
+            self.skip_reason = batch
             return pd.DataFrame()
-        axis = time_axis(session)
-        window = axis[-WINDOW:]
-        have = set(history["session"])
-        missing = [d for d in window if d in set(trading_days(Market.KR, window[0], session)) and d not in have]
-        if missing:
-            self.skip_reason = (f"60세션 창의 국장 세션 {len(missing)}개에 FA 행이 없다({missing[0]}~) — "
-                                "0 으로 채운 창으로 채점하지 않는다")
-            return pd.DataFrame()
-        entities = sorted(today["entity_id"].astype(str))
-        if len(entities) < MIN_SET:
-            self.skip_reason = f"종목 {len(entities)}개 < {MIN_SET}"
-            return pd.DataFrame()
-        x = window_batch(history[history["session"].isin(set(window))], window, entities)
-        flat = today.set_index("entity_id").loc[entities, list(FA_FEATURES)].to_numpy(np.float32)
-        per_seed = []
-        for seed in self._be2.seeds:
-            be1 = percentile(self._be2.predict_transformer(seed, x))
-            c1 = percentile(self._be2.predict_gbm(seed, flat))
-            per_seed.append((be1 + c1) / 2.0)
+        per_seed = [(percentile(be1) + percentile(c1)) / 2.0
+                    for be1, c1 in self._be2.seed_predictions(batch.x, batch.flat).values()]
+        entities = batch.entities
         self._pred = pd.Series(np.mean(per_seed, axis=0), index=entities)
-        frame = today.set_index("entity_id").loc[entities, list(FA_FEATURES)].astype(float)
+        frame = batch.today.set_index("entity_id").loc[entities, list(FA_FEATURES)].astype(float)
         frame.index.name = None
         return frame
 
@@ -335,7 +358,22 @@ class Be2Analyst(RankerAnalyst):
 
 
 __all__ = [
-    "ARCH", "Be2Analyst", "Be2Model", "MIN_SET", "N_STEPS", "PROTOCOL_HASH", "TIME_OFFSETS", "VERSION",
-    "WINDOW", "build_set_ranker", "file_digest", "model_dir", "percentile", "time_axis", "usable_be2_model",
+    "ARCH",
+    "MIN_SET",
+    "N_STEPS",
+    "PROTOCOL_HASH",
+    "TIME_OFFSETS",
+    "VERSION",
+    "WINDOW",
+    "Be2Analyst",
+    "Be2Model",
+    "SessionBatch",
+    "build_set_ranker",
+    "file_digest",
+    "model_dir",
+    "percentile",
+    "session_batch",
+    "time_axis",
+    "usable_be2_model",
     "window_batch",
 ]

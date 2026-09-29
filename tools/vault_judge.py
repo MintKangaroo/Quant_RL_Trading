@@ -1,11 +1,25 @@
-"""홀드아웃 금고 개봉 판정부 — 사전등록 시행 AQ·AR·AS·BD 를 **한 번의 개봉**으로 심사한다.
+"""홀드아웃 금고 개봉 판정부 — 사전등록 시행 AQ·AR·AS·BD(+ BE2)를 **한 번의 개봉**으로 심사한다.
 
-    .venv/bin/python tools/vault_judge.py --plan                          # 개봉 당일 실행 순서만 인쇄(자료를 읽지 않는다)
-    .venv/bin/python tools/vault_judge.py --bake                          # ① 금고 창 패널 굽기
-    .venv/bin/python tools/vault_judge.py --judge --trials AQ,AR,AS,BD    # ② 판정 표·기준별 ○×
-    .venv/bin/python tools/vault_judge.py --judge --trials AQ,AR,AS,BD --save   # + research_trials·holdout_access 기록
+    .venv/bin/python tools/vault_judge.py --plan [--window early]                 # 실행 순서만 인쇄(자료를 읽지 않는다)
+    .venv/bin/python tools/vault_judge.py --bake --window early                   # ① 금고 창 패널 굽기
+    .venv/bin/python tools/vault_judge.py --judge --window early                  # ② 판정 표·기준별 ○×
+    .venv/bin/python tools/vault_judge.py --judge --window early --save           # + research_trials·holdout_access 기록
 
-## 금고
+## 창 셋 (`--window`, 기본 early)
+
+| 창 | 구간 | 굽기 / 판정 가능일 | 시행 | 창을 정한 문서 |
+|---|---|---|---|---|
+| `registered` | 2026-07-01~11-13 | 11-23 / 11-23 | AQ·AR·AS·BD | 각 시행의 등록 문서(원래 설계) |
+| `early` | 2026-07-01~09-30 | 문서가 정한다 | AQ·AR·AS·BD·BE2 | `docs/protocols/vault-early-open-2026-10.md` |
+| `second` | 2026-10-01~11-13 | 문서가 정한다 | BE2(확인) | 같은 문서 |
+
+`early`·`second` 의 날짜·시행은 **코드가 아니라 등록 문서의 `창` 줄**에서 읽는다(`windows()`). 날짜를 인자로 받지 않는
+것은 일부러다 — 인자로 창을 옮길 수 있으면 해시 잠금이 뜻을 잃는다. 대신 두 겹으로 잠근다:
+① 문서의 sha256 앞 16자가 이 파일의 `EARLY_PROTOCOL_HASH` 와 같아야 한다(초안이면 None → 전부 거부),
+② 오늘이 문서가 정한 굽기/판정 가능일 이후여야 한다. 또 개봉 이력(`holdout_access`)에 겹치는 창이 있으면
+거부한다 — 한 번 연 금고를 다른 창 이름으로 다시 여는 길을 막는다.
+
+## 금고 (registered — 원래 설계)
 
 - 창 **2026-07-01 ~ 2026-11-13**, 개봉은 **2026-11-23 이후 한 번**(self-improvement.md §1① · modelops-ranker.md ③).
 - `--bake` 와 `--judge` 는 그 전에는 **돌지 않는다**(날짜 잠금, `OPEN_FROM`). 6차 측정 도구의 `MEASURE_FROM` 과 같은 잠금이다.
@@ -33,14 +47,29 @@
 
 무거운 둘(미장 점수·원피처)은 `--bake` 가 직접 돌리지 않고 **선행 명령을 인쇄하고 멈춘다** — 몇 시간짜리 작업이라
 로그를 남기며 따로 돌려야 한다(memory `training-shares-no-machine`).
+
+타깃(h5 라벨)은 **판정 가능일 전에는 굽지 않는다** — 굽기 도구는 파일이 있으면 다시 굽지 않으므로, 라벨이 닫히기 전에
+구우면 창 끝 세션의 라벨이 빠진 채 굳는다.
+
+## BE2 (early·second) — 실전 경로로 잰다
+
+얼린 모델(`data/models/be2/be2-v1.0.0-20260630.*`)과 얼린 C0(`c0-v1.0.0-20260630.*`, `tools/freeze_be2.py --arm C0`)의
+**사이드카 sha256 을 등록 문서와 대조**하고, 사이드카 안의 파일 지문을 다시 계산한다(`Be2Model.problems`).
+입력은 창고 `fa_features`(실전 매일 경로 `analysts/fa_features.build_session` 이 적은 것)이고, 창·채점은
+be2 Analyst 와 **같은 함수**(`be2.session_batch`·`Be2Model.seed_predictions`)다. be2 **신호**(`signals.be2`)는 읽지 않는다 —
+그것은 시드 평균·EMA·z 를 거친 값이라 시드별 판정을 못 한다. 시드마다 BE2 = (BE1 백분위 + C1 백분위)/2, C1 = 얼린
+GBM, C0 = 얼린 6점수 GBM → 국장 포트(`trial_ranker_kit.portfolio`, `final_round_kit.evaluate` 국장 가지와 같다) →
+기준 ①~⑥(③ 은 창을 세션 수 절반으로 가른 두 구간 — 박스 국면이 창에 없다).
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any
@@ -52,6 +81,8 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from quant_rl_trading.analysts import be2 as be2_module  # noqa: E402
+from quant_rl_trading.schemas.fa import SCORE_COLUMNS  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 from tools.trial_insider_forward import INSIDER, PROTOCOLS, SEEDS  # noqa: E402
@@ -69,17 +100,105 @@ from tools.trial_us_index_tilt import run as tilt_run  # noqa: E402
 from tools.trial_us_kit import book as us_book  # noqa: E402
 from tools.trial_us_kit import m1_scores, spx_regime, us_panel  # noqa: E402
 
-#: 금고 창과 개봉일 — 등록 문서 넷이 같은 값을 쓴다. 코드에서 고치는 것은 사후 기준 변경이다.
-VAULT_START, VAULT_END = date(2026, 7, 1), date(2026, 11, 13)
-OPEN_FROM = date(2026, 11, 23)
+#: 금고 창과 개봉일 — **원래 등록(registered)** 값. 등록 문서 넷이 같은 값을 쓴다. 코드에서 고치는 것은 사후 기준 변경이다.
+#: 아래 모듈 변수 VAULT_START·VAULT_END·OPEN_FROM·VAULT·US_WORK·RAW_DIRS 는 `use_window` 가 고른 창으로 다시 묶는다.
+REGISTERED_START, REGISTERED_END = date(2026, 7, 1), date(2026, 11, 13)
+REGISTERED_OPEN = date(2026, 11, 23)
+VAULT_START, VAULT_END = REGISTERED_START, REGISTERED_END
+OPEN_FROM = REGISTERED_OPEN
 #: 금고 창 패널 캐시. `data/_diag` 는 개봉 전 시행들의 입력이라 덮지 않는다(bake_long_panel 의 같은 판단).
 VAULT = Path("data/_diag/vault-window")
 US_WORK = VAULT / "ic-history-us"
 RAW_DIRS = {"KR": VAULT / "raw-KR", "US": VAULT / "raw-US"}
 TRIALS = ("AQ", "AR", "AS", "BD")
-FAMILY = {"AQ": "selection", "AR": "ranker", "AS": "ranker", "BD": "selection"}
+FAMILY = {"AQ": "selection", "AR": "ranker", "AS": "ranker", "BD": "selection", "BE2": "ranker"}
 ENTITY = {"AQ": "breadth72-forward-2026-09:AQ", "AR": "insider-forward-2026-09:AR",
-          "AS": "raw-feature-vault-2026-09:AS", "BD": "us-regime-switch-vault-2026-11:BD"}
+          "AS": "raw-feature-vault-2026-09:AS", "BD": "us-regime-switch-vault-2026-11:BD",
+          "BE2": "final-model-round-2026-10:BE2"}
+
+#: 금고 앞당김 등록 문서(창 early·second 를 선언한다). 시행별 기준은 각 시행 문서 그대로다.
+EARLY_PROTOCOL = Path("docs/protocols/vault-early-open-2026-10.md")
+#: 그 문서의 sha256 앞 16자 — **사용자 승인 뒤 해시를 고정할 때** 적는다. None 이면 초안이고, early·second 는 전부 거부한다.
+EARLY_PROTOCOL_HASH: str | None = None
+#: 판정 기준을 담은 문서 — 시행 넷은 각자 등록 문서, BE2 는 마지막 모델 회차 문서(해시 34abffde1d5e6bed).
+PROTOCOL_OF: dict[str, Path] = {**PROTOCOLS, "BE2": Path("docs/protocols/final-model-round-2026-10.md")}
+#: 얼린 BE2·C0 — 사이드카 줄기(`<줄기>.json`). 해시는 앞당김 등록 문서 "모델 해시" 절에 적는다.
+BE2_MODELS = Path("data/models/be2")
+BE2_STEM, C0_STEM = "be2-v1.0.0-20260630", "c0-v1.0.0-20260630"
+C0_FEATURES = (*SCORE_COLUMNS, "is_us")
+#: BE2 채택 기준 ①~⑥ — 마지막 모델 회차 등록 그대로(`final_round_kit.GATE_*` 와 같은 값, 테스트가 맞춘다).
+BE2_GATE_MEAN, BE2_GATE_SHARE, BE2_GATE_HALF = 0.02, 0.80, -0.01
+BE2_GATE_IC, BE2_GATE_MDD, BE2_GATE_TURN, BE2_GATE_MODEL = 0.0, 0.02, 1.2, 0.01
+WINDOW_LINE = re.compile(r"^- `창 (\w+)` (\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2}) · 굽기 (\d{4}-\d{2}-\d{2}) · "
+                         r"판정 (\d{4}-\d{2}-\d{2}) · 시행 ([A-Z0-9,]+)\s*$", re.M)
+
+
+@dataclass(frozen=True)
+class Window:
+    """금고 창 하나. ``protocol`` 이 None 이면 원래 등록(시행 문서들이 창을 정했다)."""
+
+    name: str
+    start: date
+    end: date
+    bake_from: date
+    judge_from: date
+    trials: tuple[str, ...]
+    cache: Path
+    protocol: Path | None = None
+
+
+def windows(doc: Path | None = None) -> dict[str, Window]:
+    """창 셋 — registered 는 상수, early·second 는 앞당김 등록 문서의 `창` 줄에서 읽는다(문서가 없으면 registered 만)."""
+    out = {"registered": Window("registered", REGISTERED_START, REGISTERED_END, REGISTERED_OPEN, REGISTERED_OPEN,
+                                TRIALS, Path("data/_diag/vault-window"))}
+    doc = doc or EARLY_PROTOCOL
+    if not doc.exists():
+        return out
+    for name, start, end, bake_from, judge_from, trials in WINDOW_LINE.findall(doc.read_text()):
+        out[name] = Window(name, date.fromisoformat(start), date.fromisoformat(end), date.fromisoformat(bake_from),
+                           date.fromisoformat(judge_from), tuple(t for t in trials.split(",") if t),
+                           Path(f"data/_diag/vault-{name}"), protocol=doc)
+    return out
+
+
+def use_window(win: Window) -> None:
+    """모듈의 창 변수를 이 창으로 다시 묶는다 — 시행 러너들은 모듈 변수를 읽는다(원래 코드 그대로)."""
+    global VAULT_START, VAULT_END, OPEN_FROM, VAULT, US_WORK, RAW_DIRS
+    VAULT_START, VAULT_END, OPEN_FROM = win.start, win.end, win.judge_from
+    VAULT = win.cache
+    US_WORK = VAULT / "ic-history-us"
+    RAW_DIRS = {"KR": VAULT / "raw-KR", "US": VAULT / "raw-US"}
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+
+
+def registration_problems(win: Window | None = None) -> list[str]:
+    """앞당김 등록이 **고정됐는지** — 빈 목록이어야 early·second 의 자료를 읽는다(날짜와 무관한 잠금).
+
+    ① `EARLY_PROTOCOL_HASH` 가 있다(초안이 아니다) ② 문서 해시가 그 값과 같다 ③ 문서가 고정한 시행 문서 해시
+    (`doc:<시행>` 줄)가 지금 파일과 같다 — 시행 문서가 개봉 전에 바뀌었으면 거부. 원래 등록 창(registered)은 해당 없음.
+    """
+    if win is not None and win.protocol is None:
+        return []
+    doc = win.protocol if win is not None and win.protocol is not None else EARLY_PROTOCOL
+    if not doc.exists():
+        return [f"{doc} 가 없다"]
+    if EARLY_PROTOCOL_HASH is None:
+        return [f"{doc} 는 초안이다 — 등록 해시가 고정되지 않았다(EARLY_PROTOCOL_HASH = None). 사용자 승인 뒤 고정한다"]
+    digest = _digest(doc)
+    if digest != EARLY_PROTOCOL_HASH:
+        return [f"{doc} 해시 {digest} ≠ 고정값 {EARLY_PROTOCOL_HASH} — 고정 뒤 문서가 바뀌었다"]
+    problems = []
+    pinned = pinned_hashes(doc)
+    for trial, path in PROTOCOL_OF.items():
+        want = pinned.get(f"doc:{trial}")
+        if want is None:
+            problems.append(f"{doc} 에 doc:{trial} 해시 줄이 없다")
+        elif _digest(path) != want:
+            problems.append(f"{path} 해시 {_digest(path)} ≠ 앞당김 문서가 고정한 {want} — 시행 문서가 바뀌었다")
+    return problems
 #: 금고 창에 구울 국장 Analyst — 여섯에 **실전 랭커**(AQ 원천 ①)를 더한다.
 KR_ANALYSTS = ("chart", "event", "flow_kr", "fundamental", "regime", "risk", "ranker")
 #: 원피처(AS)를 굽는 Analyst — 시장마다 flow 가 다르다.
@@ -92,7 +211,7 @@ US_EXIT_MULT = 3            # AR·AS 등록: 완충 3N
 BD_EXIT_MULT, BD_WIDE, BD_CAP = 2, 500, 0.10   # BD 등록: 완충 48 · 시총 상위 500 · 종목 상한 10%
 BD_CRISIS_FLOOR = -0.03
 BD_MIN_BEAR = 10
-HASH_LINE = re.compile(r"^- `([A-Za-z0-9-]+)` ([0-9a-f]{16})\s*$", re.M)
+HASH_LINE = re.compile(r"^- `([A-Za-z0-9.:-]+)` ([0-9a-f]{16})\s*$", re.M)
 
 
 def _today() -> date:
@@ -100,27 +219,76 @@ def _today() -> date:
     return datetime.now(UTC).date()  # invariant-allow: wallclock — 사전등록 시점 잠금
 
 
-def locked(what: str) -> bool:
-    """금고 개봉 전이면 True 를 돌려주고 이유를 인쇄한다."""
+def locked(what: str, win: Window | None = None) -> bool:
+    """잠겨 있으면 True 를 돌려주고 이유를 인쇄한다. ``win`` 이 없으면 원래 등록 창(11/23)이다.
+
+    early·second 는 **해시 잠금이 먼저**다 — 초안이면 날짜가 지나도 돌지 않는다. 그다음 날짜: ``--bake`` 는 창의 굽기
+    가능일, ``--judge`` 는 판정 가능일.
+    """
+    win = win or windows()["registered"]
+    problems = registration_problems(win)
+    if problems:
+        print(f"{what} ({win.name} 창) 거부 — 등록이 고정되지 않았다:\n  " + "\n  ".join(problems)
+              + "\n지금 허용되는 것은 --plan 뿐이다.", flush=True)
+        return True
     today = _today()
-    if today >= OPEN_FROM:
+    opens = win.bake_from if what == "--bake" else win.judge_from
+    if today >= opens:
         return False
-    print(f"{what} 는 금고 개봉({OPEN_FROM}) 이후에만 돈다 — 오늘은 {today}. 사전등록 '중간 들여다보기 금지'"
+    print(f"{what} 는 금고 개봉({opens}) 이후에만 돈다 — 오늘은 {today}. 사전등록 '중간 들여다보기 금지'"
           f"(self-improvement.md §1①). 지금 허용되는 것은 --plan 뿐이다.", flush=True)
     return True
+
+
+#: 두 번째 금고에서 심사하는 조건 — 앞 개봉(early)의 판정이 이 말로 시작할 때만. BE2 는 채택(또는 ①~⑤ 통과)의 확인,
+#: BD 는 early 에서 bear 세션 부족으로 **보류**(시행 미소진)였을 때만 같은 기준으로 한 번.
+SECOND_NEEDS: dict[str, dict[str, tuple[str, ...]]] = {"second": {"BE2": ("채택", "①~⑤"), "BD": ("보류",)}}
+
+
+def prior_verdict(store: Store, trial: str) -> str | None:
+    """이 판정부가 그 시행에 적은 가장 최근 판정(research_trials detail 의 첫 칸). 없으면 None."""
+    now = datetime.now(UTC)  # invariant-allow: wallclock — 지금까지 적힌 판정 전부
+    rows = store.get("research_trials", as_of=now, lookback=3650)
+    if rows.empty:
+        return None
+    rows = rows[(rows["entity_id"] == ENTITY[trial]) & (rows["source"].astype(str) == "vault_judge")]
+    if rows.empty:
+        return None
+    return str(rows.sort_values("observed_at").iloc[-1]["detail"]).split(" | ")[0]
+
+
+def consumed(store: Store, win: Window) -> list[str]:
+    """이 창과 겹치는 **이미 연** 금고(`holdout_access`, reason promotion-review). 있으면 판정·기록을 거부한다."""
+    now = datetime.now(UTC)  # invariant-allow: wallclock — 개봉 이력은 지금까지 적힌 전부
+    rows = store.get("holdout_access", as_of=now, lookback=3650)
+    if rows.empty:
+        return []
+    rows = rows[rows["reason"].astype(str) == "promotion-review"]
+    out = []
+    for _, row in rows.iterrows():
+        a, b = date.fromisoformat(str(row["window_start"])), date.fromisoformat(str(row["window_end"]))
+        if a <= win.end and win.start <= b:
+            out.append(f"{a}~{b} ({row.get('entity_id', '')})")
+    return out
 
 
 # --------------------------------------------------------------------------- 얼린 모델
 
 
 def frozen_hashes(trial: str) -> dict[str, str]:
-    """등록 문서 "모델 해시" 절의 {이름: 해시 16자리}."""
-    body = PROTOCOLS[trial].read_text()
+    """등록 문서 "모델 해시" 절의 {이름: 해시 16자리}. BE2 는 앞당김 등록 문서에 적는다(마지막 회차 문서는 고정돼 못 고친다)."""
+    doc = EARLY_PROTOCOL if trial == "BE2" else PROTOCOLS[trial]
+    body = doc.read_text()
     head = body.index("## 모델 해시")
-    found = dict(HASH_LINE.findall(body[head:]))
+    found = {k: v for k, v in HASH_LINE.findall(body[head:]) if not k.startswith("doc:")}
     if not found:
-        raise SystemExit(f"{PROTOCOLS[trial]} 에 모델 해시가 없다 — --freeze 가 먼저다")
+        raise SystemExit(f"{doc} 에 모델 해시가 없다 — --freeze 가 먼저다")
     return found
+
+
+def pinned_hashes(doc: Path) -> dict[str, str]:
+    """문서 전체의 "- `이름` 해시16" 줄 — 시행 문서 고정(`doc:AQ` …)과 모델 해시가 같이 들어 있다."""
+    return dict(HASH_LINE.findall(doc.read_text()))
 
 
 def booster(name: str, expected: dict[str, str]) -> Any:
@@ -378,6 +546,62 @@ def judge_bd(res: dict[str, Any], bear_sessions: int) -> tuple[list[str], str]:
     return lines, verdict
 
 
+BE2_KEYS = ("ann", "h1", "h2", "mdd", "turn", "ic")
+
+
+def judge_be2(res: dict[str, list[dict[str, float]]], *, confirm: bool = False) -> tuple[list[str], str]:
+    """BE2 기준 ①~⑥ (`final-model-round-2026-10.md`, 창만 앞당김 문서). res[군] = 시드 순서대로 지표 목록, 군 = BE2·C0·C1.
+
+    ① 시드 평균 연수익 ≥ C0 + 2%p ② 시드의 80% 이상이 같은 시드 C0 보다 높다 ③ 창을 세션 수 절반으로 가른 두 구간
+    모두 ≥ C0 − 1%p(박스 국면이 창에 없어 등록 틀 ③ 의 "판정 창을 반으로 나눈 두 구간" 을 쓴다) ④ ΔIC(h5) ≥ 0
+    ⑤ MDD 가 2%p 넘게 깊지 않고 회전 ≤ C0 × 1.2 · ⑥ 모델 주장 ≥ C1 + 1%p.
+
+    ``confirm`` — 두 번째 금고(10/1~11/13)의 **확인**: 연수익 ≥ C0(여백 0) 이고 ⑤. ①~⑥ 은 기록만 한다.
+    지표 키가 빠지거나 nan 이면 크게 멈춘다 — 조용히 "기각" 으로 끝나지 않게(kit.judge 와 같은 이유).
+    """
+    for arm in ("BE2", "C0", "C1"):
+        for i, row in enumerate(res[arm]):
+            bad = [k for k in BE2_KEYS if k not in row or not np.isfinite(row[k])]
+            if bad:
+                raise ValueError(f"judge_be2: {arm} 시드 {i} 에 지표 {bad} 가 없다 — 조용히 기각하지 않는다")
+    be, c0, c1 = res["BE2"], res["C0"], res["C1"]
+    wins = sum(b["ann"] > c["ann"] for b, c in zip(be, c0, strict=True))
+    share = wins / len(be)
+    halves = [(_mean(be, k), _mean(c0, k)) for k in ("h1", "h2")]
+    dic = _mean(be, "ic") - _mean(c0, "ic")
+    c = (
+        _mean(be, "ann") >= _mean(c0, "ann") + BE2_GATE_MEAN,
+        share >= BE2_GATE_SHARE,
+        all(b >= z + BE2_GATE_HALF for b, z in halves),
+        dic >= BE2_GATE_IC,
+        _mean(be, "mdd") >= _mean(c0, "mdd") - BE2_GATE_MDD and _mean(be, "turn") <= _mean(c0, "turn") * BE2_GATE_TURN,
+    )
+    model = _mean(be, "ann") >= _mean(c1, "ann") + BE2_GATE_MODEL
+    lines = ["| 군 | 연수익(시드 평균) | 시드별 | 전반 | 후반 | MDD | 회전 | IC |", "|---|---|---|---|---|---|---|---|"]
+    for arm, rows in (("BE2", be), ("C1 GBM·FA", c1), ("C0 6점수", c0)):
+        lines.append(f"| {arm} | {_mean(rows, 'ann'):+.1%} | " + " / ".join(f"{r['ann']:+.1%}" for r in rows)
+                     + f" | {_mean(rows, 'h1'):+.1%} | {_mean(rows, 'h2'):+.1%} | {_mean(rows, 'mdd'):.1%} | "
+                       f"{_mean(rows, 'turn'):.1f} | {_mean(rows, 'ic'):+.4f} |")
+    lines += [
+        f"①평균 {_mean(be, 'ann') - _mean(c0, 'ann'):+.1%}p (≥ +2%p) {mark(c[0])} · ②{wins}/{len(be)} ({share:.0%}) {mark(c[1])} · "
+        f"③두 구간 {halves[0][0] - halves[0][1]:+.1%}p / {halves[1][0] - halves[1][1]:+.1%}p (≥ −1%p) {mark(c[2])}",
+        f"④ΔIC {dic:+.4f} (≥ 0) {mark(c[3])} · ⑤MDD {_mean(be, 'mdd'):.1%} 대 {_mean(c0, 'mdd'):.1%} · 회전 "
+        f"{_mean(be, 'turn'):.1f} 대 {_mean(c0, 'turn'):.1f} {mark(c[4])} · ⑥대 C1 {_mean(be, 'ann') - _mean(c1, 'ann'):+.1%}p "
+        f"(≥ +1%p) {mark(model)}",
+    ]
+    if confirm:
+        ok = _mean(be, "ann") >= _mean(c0, "ann") and c[4]
+        verdict = ("확인 — 두 번째 금고에서도 C0 이상·해 없음" if ok
+                   else "확인 실패 — 두 번째 금고에서 C0 미만이거나 ⑤ 위반(승격 보류, 사용자 결정)")
+    elif all(c) and model:
+        verdict = "채택 — BE2 금고 통과(①~⑥, 모델이 나아서)"
+    elif all(c):
+        verdict = "①~⑤ 통과·⑥ 미통과 — 정보 효과: BE2 모델 주장 기각, C1(GBM·FA) 후보 여부는 사용자 결정"
+    else:
+        verdict = "기각 — BE2 를 실전에 넣지 않는다(shadow 는 기록으로만)"
+    return lines, verdict
+
+
 # --------------------------------------------------------------------------- BD 의 전환 장부
 
 
@@ -537,28 +761,138 @@ def run_bd(store: Store) -> tuple[list[str], str]:
     return lines, verdict
 
 
-RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd}
+def frozen_be2(expected: dict[str, str], *, folder: Path | None = None) -> tuple[Any, dict[int, Any]]:
+    """얼린 BE2·C0 을 싣는다 — **사이드카 sha256 을 등록 문서와 대조**하고 사이드카 안 파일 지문을 다시 잰다.
+
+    창고는 읽지 않는다(파일만). 어긋나면 판정 거부 — 다시 학습하지 않는다.
+    """
+    folder = folder or BE2_MODELS
+    for stem in (BE2_STEM, C0_STEM):
+        if stem not in expected:
+            raise SystemExit(f"앞당김 등록 문서에 {stem} 의 해시가 없다 — 판정 거부(C0 는 freeze_be2 --arm C0 가 먼저다)")
+        path = folder / f"{stem}.json"
+        if not path.exists():
+            raise SystemExit(f"{path} 가 없다 — 얼린 모델을 다시 학습하지 않는다(등록 위반). 파일을 복구해야 한다")
+        digest = _digest(path)
+        if digest != expected[stem]:
+            raise SystemExit(f"사이드카 해시 불일치 {stem}: 문서 {expected[stem]} ≠ 파일 {digest} — 판정 거부")
+    model = be2_module.Be2Model.load(folder / f"{BE2_STEM}.json")
+    problems = model.problems()
+    if problems:
+        raise SystemExit("얼린 BE2 를 쓸 수 없다 — 판정 거부: " + "; ".join(problems))
+    meta = json.loads((folder / f"{C0_STEM}.json").read_text(encoding="utf-8"))
+    if tuple(meta.get("features", ())) != C0_FEATURES:
+        raise SystemExit(f"C0 열 {meta.get('features')} ≠ {list(C0_FEATURES)} — 판정 거부")
+    if meta.get("trained_through") != model.trained_through.isoformat():
+        raise SystemExit(f"C0 자르는 날 {meta.get('trained_through')} ≠ BE2 {model.trained_through} — 같은 규칙으로 얼려야 한다")
+    if sorted(int(x) for x in meta.get("seeds", [])) != sorted(model.seeds):
+        raise SystemExit(f"C0 시드 {meta.get('seeds')} ≠ BE2 시드 {list(model.seeds)} — 판정 거부")
+    import lightgbm as lgb
+    c0: dict[int, Any] = {}
+    for seed in model.seeds:
+        name = meta["files"]["gbm"][str(seed)]
+        path = folder / name
+        if not path.exists() or be2_module.file_digest(path) != meta["sha256"].get(name):
+            raise SystemExit(f"C0 파일 {name} 이 없거나 지문이 사이드카와 다르다 — 판정 거부")
+        c0[int(seed)] = lgb.Booster(model_file=str(path))
+    print(f"  BE2 {BE2_STEM} · C0 {C0_STEM} 사이드카 해시·파일 지문 대조 ○ (시드 {list(model.seeds)})", flush=True)
+    return model, c0
+
+
+def be2_predictions(store: Store, sessions: list[date], model: Any, c0: dict[int, Any], *,
+                    as_of_of: Any) -> dict[str, dict[int, pd.DataFrame]]:
+    """세션마다 창고 `fa_features`(그 세션 as_of 까지 관측된 것만)로 BE2·C1·C0 시드별 예측. 실전 be2 Analyst 와 같은 함수.
+
+    한 세션이라도 채점하지 못하면 **멈춘다** — 창을 조용히 줄이면 판정 창이 등록과 달라진다.
+    """
+    arms: dict[str, dict[int, list[pd.DataFrame]]] = {a: {int(s): [] for s in model.seeds} for a in ("BE2", "C1", "C0")}
+    failed: list[str] = []
+    for day in sessions:
+        batch = be2_module.session_batch(store, "KR", as_of_of(day))
+        if isinstance(batch, str):
+            failed.append(f"{day}: {batch}")
+            continue
+        if batch.session != day:
+            failed.append(f"{day}: as_of 가 다른 세션({batch.session})을 가리킨다")
+            continue
+        x0 = batch.today.set_index("entity_id").loc[batch.entities, list(C0_FEATURES)].to_numpy(np.float32)
+        base = pd.DataFrame({"entity_id": batch.entities, "session": day})
+        for seed, (be1, c1) in model.seed_predictions(batch.x, batch.flat).items():
+            arms["BE2"][int(seed)].append(base.assign(pred=(be2_module.percentile(be1) + be2_module.percentile(c1)) / 2.0))
+            arms["C1"][int(seed)].append(base.assign(pred=np.asarray(c1, dtype=float)))
+            arms["C0"][int(seed)].append(base.assign(pred=np.asarray(c0[int(seed)].predict(x0), dtype=float)))
+    if failed:
+        raise SystemExit(f"금고 창 {len(failed)}세션을 채점하지 못했다 — 창을 조용히 줄이지 않는다(score_be2 --features-only 로 채운다):\n  "
+                         + "\n  ".join(failed[:10]))
+    return {a: {s: pd.concat(v, ignore_index=True) for s, v in by.items()} for a, by in arms.items()}
+
+
+def run_be2(store: Store, *, confirm: bool = False) -> tuple[list[str], str]:
+    """BE2 — 얼린 모델 × 실전 경로 FA × 국장 포트(등록 채점 규칙). 대조 C1(BE2 파일 안 GBM)·C0(얼린 6점수 GBM)."""
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
+    from quant_rl_trading.collectors.publication import publication_policy
+    from quant_rl_trading.replay.clock import LiveClock
+    from tools.trial_lambdarank import top_overlap
+
+    model, c0 = frozen_be2(frozen_hashes("BE2"))
+    sessions = list(trading_days(Market.KR, VAULT_START, VAULT_END))
+    policy = publication_policy(store, Market.KR, clock=LiveClock())
+    preds = be2_predictions(store, sessions, model, c0, as_of_of=policy.for_session)
+    panel, _ = kr_loop_panel()
+    y = panel[["entity_id", "session", "y5"]].rename(columns={"y5": "target"})
+    del panel
+    ret, bench, trad = market_data(store, sessions, cache=VAULT)
+    res: dict[str, list[dict[str, float]]] = {}
+    for arm, by_seed in preds.items():
+        res[arm] = []
+        for seed in model.seeds:
+            daily, extra = portfolio(by_seed[int(seed)], ret, trad, every=EVERY)
+            row = stats(daily, bench, extra)
+            row["ic"] = _ic(by_seed[int(seed)], y)
+            res[arm].append(row)
+        print(f"  {arm}: 연 {_mean(res[arm], 'ann'):+.1%} · IC {_mean(res[arm], 'ic'):+.4f}", flush=True)
+    lines, verdict = judge_be2(res, confirm=confirm)
+    overlap = np.mean([top_overlap(preds["BE2"][int(s)], preds["C0"][int(s)]) for s in model.seeds])
+    lines.append(f"기록(기준 아님) 채점 세션 {len(sessions)} · 상위 24 겹침 BE2 대 C0 {overlap:.0%} · "
+                 f"β BE2 {_mean(res['BE2'], 'beta'):+.2f} 대 C0 {_mean(res['C0'], 'beta'):+.2f} · 입력 = 실전 경로 fa_features(miss_ba as_of)")
+    return lines, verdict
+
+
+RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2}
 
 
 # --------------------------------------------------------------------------- 기록
 
 
-def record_verdicts(store: Store, results: list[tuple[str, str, list[str]]], *, save: bool) -> int:
-    """판정을 `research_trials` 에 1행씩, 금고 개봉을 `holdout_access` 에 1행 적는다. ``save`` 가 아니면 아무것도 안 적는다."""
+def record_verdicts(store: Store, results: list[tuple[str, str, list[str]]], *, save: bool,
+                    win: Window | None = None) -> int:
+    """판정을 `research_trials` 에 1행씩, 금고 개봉을 `holdout_access` 에 1행 적는다. ``save`` 가 아니면 아무것도 안 적는다.
+
+    원래 등록 창이면 protocol_hash = 시행 문서 해시(그대로). 앞당김 창이면 protocol_hash = **앞당김 등록 문서** 해시이고
+    시행 문서 해시는 detail 에 적는다 — 이번 개봉을 지배한 것은 창을 옮긴 문서이고, 그 문서가 시행 문서 해시를 고정한다.
+    다중검정 기록: 각 행과 개봉 행에 "한 번에 연 시행 수" 를 적는다(self-improvement §1③ 누적 카운터는 시행마다 1).
+    """
     if not save:
         print("\n--save 가 없다 — 창고에 아무것도 적지 않았다(시행 미소진).", flush=True)
         return 0
+    early = win is not None and win.protocol is not None
+    batch = f"금고 {win.name if win else 'registered'} {VAULT_START}~{VAULT_END} · 동시 개봉 {len(results)}시행"
     for trial, verdict, lines in results:
-        digest = hashlib.sha256(PROTOCOLS[trial].read_bytes()).hexdigest()[:16]
+        own = hashlib.sha256(PROTOCOL_OF[trial].read_bytes()).hexdigest()[:16]
+        digest = _digest(win.protocol) if early and win is not None and win.protocol is not None else own
+        extra = [batch, f"시행 문서 {PROTOCOL_OF[trial].name} {own}"] if early else []
         record(store, entity=ENTITY[trial], source="vault_judge", family=FAMILY[trial], digest=digest,
-               verdict=verdict, lines=lines[-3:], market="US" if trial == "BD" else "KR", run_tag=trial)
+               verdict=verdict, lines=[*extra, *lines[-3:]], market="US" if trial == "BD" else "KR", run_tag=trial)
     now = datetime.now(UTC)  # invariant-allow: wallclock — 개봉 시각
+    adopted = sum(v.startswith(("채택", "확인 —")) for _, v, _ in results)
+    tag = "" if not early or win is None else f"{win.name}-"
     store.append("holdout_access", [{
-        "entity_id": f"promotion-review-{VAULT_END:%Y-%m}", "valid_from": now, "observed_at": now,
+        "entity_id": f"promotion-review-{tag}{VAULT_END:%Y-%m}", "valid_from": now, "observed_at": now,
         "source": "vault_judge", "market": "KR", "reason": "promotion-review",
         "window_start": VAULT_START.isoformat(),
         "window_end": VAULT_END.isoformat(),
-        "detail": "vault_judge — " + " / ".join(f"{t} {v}" for t, v, _ in results),
+        "detail": (f"vault_judge — {batch} · 채택 {adopted} — " if early else "vault_judge — ")
+                  + " / ".join(f"{t} {v}" for t, v, _ in results),
     }], ingest_run_id=f"vault-judge-{now:%Y%m%dT%H%M%S}")
     print(f"\n기록 완료 — research_trials {len(results)}행 · holdout_access 1행(금고는 이제 소진이다).", flush=True)
     return len(results)
@@ -567,11 +901,22 @@ def record_verdicts(store: Store, results: list[tuple[str, str, list[str]]], *, 
 # --------------------------------------------------------------------------- 굽기
 
 
-def bake_plan() -> list[tuple[str, Path, str]]:
-    """(설명, 있어야 하는 파일, 그것을 만드는 명령). 인쇄만 해도 순서를 알 수 있게 둔다."""
+def bake_plan(win: Window | None = None) -> list[tuple[str, Path, str]]:
+    """(설명, 있어야 하는 파일, 그것을 만드는 명령). 인쇄만 해도 순서를 알 수 있게 둔다. 창은 모듈 변수(use_window)."""
+    flag = f" --window {win.name}" if win is not None else ""
+    trials = win.trials if win is not None else TRIALS
+    extra: list[tuple[str, Path, str]] = []
+    if "BE2" in trials:
+        extra = [
+            ("⑥ 얼린 C0(BE2 대조, 6점수 GBM) — 해시를 앞당김 문서 '모델 해시' 에 적은 뒤 해시 고정",
+             BE2_MODELS / f"{C0_STEM}.json",
+             "setsid nohup .venv/bin/python -u tools/freeze_be2.py --arm C0 --verify >> logs/freeze-c0.log 2>&1 &"),
+        ]
     return [
-        ("① 국장 점수·타깃·거래가능 명단(AQ·AR·AS)", VAULT / "scores-ranker-KR.pkl",
-         ".venv/bin/python tools/vault_judge.py --bake   # bake_long_panel 을 금고 창으로 직접 부른다"),
+        ("① 국장 점수·거래가능 명단(AQ·AR·AS·BE2)", VAULT / "scores-ranker-KR.pkl",
+         f".venv/bin/python tools/vault_judge.py --bake{flag}   # bake_long_panel 을 금고 창으로 직접 부른다"),
+        ("①′ 국장 타깃 h5(판정 가능일 이후 — 라벨이 닫힌 뒤)", VAULT / "targets-KR-h5.pkl",
+         f".venv/bin/python tools/vault_judge.py --bake{flag}   # 판정 가능일 이후에 다시"),
         ("② 미장 Analyst 점수·타깃(AR·AS·BD)", US_WORK,
          f".venv/bin/python tools/backfill_ic_history.py --market US --start {VAULT_START:%Y-%m} "
          f"--end {VAULT_END:%Y-%m} --work {US_WORK} --sessions 120"),
@@ -583,20 +928,29 @@ def bake_plan() -> list[tuple[str, Path, str]]:
          f"--analyst {' '.join(RAW_ANALYSTS['US'])}"),
         ("⑤ 내부자 묶음 G4·G7 월 조각(AR)",
          Path(f"data/_diag/ranker-sources/G7-US-{VAULT_END:%Y%m}.parquet"),  # invariant-allow: data-access — 존재 확인할 작업 파일 경로
-         ".venv/bin/python tools/vault_judge.py --bake   # ranker_sources.build 를 금고 창 세션으로 부른다"),
+         f".venv/bin/python tools/vault_judge.py --bake{flag}   # ranker_sources.build 를 금고 창 세션으로 부른다"),
+        *extra,
     ]
 
 
-def bake(store: Store) -> int:
+def bake(store: Store, win: Window | None = None) -> int:
     """금고 창 패널을 굽는다 — 가벼운 것은 직접, 무거운 둘(②③④)은 선행 명령을 인쇄하고 멈춘다."""
-    from quant_rl_trading.collectors.market_hours import Market
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
     from quant_rl_trading.settings import load_env
     from tools.bake_long_panel import bake_scores, bake_targets, bake_tradable
 
     load_env()
     VAULT.mkdir(parents=True, exist_ok=True)
+    judge_from = win.judge_from if win is not None else OPEN_FROM
     print(f"=== 금고 창 패널 굽기 · {VAULT_START} ~ {VAULT_END} · {VAULT} ===", flush=True)
-    bake_targets(store, Market("KR"), VAULT_START, VAULT_END, VAULT)
+    if _today() >= judge_from:
+        bake_targets(store, Market("KR"), VAULT_START, VAULT_END, VAULT)
+    else:
+        # 타깃 파일은 한 번 구우면 다시 안 굽는다 — 라벨이 닫히기 전에 구우면 창 끝 세션이 빠진 채 굳는다.
+        calendar = VAULT / "calendar-KR.pkl"
+        if not calendar.exists():
+            pd.DataFrame({"session": list(trading_days(Market.KR, VAULT_START, VAULT_END))}).to_pickle(calendar)  # invariant-allow: data-access — 작업 캐시
+        print(f"  타깃 h5 는 판정 가능일({judge_from}) 이후에 굽는다 — 지금은 건너뛴다", flush=True)
     bake_scores(store, Market("KR"), VAULT_START, VAULT_END, VAULT, KR_ANALYSTS)
     bake_tradable(store, Market("KR"), VAULT_START, VAULT_END, VAULT)
     sessions = {"KR": [d.date() if hasattr(d, "date") else d
@@ -621,7 +975,18 @@ def bake(store: Store) -> int:
     for group in INSIDER:
         for market, days in sessions.items():
             build_panel(store, group, market, days, collect=False)
-    missing = [(label, cmd) for label, ready, cmd in bake_plan() if not ready.exists()]
+    if win is not None and "BE2" in win.trials:
+        # BE2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
+        from quant_rl_trading.analysts import fa_features
+        first = be2_module.time_axis(VAULT_START)[-be2_module.WINDOW:][0]   # 첫 채점일의 60칸 창 첫날
+        need = list(trading_days(Market.KR, first, VAULT_END))
+        lack = [d for d in need if not store.ingest_run_recorded(fa_features.TABLE, fa_features.run_id("KR", d))]
+        if lack:
+            print(f"  BE2 FA 피처가 {len(lack)}세션 없다({lack[0]}~{lack[-1]}) — 선행:\n    .venv/bin/python tools/score_be2.py "
+                  f"--start {lack[0]} --end {lack[-1]} --features-only", flush=True)
+        else:
+            print(f"  BE2 FA 피처 {len(need)}세션 적재 확인 ({need[0]}~{need[-1]})", flush=True)
+    missing = [(label, cmd) for label, ready, cmd in bake_plan(win) if not ready.exists()]
     if missing:
         print("\n남은 선행 작업 — 로그를 남기며 따로 돌린다(무겁다):", flush=True)
         for label, cmd in missing:
@@ -637,38 +1002,64 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", action="store_true", help="개봉 당일 실행 순서만 인쇄(자료를 읽지 않는다)")
     parser.add_argument("--bake", action="store_true", help="금고 창 패널 굽기 (개봉 이후만)")
     parser.add_argument("--judge", action="store_true", help="판정 (개봉 이후만)")
-    parser.add_argument("--trials", default=",".join(TRIALS))
+    parser.add_argument("--window", default="early",
+                        help="registered(원래 7/1~11/13) · early(앞당김 7/1~9/30) · second(10/1~11/13) — 날짜는 등록 문서가 정한다")
+    parser.add_argument("--trials", default=None, help="기본 = 그 창의 시행 전부")
     parser.add_argument("--save", action="store_true", help="research_trials·holdout_access 에 기록")
     args = parser.parse_args(argv)
+    known = windows()
+    if args.window not in known:
+        parser.error(f"창 {args.window!r} 이 없다 — 있는 창: {sorted(known)} (early·second 는 {EARLY_PROTOCOL} 의 '창' 줄)")
+    win = known[args.window]
+    use_window(win)
     if args.plan:
-        print(f"=== 금고 개봉({OPEN_FROM}) 당일 실행 순서 · 창 {VAULT_START}~{VAULT_END} ===", flush=True)
-        for i, (label, ready, cmd) in enumerate(bake_plan(), 1):
+        state = "고정" if not registration_problems(win) else "초안(미고정) — --bake·--judge 거부"
+        print(f"=== 금고 {win.name} 실행 순서 · 창 {win.start}~{win.end} · 굽기 {win.bake_from}~ · 판정 {win.judge_from}~ · "
+              f"시행 {','.join(win.trials)} · 등록 {state} ===", flush=True)
+        plan = bake_plan(win)
+        for i, (label, ready, cmd) in enumerate(plan, 1):
             print(f"{i}. {label}\n   있어야 하는 것: {ready}\n   {cmd}", flush=True)
-        print(f"{len(bake_plan()) + 1}. 판정\n   .venv/bin/python tools/vault_judge.py --judge "
-              f"--trials {','.join(TRIALS)} --save", flush=True)
+        print(f"{len(plan) + 1}. 판정\n   .venv/bin/python tools/vault_judge.py --judge --window {win.name} "
+              f"--trials {','.join(win.trials)} --save", flush=True)
         return 0
     if not (args.bake or args.judge):
         parser.error("--plan · --bake · --judge 중 하나")
-    if locked("--bake" if args.bake else "--judge"):
+    trials = [t for t in (args.trials or ",".join(win.trials)).split(",") if t]
+    unknown = [t for t in trials if t not in win.trials or t not in RUNNERS]
+    if unknown:
+        parser.error(f"{win.name} 창에서 심사하지 않는 시행: {unknown} (이 창: {list(win.trials)})")
+    if locked("--bake" if args.bake else "--judge", win):
         return 2
     store = Store(root=Path(args.root))
+    opened = consumed(store, win)
+    other = [w for w in opened if not w.startswith(f"{win.start}~{win.end}")]
+    if args.judge and (other or (opened and args.save)):
+        print(f"금고 {win.name}({win.start}~{win.end}) 판정 거부 — 이미 연 창과 겹친다: {opened}. "
+              "금고는 한 번 연다(self-improvement.md §1①).", flush=True)
+        return 2
     if args.bake:
-        return bake(store)
-    trials = [t for t in args.trials.split(",") if t]
-    unknown = [t for t in trials if t not in RUNNERS]
-    if unknown:
-        parser.error(f"모르는 시행: {unknown}")
+        return bake(store, win)
     results: list[tuple[str, str, list[str]]] = []
     for trial in trials:
-        digest = hashlib.sha256(PROTOCOLS[trial].read_bytes()).hexdigest()[:16]
-        print(f"\n=== 시행 {trial} — {PROTOCOLS[trial]} (해시 {digest}) · 금고 창 {VAULT_START}~{VAULT_END} ===", flush=True)
-        lines, verdict = RUNNERS[trial](store)
+        if win.name in SECOND_NEEDS and trial in SECOND_NEEDS[win.name]:
+            prior = prior_verdict(store, trial)
+            if prior is None or not prior.startswith(SECOND_NEEDS[win.name][trial]):
+                print(f"\n=== 시행 {trial} — {win.name} 창 건너뜀: 앞 개봉 판정이 {prior!r} "
+                      f"(이 창은 {SECOND_NEEDS[win.name][trial]} 인 경우만 — 등록 문서 '두 번째 금고') ===", flush=True)
+                continue
+        digest = hashlib.sha256(PROTOCOL_OF[trial].read_bytes()).hexdigest()[:16]
+        print(f"\n=== 시행 {trial} — {PROTOCOL_OF[trial]} (해시 {digest}) · 금고 {win.name} {VAULT_START}~{VAULT_END} ===",
+              flush=True)
+        if trial == "BE2":
+            lines, verdict = run_be2(store, confirm=win.name == "second")
+        else:
+            lines, verdict = RUNNERS[trial](store)
         print("\n" + "\n".join(lines) + f"\n판정: {verdict}", flush=True)
         results.append((trial, verdict, [*lines, f"판정: {verdict}"]))
     print("\n=== 요약 ===", flush=True)
     for trial, verdict, _ in results:
         print(f"{trial}: {verdict}", flush=True)
-    record_verdicts(store, results, save=args.save)
+    record_verdicts(store, results, save=args.save, win=win)
     return 0
 
 

@@ -131,6 +131,30 @@ def compare_panel(store: Store, sessions: list[date], *, panel_path: Path = PANE
         print(f"  {c:40s} 최대차 {diff:9.5f} · 순위상관 {rho:+.4f}{mark}", flush=True)
 
 
+def vault_signals_refusal(signals_from: date | None) -> str:
+    """금고 창 be2 **신호**를 적어도 되는지 — 앞당김 금고(early) 등록 해시가 고정되기 전에는 거부한다(빈 문자열 = 허용).
+
+    신호를 적으면 be2 의 금고 창 IC·성적이 창고·화면에 생긴다 — 등록 전에 보면 금고가 오염된다(docs/design/be2-shadow.md
+    '리드가 할 일' 3). 피처(`--features-only`)는 수익을 보지 않으므로 이 잠금과 무관하다. ``--signals-from`` 을 명시했을 때만 본다.
+    """
+    if signals_from is None:
+        return ""
+    from tools.vault_judge import registration_problems, windows
+
+    early = windows().get("early")
+    if early is None:
+        if signals_from < date(2026, 10, 1):
+            return f"--signals-from {signals_from}: 금고 앞당김 등록 문서가 없다 — 금고 창 신호를 적지 않는다"
+        return ""
+    if signals_from > early.end:
+        return ""
+    problems = registration_problems(early)
+    if problems:
+        return (f"--signals-from {signals_from}: 금고 창({early.start}~{early.end}) be2 신호는 등록 해시 고정 뒤에만 적는다 — "
+                + "; ".join(problems))
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default="data")
@@ -144,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--compare-panel", action="store_true", help="굽고 나서 판정 패널과 값을 견준다")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    refusal = vault_signals_refusal(args.signals_from)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return RC_BAD_ARGS
     store = Store(root=Path(args.root))
     market = Market(args.market)
     clock = LiveClock()

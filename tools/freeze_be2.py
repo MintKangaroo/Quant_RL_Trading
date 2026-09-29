@@ -3,6 +3,7 @@
     .venv/bin/python tools/freeze_be2.py --plan                       # 자르는 날·재학습 지점만 찍는다(세션 열만 읽는다)
     .venv/bin/python tools/freeze_be2.py [--seeds 0,1,2,3,4] [--schedule chain|cold] [--verify]
     .venv/bin/python tools/freeze_be2.py --synthetic --steps 4 --max-epochs 1 --out /tmp/be2   # 합성 스모크
+    .venv/bin/python tools/freeze_be2.py --arm C0 [--verify]          # 금고 대조 C0(6점수 GBM)만 얼린다
 
 ## 왜
 
@@ -31,6 +32,15 @@ shadow 와 금고 심사는 "얼린 모델" 이 필요하다. 이 도구가 그�
 - 시드마다 파일을 먼저 남기므로(`partial/`) 중간에 죽어도 끝난 시드는 다시 돌지 않는다. **혼자 돌려야 한다**(D1·BF·BG 뒤).
 
 **금고는 안 연다.** 패널 창은 2026-06-30 까지이고(`kit.check_window`), 학습 라벨도 자르는 날에서 멈춘다.
+
+## `--arm C0` — 금고 앞당김 심사의 대조 C0 (docs/protocols/vault-early-open-2026-10.md)
+
+마지막 회차의 C0(현행 6점수 GBM, `kit.controls` 의 ``[*SCORE_FEATS, "is_us"]``)는 **예측만** 캐시됐다(`pred-C0-seed*`).
+금고 심사는 C0 도 얼린 모델이 필요하다. 같은 패널·같은 자르는 날(`kit.train_end`)·같은 `trial_ranker_kit.fit`·같은 시드로
+GBM 만 한 번 적합해 `c0-v1.0.0-<data_end>-gbm-seed*.txt` + 사이드카 `c0-v1.0.0-<data_end>.json` 을 쓴다
+(파일 이름이 `be2-` 로 시작하지 않으므로 be2 Analyst 는 이것을 못 집는다). 트랜스포머는 돌지 않는다.
+계산량: 패널 적재(판정 캐시, 최대 RSS ≈ 4.8GB) + 7열 GBM 시드 5(대조군 굽기 실측 적합 1회 ≈ 8초) → **15~25분**, 최대 RSS ≈ 5GB.
+``--verify`` 면 판정 마지막 블록 끝점으로 한 번 더 적합해 `pred-C0-seed*` 캐시와 견준다(비트 동일이어야 한다).
 """
 from __future__ import annotations
 
@@ -227,6 +237,74 @@ def verify_gbm(kit: Any, panel: pd.DataFrame, feats: list[str], sessions: list[d
     return {"rows": len(both), "max_abs_diff": float((both["pred"] - both["pred_judge"]).abs().max())}
 
 
+# --------------------------------------------------------------------------- C0 (금고 대조)
+
+C0_VERSION = "c0-v1.0.0"
+
+
+def c0_features(kit: Any) -> list[str]:
+    """C0 의 열 — `kit.controls` 의 ``cols["C0"]`` 와 같은 식(현행 6점수 + is_us). 순서가 계약이다."""
+    return [*kit.SCORE_FEATS, "is_us"]
+
+
+def verify_c0(kit: Any, panel: pd.DataFrame, feats: list[str], sessions: list[date], blocks: list[tuple[int, int]],
+              seed: int) -> dict[str, Any]:
+    """판정 마지막 블록 끝점으로 적합해 `pred-C0-seed*` 캐시와 견준다(`verify_gbm` 의 C0 판)."""
+    first, last = blocks[-1]
+    path = kit.control_path("C0", int(seed), kit.control_tag(panel))
+    if not path.exists():
+        return {}
+    booster, _ = train_gbm(panel, feats, kit.train_end(sessions, first), seed)
+    test = kit.block_rows(panel, sessions, first, last)
+    pred = test[["entity_id", "session", "market"]].assign(pred=booster.predict(test[feats].to_numpy(np.float32)))
+    saved = pd.read_pickle(path)  # invariant-allow: data-access — 창고가 아닌 작업 캐시
+    both = pred.merge(saved, on=["entity_id", "session", "market"], suffixes=("", "_judge"))
+    if both.empty:
+        return {"rows": 0}
+    return {"rows": len(both), "max_abs_diff": float((both["pred"] - both["pred_judge"]).abs().max())}
+
+
+def freeze_c0(kit: Any, panel: pd.DataFrame, sessions: list[date], the_plan: dict[str, Any], seeds: list[int],
+              out: Path, *, verify: bool, synthetic: bool, usable_from: date) -> Path:
+    """C0 GBM 시드별 적합 → 파일·사이드카. 이미 있는 시드는 건너뛴다(이어 돌기)."""
+    feats = c0_features(kit)
+    missing_cols = [c for c in feats if c not in panel.columns]
+    if missing_cols:
+        raise SystemExit(f"C0 열 {missing_cols} 이 패널에 없다 — 멈춘다")
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"{C0_VERSION}-{the_plan['data_end']:%Y%m%d}"
+    info: dict[str, dict[str, Any]] = {}
+    files: dict[str, str] = {}
+    digests: dict[str, str] = {}
+    for seed in seeds:
+        txt = out / f"{stem}-gbm-seed{seed}.txt"
+        if txt.exists():
+            print(f"  C0 seed {seed} · 이미 얼렸다 — 건너뛴다", flush=True)
+            info[str(seed)] = {}
+        else:
+            booster, n_rows = train_gbm(panel, feats, the_plan["cut"], seed)
+            booster.save_model(str(txt))
+            info[str(seed)] = {"rows": int(n_rows)}
+            if verify and not synthetic:
+                info[str(seed)]["verify"] = verify_c0(kit, panel, feats, sessions, the_plan["blocks"], seed)
+            print(f"  C0 seed {seed} · 학습 {n_rows:,}행 · {info[str(seed)]} · 최대 RSS {kit.rss_mb():.0f}MB", flush=True)
+        files[str(seed)] = txt.name
+        digests[txt.name] = be2_module.file_digest(txt)
+    meta = {
+        "version": C0_VERSION, "arm": "C0",
+        "protocol": "docs/protocols/vault-early-open-2026-10.md",
+        "round_protocol_hash": be2_module.PROTOCOL_HASH,
+        "trained_through": the_plan["cut"].isoformat(), "data_end": the_plan["data_end"].isoformat(),
+        "usable_from": usable_from.isoformat(), "features": feats, "seeds": seeds,
+        "gbm": {"trainer": "tools/trial_ranker_kit.fit", "rounds": 300, "num_leaves": 7, "min_data_in_leaf": 2000,
+                "learning_rate": 0.03, "bagging_fraction": 0.8, "feature_fraction": 1.0, "lambda_l2": 1.0,
+                "num_threads": 6},
+        "files": {"gbm": files}, "sha256": digests, "gbm_log": info, "synthetic": bool(synthetic),
+        "created_at": LiveClock().now().isoformat(),
+    }
+    return write_sidecar(out, stem, meta)
+
+
 # --------------------------------------------------------------------------- 파일
 
 
@@ -253,6 +331,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", action="store_true", help="자르는 날·재학습 지점만 찍고 끝(학습 없음)")
     parser.add_argument("--synthetic", action="store_true", help="창고·캐시를 안 읽고 합성 패널로 배선만 본다")
     parser.add_argument("--skip-gbm", action="store_true")
+    parser.add_argument("--arm", choices=("BE2", "C0"), default="BE2",
+                        help="C0 = 금고 대조(6점수 GBM)만 얼린다 — 트랜스포머는 안 돈다")
     args = parser.parse_args(argv)
 
     from tools import final_round_kit as kit
@@ -294,6 +374,12 @@ def main(argv: list[str] | None = None) -> int:
           f"첫 사용일 {usable_from} · 일정 {args.schedule} · 시드 {seeds} ===", flush=True)
     print("  사슬 재학습 지점: " + " · ".join(f"블록{n}~{c}" for n, c in the_plan["chain"]), flush=True)
     if args.plan:
+        return 0
+    if args.arm == "C0":
+        sidecar = freeze_c0(kit, panel, sessions, the_plan, seeds, Path(args.out), verify=args.verify,
+                            synthetic=args.synthetic, usable_from=usable_from)
+        print(f"C0 사이드카 {sidecar} · sha256[:16] {hashlib.sha256(sidecar.read_bytes()).hexdigest()[:16]} "
+              f"· 최대 RSS {kit.rss_mb():.0f}MB · {(time_module.monotonic() - began) / 60:.1f}분", flush=True)  # invariant-allow: wallclock
         return 0
 
     import torch
