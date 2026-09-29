@@ -523,7 +523,7 @@ def test_결정_패널은_다섯_단계로_왜를_말한다(tmp_path: Path) -> N
     html = _decision_html(tmp_path, WHY_HELD)
     for title in ("점수", "걸러짐", "선정 규칙", "비중", "오늘 주문"):
         assert f'<div class="why-title">{title}</div>' in html, title
-    assert "2,799종목 중 148위" in html and "888종목 중 43위" in html
+    assert "2,799종목 중 148위" in html and "위험 필터 통과 710종목) 안에서 <b>43위</b>" in html and "888종목 중" not in html
     assert "평활 EMA" in html and "점수 분해" in html           # 막대 분해는 접힌 칸으로
     assert "통과 — 위험 점수 +0.457" in html and "하위 20%" in html
     assert "72위 안이라 팔지 않고 남긴다" in html and "다음 교체일 10/14" in html

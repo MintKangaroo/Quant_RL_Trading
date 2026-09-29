@@ -676,7 +676,7 @@ function rankRuler(r) {
     ? `${num(total)}종목 중 <b>${num(rank)}위</b> — ${zone[1]}${zone[0] === "keep" ? " (새로 사지는 않고, 들고 있으면 남긴다)" : ""}`
     : "앞 단계에서 걸러져 순위 경쟁에 없다 — 자 위에 점이 없다";
   return `<figure class="viz rank-ruler" aria-label="순위 자">
-    <div class="viz-title">순위 자 — 살 수 있는 ${num(total)}종목</div>
+    <div class="viz-title">순위 자 — 선정 경쟁(위험 필터 통과) ${num(total)}종목</div>
     <div class="rr-pins">${pin}</div>
     <div class="rr-track">
       <span class="rr-zone buy" style="left:0;width:${buyX}%"></span>
@@ -701,7 +701,7 @@ function riskRuler(f) {
   const thrX = x(f.risk_threshold);
   const bars = h.counts.map((c, i) => {
     const mid = h.lo + ((i + 0.5) / h.counts.length) * span;
-    return `<span class="rh-bar${mid < f.risk_threshold ? " cut" : ""}" style="height:${c ? Math.max(6, (c / peak) * 100) : 0}%"></span>`;
+    return `<span class="rh-bar${mid < f.risk_threshold ? " cut" : " pass"}" style="height:${c ? Math.max(6, (c / peak) * 100) : 0}%"></span>`;
   }).join("");
   const known = isKnown(f.risk_score);
   const me = known ? `<span class="rh-me" style="left:${x(f.risk_score)}%"></span>` : "";
@@ -773,7 +773,11 @@ function renderDecision(body) {
   const scoreValue = isKnown(s.ranker_score) ? s.ranker_score : s.composite;
   const step1 = whyStep(1, "점수", [
     `점수 ${dec(scoreValue, 3)} · 전체 ${rankText(s.rank_all, s.n_all)}`,
-    `살 수 있는 종목 안에서는 ${rankText(s.rank_tradable, s.n_tradable)}`,
+    // 순위 기준은 하나다(2026-09-29 사용자) — 선정 규칙(상위 N·완충 M)이 실제로 보는 **위험 필터·거부를 통과한 종목** 안의
+    // 순위(아래 순위 자와 같은 수). 필터 전(거래 가능 종목) 순위는 따로 적지 않는다 — 두 수가 나란히 있으면 헷갈렸다.
+    isKnown(r.rank) && isKnown(r.n_passed)
+      ? `선정 경쟁(위험 필터 통과 ${num(r.n_passed)}종목) 안에서 <b>${num(r.rank)}위</b>`
+      : `선정 경쟁 순위 ${UNKNOWN}${isKnown(s.n_tradable) ? ` — 앞 단계(걸러짐)에서 빠졌을 수 있다` : ""}`,
     s.smoothing_span > 1 ? `점수는 최근 ${s.smoothing_span}세션을 섞어 누른 값(평활 EMA) — 하루 흔들림에 명단이 안 바뀌게` : "",
     m ? `점수 모델 <span class="mono">${controlEsc(m.file || m.version)}</span> · ${controlEsc(m.trained_through)}까지 학습`
       : "점수 모델 모름",

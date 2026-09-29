@@ -205,7 +205,7 @@
 .viz-legend .lg i { display: inline-block; width: 8px; height: 8px; margin-right: 3px; vertical-align: -0.5px; background: var(--faint); }
 .viz-legend .lg.buy i { background: var(--ok); }
 .viz-legend .lg.keep i { background: var(--warn); }
-.viz-legend .lg.pass i { background: var(--muted); }
+.viz-legend .lg.pass i { background: color-mix(in srgb, var(--ok) 60%, transparent); }
 .viz-legend .lg.cut i { background: repeating-linear-gradient(135deg, var(--bad) 0 2px, transparent 2px 4px); outline: 1px solid var(--bad); outline-offset: -1px; }
 
 /* 핀(▼ 43위)과 눈금 — 양 끝 눈금은 안쪽으로 붙여 잘리지 않게. */
@@ -231,6 +231,7 @@
 .rh-plot { position: relative; height: 34px; margin: 0 6px; display: flex; align-items: flex-end; gap: 1px; border-bottom: 1px solid var(--rule); }
 .rh-bar { flex: 1 1 0; min-width: 0; background: color-mix(in srgb, var(--muted) 55%, transparent); }
 .rh-bar.cut { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bad) 70%, transparent) 0 2px, transparent 2px 4px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 55%, transparent); }
+.rh-bar.pass { background: color-mix(in srgb, var(--ok) 60%, transparent); }  /* 통과 구간 — 사용자 요청(2026-09-29): 잘린 쪽처럼 통과 쪽도 초록으로 */
 .rh-thr { position: absolute; top: -3px; bottom: -3px; width: 0; border-left: 1px dashed var(--bad); }
 .rh-me { position: absolute; top: 3px; bottom: -3px; width: 2px; transform: translateX(-1px); background: var(--text); }
 
