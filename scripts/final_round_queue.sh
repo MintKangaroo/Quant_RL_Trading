@@ -47,16 +47,18 @@ for row in "${TRIALS[@]}"; do
       sleep 300; continue
     fi
     say "${name}: 가용 ${avail}MB ≥ 필요 ${need_mb}MB — 러너 실행"
-    before=$(grep -cE '^rc=(137|143)' "${log}" 2>/dev/null); before=${before:-0}
+    # 실패로 세는 것: 메모리로 죽음(rc 137·143) **과** 판정 없이 오류로 끝남(rc 1~9 — 예: 9/29 16:26 BG 판정 키 nan 으로
+    # rc=1 → 대기열이 카나리부터 다시 돌려 같은 곳에서 또 죽을 뻔했다). 관문 건너뜀은 러너가 rc 줄을 안 남기므로 안 센다.
+    before=$(grep -cE '^([가-힣]+ )?rc=([1-9]|137|143)$' "${log}" 2>/dev/null); before=${before:-0}
     bash "${runner}"
-    after=$(grep -cE '^rc=(137|143)' "${log}" 2>/dev/null); after=${after:-0}
+    after=$(grep -cE '^([가-힣]+ )?rc=([1-9]|137|143)$' "${log}" 2>/dev/null); after=${after:-0}
     done_n=$(grep -c '^판정:' "${log}" 2>/dev/null); done_n=${done_n:-0}
     if [ "${done_n}" -ge "${need}" ]; then say "${name}: 끝 — $(grep '^판정:' "${log}" | tail -1)"; break; fi
     if [ "${after}" -gt "${before}" ]; then
       ooms=$((ooms + 1))
-      say "${name}: 메모리로 죽음(rc 137·143) ${ooms}/${MAX_OOM}"
+      say "${name}: 판정 없이 끝남(메모리·오류 — 로그 rc 줄) ${ooms}/${MAX_OOM}"
       if [ "${ooms}" -ge "${MAX_OOM}" ]; then
-        say "${name}: OOM 이 ${MAX_OOM}번 — 대기열을 멈춘다. 메모리 줄이기·P 갱신 뒤 사람이 다시 띄운다"
+        say "${name}: 실패가 ${MAX_OOM}번 — 대기열을 멈춘다. 원인을 고친 뒤 사람이 다시 띄운다"
         exit 3
       fi
     fi
