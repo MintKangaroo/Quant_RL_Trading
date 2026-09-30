@@ -52,12 +52,22 @@ LLM 출력은 들어가지 않는다(불변식 8).
 이어야 비교가 된다), `allocator.reward.RewardParams` · `penalty_weight`(낙폭 밴드의 단일 소스).
 그래디언트 클리핑은 **정책·가치를 따로** 한다 — 2회차 r5 에서 전역 클리핑 0.5 가 가치 손실(노름 1,659)에 잘려 정책의 실효
 학습률이 3e-9 였다.
+
+**시행 BG2**(`docs/protocols/next-four-2026-10.md` ② · 2026-09-30) — 같은 구조·같은 하이퍼파라미터에서 두 가지만 바꾼다:
+
+    .venv/bin/python tools/trial_final_residual_rl.py judge --i-registered --baseline BE2 --turnover-kappa 1.0
+
+(a) 기준선 점수 = **BE2**(BE1 트랜스포머 5시드 평균 백분위와 C1 5시드 평균 백분위의 순위 평균) — "BE2 위에서 RL 이
+더하는가". 대조 ⑥·회전 관문도 같은 BE2 포트(= 0 기울기 장부)로 잰다. (b) 보상에 **잔차 회전 벌점**
+κ·(회전_정책 − 회전_대조), κ = k × 편도비용 — `turnover_penalty` 에 근거를 적었다. 기본값(`--baseline C1`,
+`--turnover-kappa 0`)은 등록된 BG 그대로다 — 한 바이트도 달라지지 않는다(테스트가 강제).
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -78,6 +88,16 @@ C1_CACHE = Path("data/_diag/final-round")
 #: 판정·학습은 이 날짜부터. 공통 틀의 "측정 10/5 이후" 이고, 사전등록 승인과 **같이** 필요한 조건이다.
 # 원래 10/5(BC·G8 과 겹치지 않게 — 일정 잠금). 사용자 9/27 "주말이라 낮에 돌려도 돼" 로 앞당겼다. 진짜 잠금은 등록 문서의 '초안' 머리줄이다.
 JUDGE_FROM = date(2026, 9, 28)
+
+#: 시행 BG2 — 등록 문서·기준선·회전 벌점. **BG 의 기본 경로는 이 값들을 하나도 읽지 않는다.**
+PROTOCOL_BG2 = Path("docs/protocols/next-four-2026-10.md")
+#: BE1 트랜스포머 워크포워드 예측(시드별 판정창) — `trial_final_transformer.SEED_CACHE` 와 같은 자리. 읽기만 한다.
+BE1_CACHE = Path("data/_diag/final-round/BE")
+BASELINES = ("C1", "BE2")
+#: BG2 에 등록한 회전 벌점 배수 k(κ = k × 그 시장 편도비용). 근거는 `turnover_penalty` — 판정 성적으로 고른 값이 아니다.
+TURN_K_BG2 = 1.0
+#: BG2 의 추가 필수 관문 — 회전 ≤ BE2 × 1.2 (마지막 회차 ⑤ 의 배수를 대조만 BE2 로 바꿔 쓴다).
+GATE_TURN_BG2 = 1.2
 
 TOP_N = 24
 #: 재조정 주기(세션) = 채택된 규칙 AO C10. 기울기도 이 날에만 낸다.
@@ -167,6 +187,34 @@ def step_reward(port_net: float, ctrl_net: float, pol_prev: float, pol_now: floa
     """
     return (port_net - ctrl_net) - (bands.weight(pol_now) * max(0.0, pol_now - pol_prev)
                                     - bands.weight(ctrl_now) * max(0.0, ctrl_now - ctrl_prev))
+
+
+def turnover_penalty(pol_turn: float, ctrl_turn: float, cost: float, turn_k: float) -> float:
+    """시행 BG2 의 회전 벌점 — **결정 하나에 한 번**, 보상에서 뺄 값. κ = `turn_k` × 편도비용 `cost`.
+
+        벌점 = κ · (회전_정책 − 회전_대조)
+
+    **잔차로 둔다.** `step_reward` 와 같은 이유다 — 정책 장부의 회전 전체(|Δw|)에 벌점을 걸면 δ = 0 에서도
+    대조 장부가 어차피 내는 회전(명단 교체·드리프트 되돌림)만큼 벌점이 붙어, 행동과 무관한 큰 항이 advantage 를
+    덮는다(9/27 합성 스모크의 3,500배와 같은 모양). 잔차면 δ = 0 에서 벌점이 **정확히 0** 이다. 대조보다 덜 돌리면
+    음수(= 보상)가 되는 것도 의도다 — 관문이 "회전 ≤ BE2 × 1.2" 이니 줄이는 방향은 같은 값으로 쳐 준다.
+
+    **κ 의 근거 — k = 1(편도비용 한 번 더) = 왕복비용.** 순수익은 각 장부의 회전 × 편도비용을 **이미** 뺐다
+    (`Book.rebalance`). 그런데 그것은 기울기를 **여는** 다리다. 재조정일 t 에 연 기울기는 다음 재조정에서
+    다시 뽑히며(KL 벌점이 0 으로 당긴다) **닫히고**, 그 닫는 다리의 비용은 t+1 결정의 보상에 떨어져 **다음 행동**이
+    책임을 진다. 결정 하나의 결과가 그 10세션뿐인 이 설계에서(γ 0.97 · λ 0.95 로 일부만 되돌아온다) 정책은 자기가
+    연 기울기의 왕복비용을 보지 못한다. k = 1 은 닫는 다리를 **연 결정에 미리 물린다** — 비용 구조에서 나온 값이지
+    판정 창 성적에서 고른 값이 아니다(`ai-full-stack.md §2` 4번 "회전 벌점 계수를 튜닝하지 않는다" 와 맞는다 —
+    등록 때 한 값으로 고정하고 고르지 않는다). 유효 비용(순수익 속 1 + 벌점 1 = 편도 ×2)은 학습이 이미 보는
+    도메인 무작위화 범위(비용 ×U(0.5, 2))의 위 끝과 같다 — 정책이 처음 보는 크기가 아니다.
+    동기(등록 전에 알던 사실): BG 는 편도비용을 이미 내고도 회전이 C0 의 1.45배(20.2 대 13.9)였다.
+
+    `cost` 는 호출자가 준 값 그대로다 — 학습 경로에선 도메인 무작위화 배수가 이미 곱해져 있어 κ 도 같이 흔들린다
+    (비용이 비싼 세상에서는 회전도 비싸다). `turn_k = 0` 이면 정확히 0 을 돌려준다(BG 와 같은 보상).
+    """
+    if turn_k == 0.0:
+        return 0.0
+    return float(turn_k) * float(cost) * (float(pol_turn) - float(ctrl_turn))
 
 
 # --------------------------------------------------------------------------- 행동(기울기) 투영
@@ -417,7 +465,7 @@ class Rollout:
 
 def episode(net: TiltPolicy, prep: Prepared, start: int, length: int, *, rng: np.random.Generator,
             gen: torch.Generator, bands: Bands, cost: float, randomize: bool, deterministic: bool,
-            out: Rollout, oracle: np.ndarray | None = None) -> None:
+            out: Rollout, oracle: np.ndarray | None = None, turn_k: float = 0.0) -> None:
     """에피소드 하나. 결정마다 (관측 → 기울기 → 10세션 보유 → 보상) 를 `out` 에 쌓는다.
 
     **도메인 무작위화**는 `randomize` 일 때만: 비용 배수 ×U(0.5,2) 는 호출자가 이미 `cost` 에 넣었고,
@@ -467,6 +515,9 @@ def episode(net: TiltPolicy, prep: Prepared, start: int, length: int, *, rng: np
             pp = pol_before if j == 0 else float(p_depths[j - 1])
             cp = ctrl_before if j == 0 else float(c_depths[j - 1])
             r += step_reward(float(p_daily[j]), float(c_daily[j]), pp, float(p_depths[j]), cp, float(c_depths[j]), bands)
+        if turn_k:
+            # BG2 — 잔차 회전 벌점(결정당 한 번). turn_k = 0(BG)이면 이 줄을 아예 지나지 않는다.
+            r -= turnover_penalty(pol.turnover, ctrl.turnover, cost, turn_k)
         out.obs.append(obs)
         out.mask.append(mask)
         out.u.append(u_np)
@@ -491,7 +542,7 @@ def episode(net: TiltPolicy, prep: Prepared, start: int, length: int, *, rng: np
 
 def collect(net: TiltPolicy, prep: Prepared, span: range, *, rng: np.random.Generator, gen: torch.Generator,
             bands: Bands, cost: float, episodes: int, randomize: bool, oracle: np.ndarray | None = None,
-            out: Rollout | None = None) -> Rollout:
+            out: Rollout | None = None, turn_k: float = 0.0) -> Rollout:
     """에피소드 몇 개를 모은다. **시작점은 매번 무작위** — 1회차가 같은 시작점을 714회 반복한 실패를 막는다."""
     out = Rollout() if out is None else out
     lo, hi = span.start, span.stop
@@ -500,7 +551,7 @@ def collect(net: TiltPolicy, prep: Prepared, span: range, *, rng: np.random.Gene
         start = int(rng.integers(lo, max(lo + 1, hi - length + 1)))
         c = cost * float(rng.uniform(*COST_JITTER)) if randomize else cost
         episode(net, prep, start, length, rng=rng, gen=gen, bands=bands, cost=c, randomize=randomize,
-                deterministic=False, out=out, oracle=oracle)
+                deterministic=False, out=out, oracle=oracle, turn_k=turn_k)
     return out
 
 
@@ -515,12 +566,12 @@ def _phases(prep: Prepared | list[Prepared], span: range | list[range]) -> tuple
 
 
 def evaluate_span(net: TiltPolicy, prep: Prepared, span: range, *, bands: Bands, cost: float,
-                  oracle: np.ndarray | None = None) -> tuple[Rollout, dict[str, float]]:
+                  oracle: np.ndarray | None = None, turn_k: float = 0.0) -> tuple[Rollout, dict[str, float]]:
     """검증·판정 경로 — 무작위화 없음 · 평균 행동(deterministic) · 구간 전체를 한 에피소드로."""
     out = Rollout()
     episode(net, prep, span.start, span.stop - span.start, rng=np.random.default_rng(0),
             gen=torch.Generator().manual_seed(0), bands=bands, cost=cost, randomize=False,
-            deterministic=True, out=out, oracle=oracle)
+            deterministic=True, out=out, oracle=oracle, turn_k=turn_k)
     if not out.reward:
         return out, {"edge": 0.0, "n": 0.0}
     pol = np.array(out.policy_net)
@@ -538,12 +589,12 @@ def evaluate_span(net: TiltPolicy, prep: Prepared, span: range, *, bands: Bands,
 
 
 def evaluate_phases(net: TiltPolicy, preps: list[Prepared], spans: list[range], *, bands: Bands, cost: float,
-                    oracles: list[np.ndarray | None] | None = None) -> dict[str, float]:
+                    oracles: list[np.ndarray | None] | None = None, turn_k: float = 0.0) -> dict[str, float]:
     """위상 전부에서 재고 **결정 수로 가중평균**한다. 한 위상만 보면 재조정 요일 운을 성과로 읽는다."""
     rows = []
     for i, (prep, span) in enumerate(zip(preps, spans, strict=True)):
         _r, s = evaluate_span(net, prep, span, bands=bands, cost=cost,
-                              oracle=None if oracles is None else oracles[i])
+                              oracle=None if oracles is None else oracles[i], turn_k=turn_k)
         if s["n"] > 0:
             rows.append(s)
     if not rows:
@@ -621,7 +672,8 @@ class Trained:
 def train_one(prep: Prepared | list[Prepared], fit: range | list[range], valid: range | list[range], *,
               seed: int, updates: int, bands: Bands, cost: float,
               hyper: Hyper = HYPER, eval_every: int = 10, n_oracle: int = 0,
-              oracle: np.ndarray | list[np.ndarray] | None = None, verbose: bool = True) -> Trained:
+              oracle: np.ndarray | list[np.ndarray] | None = None, verbose: bool = True,
+              turn_k: float = 0.0) -> Trained:
     """시드 하나. 조기 종료는 **학습창 안의 내부 검증**으로만 한다(판정 창을 보지 않는다)."""
     preps, fits = _phases(prep, fit)
     _p, valids = _phases(prep, valid)
@@ -637,13 +689,13 @@ def train_one(prep: Prepared | list[Prepared], fit: range | list[range], valid: 
         for _ in range(hyper.episodes_per_update):
             ph = int(rng.integers(len(preps)))          # 위상도 무작위 — 같은 결정표를 반복해 외우는 것을 막는다
             collect(net, preps[ph], fits[ph], rng=rng, gen=gen, bands=bands, cost=cost,
-                    episodes=1, randomize=True, oracle=oracles[ph], out=roll)
+                    episodes=1, randomize=True, oracle=oracles[ph], out=roll, turn_k=turn_k)
         if not roll.reward:
             continue
         info = ppo_update(net, opt, roll, hyper)
         info["step"] = float(step)
         if step % eval_every == 0 or step == updates:
-            vstats = evaluate_phases(net, preps, valids, bands=bands, cost=cost, oracles=oracles)
+            vstats = evaluate_phases(net, preps, valids, bands=bands, cost=cost, oracles=oracles, turn_k=turn_k)
             info["valid_edge"] = vstats["edge"]
             info["valid_sat"] = vstats["sat_share"]
             if vstats["edge"] > best.best_edge:
@@ -699,9 +751,11 @@ def walk_folds(n_dec: int, *, folds: int = FOLDS, judge_share: float = JUDGE_SHA
 
 def pilot_gate(prep: Prepared | list[Prepared], fit: range | list[range], valid: range | list[range], *,
                bands: Bands, cost: float, updates: int,
-               seeds: tuple[int, ...] = (0, 1, 2), hyper: Hyper = HYPER) -> tuple[bool, list[Trained]]:
+               seeds: tuple[int, ...] = (0, 1, 2), hyper: Hyper = HYPER,
+               turn_k: float = 0.0) -> tuple[bool, list[Trained]]:
     """**검증 우위 > 0 이 아니면 본 학습을 하지 않는다.** 3·4회차가 이 관문으로 수십 시간을 아꼈다."""
-    runs = [train_one(prep, fit, valid, seed=s, updates=updates, bands=bands, cost=cost, hyper=hyper) for s in seeds]
+    runs = [train_one(prep, fit, valid, seed=s, updates=updates, bands=bands, cost=cost, hyper=hyper, turn_k=turn_k)
+            for s in seeds]
     edges = [r.best_edge for r in runs]
     ok = max(edges) > 0.0
     used = sum(r.budget_exhausted for r in runs)
@@ -815,6 +869,65 @@ def c1_average(frames: dict[int, pd.DataFrame]) -> pd.DataFrame:
     if not parts:
         raise SystemExit("C1 예측이 비었다 — kit.require_controls 가 먼저다")
     return pd.concat(parts, ignore_index=True).groupby(["entity_id", "session", "market"], as_index=False)["pred"].mean()
+
+
+def load_be1_seed(seed: int, *, cache: Path = BE1_CACHE) -> pd.DataFrame:
+    """BE1 트랜스포머의 그 시드 판정창 예측(entity_id · session · market · pred). 없으면 rc 3 — 대조군 관문과 같은 뜻이다
+    (BG2 는 BE1 을 **읽기만** 한다. 없을 때 자기 트랜스포머를 새로 짜면 시행마다 다른 BE2 가 생긴다)."""
+    path = cache / f"seed{seed}-judge.parquet"  # invariant-allow: data-access — 창고가 아닌 작업 파일(BE1 예측 캐시)
+    if not path.exists():
+        print(f"BE1 예측이 없다 — 판정을 시작하지 않는다: {path}", flush=True)
+        raise SystemExit(3)
+    frame = pd.read_parquet(path, columns=["entity_id", "session", "market", "pred"])  # invariant-allow: data-access — 창고가 아닌 작업 파일
+    frame["session"] = pd.to_datetime(frame["session"]).dt.date
+    return frame
+
+
+def seed_mean_pct(frames: Iterable[pd.DataFrame]) -> pd.DataFrame:
+    """시드별 예측 → (시장, 세션) 안 백분위 → **시드 평균**. `c1_average` 와 같은 뜻을 **한 벌씩 흘려서** 낸다.
+
+    `frames` 는 이터러블이다 — BE1 판정창 예측은 시드당 310만 행이라 다섯을 한꺼번에 들면 BG 의 RSS(4~6GB) 위에
+    수 GB 가 더 얹힌다. 합과 개수만 굴리면 동시에 드는 것은 한 벌 + 누적 둘이다. 어느 시드에 없는 행은 **있는
+    시드끼리만** 평균한다(`c1_average` 의 groupby mean 과 같다 — 테스트가 대조한다).
+    """
+    keys = ["entity_id", "session", "market"]
+    total = count = None
+    for frame in frames:
+        one = frame[[*keys, "pred"]].copy()
+        one["session"] = pd.to_datetime(one["session"]).dt.date
+        one["pred"] = one.groupby(["market", "session"])["pred"].rank(pct=True)
+        s = one.set_index(keys)["pred"].astype(float)
+        ones = pd.Series(1.0, index=s.index)
+        total = s if total is None else total.add(s, fill_value=0.0)
+        count = ones if count is None else count.add(ones, fill_value=0.0)
+        del one
+    if total is None:
+        raise SystemExit("시드 예측이 비었다 — 기준선을 만들 수 없다")
+    return (total / count).rename("pred").reset_index()[[*keys, "pred"]]
+
+
+def be2_average(be1_frames: Iterable[pd.DataFrame], c1_frames: Iterable[pd.DataFrame]) -> pd.DataFrame:
+    """BG2 의 기준선 점수 — **BE2 = (BE1 시드 평균 백분위, C1 시드 평균 백분위) 의 순위 평균** 한 벌.
+
+    BG 가 C1 을 시드 평균 한 벌로 고정한 것과 같은 이유다(`c1_average`) — BE2 의 시드 흩어짐이 BG2 의 성과로
+    섞이면 무엇을 재는지 모른다. 두 모델을 합치는 식은 BE 판정이 쓴 `trial_final_transformer.rank_average`
+    **그 함수**를 부른다((세션, 시장) 안 백분위의 평균, 두 모델 다 있는 행만) — 식이 두 곳에 있으면 갈라진다.
+    """
+    from tools.trial_final_transformer import rank_average
+
+    return rank_average(seed_mean_pct(be1_frames), seed_mean_pct(c1_frames))
+
+
+def baseline_scores(baseline: str, c1_frames: dict[int, pd.DataFrame],
+                    be1_frames: Iterable[pd.DataFrame] | None = None) -> tuple[pd.DataFrame, str]:
+    """정책이 기울기를 얹을 **기준선 점수**와 로그용 이름. `C1` 은 등록된 BG 그대로(`c1_average`), `BE2` 는 BG2."""
+    if baseline == "C1":
+        return c1_average(c1_frames), f"C1 예측(시드 {len(c1_frames)}개 순위평균)"
+    if baseline == "BE2":
+        if be1_frames is None:
+            raise SystemExit("BE2 기준선에는 BE1 예측이 필요하다")
+        return be2_average(be1_frames, c1_frames.values()), "BE2 기준선(BE1·C1 각 시드 평균 백분위의 순위 평균)"
+    raise SystemExit(f"기준선은 {BASELINES} 중 하나다 — {baseline!r}")
 
 
 def axis_report(market: str, usable: list, panel: pd.DataFrame, wide: pd.DataFrame, book) -> str:  # type: ignore[no-untyped-def]
@@ -931,20 +1044,49 @@ def _index_ctx(bench: pd.Series, usable: list, step: int) -> np.ndarray:
 # --------------------------------------------------------------------------- 관문
 
 
+def protocol_of(args: argparse.Namespace) -> Path:
+    """그 실행이 따르는 등록 문서 — BG 는 마지막 회차 문서, BG2 는 next-four 문서."""
+    return PROTOCOL_BG2 if getattr(args, "baseline", "C1") == "BE2" else PROTOCOL
+
+
+def trial_name(args: argparse.Namespace) -> str:
+    return "BG2" if getattr(args, "baseline", "C1") == "BE2" else "BG"
+
+
+def require_registered_variant(args: argparse.Namespace) -> None:
+    """등록된 조합만 실자료로 돈다 — **BG = (C1, k 0)**, **BG2 = (BE2, k `TURN_K_BG2`)**.
+
+    합성 경로(`--synthetic`·smoke)는 어떤 조합이든 돈다(배관 점검). 실자료에서 k 를 바꿔 돌리는 것은 "판정 창을 보고
+    κ 를 고른다" 와 같은 자리라 막는다 — 등록 문서가 k 를 고정한다.
+    """
+    if getattr(args, "synthetic", False):
+        return
+    baseline = getattr(args, "baseline", "C1")
+    k = float(getattr(args, "turnover_kappa", 0.0))
+    want = {"C1": 0.0, "BE2": TURN_K_BG2}.get(baseline)
+    if want is None:
+        raise SystemExit(f"기준선은 {BASELINES} 중 하나다 — {baseline!r}")
+    if k != want:
+        raise SystemExit(f"--baseline {baseline} 의 등록된 --turnover-kappa 는 {want} 다(받은 값 {k}) — "
+                         "실자료에서 κ 를 바꿔 돌리지 않는다(판정 창에서 고르는 셈이다)")
+
+
 def require_registered(args: argparse.Namespace, what: str) -> str:
     """사전등록 전에는 아무 결과도 보지 않는다 — 플래그·초안 여부·날짜 셋 다 본다(v2_bandit 과 같은 규약)."""
+    protocol = protocol_of(args)
     if not getattr(args, "i_registered", False):
-        raise SystemExit(f"{what} 은 사전등록 뒤에만 돈다 — {PROTOCOL} 승인 후 --i-registered 를 명시하라")
-    if not PROTOCOL.exists():
-        raise SystemExit(f"등록 문서가 없다: {PROTOCOL}")
-    if "초안" in PROTOCOL.read_text().splitlines()[0]:
-        raise SystemExit(f"{PROTOCOL} 이 아직 초안이다(머리줄) — 사용자 승인·해시 고정 뒤에 돈다")
+        raise SystemExit(f"{what} 은 사전등록 뒤에만 돈다 — {protocol} 승인 후 --i-registered 를 명시하라")
+    require_registered_variant(args)
+    if not protocol.exists():
+        raise SystemExit(f"등록 문서가 없다: {protocol}")
+    if "초안" in protocol.read_text().splitlines()[0]:
+        raise SystemExit(f"{protocol} 이 아직 초안이다(머리줄) — 사용자 승인·해시 고정 뒤에 돈다")
     from quant_rl_trading.replay.clock import LiveClock
 
     today = LiveClock().now().date()
     if today < JUDGE_FROM:
         raise SystemExit(f"{what} 은 {JUDGE_FROM} 부터다(공통 틀: 측정 10/5 이후) — 오늘 {today}")
-    return hashlib.sha256(PROTOCOL.read_bytes()).hexdigest()[:16]
+    return hashlib.sha256(protocol.read_bytes()).hexdigest()[:16]
 
 
 # --------------------------------------------------------------------------- 자료 준비(명령들이 함께 쓰는 자리)
@@ -1000,6 +1142,8 @@ class Real:
     controls: dict = field(default_factory=dict)      # {"C0": {seed: df}, "C1": {seed: df}}
     books: dict = field(default_factory=dict)
     panel: pd.DataFrame | None = None
+    #: 정책이 기울기를 얹은 기준선 점수(시장 열 포함) — BG2 는 이것을 kit 포트로 재서 ⑥·회전 관문의 대조로 쓴다.
+    baseline: pd.DataFrame | None = None
 
 
 def build_inputs(args: argparse.Namespace) -> Real:
@@ -1023,15 +1167,17 @@ def build_inputs(args: argparse.Namespace) -> Real:
     books = kit.market_books(store, sessions, markets, panel=panel)
     # 없으면 어느 파일이 없는지 찍고 SystemExit(3) — 대조군 없이 도는 것보다 멈추는 게 낫다.
     ctrls = kit.require_controls(panel)
-    c1 = c1_average(ctrls["C1"])
+    baseline = getattr(args, "baseline", "C1")
+    be1 = (load_be1_seed(int(s)) for s in sorted(ctrls["C1"])) if baseline == "BE2" else None
+    c1, base_label = baseline_scores(baseline, ctrls["C1"], be1)
     bands = Bands.from_store(store, as_of=datetime.combine(sessions[-1], time(16), tzinfo=UTC))
     out = []
     for market in markets:
         part = c1[c1["market"] == market][["entity_id", "session", "pred"]]
         if part.empty or market not in books:
-            print(f"{market}: C1 예측이 비었다 — 건너뛴다", flush=True)
+            print(f"{market}: {baseline} 예측이 비었다 — 건너뛴다", flush=True)
             continue
-        print(f"{market}: C1 예측(시드 {len(ctrls['C1'])}개 순위평균) {len(part):,}행", flush=True)
+        print(f"{market}: {base_label} {len(part):,}행", flush=True)
         wide = _selection_score(market, part, books[market], kit)
         preps = prepare_market(market, wide, books[market], panel[panel["market"] == market], groups)
         # **창 관문**(rc 5) — 채점되는 첫 결정 앞에 워밍업 세션이 있는지. 축은 그 시장 달력이다(국장 축을 주면
@@ -1042,22 +1188,29 @@ def build_inputs(args: argparse.Namespace) -> Real:
         out.append(Inputs(market, preps, [s[0] for s in spans], [s[1] for s in spans], books[market].cost, bands))
     if not out:
         raise SystemExit("어느 시장도 결정표를 못 만들었다")
-    return Real(out, kit, ctrls, books, panel)
+    return Real(out, kit, ctrls, books, panel, c1)
 
 
 # --------------------------------------------------------------------------- 명령
+
+
+def _turn_k(args: argparse.Namespace) -> float:
+    """회전 벌점 배수 k. 옛 인자 묶음(속성 없음)은 0 — BG 와 같다."""
+    return float(getattr(args, "turnover_kappa", 0.0) or 0.0)
 
 
 def cmd_smoke(args: argparse.Namespace) -> int:
     """합성 자료 배관 점검. 판정이 아니다 — 행동 제약·결정론·학습 루프가 도는지만 본다."""
     inp = build_inputs(args).inputs[0]
     prep, fit, valid = inp.preps[0], inp.fits[0], inp.valids[0]
-    print(f"=== BG 스모크(합성 · seed {args.seed} · 결정 {prep.n_dec} · alpha {args.alpha}) — 판정 아님 ===", flush=True)
-    _r, flat = evaluate_span(TiltPolicy(obs_dim(prep.n_static)), prep, valid, bands=inp.bands, cost=inp.cost)
+    k = _turn_k(args)
+    print(f"=== {trial_name(args)} 스모크(합성 · seed {args.seed} · 결정 {prep.n_dec} · alpha {args.alpha}"
+          f"{f' · 회전 벌점 k {k}' if k else ''}) — 판정 아님 ===", flush=True)
+    _r, flat = evaluate_span(TiltPolicy(obs_dim(prep.n_static)), prep, valid, bands=inp.bands, cost=inp.cost, turn_k=k)
     print(f"  0 기울기(초기 정책 = 동일가중): 결정당 우위 {flat['edge']:+.6f} · |δ|합 {flat['tilt_abs']:.4f}", flush=True)
     run = train_one(prep, fit, valid, seed=args.seed, updates=args.updates, bands=inp.bands, cost=inp.cost,
-                    eval_every=max(1, args.updates // 5))
-    _r, best = evaluate_span(run.net, prep, valid, bands=inp.bands, cost=inp.cost)
+                    eval_every=max(1, args.updates // 5), turn_k=k)
+    _r, best = evaluate_span(run.net, prep, valid, bands=inp.bands, cost=inp.cost, turn_k=k)
     print(f"  학습 뒤: 검증 우위 {best['edge']:+.6f}(최고 {run.best_edge:+.6f} @업데이트 {run.best_step}) · "
           f"한계붙음 {best['sat_share']:.0%} · |δ|합 {best['tilt_abs']:.4f}", flush=True)
     return 0
@@ -1069,14 +1222,15 @@ def cmd_canary(args: argparse.Namespace) -> int:
     그리고 정렬도 r 을 재서 **필요 스텝 수**를 찍는다 — 예산을 안 찍고 "안 배운다" 를 말하지 않는다(rl-postmortem §1).
     """
     hashed = require_registered(args, "카나리") if not args.synthetic else "synthetic"
-    print(f"=== BG 카나리(정답 흘림 — 판정 아님) 해시 {hashed} ===", flush=True)
+    k = _turn_k(args)
+    print(f"=== {trial_name(args)} 카나리(정답 흘림 — 판정 아님) 해시 {hashed} ===", flush=True)
     worst = float("inf")
     for inp in build_inputs(args).inputs:
         oracles = [oracle_column(p) for p in inp.preps]
         run = train_one(inp.preps, inp.fits, inp.valids, seed=args.seed, updates=args.updates, bands=inp.bands,
-                        cost=inp.cost, n_oracle=1, oracle=oracles, eval_every=max(1, args.updates // 5))
+                        cost=inp.cost, n_oracle=1, oracle=oracles, eval_every=max(1, args.updates // 5), turn_k=k)
         roll, stats = evaluate_span(run.net, inp.preps[0], inp.valids[0], bands=inp.bands, cost=inp.cost,
-                                    oracle=oracles[0])
+                                    oracle=oracles[0], turn_k=k)
         r, t = alignment(roll)
         need = needed_steps(r)
         worst = min(worst, r)
@@ -1091,11 +1245,12 @@ def cmd_canary(args: argparse.Namespace) -> int:
 
 def cmd_pilot(args: argparse.Namespace) -> int:
     hashed = require_registered(args, "파일럿") if not args.synthetic else "synthetic"
-    print(f"=== BG 파일럿 관문 — 해시 {hashed} ===", flush=True)
+    print(f"=== {trial_name(args)} 파일럿 관문 — 해시 {hashed} ===", flush=True)
     passed = []
     for inp in build_inputs(args).inputs:
         print(f"\n[{inp.market}]", flush=True)
-        ok, _runs = pilot_gate(inp.preps, inp.fits, inp.valids, bands=inp.bands, cost=inp.cost, updates=args.updates)
+        ok, _runs = pilot_gate(inp.preps, inp.fits, inp.valids, bands=inp.bands, cost=inp.cost, updates=args.updates,
+                               turn_k=_turn_k(args))
         passed.append(ok)
     return 0 if any(passed) else 3
 
@@ -1186,7 +1341,10 @@ def require_same_span(bg_days: list, controls: dict[str, dict], market: str) -> 
                          f"(예: {extra[:3]}) — judge 의 비교가 같은 것을 재지 않는다")
     missing = len(ctrl_days - set(bg_days))
     return (f"{market} 채점 구간: BG {min(bg_days)}~{max(bg_days)} {len(bg_days)}세션 · "
-            f"대조군 {len(ctrl_days)}세션 (BG 가 못 쓴 {missing} = 재조정 창 끝)")
+            # 못 쓴 세션의 거의 전부는 **앞쪽**이다 — 워크포워드 첫 적합 구간(결정의 앞 1 − JUDGE_SHARE = 40%)은
+            # 채점하지 않는다. 창 끝(EVERY 세션이 안 차는 꼬리)은 많아야 9세션. 9/30 까지 이 줄은 "재조정 창 끝" 이라
+            # 적어 330세션이 뒤에서 빠진 것처럼 읽혔다(숫자·판정은 그대로, 문구만 고침).
+            f"대조군 {len(ctrl_days)}세션 (못 쓴 {missing} = 워크포워드 첫 적합 구간 + 창 끝 꼬리)")
 
 
 def require_keys(where: str, metrics: dict[str, float], *, keys: tuple[str, ...] | None = None) -> dict[str, float]:
@@ -1196,6 +1354,42 @@ def require_keys(where: str, metrics: dict[str, float], *, keys: tuple[str, ...]
     if bad:
         raise SystemExit(f"{where}: 판정 키가 없거나 nan 이다 {bad} — 이대로 judge 에 넘기면 관문이 조용히 떨어진다")
     return metrics
+
+
+def _restrict_pred(kit, pred: pd.DataFrame, books, judged_first: dict[str, object], y) -> dict[str, float]:  # type: ignore[no-untyped-def]
+    """예측 한 벌을 **정책이 채점받은 구간으로** 잘라 kit 포트로 잰다 — `_restrict` 와 같은 자르기 규칙(시장마다 첫 채점일).
+
+    BG2 의 BE2 대조를 여기로 잰다. 채점 구간이 다르면 ⑥·회전 관문이 다른 국면을 견준다.
+    """
+    part = pred.copy()
+    part["session"] = pd.to_datetime(part["session"]).dt.date
+    keep = pd.Series(True, index=part.index)
+    for market, first in judged_first.items():
+        keep &= ~((part["market"] == market) & (part["session"] < first))
+    _by, pooled = kit.evaluate_all(part[keep], books, y=y)
+    out: dict[str, float] = pooled
+    return out
+
+
+def judge_bg2(kit, results: dict[int, dict[str, float]], c0: dict[int, dict[str, float]],  # type: ignore[no-untyped-def]
+              be2: dict[int, dict[str, float]], *, label: str = "BG2 잔차 RL") -> tuple[list[str], str]:
+    """BG2 채택 기준 — ①~⑤ 대 C0(마지막 회차 그대로) · ⑥ 대 BE2 ≥ +1%p · ⑦ 회전 ≤ BE2 × 1.2 (**필수**).
+
+    ①~⑥ 은 `kit.judge` 를 **그대로** 부르고 `control1` 자리에 BE2 를 넣는다(기준 식이 두 곳에 있으면 갈라진다).
+    kit 은 ⑥ 줄에 'C1' 이라 적으므로 이름만 고친다. kit 의 "①~⑤ 만 → C1 채택 후보" 갈래는 BG2 에 뜻이 없다 —
+    BE2 는 이미 후보이고 BG2 가 묻는 것은 "그 위에 RL 이 더하는가" 뿐이라, ⑥ 이나 ⑦ 이 떨어지면 **기각**이다.
+    """
+    lines, verdict = kit.judge(results, c0, be2, label=label)
+    lines = [ln.replace("⑥ 대 C1", "⑥ 대 BE2") for ln in lines if not ln.startswith("판정:")]
+    turn, turn_be2 = kit._mean(results, "turn"), kit._mean(be2, "turn")
+    gate7 = bool(np.isfinite(turn) and np.isfinite(turn_be2) and turn <= turn_be2 * GATE_TURN_BG2)
+    lines.append(f"⑦ 회전 {turn:.1f} 대 BE2 {turn_be2:.1f} (한도 ×{GATE_TURN_BG2}) {'○' if gate7 else '×'}")
+    if verdict.startswith("채택 —") and gate7:
+        out = "채택 후보 — BE2 위에서 RL 이 더한다(①~⑦). 확정은 두 번째 금고(11/23), BE2 금고 통과가 전제"
+    else:
+        out = "기각"
+    lines.append(f"판정: {out}")
+    return lines, out
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
@@ -1208,7 +1402,12 @@ def cmd_judge(args: argparse.Namespace) -> int:
     from tools.trial_ranker_kit import record
 
     store = Store(root=Path(args.root))
-    print(f"=== 시행 BG — {PROTOCOL} (해시 {hashed}) ===", flush=True)
+    name, k = trial_name(args), _turn_k(args)
+    bg2 = name == "BG2"
+    print(f"=== 시행 {name} — {protocol_of(args)} (해시 {hashed}) ===", flush=True)
+    if bg2:
+        print(f"  기준선 BE2 · 회전 벌점 k {k} → κ " + " · ".join(f"{i.market} {k * i.cost:.2%}" for i in inputs),
+              flush=True)
 
     # 대조군 — C0·C1 을 **공통 틀의 evaluate_all 로** 시드마다 잰다. BG 는 이 표를 만들지 않고 읽는다.
     # `y` 로 y5 를 넘겨야 IC 가 채워진다(관문 ④의 기준선이 된다).
@@ -1224,15 +1423,25 @@ def cmd_judge(args: argparse.Namespace) -> int:
     for arm, table in (("C0", c0), ("C1", c1)):
         for seed, m in table.items():
             require_keys(f"{arm} 시드 {seed}", m)
+    if bg2:
+        # BG2 의 ⑥·⑦ 대조 = **정책이 기울기를 얹은 바로 그 기준선**(시드 평균 BE2)을 kit 포트로 잰 것 = 0 기울기 장부.
+        # 시드별 BE2(판정 규칙 그대로)로 대조하면 "시드 평균의 몫" 이 RL 의 성과로 섞인다 — 그건 참고 줄로만 적는다.
+        # 학습 전에 한 번 재 둔다: 키가 빠지면 두 시간을 태우기 전에 멈춘다.
+        if real.baseline is None:
+            raise SystemExit("BE2 기준선이 없다 — build_inputs 가 먼저다")
+        _by, full_be2 = kit.evaluate_all(real.baseline, books, y=y)     # type: ignore[attr-defined]
+        require_keys("BE2 기준선(전 구간)", full_be2)
+        print(f"  BE2 기준선(전 구간, 기록만) 연 {full_be2['ann']:+.1%} · 회전 {full_be2['turn']:.1f}", flush=True)
 
     for inp in inputs:
-        ok, _p = pilot_gate(inp.preps, inp.fits, inp.valids, bands=inp.bands, cost=inp.cost, updates=args.pilot_updates)
+        ok, _p = pilot_gate(inp.preps, inp.fits, inp.valids, bands=inp.bands, cost=inp.cost, updates=args.pilot_updates,
+                            turn_k=k)
         if not ok:
             print(f"{inp.market}: 파일럿 불통과 — 본 학습을 하지 않는다", flush=True)
             return 3
 
     # ΔIC = 0 을 **시드마다** 맞춘다 — C0 의 그 시드 ic 를 그대로 쓴다(위 `_metrics` 주석).
-    ic_of = {s: c0[s]["ic"] for s in (0, 1, 2) if s in c0}
+    ic_of: dict[int, float] = {s: c0[s]["ic"] for s in (0, 1, 2) if s in c0}
     if len(ic_of) < 3:
         raise SystemExit(f"C0 에 시드 0·1·2 의 ic 가 없다 {sorted(c0)} — ΔIC 를 0 으로 맞출 수 없다")
     results: dict[int, dict[str, float]] = {}
@@ -1243,13 +1452,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
     mark = monotonic()  # invariant-allow: wallclock — 폴드 하나에 걸린 시간
     sats, spreads, exhausted = [], [], []
     judged_first: dict[str, object] = {}
+    inner_ctrl: dict[str, dict[str, float]] = {}      # BG2 — 내부 대조 장부(δ=0)를 kit 대조와 맞춰 보는 기록
     for seed in (0, 1, 2):
         per_market, per_train = {}, {}
         for inp in inputs:
             folds = walk_folds(inp.preps[0].n_dec, folds=args.folds)
             if not folds:
                 raise SystemExit(f"{inp.market}: 결정 {inp.preps[0].n_dec}회로는 워크포워드 폴드를 못 만든다")
-            judged, trained = Rollout(), Rollout()
+            judged, trained, judged_ctrl = Rollout(), Rollout(), []
             for k_fold, (fit_all, judge_span) in enumerate(folds, 1):
                 # **적합은 확장창, 채점은 그 뒤 구간.** 조기 종료는 적합창 안의 내부 검증으로만 한다.
                 fits = [range(fit_all.start, max(fit_all.start + 1, fit_all.stop - _inner(fit_all))) for _ in inp.preps]
@@ -1257,14 +1467,17 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 if any(v.stop - v.start < 1 for v in valids):
                     raise SystemExit(f"{inp.market} 폴드 {k_fold}: 내부 검증이 비었다(적합 {fit_all})")
                 run = train_one(inp.preps, fits, valids, seed=seed, updates=args.updates, bands=inp.bands,
-                                cost=inp.cost, eval_every=max(10, args.updates // 100), verbose=False)
+                                cost=inp.cost, eval_every=max(10, args.updates // 100), verbose=False, turn_k=k)
                 jstats = evaluate_phases(run.net, inp.preps, [judge_span] * len(inp.preps),
-                                         bands=inp.bands, cost=inp.cost)
+                                         bands=inp.bands, cost=inp.cost, turn_k=k)
                 # 판정 일수익은 **위상 0**(실제 장부)에서 낸다. 나머지 아홉은 흩어짐(운의 크기)으로만 적는다.
-                _r, _s = evaluate_span(run.net, inp.preps[0], judge_span, bands=inp.bands, cost=inp.cost)
+                _r, _s = evaluate_span(run.net, inp.preps[0], judge_span, bands=inp.bands, cost=inp.cost, turn_k=k)
                 judged.daily += _r.daily
                 judged.abs_turnover += _r.abs_turnover
-                _t, _ts = evaluate_span(run.net, inp.preps[0], fits[0], bands=inp.bands, cost=inp.cost)
+                if bg2 and seed == 0:
+                    judged.ctrl_dailyseries += _r.ctrl_dailyseries
+                    judged_ctrl += [a - t for a, t in zip(_r.abs_turnover, _r.turnover, strict=True)]
+                _t, _ts = evaluate_span(run.net, inp.preps[0], fits[0], bands=inp.bands, cost=inp.cost, turn_k=k)
                 trained.daily += _t.daily
                 trained.abs_turnover += _t.abs_turnover
                 sats.append(jstats["sat_share"])
@@ -1281,7 +1494,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 # BG 는 break 로 끊지 않고 최고 체크포인트를 고르므로, **예산을 다 쓰지 않은 것**이
                 # 조기 종료가 걸린 것과 같은 뜻이다(`budget_exhausted` 의 반대).
                 kit.record_progress(                                                   # type: ignore[attr-defined]
-                    progress_store, clock, "BG", source="trial_final_residual_rl",
+                    progress_store, clock, name, source="trial_final_residual_rl",
                     # 시드 셋 — 바로 위 `for seed in (0, 1, 2)` 와 같은 수다(진행률의 분모).
                     market=inp.market, seed=int(seed), n_seeds=3, fold=k_fold, n_folds=len(folds),
                     step=int(run.best_step), rounds=int(args.updates),
@@ -1303,11 +1516,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
             per_train[inp.market] = _metrics(_series(trained.daily), books[inp.market],
                                              float(np.mean(trained.abs_turnover) * ANN / EVERY) if trained.abs_turnover else 0.0,
                                              ic_of[seed])
-        results[seed] = require_keys(f"BG 시드 {seed}", kit.pooled_metrics(per_market))   # type: ignore[attr-defined]
+            if bg2 and seed == 0 and judged_ctrl:
+                inner_ctrl[inp.market] = _metrics(_series(judged.ctrl_dailyseries), books[inp.market],
+                                                  float(np.mean(judged_ctrl) * ANN / EVERY), ic_of[seed])
+        results[seed] = require_keys(f"{name} 시드 {seed}", kit.pooled_metrics(per_market))   # type: ignore[attr-defined]
         # 학습창 지표는 **판정에 안 쓰고** 과적합 격차(gap_ann·gap_sharpe·gap_ic)에만 쓴다. 학습창은 판정 구간 앞(2023~2024
         # 박스장)이라 급등 국면 세션이 없어 rally_ann 이 nan 인 것이 정상이다 — 9/29 16:26 판정 전체 키를 요구하다
         # 시드 0 뒤 rc=1 로 멈췄고, 대기열이 처음부터 다시 돌렸다. 격차에 쓰는 키만 요구한다(판정 규칙 변경 아님).
-        train_m[seed] = require_keys(f"BG 학습창 시드 {seed}", kit.pooled_metrics(per_train),  # type: ignore[attr-defined]
+        train_m[seed] = require_keys(f"{name} 학습창 시드 {seed}", kit.pooled_metrics(per_train),  # type: ignore[attr-defined]
                                      keys=("ann", "sharpe", "ic"))
 
     # **대조군을 같은 구간으로 자른다.** BG 는 채점 구간이 뒤쪽 일부이므로, C0·C1 을 전 구간으로 두면
@@ -1315,16 +1531,51 @@ def cmd_judge(args: argparse.Namespace) -> int:
     c0, c1 = _restrict(kit, real, books, judged_first, c0, c1)
 
     gaps = kit.overfit_gap(train_m, results)                           # type: ignore[attr-defined]
-    lines, verdict = kit.judge(results, c0, c1, label="BG 잔차 RL")    # type: ignore[attr-defined]
-    extra = [f"과적합 지표(학습창 − 판정창) {gaps}",
-             f"기울기 한계붙음 {np.mean(sats):.1%} · 위상 간 흩어짐 {np.mean(spreads):.6f}",
-             "ΔIC 는 정의상 0 — BG 는 종목 순위를 바꾸지 않는다(기울기만)"]
+    if not bg2:
+        lines, verdict = kit.judge(results, c0, c1, label="BG 잔차 RL")    # type: ignore[attr-defined]
+        extra = [f"과적합 지표(학습창 − 판정창) {gaps}",
+                 f"기울기 한계붙음 {np.mean(sats):.1%} · 위상 간 흩어짐 {np.mean(spreads):.6f}",
+                 "ΔIC 는 정의상 0 — BG 는 종목 순위를 바꾸지 않는다(기울기만)"]
+        entity = "final-model-round-2026-10:BG"
+    else:
+        lines, verdict, extra = _judge_bg2_lines(kit, real, books, judged_first, y, results, c0, c1, inner_ctrl,
+                                                 gaps, sats, spreads, k)
+        entity = "next-four-2026-10:BG2"
     print("\n" + "\n".join([*lines, *extra]), flush=True)
     print(f"판정: {verdict}", flush=True)
     if args.save:
-        record(store, entity="final-model-round-2026-10:BG", source="trial_final_residual_rl", family="rl",
+        record(store, entity=entity, source="trial_final_residual_rl", family="rl",
                digest=hashed, verdict=verdict, lines=[*lines[-3:], *extra], market=",".join(i.market for i in inputs))
     return 0
+
+
+def _judge_bg2_lines(kit, real, books, judged_first, y, results, c0, c1, inner_ctrl,  # type: ignore[no-untyped-def]
+                     gaps, sats, spreads, k: float) -> tuple[list[str], str, list[str]]:
+    """BG2 판정 — BE2 대조를 **정책의 채점 구간으로** 잘라 재고 `judge_bg2` 에 넘긴다. 기록 줄도 여기서 만든다."""
+    be2 = {0: require_keys("BE2 기준선(구간 제한)", _restrict_pred(kit, real.baseline, books, judged_first, y))}
+    lines, verdict = judge_bg2(kit, results, c0, be2)
+    # 참고 — 시드별 BE2(마지막 회차 판정 규칙: 시드마다 BE1+C1 순위 평균). 판정에 안 쓴다. 시드 평균 기준선과의 차가
+    # "시드 평균의 몫" 이고, BG 가 대 C1 에서 진 −5.6%p 에 그 몫이 섞였는지 여기서 처음 보인다.
+    from tools.trial_final_transformer import rank_average
+
+    per_seed = []
+    for seed, c1_pred in sorted(real.controls.get("C1", {}).items()):
+        pooled = _restrict_pred(kit, rank_average(load_be1_seed(int(seed)), c1_pred), books, judged_first, y)
+        if pooled and np.isfinite(pooled.get("ann", np.nan)):
+            per_seed.append(pooled["ann"])
+    inner = kit.pooled_metrics(inner_ctrl) if inner_ctrl else {}
+    extra = [f"과적합 지표(학습창 − 판정창) {gaps}",
+             f"기울기 한계붙음 {np.mean(sats):.1%} · 위상 간 흩어짐 {np.mean(spreads):.6f} · 회전 벌점 k {k}",
+             "ΔIC 는 정의상 0 — BG2 는 종목 순위를 바꾸지 않는다(기울기만)",
+             f"참고 대 C1(시드 평균) {kit._mean(results, 'ann') - kit._mean(c1, 'ann'):+.1%}p · "
+             f"시드별 BE2 평균 연 {np.mean(per_seed) if per_seed else float('nan'):+.1%} 대 시드평균 BE2 연 "
+             f"{be2[0]['ann']:+.1%} (판정엔 뒤쪽)"]
+    if inner:
+        # 정책 장부 옆에서 굴린 δ=0 장부(내부)와 kit 포트(외부)는 **같은 포트여야** 한다. 크게 다르면 ⑥ 이
+        # "RL 의 몫" 이 아니라 "두 장부 규칙의 차" 를 잰 것이다 — 그때는 판정을 믿지 말고 원인부터 찾는다.
+        extra.append(f"장부 대조 — 내부 δ=0 연 {inner.get('ann', float('nan')):+.1%} · 회전 "
+                     f"{inner.get('turn', float('nan')):.1f} 대 kit BE2 연 {be2[0]['ann']:+.1%} · 회전 {be2[0]['turn']:.1f}")
+    return lines, verdict, extra
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1341,6 +1592,12 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--synthetic", action="store_true", help="합성 자료로 같은 경로를 돈다(판정 아님)")
             p.add_argument("--markets", default="KR,US", help="합동 판정이 기본이다(공통 틀 §자료)")
             p.add_argument("--root", default="data")
+        # 시행 BG2(next-four ②). 기본값 = 등록된 BG 그대로 — 바꾸지 않는다.
+        p.add_argument("--baseline", choices=BASELINES, default="C1",
+                       help="기울기를 얹을 기준선. C1 = 시행 BG(기본), BE2 = 시행 BG2")
+        p.add_argument("--turnover-kappa", type=float, default=0.0,
+                       help="회전 벌점 배수 k — κ = k × 그 시장 편도비용, 벌점 = κ·(회전_정책 − 회전_대조). "
+                            f"BG 는 0, BG2 등록값은 {TURN_K_BG2}(실자료는 등록값만 돈다)")
         if name == "judge":
             p.add_argument("--pilot-updates", type=int, default=60)
             p.add_argument("--folds", type=int, default=FOLDS,
