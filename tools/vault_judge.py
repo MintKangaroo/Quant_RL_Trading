@@ -119,7 +119,7 @@ ENTITY = {"AQ": "breadth72-forward-2026-09:AQ", "AR": "insider-forward-2026-09:A
 #: 금고 앞당김 등록 문서(창 early·second 를 선언한다). 시행별 기준은 각 시행 문서 그대로다.
 EARLY_PROTOCOL = Path("docs/protocols/vault-early-open-2026-10.md")
 #: 그 문서의 sha256 앞 16자 — **사용자 승인 뒤 해시를 고정할 때** 적는다. None 이면 초안이고, early·second 는 전부 거부한다.
-EARLY_PROTOCOL_HASH: str | None = None
+EARLY_PROTOCOL_HASH: str | None = "2e9c645a62dc7bbc"  # 2026-09-30 사용자 승인 고정
 #: 판정 기준을 담은 문서 — 시행 넷은 각자 등록 문서, BE2 는 마지막 모델 회차 문서(해시 34abffde1d5e6bed).
 PROTOCOL_OF: dict[str, Path] = {**PROTOCOLS, "BE2": Path("docs/protocols/final-model-round-2026-10.md")}
 #: 얼린 BE2·C0 — 사이드카 줄기(`<줄기>.json`). 해시는 앞당김 등록 문서 "모델 해시" 절에 적는다.

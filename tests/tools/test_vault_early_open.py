@@ -97,7 +97,8 @@ def test_trial_outside_the_window_is_refused() -> None:
 
 def test_draft_is_refused_even_after_the_date(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
     """지금 문서는 초안이다 — 날짜가 한참 지나도 창고를 열기 전에 멈춘다(금고 창 자료를 안 읽는다)."""
-    assert vj.EARLY_PROTOCOL_HASH is None, "해시가 고정됐으면 이 테스트의 전제를 다시 본다"
+    # 9/30 고정 뒤: 초안 상태를 재현해 잠금을 시험한다(고정값이 아니라 '초안이면 거부' 규칙을 본다).
+    monkeypatch.setattr(vj, "EARLY_PROTOCOL_HASH", None)
     monkeypatch.setattr(vj, "_today", lambda: date(2026, 12, 31))
     monkeypatch.setattr(vj, "Store", lambda **_: pytest.fail("등록 전에 창고를 열었다"))
     for argv in (["--judge", "--window", "early"], ["--bake", "--window", "early"],
@@ -107,12 +108,14 @@ def test_draft_is_refused_even_after_the_date(monkeypatch, capsys) -> None:  # t
 
 
 def test_default_window_is_early_and_locked(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(vj, "EARLY_PROTOCOL_HASH", None)
     monkeypatch.setattr(vj, "_today", lambda: date(2026, 12, 31))
     monkeypatch.setattr(vj, "Store", lambda **_: pytest.fail("등록 전에 창고를 열었다"))
     assert vj.main(["--judge"]) == 2
 
 
 def test_plan_reads_nothing_and_says_draft(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
+    monkeypatch.setattr(vj, "EARLY_PROTOCOL_HASH", None)   # 초안 상태를 재현(9/30 고정 뒤)
     monkeypatch.setattr(vj, "Store", lambda **_: pytest.fail("--plan 이 창고를 열었다"))
     assert vj.main(["--plan", "--window", "early"]) == 0
     out = capsys.readouterr().out
@@ -176,6 +179,7 @@ def test_be2_model_hashes_come_from_the_early_document() -> None:
 def test_score_be2_refuses_vault_signals_before_registration(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     from tools import score_be2
 
+    monkeypatch.setattr(vj, "EARLY_PROTOCOL_HASH", None)   # 초안 상태를 재현(9/30 고정 뒤)
     assert score_be2.vault_signals_refusal(None) == ""
     assert score_be2.vault_signals_refusal(date(2026, 10, 2)) == ""          # 금고 창 뒤(shadow 매일)
     assert "등록 해시 고정 뒤" in score_be2.vault_signals_refusal(date(2026, 7, 1))
@@ -417,3 +421,9 @@ def test_second_vault_reads_prior_verdicts(store) -> None:  # type: ignore[no-un
     assert vj.prior_verdict(store, "BE2").startswith(need["BE2"])       # 채택 → 확인 대상
     assert vj.prior_verdict(store, "BD").startswith(need["BD"])         # 보류 → 한 번 더
     assert not vj.prior_verdict(store, "AQ").startswith(("채택", "①~⑤", "보류"))
+
+
+def test_early_registration_is_fixed_and_matches_document() -> None:
+    """9/30 사용자 승인으로 고정 — 코드의 해시와 문서 해시가 같고 판정부가 '등록 고정' 으로 본다."""
+    assert vj.EARLY_PROTOCOL_HASH == "2e9c645a62dc7bbc"
+    assert vj.registration_problems(vj.windows()["early"]) == []
