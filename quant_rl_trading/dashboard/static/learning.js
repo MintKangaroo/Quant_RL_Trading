@@ -643,12 +643,15 @@ async function renderFinalRound() {
   }
   if (active.length) parts.push(`<div class="fr-cards">${active.map(frCard).join("")}</div>`);
   parts.push(frQueue(queued));
+  // 끝난 시행은 카드로 두지 않는다 — 결과·실패 이유는 ③ 과거 학습 내역(시행 카탈로그)으로 간다(사용자 2026-09-30).
   if (doneModels.length) {
-    parts.push(`<h3 class="fr-done-head">끝난 시행</h3><div class="fr-cards">${doneModels.map(frCard).join("")}</div>`);
+    const names = doneModels.map((t) => frEsc(t.trial)).join(" · ");
+    parts.push(`<p class="kpi-note fr-done-moved">${frBadge("done")} 끝난 시행 ${doneModels.length}개(${names}) —
+      결과와 이유는 아래 <a href="#zone-history">과거 학습 내역</a>에 있다.</p>`);
   }
   parts.push(frControlsLine(doneControls));
   target.innerHTML = parts.join("");
-  for (const t of [...active, ...doneModels]) frDrawCharts(t);
+  for (const t of active) frDrawCharts(t);
   if (verdicts) renderFinalRoundVerdicts(verdicts, data);
 }
 

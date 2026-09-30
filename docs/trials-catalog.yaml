@@ -621,36 +621,77 @@ trials:
     doc: docs/protocols/kr-valueup-2026-09.md
     ledger: ["kr-valueup-2026-09:BA"]
 
-  # ── 마지막 모델 회차 (진행중) ─────────────────────────────────────────
+  # ── 마지막 모델 회차 (9/28~9/30) — docs/trials-postmortem.md ───────────
   - id: "BE"
     date: "2026-09-28"
     category: 랭커
-    title: "트랜스포머 v2"
-    what: "전 피처 76열과 종목 사이 주의(attention)를 보는 트랜스포머, 과적합 억제 규칙을 모두 걸었다."
-    result: 진행중
-    why: "마지막 모델 회차 — 대조군 굽기 뒤 등록을 고정(9/28)하고 측정 중."
+    title: "트랜스포머 v2 (BE1·BE2)"
+    what: "가격 흐름과 종목 사이 주의(attention)를 보는 세트 트랜스포머(BE1), 그리고 그것과 GBM(FA 76열)의 순위 평균(BE2)."
+    result: 보류
+    why: "BE2 만 후보 — 대 C1 +2.1%p, 5/5 시드, MDD −19.6% 대 −22.4%. BE1 단독은 박스장 −1.3%p 로 기각. 연구 패널 miss_ba 누수가 있어 금고(7/1~9/30, 10/13 판정)가 첫 깨끗한 시험이다."
     doc: docs/protocols/final-model-round-2026-10.md
+    ledger: ["final-model-round-2026-10:BE"]
   - id: "BF"
-    date: "2026-09-28"
+    date: "2026-09-29"
     category: 랭커
-    title: "LambdaRank v2"
-    what: "맨 위 100자리를 겨냥하되 라벨 잡음을 덜 믿게 한 LambdaRank."
-    result: 진행중
-    why: "마지막 모델 회차 — BE 뒤에 측정한다."
+    title: "LambdaRank v2 (BF1·BF2)"
+    what: "맨 위 100자리를 겨냥하되 라벨 잡음을 덜 믿게 한 LambdaRank(BF1), 그리고 GBM 과의 순위 평균(BF2)."
+    result: 기각
+    why: "대 C1 −11.2%p · −2.4%p. 상위만 겨냥하면 순위 전체의 정보를 버린다. BF2 는 낙폭이 얕았다(−20.0% 대 −22.4%)."
     doc: docs/protocols/final-model-round-2026-10.md
+    ledger: ["final-model-round-2026-10:BF"]
   - id: "BG"
-    date: "2026-09-28"
+    date: "2026-09-29"
     category: RL
     title: "잔차 RL"
     what: "GBM 상위 24 동일가중 주위로 종목별 ±5%p 기울기만 내는 강화학습 — 외울 자유도를 뺐다."
-    result: 진행중
-    why: "마지막 모델 회차 — BF 뒤에 측정한다."
+    result: 기각
+    why: "대 C0 +2.4%p·박스장 +7.2%p 였지만 대 C1 −5.6%p, 회전 20.2 대 13.9(+45%). 비중을 흔든 만큼 비용이 먹었다."
     doc: docs/protocols/final-model-round-2026-10.md
+    ledger: ["final-model-round-2026-10:BG"]
   - id: "D1"
-    date: "2026-09-28"
+    date: "2026-09-29"
     category: 선정
-    title: "결정 중심 학습"
-    what: "얼린 GBM 점수 위에 작은 머리를 얹어 비용 후 포트 수익을 직접 배우게 한다."
-    result: 진행중
-    why: "초안 — 등록은 BE·BF 결과 뒤."
+    title: "결정 중심 학습 v1"
+    what: "얼린 GBM 점수 위에 작은 머리를 얹어 비용 후 규칙 포트 수익을 직접 배우게 했다."
+    result: 보류
+    why: "측정 불가(rc 7) — 짧은 검증 창의 잡음이 커 채택 여백이 46% 까지 올라 진짜 신호까지 막았다. 채택 규칙을 다시 짜 v2 로."
     doc: docs/protocols/decision-focused-2026-10.md
+  - id: "D1 v2"
+    date: "2026-09-30"
+    category: 선정
+    title: "결정 중심 학습 v2 (D1a·D1b)"
+    what: "채택 규칙을 t 값·시드 합동 결정으로 바꿔 다시 돌렸다. D1a 는 상위 종목 고르기, D1b 는 지수 기울이기."
+    result: 기각
+    why: "D1a 대 C1 −3.9%p. D1b 는 안정적(5/5 시드·두 국면)이었지만 대 C1 −0.3%p, 그리고 기울이지 않은 지수(+41.3%)가 D1b(+37.7%)를 이겼다."
+    doc: docs/protocols/decision-focused-v2-2026-10.md
+    ledger: ["decision-focused-v2-2026-10:D1a-C1", "decision-focused-v2-2026-10:D1b-C1"]
+
+  # ── 기각 조각 살리기 (9/30) — docs/protocols/next-four-2026-10.md ────────
+  - id: "TB"
+    date: "2026-09-30"
+    category: 선정
+    title: "지수 코어 + BE2 기울이기"
+    what: "지수를 코어로 들고 BE2 점수로 비중을 기울였다(D1b 와 같은 장부). 새 학습 없음."
+    result: 기각
+    why: "시드·국면·회전은 다 통과했지만, 기울이지 않은 지수(+33.6%)가 TB(+30.6%)를 이겼다 — 어떤 점수로 기울여도 지수를 못 이겼다."
+    doc: docs/protocols/next-four-2026-10.md
+    ledger: ["next-four-2026-10:TB"]
+  - id: "RE"
+    date: "2026-09-30"
+    category: 선정
+    title: "국면 가중 앙상블"
+    what: "HMM 국면 확률로 BE1·C1·BF2 비중을 바꿨다(표는 미리 고정)."
+    result: 기각
+    why: "고정 반반인 BE2 보다 연 −1.8%p, 시드 1/5 만 이겼다. 국면에 따라 가중을 바꾸는 것이 단순 평균보다 못했다."
+    doc: docs/protocols/next-four-2026-10.md
+    ledger: ["next-four-2026-10:RE"]
+  - id: "DF"
+    date: "2026-09-30"
+    category: 선정
+    title: "방어형 BF2"
+    what: "평소엔 C1, HMM 위기 확률 0.5 초과 세션에만 BF2 와 반반."
+    result: 기각
+    why: "방어는 됐다(MDD +1.4%p, 연 −0.4%p). 급등 국면 −1.8%p 로 '두 국면 모두 −1%p 이내' 에 걸렸다. 원인 진단·DF2 설계 중."
+    doc: docs/protocols/next-four-2026-10.md
+    ledger: ["next-four-2026-10:DF"]
