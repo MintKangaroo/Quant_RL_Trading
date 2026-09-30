@@ -663,6 +663,9 @@ def research_jobs(root: Path) -> dict[str, Any]:
 TRIAL_PROGRESS = "trial_progress"
 #: 마지막 모델 회차의 판정 행(`research_trials`)을 고르는 접두어. 시행 도구가 이 이름으로 적는다.
 FINAL_ROUND_ENTITY = "final-model-round"
+#: 판정 줄을 찾는 접두어들. D1 은 자기 등록 이름(`decision-focused[-v2]-2026-10:D1a-C1`)으로 적는다 —
+#: 이것을 빼면 판정이 끝난 D1 이 "느림·멈춤 의심" 으로 남는다(2026-09-30).
+FINAL_ROUND_VERDICT_PREFIXES = (FINAL_ROUND_ENTITY, "decision-focused")
 #: 대조군(모델이 아니다). 화면이 "모델이 이겼나" 를 물을 때 기준선이 되는 군이다.
 FINAL_ROUND_CONTROLS = ("C0", "C1")
 #: 진행 곡선에 실을 시행당 최근 행 수. 41블록 × 5시드 = 205행이라 전부 실어도 작지만,
@@ -873,7 +876,14 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
     verdicts = _final_round_verdicts(store, as_of=as_of, lookback=max(lookback, 120))
     settings = _training_settings(config_store or store, as_of)
     now = _ts(as_of)
-    judged = {v["entity_id"].split(":")[-1] for v in verdicts}
+    # 판정 줄의 시행 이름(`…:D1a-C1` → D1a)과 그 시각. 판정이 적힌 시행은 분모가 덜 찼어도 끝났다
+    # (D1 v2 는 채택 규칙상 블록을 건너뛰어 기록이 155/205 에서 멈춘다).
+    judged_at: dict[str, pd.Timestamp] = {}
+    for v in verdicts:
+        name = v["entity_id"].split(":")[-1].split("-")[0]
+        at = _ts(v["at"])
+        judged_at[name] = max(judged_at.get(name, at), at)
+    judged = set(judged_at)
 
     def queue(seen: set[str]) -> list[dict[str, Any]]:
         # 기록이 있거나 판정이 적힌 시행은 대기가 아니다(기록이 조회 창 밖으로 밀려도 판정 줄이 남는다).
@@ -940,13 +950,14 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
         # 완료 시각은 화면에서 사실과 구분되지 않는다).
         remaining = (total - done) if total is not None else None
         eta_s = (remaining * mean_unit_s) if (remaining is not None and remaining > 0 and mean_unit_s) else None
-        is_done = total is not None and done >= total
+        verdict_at = judged_at.get(str(trial))
+        is_done = (total is not None and done >= total) or (verdict_at is not None and verdict_at >= last_ts)
         since_last = (now - last_ts).total_seconds()
         status, reason = _health(done=is_done, since_last_s=since_last, mean_unit_s=mean_unit_s, unit=unit,
                                  slowest_unit_s=slowest_unit_s, latest_curve=latest_curve, settings=settings, last_at=last_ts, as_of=as_of)
         # 끝 시각 = 마지막 기록 + 남은 양(지금 도는 단위는 마지막 기록 직후 시작했다). 멈춤 의심이면
         # 그 시각은 이미 지났거나 믿을 수 없으니 말하지 않는다.
-        eta_at = (last_ts + timedelta(seconds=eta_s)) if (eta_s is not None and status != "stalled") else None
+        eta_at = (last_ts + timedelta(seconds=eta_s)) if (eta_s is not None and status not in ("stalled", "done")) else None
         trials.append({
             "trial": str(trial),
             "kind": "control" if str(trial) in FINAL_ROUND_CONTROLS else "model",
@@ -989,7 +1000,7 @@ def _final_round_verdicts(store: Store, *, as_of: datetime, lookback: int) -> li
     frame = store.get("research_trials", as_of=as_of, lookback=lookback)
     if frame.empty:
         return []
-    frame = frame[frame["entity_id"].astype(str).str.startswith(FINAL_ROUND_ENTITY)]
+    frame = frame[frame["entity_id"].astype(str).str.startswith(FINAL_ROUND_VERDICT_PREFIXES)]
     out: list[dict[str, Any]] = []
     for _, row in frame.sort_values("valid_from").iterrows():
         out.append({

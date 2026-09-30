@@ -472,3 +472,23 @@ def test_시장별로_배우는_시행은_분모에_시장을_세고_선을_가�
     bg = one(store, "BG")
     assert bg["units_total"] == 2 * 3 * 2 and bg["units_done"] == 2
     assert sorted(c["market"] for c in bg["curves"]) == ["KR", "US"]
+
+
+def test_판정이_적힌_시행은_분모가_덜_찼어도_끝남이다(store: Any) -> None:
+    # 2026-09-30 D1 v2 — 채택 규칙상 블록을 건너뛰어 기록이 155/205 에서 멈췄고, 판정은
+    # `decision-focused-v2-2026-10:D1a-C1` 로 적혔다. 화면은 이것을 "느림·멈춤 의심" 으로 3시간 띄웠다.
+    store.seed_config_defaults()
+    walk(store, "D1a", last=NOW - timedelta(hours=4), metric="mixed / -hard rule ann(val)")
+    assert one(store, "D1a")["status"] == "stalled"
+    at = NOW - timedelta(hours=3)
+    store.append("research_trials", [{
+        "entity_id": "decision-focused-v2-2026-10:D1a-C1", "valid_from": at, "observed_at": at,
+        "source": "trial_final_dfl", "market": "KR", "family": "selection", "n_trials": 1,
+        "protocol_hash": "abc", "detail": "기각 | ...",
+    }], ingest_run_id="verdict-d1a")
+    trial = one(store, "D1a")
+    assert trial["status"] == "done", trial["status_reason"]
+    assert trial["eta_at"] is None
+    # 판정보다 **뒤에** 새 기록이 생기면(다시 돌린다) 다시 도는 중으로 본다.
+    walk(store, "D1a", last=NOW - timedelta(minutes=5), metric="mixed / -hard rule ann(val)")
+    assert one(store, "D1a")["status"] != "done"
