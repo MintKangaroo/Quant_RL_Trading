@@ -32,7 +32,7 @@ blocked() {
 heavy() {
   # 대괄호로 자기 매칭을 피한다(이 스크립트의 명령줄엔 이 문자열이 없다).
   # BF1 얼리기 대기 스크립트(10/1 16:45 이후 시작)가 살아 있는 동안도 기다린다 — DF2 준비가 먼저다.
-  pgrep -f "tools/(freeze_be[2]|trial_[a-z_]+|vault_judg[e]|backfill_ic_histor[y]|diagnose_i[c]|train_ranke[r])\.py|scripts/freeze_bf[1]\.sh" > /dev/null
+  pgrep -f "tools/(freeze_be[2]|trial_[a-z0-9_]+|vault_judg[e]|backfill_ic_histor[y]|diagnose_i[c]|train_ranke[r])\.py|scripts/freeze_bf[1]\.sh" > /dev/null
 }
 
 for row in "${STEPS[@]}"; do
