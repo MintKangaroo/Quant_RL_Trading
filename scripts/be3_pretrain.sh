@@ -58,6 +58,12 @@ if [ -f "${LOCK}" ] && [ -n "$(find "${LOCK}" -mmin -120 2>/dev/null)" ]; then
     echo "$(date '+%F %T') 연구 잠금($(cat "${LOCK}")) — 건너뜀" >> "${GUARD}"
     exit 0
 fi
+# DF2 의 BF1 얼리기(scripts/freeze_bf1.sh — 10/1 16:45 이후 시작, 가용 6.5GB 필요)가 기다리는 동안은
+# 14:50 이후 새 단계를 시작하지 않는다(시드 하나 ≈ 1.8시간 — 16:45 전에 끝나게). 얼리기가 끝나면 풀린다.
+if pgrep -f "scripts/freeze_bf[1]\.sh" > /dev/null && [ "$((10#$(date +%H%M)))" -ge 1450 ]; then
+    echo "$(date '+%F %T') BF1 얼리기 차례 — 건너뜀" >> "${GUARD}"
+    exit 0
+fi
 if pgrep -f "Project-Quant-RL-Trading/.*scratchpa[d]/.*\.py" > /dev/null; then
     echo "$(date '+%F %T') 스크래치 진단 중 — 건너뜀" >> "${GUARD}"
     exit 0
