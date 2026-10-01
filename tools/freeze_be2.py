@@ -4,6 +4,7 @@
     .venv/bin/python tools/freeze_be2.py [--seeds 0,1,2,3,4] [--schedule chain|cold] [--verify]
     .venv/bin/python tools/freeze_be2.py --synthetic --steps 4 --max-epochs 1 --out /tmp/be2   # 합성 스모크
     .venv/bin/python tools/freeze_be2.py --arm C0 [--verify]          # 금고 대조 C0(6점수 GBM)만 얼린다
+    .venv/bin/python tools/freeze_be2.py --arm BF1 [--verify]         # DF2 금고의 BF1 LambdaRank 만 얼린다(df2-2026-10.md)
 
 ## 왜
 
@@ -305,6 +306,100 @@ def freeze_c0(kit: Any, panel: pd.DataFrame, sessions: list[date], the_plan: dic
     return write_sidecar(out, stem, meta)
 
 
+# --------------------------------------------------------------------------- BF1 (DF2 금고)
+
+BF1_VERSION = "bf1-v1.0.0"
+
+
+def train_bf1(panel: pd.DataFrame, feats: list[str], cut: date, seed: int) -> tuple[Any, dict[str, float], int]:
+    """BF1 LambdaRank — 판정 `walk_rank` 와 **같은 몸통**(`_fit_rank_rows`)·같은 쿼리(세션×시장)·같은 내부 분할(`kit.inner_split`).
+
+    학습 행 = 자르는 날까지 라벨 있는 행(패널 행 위치, `walk_rank` 와 같은 식). 반환: (booster, 진단, 학습 행 수).
+    """
+    from tools import final_round_kit as kit
+    from tools import trial_final_lambdarank as bf
+
+    keys = bf.query_keys(panel)
+    rows = np.flatnonzero(((panel["session"] <= cut) & panel["y5"].notna()).to_numpy())
+    booster, diag = bf._fit_rank_rows(panel, rows, feats, keys, int(seed), kit.inner_split)
+    return booster, diag, len(rows)
+
+
+def file_roundtrip(booster: Any, txt: Path, panel: pd.DataFrame, feats: list[str], n: int = 20_000) -> float:
+    """적은 파일을 다시 읽은 부스터(금고 판정부가 쓰는 것) 대 메모리 부스터(best_iteration)의 최대 차 — 0 이어야 한다."""
+    import lightgbm as lgb
+
+    x = panel[feats].tail(n).to_numpy(np.float32)
+    loaded = lgb.Booster(model_file=str(txt))
+    return float(np.abs(loaded.predict(x) - booster.predict(x, num_iteration=booster.best_iteration)).max())
+
+
+def verify_bf1(kit: Any, panel: pd.DataFrame, feats: list[str], sessions: list[date], blocks: list[tuple[int, int]],
+               seed: int) -> dict[str, Any]:
+    """판정 마지막 블록 끝점으로 적합해 `pred-BF1-seed*` 캐시와 견준다 — `walk_rank` 처럼 best_iteration 으로 예측."""
+    first, last = blocks[-1]
+    path = kit.CACHE / f"pred-BF1-seed{int(seed)}-{kit.control_tag(panel)}.pkl"  # invariant-allow: data-access — 작업 캐시
+    if not path.exists():
+        return {}
+    booster, _, _ = train_bf1(panel, feats, kit.train_end(sessions, first), seed)
+    test = kit.block_rows(panel, sessions, first, last)
+    pred = test[["entity_id", "session", "market"]].assign(
+        pred=booster.predict(test[feats].to_numpy(np.float32), num_iteration=booster.best_iteration))
+    saved = pd.read_pickle(path)  # invariant-allow: data-access — 창고가 아닌 작업 캐시
+    saved["session"] = pd.to_datetime(saved["session"]).dt.date
+    both = pred.merge(saved[["entity_id", "session", "market", "pred"]], on=["entity_id", "session", "market"],
+                      suffixes=("", "_judge"))
+    if both.empty:
+        return {"rows": 0}
+    return {"rows": len(both), "max_abs_diff": float((both["pred"] - both["pred_judge"]).abs().max())}
+
+
+def freeze_bf1(kit: Any, panel: pd.DataFrame, sessions: list[date], the_plan: dict[str, Any], seeds: list[int],
+               out: Path, *, verify: bool, synthetic: bool, usable_from: date, feats: list[str]) -> Path:
+    """BF1 시드별 적합 → 파일(best_iteration 까지만 저장)·사이드카. 이미 있는 시드는 건너뛴다(이어 돌기).
+
+    DF2(docs/protocols/df2-2026-10.md) 의 두 번째 금고가 이 파일을 쓴다. 파일 이름이 `be2-` 로 시작하지 않으므로
+    be2 Analyst 는 이것을 못 집는다(C0 와 같다).
+    """
+    from tools import trial_final_lambdarank as bf
+
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"{BF1_VERSION}-{the_plan['data_end']:%Y%m%d}"
+    info: dict[str, dict[str, Any]] = {}
+    files: dict[str, str] = {}
+    digests: dict[str, str] = {}
+    for seed in seeds:
+        txt = out / f"{stem}-rank-seed{seed}.txt"
+        if txt.exists():
+            print(f"  BF1 seed {seed} · 이미 얼렸다 — 건너뛴다", flush=True)
+            info[str(seed)] = {}
+        else:
+            booster, diag, n_rows = train_bf1(panel, feats, the_plan["cut"], seed)
+            # save_model(num_iteration=None) 은 best_iteration 이 있으면 거기까지만 적는다 — 판정 예측과 같은 트리 수.
+            booster.save_model(str(txt))
+            info[str(seed)] = {"rows": int(n_rows), "best_iter": int(diag["best_iter"]),
+                               "inner_valid_ndcg": float(diag["inner_valid_ndcg"]),
+                               "file_roundtrip": file_roundtrip(booster, txt, panel, feats)}
+            del booster
+            if verify and not synthetic:
+                info[str(seed)]["verify"] = verify_bf1(kit, panel, feats, sessions, the_plan["blocks"], seed)
+            print(f"  BF1 seed {seed} · 학습 {n_rows:,}행 · {info[str(seed)]} · 최대 RSS {kit.rss_mb():.0f}MB", flush=True)
+        files[str(seed)] = txt.name
+        digests[txt.name] = be2_module.file_digest(txt)
+    meta = {
+        "version": BF1_VERSION, "arm": "BF1",
+        "protocol": "docs/protocols/df2-2026-10.md",
+        "round_protocol_hash": be2_module.PROTOCOL_HASH,
+        "trained_through": the_plan["cut"].isoformat(), "data_end": the_plan["data_end"].isoformat(),
+        "usable_from": usable_from.isoformat(), "features": list(feats), "seeds": seeds,
+        "rank": {"trainer": "tools/trial_final_lambdarank._fit_rank_rows", "params": {k: v for k, v in bf.PARAMS.items()},
+                 "max_rounds": bf.MAX_ROUNDS, "early_stop": bf.EARLY_STOP, "query": list(bf.GROUP_KEYS)},
+        "files": {"rank": files}, "sha256": digests, "rank_log": info, "synthetic": bool(synthetic),
+        "created_at": LiveClock().now().isoformat(),
+    }
+    return write_sidecar(out, stem, meta)
+
+
 # --------------------------------------------------------------------------- 파일
 
 
@@ -331,8 +426,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", action="store_true", help="자르는 날·재학습 지점만 찍고 끝(학습 없음)")
     parser.add_argument("--synthetic", action="store_true", help="창고·캐시를 안 읽고 합성 패널로 배선만 본다")
     parser.add_argument("--skip-gbm", action="store_true")
-    parser.add_argument("--arm", choices=("BE2", "C0"), default="BE2",
-                        help="C0 = 금고 대조(6점수 GBM)만 얼린다 — 트랜스포머는 안 돈다")
+    parser.add_argument("--arm", choices=("BE2", "C0", "BF1"), default="BE2",
+                        help="C0 = 금고 대조(6점수 GBM)만 · BF1 = DF2 금고의 LambdaRank 만 얼린다 — 트랜스포머는 안 돈다")
     args = parser.parse_args(argv)
 
     from tools import final_round_kit as kit
@@ -379,6 +474,16 @@ def main(argv: list[str] | None = None) -> int:
         sidecar = freeze_c0(kit, panel, sessions, the_plan, seeds, Path(args.out), verify=args.verify,
                             synthetic=args.synthetic, usable_from=usable_from)
         print(f"C0 사이드카 {sidecar} · sha256[:16] {hashlib.sha256(sidecar.read_bytes()).hexdigest()[:16]} "
+              f"· 최대 RSS {kit.rss_mb():.0f}MB · {(time_module.monotonic() - began) / 60:.1f}분", flush=True)  # invariant-allow: wallclock
+        return 0
+
+    if args.arm == "BF1":
+        from tools import trial_final_lambdarank as bf
+
+        panel = bf.compact_objects(panel)   # 판정 main 과 같다(값·순서 그대로, 객체만 나눈다)
+        sidecar = freeze_bf1(kit, panel, sessions, the_plan, seeds, Path(args.out), verify=args.verify,
+                             synthetic=args.synthetic, usable_from=usable_from, feats=list(feats))
+        print(f"BF1 사이드카 {sidecar} · sha256[:16] {hashlib.sha256(sidecar.read_bytes()).hexdigest()[:16]} "
               f"· 최대 RSS {kit.rss_mb():.0f}MB · {(time_module.monotonic() - began) / 60:.1f}분", flush=True)  # invariant-allow: wallclock
         return 0
 

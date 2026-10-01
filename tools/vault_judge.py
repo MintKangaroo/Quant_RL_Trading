@@ -129,6 +129,24 @@ C0_FEATURES = (*SCORE_COLUMNS, "is_us")
 #: BE2 채택 기준 ①~⑥ — 마지막 모델 회차 등록 그대로(`final_round_kit.GATE_*` 와 같은 값, 테스트가 맞춘다).
 BE2_GATE_MEAN, BE2_GATE_SHARE, BE2_GATE_HALF = 0.02, 0.80, -0.01
 BE2_GATE_IC, BE2_GATE_MDD, BE2_GATE_TURN, BE2_GATE_MODEL = 0.0, 0.02, 1.2, 0.01
+#: **따로 등록된 시행**이 창에 붙는 자리 — 앞당김 문서(해시 고정)의 `창` 줄은 못 고치므로, 제 등록 문서·제 해시로 붙는다.
+#: DF2(docs/protocols/df2-2026-10.md, 2026-09-30 사용자 "C로 하자") 는 두 번째 금고(second)에서 BE2·BD 와 **한 번에** 연다.
+DF2_PROTOCOL = Path("docs/protocols/df2-2026-10.md")
+DF2_PROTOCOL_HASH: str | None = "dbac9e2be1db35ef"   # 2026-09-30 고정
+EXTRA_TRIALS: dict[str, tuple[str, ...]] = {"second": ("DF2",)}
+EXTRA_PROTOCOLS: dict[str, tuple[Path, str | None]] = {"DF2": (DF2_PROTOCOL, DF2_PROTOCOL_HASH)}
+FAMILY["DF2"] = "selection"
+ENTITY["DF2"] = "df2-2026-10:DF2"
+#: 얼린 BF1 사이드카(`tools/freeze_be2.py --arm BF1`) — 해시는 **얼린 뒤** 여기에 적는다(DF2 문서는 고정돼 못 고친다).
+#: None 이면 DF2 판정을 거부한다(얼리기가 먼저다).
+BF1_MODELS = Path("data/models/bf1")   # BE2 폴더와 따로 — be2 Analyst 가 보는 폴더에 섞지 않는다. manifest.json 도 여기
+BF1_STEM = "bf1-v1.0.0-20260630"
+BF1_SIDECAR_HASH: str | None = None
+#: DF2 판정 불가(보류) 규칙 — 등록 문서 값 그대로: 확인 발동 세션 < 5 · 발동 든 재조정일 < 1 · C1′ 창 MDD 가 −5% 보다 얕다.
+DF2_MIN_FIRE, DF2_MIN_FIRE_REBAL, DF2_MIN_DEPTH = 5, 1, -0.05
+#: DF2 기준 — DF 와 같다(C1′ 대비, 시드 평균): MDD 1%p 얕게 · 연 ≥ −0.5%p · 두 구간 ≥ −1%p · 회전 ≤ ×1.2.
+DF2_GATE_MDD, DF2_GATE_ANN, DF2_GATE_HALF, DF2_GATE_TURN = 0.01, -0.005, -0.01, 1.2
+DF2_KEYS = ("ann", "h1", "h2", "mdd", "turn")
 WINDOW_LINE = re.compile(r"^- `창 (\w+)` (\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2}) · 굽기 (\d{4}-\d{2}-\d{2}) · "
                          r"판정 (\d{4}-\d{2}-\d{2}) · 시행 ([A-Z0-9,]+)\s*$", re.M)
 
@@ -190,7 +208,7 @@ def registration_problems(win: Window | None = None) -> list[str]:
     digest = _digest(doc)
     if digest != EARLY_PROTOCOL_HASH:
         return [f"{doc} 해시 {digest} ≠ 고정값 {EARLY_PROTOCOL_HASH} — 고정 뒤 문서가 바뀌었다"]
-    problems = []
+    problems = extra_problems(win)
     pinned = pinned_hashes(doc)
     for trial, path in PROTOCOL_OF.items():
         want = pinned.get(f"doc:{trial}")
@@ -199,6 +217,33 @@ def registration_problems(win: Window | None = None) -> list[str]:
         elif _digest(path) != want:
             problems.append(f"{path} 해시 {_digest(path)} ≠ 앞당김 문서가 고정한 {want} — 시행 문서가 바뀌었다")
     return problems
+
+
+def trials_of(win: Window) -> tuple[str, ...]:
+    """창에서 심사하는 시행 — 앞당김 문서 `창` 줄의 시행 + 따로 등록돼 붙은 시행(`EXTRA_TRIALS`)."""
+    return (*win.trials, *EXTRA_TRIALS.get(win.name, ()))
+
+
+def protocol_path(trial: str) -> Path:
+    return EXTRA_PROTOCOLS[trial][0] if trial in EXTRA_PROTOCOLS else PROTOCOL_OF[trial]
+
+
+def extra_problems(win: Window | None) -> list[str]:
+    """창에 붙은 따로 등록 시행의 문서가 **고정됐고 그대로인지**. 어긋나면 그 창 전체를 거부한다(개봉은 한 번이라서)."""
+    if win is None:
+        return []
+    out = []
+    for trial in EXTRA_TRIALS.get(win.name, ()):
+        path, want = EXTRA_PROTOCOLS[trial]
+        if want is None:
+            out.append(f"{trial} 등록 {path} 해시가 고정되지 않았다(None)")
+        elif not path.exists():
+            out.append(f"{trial} 등록 {path} 가 없다")
+        elif _digest(path) != want:
+            out.append(f"{trial} 등록 {path} 해시 {_digest(path)} ≠ 고정값 {want} — 고정 뒤 문서가 바뀌었다")
+    return out
+
+
 #: 금고 창에 구울 국장 Analyst — 여섯에 **실전 랭커**(AQ 원천 ①)를 더한다.
 KR_ANALYSTS = ("chart", "event", "flow_kr", "fundamental", "regime", "risk", "ranker")
 #: 원피처(AS)를 굽는 Analyst — 시장마다 flow 가 다르다.
@@ -858,7 +903,237 @@ def run_be2(store: Store, *, confirm: bool = False) -> tuple[list[str], str]:
     return lines, verdict
 
 
-RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2}
+# --------------------------------------------------------------------------- DF2 (df2-2026-10.md — 두 번째 금고, 국장)
+
+
+def df2_fire(now: pd.DataFrame, prev: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    """확인 발동 — 그 세션과 **바로 앞 세션** 모두 p_위기 > 문턱. 해제는 즉시(둘 중 하나라도 아니면 끔).
+
+    ``now``·``prev`` = `trial_next_four.attach_probs` 의 결과(session·market·p0…) — prev 는 한 세션 밀린 확률을 붙인 것.
+    반환: session·market·fire(bool). 확률이 없는 행은 발동 아님이 아니라 **멈춘다**(require_probs 가 먼저 거른다).
+    """
+    m = now[["session", "market", "p0"]].merge(prev[["session", "market", "p0"]], on=["session", "market"],
+                                               suffixes=("", "_prev"), how="left")
+    if m[["p0", "p0_prev"]].isna().any().any():
+        bad = m.loc[m[["p0", "p0_prev"]].isna().any(axis=1), "session"].head(3).tolist()
+        raise ValueError(f"DF2: 확률이 없는 세션이 있다(예: {bad}) — 발동 아님으로 치지 않는다")
+    m["fire"] = (m["p0"].to_numpy(np.float64) > threshold) & (m["p0_prev"].to_numpy(np.float64) > threshold)
+    return m[["session", "market", "fire"]].reset_index(drop=True)
+
+
+def df2_weights(fire: pd.DataFrame, blend: float) -> pd.DataFrame:
+    """확인 발동 세션만 C1 1−blend · BF2 blend, 아니면 C1 1 — `trial_next_four.df_weights` 와 같은 모양(발동 규칙만 다르다)."""
+    out = fire[["session", "market"]].copy()
+    on = fire["fire"].to_numpy(bool)
+    out["C1"] = np.where(on, 1.0 - blend, 1.0)
+    out["BF2"] = np.where(on, blend, 0.0)
+    return out.reset_index(drop=True)
+
+
+def rebalance_days(pred: pd.DataFrame, ret: pd.DataFrame, every: int = EVERY) -> list[date]:
+    """`trial_ranker_kit.portfolio` 가 명단을 바꾸는 날 — 예측 세션 중 수익이 있는 날의 0·every·2every… 번째."""
+    days = [d for d in sorted(pd.unique(pred["session"])) if d in ret.index]
+    return days[::every]
+
+
+def judge_df2(res: dict[str, list[dict[str, float]]], *, fire_sessions: int, fire_rebalances: int,
+              held_before: bool = False) -> tuple[list[str], str]:
+    """DF2 — 판정 불가 셋을 먼저, 그다음 기준 넷(C1′ 대비, 시드 평균). res[군] = 시드 순서 지표, 군 = DF2·C1′·DF.
+
+    판정 불가(보류, 시행 미소진): (가) 확인 발동 세션 < 5 (나) 발동 든 재조정일 < 1 (다) C1′ 창 MDD 가 −5% 보다 얕다.
+    ``held_before`` — 앞 판정이 이미 보류였다. 그러면 이번 보류는 두 번째이고 DF2 를 **닫는다**(등록: 보류 두 번이면 닫음).
+    기준: ① MDD 가 1%p 이상 얕다 ② 연 ≥ C1′ − 0.5%p ③ 창을 세션 수 절반으로 가른 두 구간 모두 ≥ C1′ − 1%p ④ 회전 ≤ C1′ × 1.2.
+    DF(확인 없는 원래 규칙)는 기록만. 지표 키가 빠지거나 nan 이면 크게 멈춘다.
+    """
+    for arm in ("DF2", "C1′", "DF"):
+        for i, row in enumerate(res[arm]):
+            bad = [k for k in DF2_KEYS if k not in row or not np.isfinite(row[k])]
+            if bad:
+                raise ValueError(f"judge_df2: {arm} 시드 {i} 에 지표 {bad} 가 없다 — 조용히 기각하지 않는다")
+    d2, c1, df = res["DF2"], res["C1′"], res["DF"]
+    lines = ["| 군 | 연수익(시드 평균) | 시드별 | 전반 | 후반 | MDD | 회전 |", "|---|---|---|---|---|---|---|"]
+    for arm, rows in (("DF2 확인 발동", d2), ("C1′ = pct(C1)", c1), ("DF 원래 규칙(기록)", df)):
+        lines.append(f"| {arm} | {_mean(rows, 'ann'):+.1%} | " + " / ".join(f"{r['ann']:+.1%}" for r in rows)
+                     + f" | {_mean(rows, 'h1'):+.1%} | {_mean(rows, 'h2'):+.1%} | {_mean(rows, 'mdd'):.1%} | {_mean(rows, 'turn'):.1f} |")
+    depth = _mean(c1, "mdd")
+    lines.append(f"판정 가능 여부: 확인 발동 세션 {fire_sessions} (≥ {DF2_MIN_FIRE}) · 발동 든 재조정일 {fire_rebalances} "
+                 f"(≥ {DF2_MIN_FIRE_REBAL}) · C1′ 창 MDD {depth:.1%} (≤ {DF2_MIN_DEPTH:.0%})")
+    why = [w for ok, w in ((fire_sessions >= DF2_MIN_FIRE, f"확인 발동 {fire_sessions}세션 < {DF2_MIN_FIRE}"),
+                           (fire_rebalances >= DF2_MIN_FIRE_REBAL, f"발동 든 재조정일 {fire_rebalances} < {DF2_MIN_FIRE_REBAL}"),
+                           (depth <= DF2_MIN_DEPTH, f"C1′ 창 MDD {depth:.1%} 가 {DF2_MIN_DEPTH:.0%} 보다 얕다")) if not ok]
+    if why and held_before:
+        return lines, "닫음 — 보류 두 번째(" + " · ".join(why) + ") · 위기를 기다리며 창을 더 쓰지 않는다(등록 규칙)"
+    if why:
+        return lines, ("보류 — 판정 불가(" + " · ".join(why) + ") · 시행 미소진, 다음 안 본 창에서 같은 기준으로 한 번 더"
+                       " (보류가 두 번이면 DF2 를 닫는다)")
+    d = {k: _mean(d2, k) - _mean(c1, k) for k in ("ann", "h1", "h2", "mdd")}
+    c = (d["mdd"] >= DF2_GATE_MDD, d["ann"] >= DF2_GATE_ANN,
+         d["h1"] >= DF2_GATE_HALF and d["h2"] >= DF2_GATE_HALF,
+         _mean(d2, "turn") <= _mean(c1, "turn") * DF2_GATE_TURN)
+    lines.append(f"①MDD {_mean(d2, 'mdd'):.1%} 대 {_mean(c1, 'mdd'):.1%} ({d['mdd']:+.1%}p, ≥ +1%p) {mark(c[0])} · "
+                 f"②연 {d['ann']:+.1%}p (≥ −0.5%p) {mark(c[1])} · ③두 구간 {d['h1']:+.1%}p / {d['h2']:+.1%}p (≥ −1%p) {mark(c[2])} · "
+                 f"④회전 {_mean(d2, 'turn'):.1f} 대 {_mean(c1, 'turn'):.1f} (≤ ×1.2) {mark(c[3])}")
+    lines.append(f"기록(기준 아님) DF2 − DF 연 {_mean(d2, 'ann') - _mean(df, 'ann'):+.1%}p · MDD {_mean(d2, 'mdd') - _mean(df, 'mdd'):+.1%}p")
+    return lines, ("채택 후보 — 방어(①~④), shadow 20세션 뒤 사용자 결정" if all(c) else "기각")
+
+
+def vault_index_closes(store: Store, market: str, until: date) -> pd.Series:
+    """금고 창 끝까지의 지수 종가 — `trial_next_four.index_closes` 와 **같은 읽기**, 금고 거부만 없다(판정부만 부른다).
+
+    HMM 은 `v2_regime_hmm.run`(달마다 그 달 첫 세션 전까지 적합 · 전방 필터)이라 끝을 늘려도 앞 세션의 확률은 바뀌지 않는다.
+    """
+    from tools import v2_regime_hmm as hmm
+    if until > VAULT_END:
+        raise ValueError(f"until {until} 이 금고 창 끝({VAULT_END}) 뒤다")
+    end = datetime.combine(until, time(23), tzinfo=UTC)
+    idx = store.get("indices", as_of=end, lookback=(until - date(2020, 1, 1)).days,
+                    market=market, columns=["entity_id", "valid_from", "close"])
+    idx = idx[idx["entity_id"] == hmm.INDEX[market]].assign(day=lambda f: pd.to_datetime(f["valid_from"]).dt.date)
+    closes = idx.groupby("day")["close"].last().sort_index()
+    return closes[(closes > 0) & (closes.index <= until)]
+
+
+def frozen_df2(*, folder: Path | None = None, bf1_folder: Path | None = None,
+               bf1_hash: str | None = None) -> tuple[Any, dict[int, Any]]:
+    """DF2 의 얼린 모델 — C1 = BE2 파일 안 GBM(해시는 앞당김 문서 '모델 해시'), BF1 = `freeze_be2 --arm BF1` 사이드카."""
+    folder = folder or BE2_MODELS
+    bf1_folder = bf1_folder or BF1_MODELS
+    bf1_hash = bf1_hash if bf1_hash is not None else BF1_SIDECAR_HASH
+    expected = frozen_hashes("BE2")
+    if BE2_STEM not in expected:
+        raise SystemExit(f"앞당김 등록 문서에 {BE2_STEM} 해시가 없다 — 판정 거부")
+    be2_path = folder / f"{BE2_STEM}.json"
+    if not be2_path.exists() or _digest(be2_path) != expected[BE2_STEM]:
+        raise SystemExit(f"{be2_path} 가 없거나 해시가 문서({expected[BE2_STEM]})와 다르다 — 판정 거부")
+    model = be2_module.Be2Model.load(be2_path)
+    problems = model.problems()
+    if problems:
+        raise SystemExit("얼린 BE2(C1 GBM) 를 쓸 수 없다 — 판정 거부: " + "; ".join(problems))
+    if bf1_hash is None:
+        raise SystemExit("BF1_SIDECAR_HASH 가 없다 — tools/freeze_be2.py --arm BF1 --verify 뒤 해시를 적어야 한다(판정 거부)")
+    path = bf1_folder / f"{BF1_STEM}.json"
+    if not path.exists() or _digest(path) != bf1_hash:
+        raise SystemExit(f"{path} 가 없거나 해시가 고정값({bf1_hash})과 다르다 — 얼린 모델을 다시 학습하지 않는다(판정 거부)")
+    meta = json.loads(path.read_text(encoding="utf-8"))
+    if tuple(meta.get("features", ())) != tuple(model.features):
+        raise SystemExit("BF1 열이 C1(FA 76) 과 다르다 — 판정 거부")
+    if meta.get("trained_through") != model.trained_through.isoformat():
+        raise SystemExit(f"BF1 자르는 날 {meta.get('trained_through')} ≠ C1 {model.trained_through} — 판정 거부")
+    if sorted(int(x) for x in meta.get("seeds", [])) != sorted(model.seeds):
+        raise SystemExit(f"BF1 시드 {meta.get('seeds')} ≠ C1 시드 {list(model.seeds)} — 판정 거부")
+    import lightgbm as lgb
+    bf1: dict[int, Any] = {}
+    for seed in model.seeds:
+        name = meta["files"]["rank"][str(seed)]
+        fp = bf1_folder / name
+        if not fp.exists() or be2_module.file_digest(fp) != meta["sha256"].get(name):
+            raise SystemExit(f"BF1 파일 {name} 이 없거나 지문이 사이드카와 다르다 — 판정 거부")
+        bf1[int(seed)] = lgb.Booster(model_file=str(fp))
+    print(f"  C1 {BE2_STEM} · BF1 {BF1_STEM} 사이드카 해시·파일 지문 대조 ○ (시드 {list(model.seeds)})", flush=True)
+    return model, bf1
+
+
+def df2_predictions(store: Store, sessions: list[date], model: Any, bf1: dict[int, Any], *,
+                    as_of_of: Any) -> dict[str, dict[int, pd.DataFrame]]:
+    """세션마다 창고 `fa_features`(그 세션 as_of 까지)로 C1·BF1 시드별 원점수 — BE2 금고와 **같은** `session_batch`.
+
+    한 세션이라도 채점 못 하면 멈춘다(창을 조용히 줄이지 않는다). 반환 {C1·BF1: {시드: entity_id·session·market·pred}}.
+    """
+    arms: dict[str, dict[int, list[pd.DataFrame]]] = {a: {int(s): [] for s in model.seeds} for a in ("C1", "BF1")}
+    failed: list[str] = []
+    for day in sessions:
+        batch = be2_module.session_batch(store, "KR", as_of_of(day))
+        if isinstance(batch, str):
+            failed.append(f"{day}: {batch}")
+            continue
+        if batch.session != day:
+            failed.append(f"{day}: as_of 가 다른 세션({batch.session})을 가리킨다")
+            continue
+        base = pd.DataFrame({"entity_id": batch.entities, "session": day, "market": "KR"})
+        for seed in model.seeds:
+            arms["C1"][int(seed)].append(base.assign(pred=model.predict_gbm(int(seed), batch.flat)))
+            arms["BF1"][int(seed)].append(base.assign(pred=np.asarray(bf1[int(seed)].predict(batch.flat), dtype=float)))
+    if failed:
+        raise SystemExit(f"금고 창 {len(failed)}세션을 채점하지 못했다 — 창을 조용히 줄이지 않는다:\n  " + "\n  ".join(failed[:10]))
+    return {a: {s: pd.concat(v, ignore_index=True) for s, v in by.items()} for a, by in arms.items()}
+
+
+def df2_prev(probs: pd.DataFrame) -> pd.DataFrame:
+    """바로 앞 세션의 확률 — HMM 표(지수 세션 축)를 한 행 민다. 국장 지수 세션 = 국장 세션이라 '앞 세션' 이 된다."""
+    return probs.assign(p0=probs["p0"].shift(1))
+
+
+def df2_results(preds: dict[str, dict[int, pd.DataFrame]], probs: pd.DataFrame, ret: pd.DataFrame,
+                bench: pd.Series, trad: dict[date, set[str]], seeds: list[int]) -> tuple[list[str], dict[str, Any]]:
+    """채점된 C1·BF1 원점수 → DF2·C1′·DF 국장 포트 지표(시드별). 창고를 안 읽는다(합성 스모크가 이 함수를 그대로 돈다).
+
+    반환: (기록 줄, {res, fire_sessions, fire_rebalances, overlap}). 발동 세는 값은 첫 시드에서 — 발동은 HMM 만 보므로 시드와 무관하다.
+    """
+    from tools import trial_next_four as nf
+    from tools.trial_lambdarank import top_overlap
+
+    prev = df2_prev(probs)
+    res: dict[str, list[dict[str, float]]] = {"DF2": [], "C1′": [], "DF": []}
+    lines: list[str] = []
+    fire_sessions = fire_rebal = 0
+    overlaps = []
+    for seed in seeds:
+        c1 = preds["C1"][int(seed)]
+        pcts = nf.pct_frame({"C1": c1, "BF2": nf.bf2_scores(preds["BF1"][int(seed)], c1)})
+        now = nf.attach_probs(pcts, {"KR": probs})
+        before = nf.attach_probs(pcts, {"KR": prev})
+        if not lines:
+            lines = nf.require_probs(now)                 # rc 8 — 그 날짜 확률 < 95% 또는 빈 세션
+        fire = df2_fire(now, before, nf.DF_THRESHOLD)
+        arms = {"DF2": nf.weighted(pcts, df2_weights(fire, nf.DF_BLEND)),
+                "C1′": nf.weighted(pcts, nf.constant_weights(pcts, C1=1.0)),
+                "DF": nf.weighted(pcts, nf.df_weights(now.dropna(subset=["p0"])))}
+        if seed == seeds[0]:
+            on = set(fire.loc[fire["fire"], "session"])
+            fire_sessions = len(on)
+            fire_rebal = sum(d in on for d in rebalance_days(arms["DF2"], ret))
+            lines.append(f"기록: 확인 발동 {fire_sessions}/{len(fire)}세션 · 원래 규칙(DF) 발동 "
+                         f"{int((now['p0'] > nf.DF_THRESHOLD).sum())}세션 · 발동 든 재조정일 {fire_rebal}")
+        for arm, pred in arms.items():
+            daily, extra = portfolio(pred[["entity_id", "session", "pred"]], ret, trad, every=EVERY)
+            res[arm].append(stats(daily, bench, extra))
+        overlaps.append(top_overlap(arms["DF2"][["entity_id", "session", "pred"]], arms["C1′"][["entity_id", "session", "pred"]]))
+        del pcts, arms
+    return lines, {"res": res, "fire_sessions": fire_sessions, "fire_rebalances": fire_rebal,
+                   "overlap": float(np.mean(overlaps))}
+
+
+def run_df2(store: Store) -> tuple[list[str], str]:
+    """DF2 — 얼린 C1·BF1 × 실전 경로 FA × 금고 HMM(같은 규칙) × 국장 포트. 대조 C1′ = pct(C1), DF 는 기록.
+
+    앞 DF2 판정이 보류가 아닌 무엇이면(채택 후보·기각·닫음) 다시 돌지 않는다 — 시행은 1회다.
+    """
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
+    from quant_rl_trading.collectors.publication import publication_policy
+    from quant_rl_trading.replay.clock import LiveClock
+    from tools import trial_next_four as nf
+
+    prior = prior_verdict(store, "DF2")
+    if prior is not None and not prior.startswith("보류"):
+        raise SystemExit(f"DF2 는 이미 판정됐다({prior!r}) — 1회 시행이라 다시 돌지 않는다")
+    model, bf1 = frozen_df2()
+    sessions = list(trading_days(Market.KR, VAULT_START, VAULT_END))
+    policy = publication_policy(store, Market.KR, clock=LiveClock())
+    preds = df2_predictions(store, sessions, model, bf1, as_of_of=policy.for_session)
+    probs = nf.regime_probs(vault_index_closes(store, "KR", VAULT_END))
+    ret, bench, trad = market_data(store, sessions, cache=VAULT)
+    fire_lines, out = df2_results(preds, probs, ret, bench, trad, [int(s) for s in model.seeds])
+    res = out["res"]
+    lines, verdict = judge_df2(res, fire_sessions=out["fire_sessions"], fire_rebalances=out["fire_rebalances"],
+                               held_before=prior is not None)
+    lines = fire_lines + lines + [
+        f"기록(기준 아님) 채점 세션 {len(sessions)} · 상위 24 겹침 DF2 대 C1′ {out['overlap']:.0%} · β DF2 "
+        f"{_mean(res['DF2'], 'beta'):+.2f} 대 C1′ {_mean(res['C1′'], 'beta'):+.2f} · 입력 = 실전 경로 fa_features · "
+        f"HMM = 금고 창 끝까지 같은 규칙 · 앞 판정 {prior or '없음'}"]
+    return lines, verdict
+
+
+RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2}
 
 
 # --------------------------------------------------------------------------- 기록
@@ -878,9 +1153,11 @@ def record_verdicts(store: Store, results: list[tuple[str, str, list[str]]], *, 
     early = win is not None and win.protocol is not None
     batch = f"금고 {win.name if win else 'registered'} {VAULT_START}~{VAULT_END} · 동시 개봉 {len(results)}시행"
     for trial, verdict, lines in results:
-        own = hashlib.sha256(PROTOCOL_OF[trial].read_bytes()).hexdigest()[:16]
-        digest = _digest(win.protocol) if early and win is not None and win.protocol is not None else own
-        extra = [batch, f"시행 문서 {PROTOCOL_OF[trial].name} {own}"] if early else []
+        own = hashlib.sha256(protocol_path(trial).read_bytes()).hexdigest()[:16]
+        #: 따로 등록돼 붙은 시행(DF2)은 **제 문서**가 판정을 지배한다 — 앞당김 문서는 그 시행을 모른다.
+        governed = early and win is not None and win.protocol is not None and trial not in EXTRA_PROTOCOLS
+        digest = _digest(win.protocol) if governed and win is not None and win.protocol is not None else own
+        extra = [batch, f"시행 문서 {protocol_path(trial).name} {own}"] if early else []
         record(store, entity=ENTITY[trial], source="vault_judge", family=FAMILY[trial], digest=digest,
                verdict=verdict, lines=[*extra, *lines[-3:]], market="US" if trial == "BD" else "KR", run_tag=trial)
     now = datetime.now(UTC)  # invariant-allow: wallclock — 개봉 시각
@@ -904,7 +1181,7 @@ def record_verdicts(store: Store, results: list[tuple[str, str, list[str]]], *, 
 def bake_plan(win: Window | None = None) -> list[tuple[str, Path, str]]:
     """(설명, 있어야 하는 파일, 그것을 만드는 명령). 인쇄만 해도 순서를 알 수 있게 둔다. 창은 모듈 변수(use_window)."""
     flag = f" --window {win.name}" if win is not None else ""
-    trials = win.trials if win is not None else TRIALS
+    trials = trials_of(win) if win is not None else TRIALS
     extra: list[tuple[str, Path, str]] = []
     if "BE2" in trials:
         extra = [
@@ -912,6 +1189,10 @@ def bake_plan(win: Window | None = None) -> list[tuple[str, Path, str]]:
              BE2_MODELS / f"{C0_STEM}.json",
              "setsid nohup .venv/bin/python -u tools/freeze_be2.py --arm C0 --verify >> logs/freeze-c0.log 2>&1 &"),
         ]
+    if "DF2" in trials:
+        extra.append(("⑦ 얼린 BF1(DF2, LambdaRank) — 사이드카 해시를 vault_judge.BF1_SIDECAR_HASH 에 적는다",
+                      BF1_MODELS / f"{BF1_STEM}.json",
+                      "setsid nohup scripts/freeze_bf1.sh > /dev/null 2>&1 &   # 조건 대기 · logs/freeze-bf1-*.log"))
     return [
         ("① 국장 점수·거래가능 명단(AQ·AR·AS·BE2)", VAULT / "scores-ranker-KR.pkl",
          f".venv/bin/python tools/vault_judge.py --bake{flag}   # bake_long_panel 을 금고 창으로 직접 부른다"),
@@ -975,8 +1256,8 @@ def bake(store: Store, win: Window | None = None) -> int:
     for group in INSIDER:
         for market, days in sessions.items():
             build_panel(store, group, market, days, collect=False)
-    if win is not None and "BE2" in win.trials:
-        # BE2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
+    if win is not None and {"BE2", "DF2"} & set(trials_of(win)):
+        # BE2·DF2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
         from quant_rl_trading.analysts import fa_features
         first = be2_module.time_axis(VAULT_START)[-be2_module.WINDOW:][0]   # 첫 채점일의 60칸 창 첫날
         need = list(trading_days(Market.KR, first, VAULT_END))
@@ -1015,19 +1296,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.plan:
         state = "고정" if not registration_problems(win) else "초안(미고정) — --bake·--judge 거부"
         print(f"=== 금고 {win.name} 실행 순서 · 창 {win.start}~{win.end} · 굽기 {win.bake_from}~ · 판정 {win.judge_from}~ · "
-              f"시행 {','.join(win.trials)} · 등록 {state} ===", flush=True)
+              f"시행 {','.join(trials_of(win))} · 등록 {state} ===", flush=True)
         plan = bake_plan(win)
         for i, (label, ready, cmd) in enumerate(plan, 1):
             print(f"{i}. {label}\n   있어야 하는 것: {ready}\n   {cmd}", flush=True)
         print(f"{len(plan) + 1}. 판정\n   .venv/bin/python tools/vault_judge.py --judge --window {win.name} "
-              f"--trials {','.join(win.trials)} --save", flush=True)
+              f"--trials {','.join(trials_of(win))} --save", flush=True)
         return 0
     if not (args.bake or args.judge):
         parser.error("--plan · --bake · --judge 중 하나")
-    trials = [t for t in (args.trials or ",".join(win.trials)).split(",") if t]
-    unknown = [t for t in trials if t not in win.trials or t not in RUNNERS]
+    trials = [t for t in (args.trials or ",".join(trials_of(win))).split(",") if t]
+    unknown = [t for t in trials if t not in trials_of(win) or t not in RUNNERS]
     if unknown:
-        parser.error(f"{win.name} 창에서 심사하지 않는 시행: {unknown} (이 창: {list(win.trials)})")
+        parser.error(f"{win.name} 창에서 심사하지 않는 시행: {unknown} (이 창: {list(trials_of(win))})")
     if locked("--bake" if args.bake else "--judge", win):
         return 2
     store = Store(root=Path(args.root))
@@ -1047,8 +1328,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"\n=== 시행 {trial} — {win.name} 창 건너뜀: 앞 개봉 판정이 {prior!r} "
                       f"(이 창은 {SECOND_NEEDS[win.name][trial]} 인 경우만 — 등록 문서 '두 번째 금고') ===", flush=True)
                 continue
-        digest = hashlib.sha256(PROTOCOL_OF[trial].read_bytes()).hexdigest()[:16]
-        print(f"\n=== 시행 {trial} — {PROTOCOL_OF[trial]} (해시 {digest}) · 금고 {win.name} {VAULT_START}~{VAULT_END} ===",
+        digest = hashlib.sha256(protocol_path(trial).read_bytes()).hexdigest()[:16]
+        print(f"\n=== 시행 {trial} — {protocol_path(trial)} (해시 {digest}) · 금고 {win.name} {VAULT_START}~{VAULT_END} ===",
               flush=True)
         if trial == "BE2":
             lines, verdict = run_be2(store, confirm=win.name == "second")

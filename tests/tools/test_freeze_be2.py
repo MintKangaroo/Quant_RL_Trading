@@ -114,3 +114,34 @@ def test_training_never_sees_labels_after_cut(monkeypatch: pytest.MonkeyPatch, t
     expected = int(((panel["session"] <= cut) & panel["y5"].notna()).sum())
     assert rows == [expected]
     assert np.isfinite(expected)
+
+
+def test_bf1_arm_freezes_rank_models_only_up_to_cut(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """DF2 금고의 BF1 — 판정 `walk_rank` 와 같은 몸통(`_fit_rank_rows`)에 **자르는 날까지** 행만 · 사이드카 · 이어 돌기."""
+    from tools import trial_final_lambdarank as bf
+
+    panel, _f, _g, sessions = freeze_be2.synthetic_panel()
+    cut = freeze_be2.plan(kit, sessions, date(2026, 7, 1))["cut"]
+    seen: list[int] = []
+    real = bf._fit_rank_rows
+
+    def spy(source, rows, *args, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(len(rows))
+        assert max(source["session"].to_numpy()[rows]) <= cut
+        return real(source, rows, *args, **kwargs)
+
+    monkeypatch.setattr(bf, "_fit_rank_rows", spy)
+    monkeypatch.setenv("QUANT_RL_LGB_THREADS", "2")
+    out = tmp_path / "bf1"
+    assert freeze_be2.main(["--synthetic", "--arm", "BF1", "--seeds", "0", "--out", str(out)]) == 0
+    assert seen == [int(((panel["session"] <= cut) & panel["y5"].notna()).sum())]
+    meta = json.loads((out / "bf1-v1.0.0-20260630.json").read_text())
+    assert meta["arm"] == "BF1" and meta["trained_through"] == cut.isoformat()
+    assert meta["features"] == list(FA_FEATURES) and meta["protocol"] == "docs/protocols/df2-2026-10.md"
+    txt = out / meta["files"]["rank"]["0"]
+    assert meta["sha256"][txt.name] == be2_module.file_digest(txt)
+    assert not txt.name.startswith("be2-")                  # be2 Analyst 가 못 집는다
+    assert meta["rank_log"]["0"]["file_roundtrip"] == 0.0   # 판정부가 읽을 파일 = 메모리 부스터(best_iteration)
+    seen.clear()
+    assert freeze_be2.main(["--synthetic", "--arm", "BF1", "--seeds", "0", "--out", str(out)]) == 0
+    assert seen == []                                       # 끝난 시드는 다시 안 돈다
