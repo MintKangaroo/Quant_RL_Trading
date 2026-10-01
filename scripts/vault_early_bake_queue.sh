@@ -14,12 +14,13 @@ exec 9>data/_locks/vault-early-bake-queue.lock
 flock -n 9 || { echo "$(date '+%F %T') 이미 돈다"; exit 0; }
 say() { echo "$(date '+%F %T') $*"; }
 
+# 순서는 --bake 의 선행 조건을 따른다(10/1 17:02 첫 시도가 rc 3 — 미장 점수 조각·9/30 FA 가 먼저였다).
+# ②(미장 점수) → ③·④(원피처) → --bake(①국장 점수·⑤내부자 G4·G7, 미장 달력은 ② 뒤).
 STEPS=(
-  "①국장점수|data/_diag/vault-early/scores-ranker-KR.pkl|.venv/bin/python -u tools/vault_judge.py --bake --window early"
-  "⑤내부자|data/_diag/ranker-sources/G7-US-202609.parquet|.venv/bin/python -u tools/vault_judge.py --bake --window early"
+  "②미장점수|data/_diag/vault-early/ic-history-us|.venv/bin/python -u tools/backfill_ic_history.py --market US --start 2026-07 --end 2026-09 --work data/_diag/vault-early/ic-history-us --sessions 120"
   "③국장원피처|data/_diag/vault-early/raw-KR/features-chart-KR.pkl|.venv/bin/python -u tools/diagnose_ic.py cache-extra --market KR --cache-dir data/_diag/vault-early/raw-KR --analyst chart event flow_kr fundamental regime risk"
   "④미장원피처|data/_diag/vault-early/raw-US/features-chart-US.pkl|.venv/bin/python -u tools/diagnose_ic.py cache-extra --market US --cache-dir data/_diag/vault-early/raw-US --analyst chart event flow_us fundamental regime risk"
-  "②미장점수|data/_diag/vault-early/ic-history-us|.venv/bin/python -u tools/backfill_ic_history.py --market US --start 2026-07 --end 2026-09 --work data/_diag/vault-early/ic-history-us --sessions 120"
+  "⑤내부자|data/_diag/ranker-sources/G7-US-202609.parquet|.venv/bin/python -u tools/vault_judge.py --bake --window early"
 )
 
 blocked() {
