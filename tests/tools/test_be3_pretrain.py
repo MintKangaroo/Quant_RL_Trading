@@ -382,7 +382,9 @@ def test_guards_catch_this_tool():
 
 def test_protocol_records_the_fixed_values():
     text = (REPO / b3.PROTOCOL).read_text()
-    assert text.splitlines()[0].startswith("> **초안")
+    assert text.splitlines()[0].startswith("> **고정 2026-10-01**")   # 10/1 사용자 승인
+    import hashlib
+    assert hashlib.sha256((REPO / b3.PROTOCOL).read_bytes()).hexdigest()[:16] == "76c4bd0058cc33f4"
     for token in (f"{b3.MASK_P}", f"{b3.MIN_FILL:.0%}", f"{b3.TAU}", "2023-01-31", "2023-02-15",
                   b3.ENTITY, "⑦", "⑧", f"{b3.PRETRAIN_EPOCHS}"):
         assert token in text, token
