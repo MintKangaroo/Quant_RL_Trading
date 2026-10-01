@@ -58,6 +58,7 @@ VICTIMS=(
   "diagnose_i[c].py"           # 원피처 캐시 굽기 — Analyst 파일 단위로 이미 구운 것은 건너뛰므로 이어 구울 수 있다
   "trial_price_transforme[r]"  # 몇 시간짜리 — 늦게 내린다(대기열이 처음부터 다시 돈다)
   "trial_final_transforme[r]"  # 시행 BE — 몇 시간짜리, 내리면 처음부터 다시 돈다
+  "trial_be3_pretrai[n]"       # 시행 BE3 — 사전학습 체크포인트·시드별 캐시로 잇는다(내리면 진행 중 단계 하나만 잃는다). `trial_(...)` 줄은 숫자 3 때문에 못 잡는다
   "freeze_be[2]"               # BE2 얼리기 — 시드마다 partial/ 에 남기므로 내려도 진행 중 시드 하나(~1.6시간)만 잃는다
   "trial_final_residual_r[l]"  # 시행 BG — 학습 몇 시간(파일럿은 짧다), 대조군 캐시는 남는다
   "train_r[l].py"              # 체크포인트에서 잇는다 — 마지막 수단

@@ -391,7 +391,9 @@ def rank_average(*frames: pd.DataFrame) -> pd.DataFrame:
 
 def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessions, blocks, targets,
              aug: Aug, seed: int, purge: int = 5,
-             max_epochs: int = MAX_EPOCHS, store=None, clock=None, n_seeds: int = 0) -> tuple[pd.DataFrame, pd.DataFrame, list[TrainLog], float]:
+             max_epochs: int = MAX_EPOCHS, store=None, clock=None, n_seeds: int = 0,
+             init_state=None, trial: str = "BE",
+             source: str = "trial_final_transformer") -> tuple[pd.DataFrame, pd.DataFrame, list[TrainLog], float]:
     """시드 하나의 워크포워드. **5블록마다 재학습**, 학습은 `kit.train_end`(퍼지+엠바고) 까지만 본다.
 
     축이 둘이다 — 섞으면 미장이 조용히 사라진다:
@@ -407,6 +409,11 @@ def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessi
     판정 창 성적은 여기서 한 번도 계산하지 않고, 판정이 끝난 뒤 research_trials 에만 적힌다.
 
     `kit.inner_split` 은 **세션 날짜**를 돌려준다(인덱스가 아니다) — 여기서 큐브 인덱스로 옮긴다.
+
+    ``init_state`` 는 **첫 재학습(콜드)의 시작 가중치**다 — 시행 BE3(`tools/trial_be3_pretrain.py`)가 사전학습한
+    인코더를 여기로 넣는다. 기본값 None 이면 BE1 과 한 글자도 다르지 않은 경로다(`make_model(seed)` 무작위 초기화).
+    첫 재학습의 에포크 예산·조기 종료·그 뒤의 웜스타트 사슬은 그대로다 — 바뀌는 것은 시작점 하나뿐이다.
+    ``trial``·``source`` 는 진행 기록(`trial_progress`)의 이름표다(BE3 가 BE 줄에 섞이지 않게).
     """
     began = time_module.monotonic()  # invariant-allow: wallclock — 소요 시간 기록
     index_of = {s: i for i, s in enumerate(cube_sessions)}
@@ -428,6 +435,8 @@ def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessi
             warm = WARM_START and model is not None
             init = ({k: v.detach().clone() for k, v in model.state_dict().items()}
                     if model is not None and warm else None)
+            if model is None and init_state is not None:
+                init = {k: v.detach().clone() for k, v in init_state.items()}
             model, log = train_model(cube, observed, market_id, targets, fit_days, val_days,
                                      seed, aug, init_state=init,
                                      max_epochs=min(max_epochs, MAX_EPOCHS_WARM) if warm else max_epochs)
@@ -443,7 +452,7 @@ def run_seed(kit, cube, observed, market_id, entities, cube_sessions, axis_sessi
                                 block_indices(kit, cube_sessions, axis_sessions, first, last)))
         log = logs[-1] if logs else None
         kit.record_progress(
-            store, clock, "BE", source="trial_final_transformer",
+            store, clock, trial, source=source,
             market=markets, seed=int(seed), n_seeds=n_seeds or None, block=number, n_blocks=len(blocks),
             epoch=(log.epochs if log else None),
             train_loss=(log.train_losses[-1] if log and log.train_losses else None),

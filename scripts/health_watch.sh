@@ -42,7 +42,7 @@ WARN_AVAIL_MB=700
 # **연구 도구를 넣는다**(2026-09-26 점검). 8월 목록 그대로라 9/24 22:30 사용 9.4GB 에서 "멈출 수 있는 작업이 없다" 만 찍었다 —
 # 그때 돌던 것은 시행 도구였다. 시행(trial_*)·원피처 캐시(diagnose_ic)는 대기열·크론이 다시 잡는다. 운영 부품(v2_hmm_daily·
 # measure_ic 주간·run_session)은 넣지 않는다 — 멈추면 그날 기록이 빈다.
-STOPPABLE='trial_[a-z_]+\.py|final_round_[a-z_]+\.py|freeze_be2\.py|diagnose_ic\.py|build_rl_cache\.py|backfill_ic_history\.py|backfill_signals\.py|train_rl\.py|run_grid\.py|verify_oracle_canary\.py'
+STOPPABLE='trial_[a-z_]+\.py|trial_be3_pretrain\.py|final_round_[a-z_]+\.py|freeze_be2\.py|diagnose_ic\.py|build_rl_cache\.py|backfill_ic_history\.py|backfill_signals\.py|train_rl\.py|run_grid\.py|verify_oracle_canary\.py'
 
 used_mb() { awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{print int((t-a)/1024)}' /proc/meminfo; }
 avail_mb() { awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo; }
