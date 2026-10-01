@@ -310,13 +310,22 @@ def test_등록_플래그와_초안_머리줄이_없으면_판정을_거부한�
 
 
 @pytest.mark.parametrize("cmd", ["tb", "re", "df"])
-def test_지금_등록_문서는_초안이라_세_명령_다_안_돈다(cmd: str, monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.chdir(REPO)
-    assert (REPO / nf.PROTOCOL).read_text().startswith("> **초안")
+def test_초안_머리줄이면_세_명령_다_안_돈다(cmd: str, monkeypatch, tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # 등록 문서는 9/30 에 고정됐다 — 잠금은 초안 상태를 재현해 계속 시험한다(금고 앞당김 테스트와 같은 방식).
+    draft = tmp_path / "next-four-draft.md"
+    draft.write_text("> **초안 2026-09-30** — 해시 미고정.\n\n# 사전등록\n")
+    monkeypatch.setattr(nf.require_registered, "__defaults__", (draft,))
     with pytest.raises(SystemExit, match="초안"):
         nf.main([cmd, "--i-registered"])
     with pytest.raises(SystemExit, match="--i-registered"):
         nf.main([cmd])
+
+
+def test_등록_문서는_고정됐고_해시가_판정_기록과_같다() -> None:
+    import hashlib
+    text = (REPO / nf.PROTOCOL).read_bytes()
+    assert text.decode().startswith("> **고정 2026-09-30**")
+    assert hashlib.sha256(text).hexdigest()[:16] == "74d87b1d81172cee"
 
 
 @pytest.mark.parametrize(("vault", "holds"), [
