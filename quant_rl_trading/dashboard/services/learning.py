@@ -665,7 +665,7 @@ TRIAL_PROGRESS = "trial_progress"
 FINAL_ROUND_ENTITY = "final-model-round"
 #: 판정 줄을 찾는 접두어들. D1 은 자기 등록 이름(`decision-focused[-v2]-2026-10:D1a-C1`)으로 적는다 —
 #: 이것을 빼면 판정이 끝난 D1 이 "느림·멈춤 의심" 으로 남는다(2026-09-30).
-FINAL_ROUND_VERDICT_PREFIXES = (FINAL_ROUND_ENTITY, "decision-focused")
+FINAL_ROUND_VERDICT_PREFIXES = (FINAL_ROUND_ENTITY, "decision-focused", "be3-pretrain")
 #: 대조군(모델이 아니다). 화면이 "모델이 이겼나" 를 물을 때 기준선이 되는 군이다.
 FINAL_ROUND_CONTROLS = ("C0", "C1")
 #: 진행 곡선에 실을 시행당 최근 행 수. 41블록 × 5시드 = 205행이라 전부 실어도 작지만,
@@ -718,6 +718,8 @@ FINAL_ROUND_ABOUT: dict[str, str] = {
     "D1": "결정 중심 학습 — 수익이 나는 방향으로 점수를 보정",
     "D1a": "결정 중심 학습 — 수익이 나는 방향으로 점수를 보정 (상위 종목 고르기판)",
     "D1b": "결정 중심 학습 — 수익이 나는 방향으로 점수를 보정 (지수 기울이기판)",
+    "BE3": "사전학습 트랜스포머 — 정답 없는 자료로 먼저 배운 BE1 을 미세조정",
+    "BE3-pretrain": "사전학습 단계 — 판정 창 이전 자료로 가림 복원·대조 학습(정답 없음)",
     "C0": "비교 기준(대조군) — 지금 쓰는 GBM 랭커",
     "C1": "비교 기준(대조군) — 같은 GBM 에 새 재료를 넣은 것",
 }
@@ -950,7 +952,8 @@ def final_round_progress(store: Store, *, as_of: datetime, lookback: int = 30,
         # 완료 시각은 화면에서 사실과 구분되지 않는다).
         remaining = (total - done) if total is not None else None
         eta_s = (remaining * mean_unit_s) if (remaining is not None and remaining > 0 and mean_unit_s) else None
-        verdict_at = judged_at.get(str(trial))
+        # 단계 이름(`BE3-pretrain`)은 그 시행(`BE3`)의 판정으로 끝난다 — 사전학습은 분모(n_folds)를 안 적는다.
+        verdict_at = judged_at.get(str(trial)) or judged_at.get(str(trial).split("-")[0])
         is_done = (total is not None and done >= total) or (verdict_at is not None and verdict_at >= last_ts)
         since_last = (now - last_ts).total_seconds()
         status, reason = _health(done=is_done, since_last_s=since_last, mean_unit_s=mean_unit_s, unit=unit,

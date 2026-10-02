@@ -492,3 +492,18 @@ def test_판정이_적힌_시행은_분모가_덜_찼어도_끝남이다(store: 
     # 판정보다 **뒤에** 새 기록이 생기면(다시 돌린다) 다시 도는 중으로 본다.
     walk(store, "D1a", last=NOW - timedelta(minutes=5), metric="mixed / -hard rule ann(val)")
     assert one(store, "D1a")["status"] != "done"
+
+
+def test_단계_이름은_그_시행의_판정으로_끝난다(store: Any) -> None:
+    # 2026-10-02 BE3 — 사전학습 단계(`BE3-pretrain`)가 분모 없이 1행만 남아 판정 뒤에도 "멈춤 의심" 으로 떴다.
+    store.seed_config_defaults()
+    walk(store, "BE3-pretrain", last=NOW - timedelta(hours=20), n=1, n_seeds=1)
+    at = NOW - timedelta(hours=2)
+    store.append("research_trials", [{
+        "entity_id": "be3-pretrain-2026-10:BE3", "valid_from": at, "observed_at": at,
+        "source": "trial_be3_pretrain", "market": "KR", "family": "ranker", "n_trials": 1,
+        "protocol_hash": "abc", "detail": "기각 | ...",
+    }], ingest_run_id="verdict-be3")
+    trial = one(store, "BE3-pretrain")
+    assert trial["status"] == "done", trial["status_reason"]
+    assert trial["about"].startswith("사전학습 단계")
