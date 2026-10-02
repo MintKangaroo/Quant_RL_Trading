@@ -172,6 +172,10 @@ collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내�
                                    # 넘으면 사유를 적고 rc=1. 평소 실패는 ~5%(2,800 중 ~135 —
                                    # 없는 코드·신규 종목). 2026-09-11 원본 주소가 바뀌어 100% 가
                                    # 실패했는데 rc 가 0 이라 2주를 몰랐다
+  dart_daily_limit: 20000          # OpenDART 키 하나의 일 한도(KST 자정에 다시 찬다)
+  dart_text_backfill_daily_cap: 15000  # 그중 공시 원문 과거 백필(tools/backfill_filing_texts.py, 시행 TX 재료)의 몫.
+                                   # 날짜별 장부 data/_dart_quota/ 로 센다. 나머지 5,000 은 정규 수집들 몫.
+                                   # 몫 ≥ 한도면 도구가 rc=2 로 멈춘다. 2026-10-02 심음(seed_config --apply)
 
 dashboard:                     # 학습 탭 "마지막 모델 회차" 카드의 상태 배지 (dashboard.md §5)
   training_stall_factor: 3     # 마지막 진행 기록이 평균 단위(블록·폴드) 시간 × 이 배수보다 오래되면 "느림/멈춤 의심"
