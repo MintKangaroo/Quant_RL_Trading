@@ -695,3 +695,13 @@ trials:
     why: "방어는 됐다(MDD +1.4%p, 연 −0.4%p). 급등 국면 −1.8%p 로 '두 국면 모두 −1%p 이내' 에 걸렸다. 원인 진단·DF2 설계 중."
     doc: docs/protocols/next-four-2026-10.md
     ledger: ["next-four-2026-10:DF"]
+  - id: "BE3"
+    date: "2026-10-02"
+    category: 랭커
+    title: "사전학습 트랜스포머"
+    what: "BE1 트랜스포머를 정답 없는 자료(판정 창 이전 15개월)로 먼저 학습시킨 뒤 같은 절차로 미세조정했다."
+    result: 기각
+    why: "BE1 +13.7% 보다 낮은 +11.6%, 박스장 −1.7%p, BE2 보다 −2.0%p. 누수를 막으려 판정 창 이전만 쓰니 사전학습 자료가 오히려 더 적었다 — 자료 부족을 기법으로 메우는 길은 막혔다."
+    doc: docs/protocols/be3-pretrain-2026-10.md
+    ledger: ["be3-pretrain-2026-10:BE3"]
+
