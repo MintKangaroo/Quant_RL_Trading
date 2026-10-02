@@ -13,7 +13,9 @@ if ! flock -n 9; then
     exit 0
 fi
 QUANT_RL_DUCKDB_MEMORY_LIMIT=600MB QUANT_RL_DUCKDB_THREADS=2 OMP_NUM_THREADS=2 \
-    nice -n 10 .venv/bin/python -u tools/backfill_filing_texts.py --stop-at 07:30 >> "${LOG}" 2>&1
+    # 2020-08~2021-08 목록·정기보고서(prior-list·prior-periodic)는 일단 뺀다(리드 10/2) — documents 시작일이 당겨지면
+    # 등록된 시행들의 연구 캐시(event 이력)를 다시 구울 때 값이 달라진다. tx_change 첫해가 필요해지면 그때 켠다.
+    nice -n 10 .venv/bin/python -u tools/backfill_filing_texts.py --stop-at 07:30 --phases events,periodic >> "${LOG}" 2>&1
 RC=$?
 echo "$(date '+%F %T') rc=${RC}" >> "${LOG}"
 exit "${RC}"
