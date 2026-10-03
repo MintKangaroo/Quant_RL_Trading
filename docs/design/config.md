@@ -153,6 +153,8 @@ data_quality:                  # 데이터 화면 경고선
   default_lookback_days: 90
   max_lookback_days: 400       # 화면 하나가 창고를 통째로 올리지 않게
   failure_rows: 50
+  index_divergence_warn: 0.015 # 지수 짝(KRX300↔K200·KRX100↔K200·TMI↔코스피) 같은 날 일수익 차가 이보다 크면 경고만(data-contract §3-1).
+                               # 근거: 2020-08~2026-10 약 1,500세션 최대 1.20%p·99.9% 분위 ≤0.92%p → 0건. 새 키(2026-10-03) — seed_config --apply
 
 execution:                     # 체결 시뮬레이터
   impact_k: 0.1                # 충격비용 = k × 변동성 × √(주문량/ADV)
