@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from quant_rl_trading.replay.clock import LiveClock
-from quant_rl_trading.store import DEFAULT_CONFIG_FILE, Store
+from quant_rl_trading.store import DEFAULT_CONFIG_FILE, OVERRIDES_FILE, Store
 
 _config = importlib.import_module("quant_rl_trading.store.config")
 
@@ -36,8 +36,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--apply", action="store_true", help="실제로 적재한다 (기본은 미리보기)")
     args = parser.parse_args(argv)
 
+    # **덮어쓰기가 얹힌 샌드박스는 거부한다**(2026-10-03, data/_z2_shadow). 그 창고의 config 조회는 창고 행 + 덮어쓰기 행
+    # (revision 없음)이라 int(NaN) 으로 죽었고, 그걸 고쳐도 덮어쓰기 값을 "창고 현재값" 으로 보고 yaml 값을 정정본으로 심으려 든다 —
+    # 샌드박스의 config 표는 실전 표로 가는 링크라 그 정정본이 **실전 창고**에 쌓인다. 설정은 원본 창고에 심는다.
+    if (Path(args.store) / OVERRIDES_FILE).exists():
+        print(f"{args.store}: {OVERRIDES_FILE} 가 있는 샌드박스다 — 설정 표 조회에 덮어쓰기가 섞여 비교할 수 없다. "
+              f"원본 창고(--store data)에 심어라(샌드박스 config 는 대개 그 표로 가는 링크다).", file=sys.stderr)
+        return 2
     store = Store(args.store)
     source = Path(args.source).resolve()
+    linked = Path(args.store) / "curated" / "config"
+    if linked.is_symlink():
+        print(f"참고: {linked} → {linked.resolve()} — 설정 표를 공유한다. 여기 심는 것은 그 창고에 심는 것이다.")
     now = LiveClock().now()
     existing = _config.current_values(store.get(_config.CONFIG_TABLE, as_of=now))
     changed = _config.changed_names(source, existing)
