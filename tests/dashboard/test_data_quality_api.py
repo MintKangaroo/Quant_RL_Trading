@@ -22,7 +22,7 @@ NOW = datetime(2024, 3, 20, tzinfo=UTC)
 #: 3/4 ~ 3/8 다섯 세션. 관측시각은 각 세션 16:00 KST = 07:00 UTC.
 SESSIONS = [datetime(2024, 3, day, tzinfo=UTC) for day in (4, 5, 6, 7, 8)]
 
-API_PATHS = ["summary", "coverage", "missing", "latency", "universe", "failures"]
+API_PATHS = ["summary", "coverage", "missing", "latency", "universe", "failures", "index-divergence"]
 
 
 def observed(session: datetime) -> datetime:

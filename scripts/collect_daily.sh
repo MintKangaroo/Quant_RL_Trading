@@ -248,6 +248,10 @@ step_rc() {
         # 없으면 23:05 shadow 의 벤치마크가 매일 null 로 시작한다.
         .venv/bin/python tools/collect_indices_ls.py
         step_rc "지수(LS t1511)" $? core
+        # 지수 간 같은 날 일수익 괴리 — 경고만(data-contract §3-1, 2026-10-03 승인). 국면 판정 입력이 조용히 틀리는 것을 잡는다.
+        # 부가 단계: 걸리면 rc=3 으로 요약 줄에 남고 사유·날짜·두 값은 위에 찍힌다. 수집 rc 는 안 올린다(매매를 막지 않는다).
+        .venv/bin/python tools/check_index_divergence.py --days 7
+        step_rc "지수 괴리 점검" $?
     fi
 
     # 4. 거시지표. 발표 일정과 실측값 — 미장은 21:30 KST 발표라 저녁 실행이

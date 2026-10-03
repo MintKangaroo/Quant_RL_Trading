@@ -121,6 +121,32 @@ async function renderFailures() {
     </tr>`).join("")}</tbody></table>`;
 }
 
+/* 지수 짝의 같은 날 일수익 괴리 — 경고만(data-contract §3-1). 임계는 서버가 설정에서 읽어 돌려준다. */
+async function renderDivergence() {
+  const { data } = await fetchJson("data-quality/index-divergence");
+  const target = document.getElementById("divergence");
+  const short = (id) => esc(String(id).split(":").pop());
+  const count = document.getElementById("divergence-count");
+  if (data.threshold === null) {
+    target.innerHTML = `<div class="empty">임계 설정이 창고에 없다 — 점검 안 함.</div>`;
+    return;
+  }
+  if (count) count.textContent = `임계 ${pct(data.threshold, 1)}p · 경고 ${num(data.alert_count)}건`;
+  const rows = data.pairs.map((p) => `<tr>
+      <td>${short(p.a)} ↔ ${short(p.b)}</td>
+      <td class="num">${num(p.measured)}</td><td class="num">${num(p.unknown)}</td>
+      <td class="num">${p.max_abs_diff === null ? "—" : pct(p.max_abs_diff, 2) + "p"}</td>
+      <td class="num">${num(p.alerts.length)}</td></tr>`).join("");
+  const alerts = data.pairs.flatMap((p) => p.alerts).map((a) => `<tr>
+      <td class="num">${esc(a.day)}</td><td>${short(a.a)} ↔ ${short(a.b)}</td>
+      <td class="num">${pct(a.return_a, 2)}</td><td class="num">${pct(a.return_b, 2)}</td>
+      <td class="num">${pct(a.diff, 2)}p</td></tr>`).join("");
+  target.innerHTML = `<table><thead><tr><th>짝</th><th class="num">잰 세션</th><th class="num">모름</th>
+      <th class="num">최대 차</th><th class="num">경고</th></tr></thead><tbody>${rows}</tbody></table>`
+    + (alerts ? `<table class="stamp-first"><thead><tr><th>날짜</th><th>짝</th><th class="num">앞</th>
+      <th class="num">뒤</th><th class="num">차</th></tr></thead><tbody>${alerts}</tbody></table>` : "");
+}
+
 /* 진행 중인 작업 — 백필·IC 측정이 어디까지 갔나.
  *
  * 이 패널은 뉴스·일정 탭에 있었다. 수집 진행률은 "지금 무슨 일이 벌어지고
@@ -193,4 +219,4 @@ async function renderJobs() {
 }
 
 runAll([renderSummary, renderCoverage, renderMissing, renderUniverse,
-        renderLatency, renderJobs, renderFailures]);
+        renderLatency, renderJobs, renderDivergence, renderFailures]);

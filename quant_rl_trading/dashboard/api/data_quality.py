@@ -1,4 +1,4 @@
-"""Data Quality 엔드포인트 6개.
+"""Data Quality 엔드포인트 7개.
 
 핸들러는 얇다 — 규약은 ``common.scope()`` 가, 계산은 ``services/data_quality.py``
 가 한다. CLI 와 화면이 같은 함수를 부르게 하려면 계산이 Flask 를 몰라야 한다.
@@ -100,4 +100,14 @@ def failures() -> Any:
             lookback=current.lookback,
             limit=int(current.thresholds["failure_rows"]),
         ),
+    )
+
+
+@bp.get("/index-divergence")
+def index_divergence() -> Any:
+    """지수 짝의 같은 날 일수익 괴리 — 경고만(data-contract §3-1). 임계는 설정에서, as_of 로 되감긴다."""
+    current = scope()
+    return envelope(
+        current,
+        service.index_divergence(store(), as_of=current.as_of, lookback=current.lookback),
     )

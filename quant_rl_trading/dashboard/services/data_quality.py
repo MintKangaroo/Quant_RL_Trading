@@ -19,7 +19,7 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.collectors.market_hours import Market, trading_days
-from quant_rl_trading.store import Store
+from quant_rl_trading.store import ConfigNotFound, Store
 
 PRICES = "prices"
 UNIVERSE = "universe"
@@ -33,6 +33,15 @@ COVERAGE_COLUMNS = ["close", "volume"]
 
 #: 백분위. p99 까지 보는 이유는 꼬리가 실제 사고를 만들기 때문이다.
 PERCENTILES = (50, 90, 99)
+
+#: 지수 간 일수익 괴리 점검의 짝 — 같은 시장을 다른 방식으로 담는 지수끼리(data-contract §3-1).
+#: 국면 판정(V6)의 입력이 KRX 300, HMM 의 입력이 K200 이다. 한쪽이 조용히 틀리면 짝과 갈라진다.
+INDEX_PAIRS: tuple[tuple[str, str], ...] = (
+    ("KR:IDX:KRX 300", "KR:IDX:KOSPI200"),
+    ("KR:IDX:KRX 100", "KR:IDX:KOSPI200"),
+    ("KR:IDX:KRX TMI", "KR:IDX:KOSPI"),
+)
+DIVERGENCE_KEY = "data_quality.index_divergence_warn"
 
 #: 집계 창 크기(일). 5년치를 한 번에 올리면 340만 행이라 메모리가 터진다.
 WINDOW_DAYS = 32
@@ -328,6 +337,73 @@ def recent_failures(
     ]
 
 
+def index_divergence(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """지수 짝의 같은 세션 일수익 차 — 임계를 넘는 날을 **경고로만** 돌려준다(data-contract §3-1).
+
+    일수익은 그 지수가 **직전 거래일에도 값이 있을 때만** 잰다 — 구멍을 건너 이은 수익은 하루치가 아니다.
+    한쪽이라도 못 재면 그 세션은 '모름'(`unknown`)이고 경고가 아니다. 임계는 `store.config` 에서만 온다(불변식 10);
+    창고에 키가 없으면 점검하지 않고 그 사실을 돌려준다(조용히 0건으로 보이지 않게).
+    """
+    try:
+        threshold: float | None = float(store.config(DIVERGENCE_KEY, as_of=as_of))
+    except ConfigNotFound:
+        threshold = None
+    days = list(trading_days(Market.KR, as_of.date() - timedelta(days=lookback), as_of.date()))
+    entities = sorted({name for pair in INDEX_PAIRS for name in pair})
+    frame = store.get(
+        "indices", as_of=as_of, entity=entities, market="KR", lookback=lookback + 10,
+        columns=["entity_id", "valid_from", "close", "revision"],
+    )
+    pairs: list[dict[str, Any]] = []
+    if frame.empty or not days:
+        closes = pd.DataFrame(index=pd.Index(days), columns=entities, dtype=float)
+    else:
+        closes = (
+            frame.sort_values(["valid_from", "revision"])
+            .assign(day=lambda f: pd.to_datetime(f["valid_from"]).dt.date)
+            .groupby(["day", "entity_id"])["close"].last().astype(float).unstack()
+        )
+        # 거래일 축으로 다시 세운다 — 빠진 세션이 NaN 으로 드러나야 그 다음 날 수익이 '모름' 이 된다.
+        calendar = list(trading_days(Market.KR, days[0] - timedelta(days=10), days[-1]))
+        closes = closes.reindex(calendar).reindex(columns=entities)
+        closes = closes.where(closes > 0)
+    returns = closes.pct_change(fill_method=None).reindex(days)
+    total = 0
+    for a, b in INDEX_PAIRS:
+        both = returns[[a, b]].dropna()
+        diff = (both[a] - both[b])
+        alerts = []
+        if threshold is not None:
+            for day, value in diff[diff.abs() > threshold].items():
+                alerts.append({
+                    "day": day.isoformat(), "a": a, "b": b,
+                    "return_a": float(both.at[day, a]), "return_b": float(both.at[day, b]),
+                    "diff": float(value),
+                })
+        total += len(alerts)
+        pairs.append({
+            "a": a, "b": b, "measured": int(len(both)), "unknown": int(len(days) - len(both)),
+            "max_abs_diff": float(diff.abs().max()) if len(diff) else None,
+            "alerts": alerts,
+        })
+    return {"threshold": threshold, "sessions": len(days), "pairs": pairs, "alert_count": total}
+
+
+def divergence_lines(result: dict[str, Any]) -> list[str]:
+    """사람이 읽는 경고 줄 — 사유·날짜·두 값. 화면 요약과 수집 로그가 같은 문장을 쓴다."""
+    if result["threshold"] is None:
+        return [f"지수 괴리 점검 안 함 — 설정 {DIVERGENCE_KEY} 가 창고에 없다(seed_config --apply)"]
+    out = []
+    for pair in result["pairs"]:
+        for alert in pair["alerts"]:
+            out.append(
+                f"지수 괴리 {alert['day']}: {alert['a'].split(':')[-1]} {alert['return_a']:+.2%} 대 "
+                f"{alert['b'].split(':')[-1]} {alert['return_b']:+.2%} (차 {alert['diff']:+.2%}p, "
+                f"임계 {result['threshold']:.2%}p) — 적재 오류 의심, 국면 판정 입력 확인"
+            )
+    return out
+
+
 def summary(
     store: Store,
     *,
@@ -347,6 +423,7 @@ def summary(
     )
 
     latency_p90 = lat["overall"].get("p90")
+    divergence = index_divergence(store, as_of=as_of, lookback=lookback)
     return {
         "coverage_ratio": cov["ratio"],
         "covered_sessions": cov["covered_sessions"],
@@ -361,7 +438,8 @@ def summary(
         "listed_now": uni["listed_now"],
         "delisted_total": uni["delisted_total"],
         "failure_count": len(failures),
-        "warnings": _warnings(cov, miss, latency_p90, uni, thresholds),
+        "index_divergence_alerts": divergence["alert_count"],
+        "warnings": _warnings(cov, miss, latency_p90, uni, thresholds) + divergence_lines(divergence),
     }
 
 
@@ -393,6 +471,8 @@ __all__ = [
     "Coverage",
     "collect_coverage",
     "coverage_series",
+    "divergence_lines",
+    "index_divergence",
     "latency_percentiles",
     "missing_series",
     "recent_failures",

@@ -693,6 +693,10 @@ data_quality:
   default_lookback_days: 90
   max_lookback_days: 400     # 화면 하나가 창고를 통째로 올리지 않게
   failure_rows: 50
+  # 지수 간 같은 날 일수익 괴리 경고선(경고만 — 매매·국면 판정 안 막음). docs/design/data-contract.md §3-1.
+  # 짝 KRX300↔K200 · KRX100↔K200 · TMI↔코스피. 2020-08~2026-10 약 1,500세션의 |차| 최대 1.20%p(TMI↔코스피 2026-07-31),
+  # 99.9% 분위 ≤ 0.92%p → 1.5%p 면 0건. 2026-10-03 사용자 승인.
+  index_divergence_warn: 0.015
 
 system:
   # 시스템 탭 — "지금 이 시스템이 제대로 돌고 있는가" 의 임계치.
