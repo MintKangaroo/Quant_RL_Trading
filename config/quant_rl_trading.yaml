@@ -744,6 +744,9 @@ modelops:
   ranker:
     fail_streak: 2           # 랭커 IC 가 합격선(analyst.ic_threshold) 아래로 **연속** 이 횟수면 "랭커 감쇠". 한 번은 잡음이다
     input_decay_ratio: 0.5   # 랭커 입력 Analyst 의 IC 가 직전 측정의 이 비율 아래로 떨어지면 "입력 감쇠"
+  # regime 은 IC 관문 대상이 아니라 노출 지표다(2026-10-04 사용자 승인, modelops-ranker.md ①). 최근 N세션의 실전 노출 배수를
+  # `benchmark.kr_index` 에 씌운 '노출 적용 지수' 대 '지수 100%' 를 주간 IC 로그·학습 탭에 한 줄로 보인다. 표시만 — 임계치 없음.
+  exposure_eval_sessions: 120
 
 research:
   # 자기개선 안전장치 (self-improvement.md §1). 시행 예산 없는 탐색은

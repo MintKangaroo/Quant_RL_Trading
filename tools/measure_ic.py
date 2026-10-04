@@ -159,14 +159,18 @@ def measure(
 
 
 def render(result: ic.ICResult) -> str:
-    verdict = "통과" if result.passed else "미통과"
+    if result.analyst in ic.EXPOSURE_ANALYSTS:
+        # 노출 지표는 IC 관문 대상이 아니다 — "미통과" 로 적으면 국면 판정까지 실패처럼 읽힌다(modelops-ranker.md ①).
+        verdict = "대상 아님 — 노출 지표"
+    else:
+        verdict = "통과" if result.passed else "미통과"
     lines = [
         f"[{verdict}] {result.analyst} ({result.analyst_version}) · {result.market}",
         f"    IC          {result.ic:+.4f}   (합격선 {result.threshold})",
         f"    일별 표준편차 {result.ic_std:.4f}",
         f"    표본        {result.sample_days}일 / {result.sample_rows:,}행 "
         f"(하한 {result.min_sample_days}일)",
-        f"    가중치      {result.weight}",
+        f"    가중치      {0.0 if result.analyst in ic.EXPOSURE_ANALYSTS else result.weight}",
     ]
     if result.fold_ics:
         folds = "  ".join(f"{value:+.3f}" for value in result.fold_ics)
@@ -179,6 +183,18 @@ def render(result: ic.ICResult) -> str:
     return "\n".join(lines)
 
 
+def exposure_summary(store: Store, *, market: Market, ledger_root: Path, as_of: datetime | None) -> str:
+    """regime 의 평가 한 줄 — IC 가 아니라 노출 기여(modelops.exposure_effect). 국장만(노출 기록 장부가 국장 모의계좌다)."""
+    if market is not Market.KR:
+        return "regime [대상 아님 — 노출 지표] 노출 기여는 국장만 계산한다"
+    from quant_rl_trading.modelops.exposure_effect import effect_line, exposure_effect
+    moment = as_of or LiveClock().now()
+    try:
+        return effect_line(exposure_effect(store, as_of=moment, ledger=Store(root=ledger_root)))
+    except Exception as error:  # 표시용 — 실패해도 측정·적재는 끝났다. 이유는 적는다.
+        return f"regime [대상 아님 — 노출 지표] 노출 기여 계산 실패: {type(error).__name__}: {error}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--analyst", nargs="+", default=sorted(ANALYSTS), choices=sorted(ANALYSTS))
@@ -187,6 +203,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-root", type=Path)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--save", action="store_true", help="analyst_weights 에 적재")
+    parser.add_argument("--ledger", type=Path, default=Path("data/_paper"),
+                        help="regime 노출 기여를 계산할 때 노출 기록(events)을 읽을 장부")
     parser.add_argument(
         "--exit-zero",
         action="store_true",
@@ -255,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         results.append(result)
         # 한계기여 계산의 재료 — **통과한 알파**만 모은다. 제약 Analyst(risk)는
         # 합성에 안 들어가므로(selector/constraints.py) 여기서도 뺀다.
-        if result.passed and name not in CONSTRAINT_ANALYSTS:
+        if result.passed and name not in CONSTRAINT_ANALYSTS and name not in ic.EXPOSURE_ANALYSTS:
             alpha_scores[name] = scores
 
     if args.save:
@@ -266,6 +284,11 @@ def main(argv: list[str] | None = None) -> int:
             result.row(as_of=now, observed_at=now, source="ic-measure")
             for result in results
         ]
+        # 노출 지표는 가중치 0 · passed false 로 적는다 — 지금도 0 이라 매매 결과는 같고, IC 가 우연히 넘어도 가중치를 받지 않는다.
+        # 표에 사유 칸이 없어 스키마를 늘리지 않는다(사유는 ic.EXPOSURE_ANALYSTS·로그·화면 표지가 말한다).
+        for row in rows:
+            if row["entity_id"] in ic.EXPOSURE_ANALYSTS:
+                row["weight"], row["passed"] = 0.0, False
         # **한계기여 가중** (2026-08-25, ic.marginal_shares 독스트링이 규칙 원본).
         # 통과 = 자격이고 가중치 = 기여다. 동등 가중은 겹치는 신호(event↔재무)가
         # 중복 투표하게 한다 — 실측으로 event 의 한계기여가 ~0 이었다.
@@ -291,12 +314,15 @@ def main(argv: list[str] | None = None) -> int:
         written = store.append("analyst_weights", rows, ingest_run_id=run_id)
         print(f"\nanalyst_weights 적재: {written}행")
 
+    if any(name in ic.EXPOSURE_ANALYSTS for name in args.analyst):
+        print("\n[노출 기여] " + exposure_summary(store, market=market, ledger_root=args.ledger, as_of=cutoff), flush=True)
+
     if args.exit_zero:
         # 측정은 끝났다. 합격 여부는 숫자와 창고(analyst_weights)가 말한다 —
         # 종료코드는 "돌았나" 만 답한다. 2026-09-12 주간 크론 첫 실행을 앞두고
         # 확인: chart KR IC -0.013 [미통과] → rc=1 → 주간 작업이 매주 빨간불이 된다.
         return 0
-    return 0 if all(result.passed for result in results) else 1
+    return 0 if all(result.passed for result in results if result.analyst not in ic.EXPOSURE_ANALYSTS) else 1
 
 
 if __name__ == "__main__":

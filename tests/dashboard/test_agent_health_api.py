@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from quant_rl_trading.analysts.ic import EXPOSURE_ANALYSTS
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -117,7 +119,8 @@ def test_summary_counts_the_m2_gate(client) -> None:
 
     assert data["total"] == len(PLANNED)
     assert data["passed"] == 1
-    assert data["observing"] == len(PLANNED) - 1
+    # 노출 지표(regime)는 관찰 중이 아니라 IC 관문 대상이 아니다 — 관찰 수에서 빠진다(modelops-ranker.md ①).
+    assert data["observing"] == len(PLANNED) - 1 - len(EXPOSURE_ANALYSTS & set(PLANNED))
     assert data["active_weight"] == 1.0
     assert any("M2 완료 기준" in text for text in data["warnings"])
 

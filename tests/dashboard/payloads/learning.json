@@ -16180,5 +16180,38 @@
       "max_lookback_days": 400,
       "missing_warn": 0.01
     }
+  },
+  "learning/exposure-effect": {
+    "as_of": "2026-10-04T00:48:45+00:00",
+    "data": {
+      "avg_scale": 0.8266666666666667,
+      "below_one_share": 0.4,
+      "cost_total": 0.0072,
+      "cum_applied": 0.3494212393456231,
+      "cum_diff": 0.07480423921095025,
+      "cum_index": 0.27461700013467283,
+      "down_beta": 0.700317116806332,
+      "end": "2026-10-01",
+      "index": "KR:IDX:KOSPI",
+      "line": "regime [대상 아님 — 노출 지표] 최근 120세션(2026-04-07~2026-10-01) 노출 적용 KOSPI +34.94% 대 100% +27.46% (차 +7.48%p) · MDD -26.08% 대 -38.63% · 하방β 0.70 · 평균 배수 83% · 기록 0/재계산 120",
+      "mdd_applied": -0.26083374009774285,
+      "mdd_index": -0.38630431562721157,
+      "recomputed": 120,
+      "recorded": 0,
+      "sessions": 120,
+      "start": "2026-04-07",
+      "switches": 20
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "ic_threshold": 0.03,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
   }
 }

@@ -23,9 +23,10 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.analysts import scorecard
+from quant_rl_trading.analysts.ic import EXPOSURE_ANALYSTS
+from quant_rl_trading.selector import weights as weights_module
 from quant_rl_trading.store import Store
 from quant_rl_trading.store.memo import derived
-from quant_rl_trading.selector import weights as weights_module
 
 WEIGHTS = "analyst_weights"
 SIGNALS = "signals"
@@ -40,7 +41,7 @@ PLANNED = {
     "fundamental": "DART 재무",
     "news": "공시·뉴스 필터 (Verdict)",
     "sns": "펌핑 탐지 (Verdict)",
-    "regime": "지수·변동성",
+    "regime": "지수·변동성 — 노출 지표(IC 관문 대상 아님, 노출 기여로 평가)",
     "event": "달력",
     "risk": "상관·변동성·유동성",
     "volume": "거래량 급증 (chart 에서 분리)",
@@ -101,6 +102,7 @@ def roster(
                     "version": None,
                     "market": market,
                     "measured_at": None,
+                    "exposure_signal": name in EXPOSURE_ANALYSTS,
                 }
             )
             continue
@@ -118,6 +120,8 @@ def roster(
                 "version": str(row["analyst_version"]),
                 "market": str(row["market"]),
                 "measured_at": row["valid_from"].isoformat(),
+                # 노출 지표 — IC 관문 대상 아님. 화면은 "관찰" 이 아니라 "대상 아님(노출 지표)" 로 적는다(modelops-ranker.md ①).
+                "exposure_signal": name in EXPOSURE_ANALYSTS,
             }
         )
     return out
@@ -307,7 +311,8 @@ def summary(
         "total": len(people),
         "measured": len(measured),
         "passed": len(passed),
-        "observing": len(people) - len(passed),
+        # 노출 지표(regime)는 관찰 중인 것이 아니라 IC 관문 대상이 아니다 — 관찰 수에서 뺀다.
+        "observing": len([item for item in people if not item["passed"] and not item.get("exposure_signal")]),
         "active_weight": sum(float(item["weight"]) for item in people),
         "signals": activity["total"],
         "blocks": verdicts["blocks"],

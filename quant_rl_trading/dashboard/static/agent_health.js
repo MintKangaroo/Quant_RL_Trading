@@ -24,7 +24,9 @@ async function renderSummary() {
 async function renderRoster() {
   const { data, thresholds } = await fetchJson("agent-health/roster");
   const rows = data.map((item) => {
-    const state = !item.measured
+    const state = item.exposure_signal
+      ? `<span class="tag dim" title="시장 수준 신호 — IC 관문 대상 아님, 노출 기여로 평가">대상 아님 · 노출 지표</span>`
+      : !item.measured
       ? `<span class="tag dim">미측정</span>`
       : item.passed
         ? `<span class="tag pass">통과</span>`

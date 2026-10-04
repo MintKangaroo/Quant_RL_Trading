@@ -197,7 +197,9 @@ async function renderGate() {
   showScope(body);
 
   const rows = data.roster.map((item) => {
-    const state = !item.measured
+    const state = item.exposure_signal
+      ? `<span class="tag dim" title="시장 수준 신호 — IC 관문 대상 아님, 노출 기여로 평가">대상 아님 · 노출 지표</span>`
+      : !item.measured
       ? `<span class="tag dim">미측정</span>`
       : item.passed && item.weight > 0
         ? `<span class="tag pass">매매에 쓰임</span>`
@@ -270,6 +272,18 @@ async function fetchModelGate() {
     for (const id of ["kpis", "champion-evidence", "model-comparison", "gate"]) {
       document.getElementById(id).innerHTML = '<p class="empty">모델 상태 조회 실패 · 미측정</p>';
     }
+    throw error;
+  }
+}
+
+/* regime(노출 지표)은 IC 관문 대상이 아니다 — 노출 기여 한 줄을 IC 패널 아래에 둔다(modelops-ranker.md ①). */
+async function renderExposureEffect() {
+  const target = document.getElementById("exposure-effect");
+  try {
+    const { data } = await fetchJson("learning/exposure-effect");
+    target.textContent = data.line;
+  } catch (error) {
+    target.textContent = "regime 노출 기여 · 조회 실패";
     throw error;
   }
 }
@@ -872,7 +886,7 @@ async function renderTrialHistory() {
   lsDrawHistory();
 }
 
-runAll([renderFinalRound, renderLiveModels, renderTrialHistory, renderKpis, renderGate, renderIcHistory, renderResearchLedger, renderOpenDiagnostics]);
+runAll([renderFinalRound, renderLiveModels, renderTrialHistory, renderKpis, renderGate, renderIcHistory, renderExposureEffect, renderResearchLedger, renderOpenDiagnostics]);
 
 const diagnostics = document.getElementById("rl-diagnostics");
 async function renderOpenDiagnostics() {

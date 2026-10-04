@@ -164,3 +164,17 @@ def research_jobs() -> Any:
 
     root = Path(__file__).resolve().parents[3]
     return envelope(scope(), service.research_jobs(root))
+
+
+@bp.get("/exposure-effect")
+def exposure_effect() -> Any:
+    """regime(노출 지표)의 평가 — IC 가 아니라 노출 기여(modelops-ranker.md ①). 표시만, 임계치 없음. as_of 로 되감긴다."""
+    from quant_rl_trading.modelops.exposure_effect import effect_line
+    from quant_rl_trading.modelops.exposure_effect import exposure_effect as compute
+    from quant_rl_trading.store.memo import derived
+
+    current = scope()
+    current_store = store()
+    result = derived(current_store, ("exposure_effect", current.as_of.isoformat()),
+                     lambda: compute(current_store, as_of=current.as_of))
+    return envelope(current, {**result, "line": effect_line(result)})

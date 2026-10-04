@@ -518,6 +518,11 @@ def marginal_shares(
     return {name: value / top for name, value in shares.items()}, details
 
 
+#: **IC 관문 대상이 아닌 Analyst** — 시장 수준 상태를 내는 노출 지표(modelops-ranker.md ①, selector.md 관문 예외, 2026-10-04).
+#: 주간 측정은 IC 를 재되(이력·입력 감쇠 경보용) 가중치 0·passed false 로 적고, 평가는 `modelops.exposure_effect` 가 한다.
+EXPOSURE_ANALYSTS: frozenset[str] = frozenset({"regime"})
+
+
 def thresholds(store: Store, *, as_of: datetime) -> tuple[float, int, float]:
     """합격선·표본 하한·t 하한. 하드코딩 금지 (불변식 10)."""
     return (
