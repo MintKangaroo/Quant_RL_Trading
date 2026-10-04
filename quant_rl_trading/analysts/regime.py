@@ -35,7 +35,7 @@ VKOSPI·금리·신용스프레드·시장 폭은 아직 창고에 없다. 없�
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal
 
 import numpy as np
@@ -185,6 +185,30 @@ class RegimeAnalyst(Analyst):
         if index is None or len(index) < 120:
             return "unknown"
         return classify(index, crisis_floor=self._crisis_floor(as_of))
+
+    def recent_states(self, as_of: datetime, count: int) -> list[State]:
+        """직전 ``count`` 개 **관측된 종가 세션**의 국면 — 오래된 것부터.
+
+        as_of 시점 창고에 있는 지수 종가 세션들이 축이다: 최신 세션 L₁ 의 국면이 ``state(as_of)`` 이고, 여기서 돌려주는 것은
+        L₂…L_{count+1}. 각 국면은 그 세션까지의 종가(400일 창)로 판정한다.
+
+        **시계 날짜로 되감지 않는다**(2026-10-04 결함 수정, portfolio-construction.md "노출 국면 확인 창"). 예전엔 as_of 의 날짜만
+        바꿔 다시 쟀는데, 국면 지수는 KRX 가 다음 날 오후에야 줘서 08:40 세션이 도는 시각엔 d−1 종가까지만 있다 — "직전 세션
+        국면" 이 같은 종가로 또 판정돼 확인 창 2 가 사실상 1 이었다. 지수가 제때 있으면 결과는 옛 규칙과 같다.
+        """
+        if count <= 0:
+            return []
+        index = self._index_close(as_of)
+        if index is None or len(index) < 2:
+            return []
+        floor = self._crisis_floor(as_of)
+        sessions = list(index.index)
+        out: list[State] = []
+        for last in sessions[-(count + 1):-1]:
+            # 옛 규칙의 창(그날 as_of 로 LOOKBACK_DAYS)과 같은 날짜 하한 — 지수가 제때 있으면 결과가 같아야 한다.
+            window = index[(index.index <= last) & (index.index >= last - timedelta(days=LOOKBACK_DAYS))]
+            out.append(classify(window, crisis_floor=floor) if len(window) >= 120 else "unknown")
+        return out
 
     def _crisis_floor(self, as_of: datetime) -> float:
         """crisis 로 읽는 21세션 모멘텀 상한 — 시행 R(2026-09-07 채택)의 −3%.

@@ -99,14 +99,15 @@ def recompute_scales(store: Store, days: list[Any], *, as_of: datetime, start_he
         moment, seen = policy.for_session(day), policy.for_session(previous[day])
         params = exposure.ExposureParams.from_store(store, as_of=moment)
         index_id = str(store.config("benchmark.kr_index", as_of=moment))
-        state = RegimeAnalyst(view, ReplayClock(seen)).state(seen)  # type: ignore[arg-type]
-        # **확인 창은 장부가 실제로 한 대로** 같은 상태 하나다: 08:40 세션의 `recent_regime_states` 는 as_of 의 날짜만 바꿔
-        # 다시 재는데(session/daily.py), 그 시각 창고엔 d−1 종가까지만 있어 "직전 세션 국면" 도 같은 d−1 종가로 판정된다.
-        # 장부 기록 18세션과 대조해 이 규칙이 17세션 일치(어긋난 하나는 모의계좌 첫 세션 8/26), "진짜 직전 세션" 규칙은 13세션이었다(2026-10-04).
+        regime = RegimeAnalyst(view, ReplayClock(seen))  # type: ignore[arg-type]
+        state = regime.state(seen)
+        # 확인 창은 실전과 같은 함수 — 관측된 종가 세션 축(`RegimeAnalyst.recent_states`, 2026-10-04 결함 수정).
+        # 장부 기록이 있는 세션(모의계좌, 2026-08-26~)은 기록이 우선이라 고치기 전 실제 결정이 그대로 쓰인다.
+        confirm = int(params.regime_confirm_sessions)
         decision = exposure.decide(
             view,  # type: ignore[arg-type]
             as_of=seen, index_id=index_id, regime_state=state, params=params,
-            recent_regime_states=[state],
+            recent_regime_states=list(regime.recent_states(seen, confirm - 1)) if confirm > 1 else [],
             held=held if params.deadband > 0.0 else None,
         )
         out[day] = float(decision.scale)

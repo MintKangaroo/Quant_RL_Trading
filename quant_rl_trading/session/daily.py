@@ -23,7 +23,7 @@ Executor 가 쓰는 자본과 성과에 기록되는 자본이 다른 값이 된
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.accounting import ledger as ledger_module
@@ -34,7 +34,7 @@ from quant_rl_trading.allocator.activation import LiveParams
 from quant_rl_trading.allocator.baseline import AllocatorParams, Baseline, allocate
 from quant_rl_trading.analysts.regime import RegimeAnalyst
 from quant_rl_trading.broker import Broker
-from quant_rl_trading.collectors.market_hours import Market, trading_days
+from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.executor import pipeline as executor_pipeline
 from quant_rl_trading.executor.sizing import Target
 from quant_rl_trading.replay.clock import ReplayClock
@@ -389,17 +389,11 @@ def run(
     exposure_params = exposure.ExposureParams.from_store(store, as_of=as_of)
     index_id = str(store.config(f"benchmark.{market.lower()}_index", as_of=as_of))
     regime = RegimeAnalyst(store, ReplayClock(as_of))
-    # 직전 세션들의 국면 — 국면 배수 확인 기간(exposure.regime_scale). 같은 시각으로
-    # 되감아 재므로 그날 세션이 봤을 값과 같다.
-    recent_states: list[str] = []
+    # 직전 세션들의 국면 — 국면 배수 확인 기간(exposure.regime_scale). **관측된 종가 세션 축으로 센다**
+    # (2026-10-04 결함 수정, portfolio-construction.md "노출 국면 확인 창"): as_of 의 날짜만 바꿔 되감으면 국면 지수가 하루 늦게
+    # 오는 08:40 세션에서 "직전 국면" 이 같은 종가로 또 판정돼 확인 창 2 가 사실상 1 이었다.
     confirm = int(exposure_params.regime_confirm_sessions)
-    if confirm > 1:
-        previous = trading_days(
-            Market(market), (as_of - timedelta(days=confirm * 4 + 7)).date(), as_of.date()
-        )
-        for day in [d for d in previous if d < as_of.date()][-(confirm - 1):]:
-            earlier = as_of.replace(year=day.year, month=day.month, day=day.day)
-            recent_states.append(regime.state(earlier))
+    recent_states: list[str] = list(regime.recent_states(as_of, confirm - 1)) if confirm > 1 else []
     if policy_decision is not None and policy_decision.cash_from_policy:
         # 정책이 현금을 액션으로 배웠다(cash_action=free) — 그 위에 배수를 곱하면
         # 정책의 현금 결정을 룰이 덮어쓴다(allocator/live.py). 레짐은 기록만 남긴다.
