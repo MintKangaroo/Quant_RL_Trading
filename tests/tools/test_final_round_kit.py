@@ -671,7 +671,7 @@ def test_load_full_panel_table_is_unchanged(tmp_path, monkeypatch) -> None:
     window = (date(2022, 7, 1), date(2026, 6, 30))
     groups = {"score": kit.Group("score", ("s1", "s2"), None, ("KR", "US")),
               "raw": kit.Group("raw", ("r1", "r2", "r3"), "miss_raw", ("KR", "US"))}
-    monkeypatch.setattr(kit, "blocks_of", lambda markets, include=None: groups)
+    monkeypatch.setattr(kit, "blocks_of", lambda markets, include=None, **_: groups)
     parts = {"KR": _part("KR", 6, 7, 5, extra=False), "US": _part("US", 5, 9, 6, extra=True)}
     tag = f"KR+US-{window[0]:%Y%m%d}-{window[1]:%Y%m%d}"
     paths = []

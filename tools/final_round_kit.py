@@ -76,6 +76,17 @@ LONG_CACHE = rkit.CACHE            # data/_diag-long — 국장 확장 패널
 # 옛 data/_diag 는 6차 패널 입력(2025-05~)이라 그대로 둔다.
 RAW_DIRS = {"KR": Path("data/_diag/kr-long"), "US": Path("data/_diag/w-us")}
 SOURCES_CACHE = Path("data/_diag/ranker-sources")
+#: 2022 하락장 확장 입력(사용자 승인 2026-10-04, `scripts/fa2021_bake.sh` · `docs/diag/fa-panel-2022-extension.md`).
+#: **기본값이 아니다** — 등록된 시행(창 2022-07-01~, 캐시 final-round)은 위 RAW_DIRS·SOURCES_CACHE 를 그대로 읽는다.
+#: 확장 창으로 등록하는 시행만 `load_full_panel(**FA2021)` 처럼 이 묶음을 통째로 넘긴다(창·원피처·묶음 조각·캐시가 한 벌).
+FA2021_DIR = Path("data/_diag/fa2021")
+FA2021: dict[str, Any] = {
+    "window": (date(2021, 11, 10), date(2026, 6, 30)),
+    "raw_dirs": {"KR": FA2021_DIR / "raw-KR", "US": FA2021_DIR / "raw-US"},
+    # 앞이 먼저다 — 새 디렉터리는 기존 조각에 없는 달(국장 2021-11~2022-03 · 미장 2021-11~2024-05)만 가진다.
+    "sources_dirs": (FA2021_DIR / "ranker-sources", SOURCES_CACHE),
+    "cache_dir": FA2021_DIR / "panel",
+}
 #: 국장 편도 비용은 `trial_overlay.ONE_WAY_COST`(0.41%) 가 포트 함수 안에 박혀 있다. 미장은 config 에서 읽는다.
 KR_COST = rkit.ONE_WAY_COST
 
@@ -113,11 +124,11 @@ class Group:
         return [*self.cols, *([self.flag] if self.flag else [])]
 
 
-def _raw_cols(market: str) -> list[str]:
+def _raw_cols(market: str, raw_dirs: dict[str, Path] | None = None) -> list[str]:
     """시행 W 와 같은 이름 규칙(raw_{analyst}_{feature}) — 캐시 헤더만 읽는다."""
     out: list[str] = []
     for analyst in ukit_analysts(market):
-        path = RAW_DIRS[market] / f"features-{analyst}-{market}.pkl"
+        path = (raw_dirs or RAW_DIRS)[market] / f"features-{analyst}-{market}.pkl"
         if not path.exists():
             continue
         frame = pd.read_pickle(path)  # invariant-allow: data-access — 진단 캐시(창고 아님)
@@ -132,7 +143,8 @@ def ukit_analysts(market: str) -> tuple[str, ...]:
 
 
 def blocks_of(markets: Sequence[str] = ("KR", "US"), *,
-              include: Sequence[str] | None | _Default = DEFAULT) -> dict[str, Group]:
+              include: Sequence[str] | None | _Default = DEFAULT,
+              raw_dirs: dict[str, Path] | None = None) -> dict[str, Group]:
     """FA 의 묶음 표. 기본은 `BLOCK_ORDER`(G8 제외). `include=None` 이면 정의된 묶음 전부다.
 
     G10(5% 대량보유)·G11 은 이 회차에 넣지 않는다(리드 결정 2026-09-27) — 별도 판정 대상이고, FA 는 고정이다.
@@ -140,7 +152,7 @@ def blocks_of(markets: Sequence[str] = ("KR", "US"), *,
     from tools.trial_kr_valueup import KINDS as VU_KINDS
     from tools.trial_kr_valueup import NEW as VU_NEW
 
-    raw = sorted({c for m in markets for c in _raw_cols(m)})
+    raw = sorted({c for m in markets for c in _raw_cols(m, raw_dirs)})
     table: list[Group] = [
         Group("score", tuple(SCORE_FEATS), None, ("KR", "US")),
         Group("raw", tuple(raw), "miss_raw", ("KR", "US")),
@@ -163,12 +175,12 @@ BLOCK_ORDER = ("score", "raw", "G1", "G2", "G3", "G4", "G5", "G6", "G7", "ba")
 # --------------------------------------------------------------------------- 창·메모리
 
 
-def raw_span(market: str) -> tuple[date, date] | None:
+def raw_span(market: str, raw_dirs: dict[str, Path] | None = None) -> tuple[date, date] | None:
     """`RAW_DIRS[market]` 의 원피처 캐시가 덮는 세션 구간. 없으면 None.
 
     달력 파일(`calendar-{시장}.pkl`, 몇 KB)만 읽는다 — 피처 pkl 은 수십~수백 MB 라 관문에서 읽을 것이 아니다.
     """
-    base = RAW_DIRS.get(market)
+    base = (raw_dirs or RAW_DIRS).get(market)
     if base is None:
         return None
     cal = base / f"calendar-{market}.pkl"
@@ -182,7 +194,8 @@ def raw_span(market: str) -> tuple[date, date] | None:
 
 
 def coverage_ready(window: tuple[date, date] = None, *,  # type: ignore[assignment]
-                   markets: Sequence[str] = ("KR", "US")) -> tuple[bool, list[str]]:
+                   markets: Sequence[str] = ("KR", "US"),
+                   raw_dirs: dict[str, Path] | None = None) -> tuple[bool, list[str]]:
     """원피처 캐시가 판정 창을 덮는가 — (통과 여부, 사람이 읽을 줄들). **수익을 보지 않는 관문**이다.
 
     시행 도구(BE·BF·BG)가 본 측정 앞에 부르는 자리다. 2026-09-27 실측으로 국장 캐시는 2025-05-21~ 뿐이고
@@ -191,36 +204,38 @@ def coverage_ready(window: tuple[date, date] = None, *,  # type: ignore[assignme
     `scripts/final_round_bake_features.sh` 가 하고, 끝나면 `RAW_DIRS["KR"]` 를 그 디렉터리로 바꾼다(리드).
     """
     window = window or (JUDGE_START, JUDGE_END)
+    dirs = raw_dirs or RAW_DIRS
     ok, lines = True, []
     for market in markets:
-        span = raw_span(market)
+        span = raw_span(market, dirs)
         if span is None:
             ok = False
-            lines.append(f"{market}: 원피처 캐시가 없다 ({RAW_DIRS.get(market)})")
+            lines.append(f"{market}: 원피처 캐시가 없다 ({dirs.get(market)})")
             continue
         lo, hi = span
         if market == "US":
             # 미장 원피처는 **미장 점수 패널의 달력 그대로** 굽는다(`scripts/bake_w_us_wide.sh`) — 둘이 같은 창이라
             # 견줄 바깥 기준이 없다. 그래서 여기서는 "있다" 까지만 보고, 실제 커버리지는 `--precheck` 의 결측률로 본다.
-            lines.append(f"{market}: 캐시 {lo}~{hi} (점수 패널과 같은 창) → 있다 ({RAW_DIRS[market]})")
+            lines.append(f"{market}: 캐시 {lo}~{hi} (점수 패널과 같은 창) → 있다 ({dirs[market]})")
             continue
         # 국장은 확장 패널(2021-11~)보다 캐시가 훨씬 짧았다 — 이 관문이 잡으려는 구멍이 그것이다.
         covered = lo <= window[0] and hi >= window[1]
         ok = ok and covered
         lines.append(f"{market}: 캐시 {lo}~{hi} · 필요 {window[0]}~{window[1]} → "
                      f"{'덮는다' if covered else '**모자란다** — scripts/final_round_bake_features.sh 가 먼저다'}"
-                     f" ({RAW_DIRS[market]})")
+                     f" ({dirs[market]})")
     return ok, lines
 
 
 def require_full_coverage(window: tuple[date, date] = None, *,  # type: ignore[assignment]
-                          markets: Sequence[str] = ("KR", "US")) -> None:
+                          markets: Sequence[str] = ("KR", "US"),
+                          raw_dirs: dict[str, Path] | None = None) -> None:
     """원피처 캐시가 판정 창을 못 덮으면 **측정을 시작하지 않는다** — `SystemExit(COVERAGE_EXIT)`.
 
     시행 도구(BE·BF·BG)의 러너가 대조군 관문(`require_controls`, rc=3) 옆에 나란히 부르는 자리다.
     종료 코드를 다르게 둔 이유: 셸이 "대조군이 없다" 와 "재료가 안 구워졌다" 를 구분해 로그에 적어야 한다.
     """
-    ok, lines = coverage_ready(window, markets=markets)
+    ok, lines = coverage_ready(window, markets=markets, raw_dirs=raw_dirs)
     print("굽기 관문 — " + ("통과" if ok else "**미달**"), flush=True)
     for line in lines:
         print(f"  {line}", flush=True)
@@ -383,21 +398,27 @@ def _us_scores(store: Store, window: tuple[date, date]) -> pd.DataFrame:
     return panel[["entity_id", "session", *SCORE_FEATS, "y5", "has_fund", "fund_raw", "market"]]
 
 
-def _raw_block(market: str, keys: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+def _raw_block(market: str, keys: pd.DataFrame,
+               raw_dirs: dict[str, Path] | None = None) -> tuple[pd.DataFrame, list[str]]:
     """원피처 — 시행 W 의 `raw_features`. `keys` 로 판정 패널 행만 남긴다(W 의 첫 판이 바깥 병합으로 6.7GB OOM 이었다)."""
     from tools.trial_raw_feature_ranker import raw_features
-    return raw_features(market, keys=keys, base=RAW_DIRS[market])
+    return raw_features(market, keys=keys, base=(raw_dirs or RAW_DIRS)[market])
 
 
-def _group_block(group: str, market: str, window: tuple[date, date]) -> pd.DataFrame:
+def _group_block(group: str, market: str, window: tuple[date, date],
+                 sources_dirs: Sequence[Path] | None = None) -> pd.DataFrame:
     """묶음 G* 의 월 조각을 **읽기만** 한다. 굽는 것은 `tools/trial_ranker_sources.build_panel` 의 일이다 —
-    여기서 굽기 시작하면 국장 2021-11~2025-04 를 Analyst 로 다시 돌려 하룻밤이 날아간다."""
+    여기서 굽기 시작하면 국장 2021-11~2025-04 를 Analyst 로 다시 돌려 하룻밤이 날아간다.
+
+    ``sources_dirs`` 를 주면 그 디렉터리들을 차례로 본다 — 같은 달이 둘에 있으면 **앞의 것**만 읽는다."""
     start, end = window
     cols = list(GROUPS[group])
-    paths = sorted(glob.glob(str(SOURCES_CACHE / f"{group}-{market}-*.parquet")))  # invariant-allow: data-access — 창고가 아닌 작업 파일
+    by_month: dict[str, str] = {}
+    for base in (sources_dirs or (SOURCES_CACHE,)):
+        for path in sorted(glob.glob(str(Path(base) / f"{group}-{market}-*.parquet"))):  # invariant-allow: data-access — 창고가 아닌 작업 파일
+            by_month.setdefault(Path(path).stem.rsplit("-", 1)[-1], path)
     parts = []
-    for path in paths:
-        month = Path(path).stem.rsplit("-", 1)[-1]
+    for month, path in sorted(by_month.items()):
         if not (f"{start:%Y%m}" <= month <= f"{end:%Y%m}"):
             continue
         f = pd.read_parquet(path)  # invariant-allow: data-access — 창고가 아닌 작업 파일
@@ -484,7 +505,8 @@ def finalize(panel: pd.DataFrame, groups: dict[str, Group]) -> tuple[pd.DataFram
 
 
 def _build_market(store: Store, market: str, window: tuple[date, date],
-                  groups: dict[str, Group]) -> pd.DataFrame:
+                  groups: dict[str, Group], *, raw_dirs: dict[str, Path] | None = None,
+                  sources_dirs: Sequence[Path] | None = None) -> pd.DataFrame:
     if market == "KR":
         panel = _kr_scores(window)
     else:
@@ -499,11 +521,11 @@ def _build_market(store: Store, market: str, window: tuple[date, date],
             panel = attach_block(panel, pd.DataFrame(), group)
             continue
         if name == "raw":
-            frame, _cols = _raw_block(market, keys)
+            frame, _cols = _raw_block(market, keys, raw_dirs)
         elif name == "ba":
             frame = _ba_block(store, sessions, set(panel["entity_id"].unique()))
         else:
-            frame = _group_block(name, market, window)
+            frame = _group_block(name, market, window, sources_dirs)
         hit = 0 if frame is None or frame.empty else len(
             keys.merge(frame[["entity_id", "session"]].drop_duplicates(), on=["entity_id", "session"]))
         panel = attach_block(panel, frame, group)
@@ -617,7 +639,9 @@ def load_full_panel(markets: Sequence[str] = ("KR", "US"),
                     window: tuple[date, date] = (JUDGE_START, JUDGE_END),
                     *, root: str | Path = "data", include: Sequence[str] | None = BLOCK_ORDER,
                     cache_dir: Path = CACHE, rebuild: bool = False,
-                    store: Store | None = None) -> tuple[pd.DataFrame, list[str], dict[str, list[str]], list[date]]:
+                    store: Store | None = None, raw_dirs: dict[str, Path] | None = None,
+                    sources_dirs: Sequence[Path] | None = None,
+                    ) -> tuple[pd.DataFrame, list[str], dict[str, list[str]], list[date]]:
     """FA 패널을 만든다 — (panel, feats, groups, sessions).
 
     - ``panel`` — entity_id · session · market · y5 · 피처 전부(float32). 시장별 rank-gauss, 결측 표지 0/1.
@@ -627,10 +651,13 @@ def load_full_panel(markets: Sequence[str] = ("KR", "US"),
 
     시장별로 굽고 `cache_dir` 아래 `panel-{시장}-{창}` 조각으로 캐시한다. 조립은 마지막에 한 번만 — 두 시장을 동시에
     메모리에 올려 rank-gauss 하면 9.7GB 에서 위험하다(시장별 rank-gauss 라 나눠 해도 결과가 같다).
+
+    ``raw_dirs``·``sources_dirs`` 는 원피처 캐시·묶음 월 조각의 자리다. 기본(None)은 `RAW_DIRS`·`SOURCES_CACHE` —
+    등록된 시행이 읽는 그대로다. 2022 하락장 확장 창은 `load_full_panel(**FA2021)` 로 창·캐시와 한 벌로 넘긴다.
     """
     window = check_window(window)
     store = store or Store(root=Path(root))
-    groups = blocks_of(markets, include=include)
+    groups = blocks_of(markets, include=include, raw_dirs=raw_dirs)
     cache_dir.mkdir(parents=True, exist_ok=True)
     # 조각 이름에 **시장 묶음**을 넣는다. 원피처 열은 시장 합집합이라 KR 단독으로 구운 조각에는 미장 전용 열이
     # 없고, 그 조각을 KR+US 조립에 쓰면 그 열이 NaN 으로 남는다(등록 규칙은 0 = 순위 중앙).
@@ -647,7 +674,7 @@ def load_full_panel(markets: Sequence[str] = ("KR", "US"),
             del cached                  # 이름을 쥐고 있으면 lean_concat 이 조각을 놓아도 안 풀린다
             release_memory()            # parquet 읽기 버퍼 — arrow(mimalloc) 가 쥐고 안 돌려준다
             continue
-        one = _build_market(store, market, window, groups)
+        one = _build_market(store, market, window, groups, raw_dirs=raw_dirs, sources_dirs=sources_dirs)
         one, _feats = finalize(one, groups)
         one.to_parquet(path, index=False)  # invariant-allow: data-access — 창고가 아닌 작업 파일
         _log(f"{market} 패널 캐시 {path} · {len(one):,}행 × {one.shape[1]}열")
@@ -1067,6 +1094,8 @@ __all__ = [
     "BLOCK_ORDER",
     "BOX_END",
     "CACHE",
+    "FA2021",
+    "FA2021_DIR",
     "GAP",
     "GROUPS",
     "PROGRESS_FIELDS",
