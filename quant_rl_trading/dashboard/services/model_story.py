@@ -220,6 +220,10 @@ SHADOW_TRACKS: list[dict[str, str]] = [
      "compares": "마지막 모델 회차 채택 후보 BE2(트랜스포머 + GBM 순위 평균)를 얼린 모델로 — 지금 모의계좌와 규칙은 같고 "
                  "종목 점수만 BE2. 모의계좌와 같은 창 수익을 나란히 본다(체결은 시뮬레이션이라 비용 차이가 섞인다).",
      "doc": "docs/design/be2-shadow.md", "compare_ledger": "data/_paper", "compare_name": "모의계좌"},
+    {"name": "지수+V6", "ledger": "data/_idxv6_shadow", "started": "auto",
+     "compares": "KODEX200 한 종목을 100% 로, 노출만 지금 규칙(V6) 그대로 — 실자금 투입 관문 ② 의 '지수+V6' 대안을 계산값이 "
+                 "아니라 실제 매매 기록으로. 모의계좌와 같은 정보 시점으로 결정한다(분배금은 안 받는다 — 그만큼 불리하게 적힌다).",
+     "doc": "docs/design/portfolio-construction.md", "compare_ledger": "data/_paper", "compare_name": "모의계좌"},
 ]
 
 

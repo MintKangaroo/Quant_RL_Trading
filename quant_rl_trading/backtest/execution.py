@@ -179,7 +179,7 @@ def _run_locked(
 
         gross = fill.filled_quantity * fill.avg_price
         book_side = BookSide(str(fill.side))
-        fee, tax = rates.costs(side=book_side, gross=gross, currency=currency)
+        fee, tax = rates.costs(side=book_side, gross=gross, currency=currency, entity_id=fill.entity_id)
         result.filled += fill.filled_quantity
         result.traded_value += gross
         rows.append(

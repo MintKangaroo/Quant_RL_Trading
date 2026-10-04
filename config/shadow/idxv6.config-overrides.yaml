@@ -1,0 +1,13 @@
+# 지수+V6 shadow — docs/design/portfolio-construction.md "지수+V6 트랙". scripts/run_shadow_idxv6.sh 가 첫 실행에
+# data/_idxv6_shadow/config-overrides.yaml 로 복사한다. 이 샌드박스에서만 읽힌다(실전 창고는 덮어쓰기 파일을 거부한다).
+# 실자금 투입 관문 ②(docs/protocols/live-capital-entry-2026-11.md)의 "KODEX200 + V6" 대용을 계산값이 아니라 매매 기록으로.
+#
+# 바꾸는 것은 "무엇을·얼마씩" 둘뿐이다 — KODEX200 한 종목을 100% 로. 노출 배수(V6 규칙·확인 창·데드밴드)·재조정 주기(10세션)·
+# 사이징·집행·비용은 모의계좌 규칙 그대로다. ETF 매도세는 창고 설정 accounting.transaction_tax_kr_etf(0)가 펀드 ID 에만 걸린다.
+selector.fixed_basket:
+  - KR:ETF:069500
+allocator.baseline: score
+allocator.max_position_weight: 1.0
+allocator.cash_buffer: 0.0
+# 한 종목이라 분할할 이유가 없다(k200v6 선례). 시뮬레이션은 일봉 체결이라 결과도 같다.
+execution.slice_count: 1

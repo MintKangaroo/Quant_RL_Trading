@@ -6,12 +6,17 @@ Z2 shadow(data/_z2_shadow, 국장만, 모의 체결)와 모의계좌(data/_paper
 둘 다 국장 원화 장부라 TWR(nav_daily.index_value)을 그대로 비교할 수 있다 — 기존 KR shadow(data/_shadow)는 미장 달러 슬리브가 섞여
 있어 같은 줄에 못 놓는다. 체결 방식이 다르다는 차이(시뮬 vs 실제 모의 체결)는 그대로 남는다 — 비교표 아래에 적는다.
 KODEX200(069500)도 같은 창으로 적는다(판정 벤치마크와 같은 수집).
+
+**지수+V6 shadow**(data/_idxv6_shadow, portfolio-construction.md "지수+V6 트랙", 2026-10-04)도 같은 모양으로 적는다 — 실자금 투입
+관문 ② 의 "KODEX200 + V6" 대용을 매매 기록으로 남긴 장부다. 그 장부의 창에는 계산 대용(`modelops.exposure_effect`, 모의계좌의 노출
+기록 × 지수 일수익 − 비용)과 분배금 보정(장부는 분배금을 안 받는다 — `benchmark.kodex200_distribution_yield_annual`)을 함께 적는다.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -27,7 +32,9 @@ from quant_rl_trading.store import Store, overlay  # noqa: E402
 from tools.run_backtest import JOURNAL  # noqa: E402
 from tools.run_session import build_store  # noqa: E402
 
-BOOKS = {"Z2 shadow": "data/_z2_shadow", "모의계좌": "data/_paper"}
+PAPER = ("모의계좌", "data/_paper")
+#: 비교할 shadow 장부 — 장부마다 자기 첫 세션부터의 창으로 모의계좌·KODEX200 과 나란히 놓는다.
+TRACKS = {"Z2 shadow": "data/_z2_shadow", "지수+V6 shadow": "data/_idxv6_shadow"}
 
 
 def book_series(sandbox: str, now) -> pd.Series:
@@ -55,25 +62,51 @@ def stats(s: pd.Series) -> tuple[float, float]:
     return float(rel.iloc[-1] - 1.0), float((rel / rel.cummax() - 1.0).min())
 
 
+def report(name: str, track: pd.Series, others: dict[str, pd.Series], now: datetime) -> None:
+    start = track.index[0]
+    print(f"=== {now.astimezone(ZoneInfo('Asia/Seoul')):%Y-%m-%d %H:%M} {name} 비교 · 창 {start}~{track.index[-1]} ({len(track)}세션) ===")
+    for label, s in {name: track, **others}.items():
+        window = s[s.index >= start]
+        ret, mdd = stats(window)
+        print(f"  {label:14s} 수익 {ret:+.2%} · MDD {mdd:.2%} · 세션 {len(window)}")
+    tr, _ = stats(track)
+    paper = others[PAPER[0]]
+    pr, _ = stats(paper[paper.index >= start])
+    print(f"  {name} − 모의계좌 {tr - pr:+.2%}p (체결 방식이 다르다: shadow 는 시뮬, 모의계좌는 LS 모의투자 실제 체결 — 체결 비용 차이가 섞인다)")
+
+
+def proxy_lines(track: pd.Series, now: datetime) -> None:
+    """지수+V6 장부 옆에 계산 대용과 분배금 보정을 적는다. 계산은 관문 문서가 가리키는 그 함수 그대로다."""
+    from quant_rl_trading.modelops.exposure_effect import exposure_effect
+
+    warehouse = build_store(None)
+    paper = Store(root=overlay.build(root=Path(PAPER[1]), source=warehouse.root, writable=JOURNAL).root)
+    result = exposure_effect(warehouse, as_of=now, ledger=paper, sessions=max(len(track) - 1, 1))
+    if result.get("sessions"):
+        print(f"  계산 대용(모의계좌 노출 기록 × {result['index'].split(':')[-1]} 일수익 − 비용) {result['cum_applied']:+.2%} · "
+              f"MDD {result['mdd_applied']:+.2%} · {result['start']}~{result['end']} {result['sessions']}세션 "
+              f"(정렬: 세션 d 결정 → d 종가→d+1 종가 수익 — 장부와 하루 어긋날 수 있다)")
+    else:
+        print(f"  계산 대용: 못 냄 ({result.get('reason', '자료 없음')})")
+    yield_annual = float(warehouse.config("benchmark.kodex200_distribution_yield_annual", as_of=now))
+    days = (track.index[-1] - track.index[0]).days
+    print(f"  분배금 보정: 장부는 KODEX200 분배금을 안 받는다 — 연 {yield_annual:.1%} 가정이면 이 창 {yield_annual * days / 365:+.2%}p 를 더해 읽는다")
+
+
 def main(argv: list[str] | None = None) -> int:
     argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter).parse_args(argv)
     now = LiveClock().now()
-    series = {name: book_series(path, now) for name, path in BOOKS.items()}
-    series["KODEX200"] = etf_series(now)
-    z2 = series["Z2 shadow"]
-    if len(z2) < 2:
-        print(f"{now:%Y-%m-%d} Z2 shadow 세션 {len(z2)}개 — 아직 비교할 창이 없다")
-        return 0
-    start = z2.index[0]
-    print(f"=== {now.astimezone(ZoneInfo('Asia/Seoul')):%Y-%m-%d %H:%M} Z2 트랙 비교 · 창 {start}~{z2.index[-1]} ({len(z2)}세션) ===")
-    for name, s in series.items():
-        window = s[s.index >= start]
-        ret, mdd = stats(window)
-        print(f"  {name:10s} 수익 {ret:+.2%} · MDD {mdd:.2%} · 세션 {len(window)}")
-    zr, _ = stats(z2)
-    pr, _ = stats(series["모의계좌"][series["모의계좌"].index >= start])
-    print(f"  Z2 − 모의계좌 {zr - pr:+.2%}p (체결 방식이 다르다: Z2 는 시뮬, 모의계좌는 LS 모의투자 실제 체결 — 체결 비용 차이가 섞인다)")
-    print("  기록만 — 판정 기준이 없다. 20세션 뒤 사용자와 모의계좌 전환을 논의한다(portfolio-construction.md).")
+    others = {PAPER[0]: book_series(PAPER[1], now), "KODEX200": etf_series(now)}
+    for name, path in TRACKS.items():
+        track = book_series(path, now) if Path(path, "curated").is_dir() else pd.Series(dtype=float)
+        if len(track) < 2:
+            print(f"{now:%Y-%m-%d} {name} 세션 {len(track)}개 — 아직 비교할 창이 없다")
+            continue
+        report(name, track, others, now)
+        if path.endswith("_idxv6_shadow"):
+            proxy_lines(track, now)
+    print("  기록만 — 판정 기준이 없다. Z2 는 20세션 뒤 사용자와 모의계좌 전환을 논의한다(portfolio-construction.md). "
+          "지수+V6 는 관문 ② 를 매매 기록으로 읽는 보조다(live-capital-entry-2026-11.md).")
     return 0
 
 

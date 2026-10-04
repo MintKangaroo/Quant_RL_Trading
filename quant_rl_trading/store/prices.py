@@ -74,6 +74,16 @@ CI 가 잡는다.
 
 **마지막 세션은 언제나 원주가와 같다.** 누적곱이 비어 있기 때문이다. 그래서
 "최신 종가" 를 쓰는 코드는 ``adjusted`` 를 무엇으로 주든 같은 값을 본다.
+
+## 세 번째 일 — 상장 펀드는 ``indices`` 에서 (2026-10-04, 지수+V6 shadow)
+
+KODEX200(``KR:ETF:069500``)은 판정 대조군이라 ``indices`` 에 산다 — ``prices`` 에 넣으면 종목 유니버스에 끼어 커버리지
+통계와 횡단면 z 를 오염시킨다. 그런데 그 ETF 를 **실제로 사고파는 장부**(``data/_idxv6_shadow``,
+portfolio-construction.md "지수+V6 트랙")는 사이징·체결·평가가 전부 이 헬퍼로 시세를 읽는다.
+
+그래서 ``KR:ETF:`` 로 시작하는 ID 를 **이름으로 물으면** ``indices`` 에서 같은 게이트로 읽어 붙인다. 시장 전체 조회
+(``entity=None``)에는 끼지 않는다 — 유니버스·피처·IC 경로는 이전과 같은 행을 본다. 펀드 ID 를 묻는 곳은 그 장부뿐이라
+다른 장부의 결과는 바뀌지 않는다.
 """
 
 from __future__ import annotations
@@ -101,6 +111,13 @@ FACTOR_COLUMN = "adj_factor"
 #: 거래량은 **반대로** 움직이고, 거래대금(``value``)은 애초에 안 변한다.
 #: 셋을 한 배율로 밀면 유동성 필터가 통째로 틀어진다.
 ADJUSTED_COLUMNS = ("open", "high", "low", "close")
+
+#: 상장 펀드(ETF) — ``prices`` 에 없다. 종목 횡단면(커버리지·z)을 오염시키지 않게 ``indices`` 에 산다
+#: (collectors/benchmark_etf.py). **ID 를 이름으로 물을 때만** 거기서 읽어 붙인다(모듈 독스트링 "세 번째 일").
+FUND_PREFIX = "KR:ETF:"
+FUND_TABLE = "indices"
+#: ``indices`` 에만 있는 열. 붙이기 전에 뺀다 — 시세 프레임의 축은 ``prices`` 와 같아야 한다.
+FUND_ONLY_COLUMNS = ("board",)
 
 
 def read_prices(
@@ -141,15 +158,26 @@ def read_prices(
         if extra:
             fetch = [*requested, *dict.fromkeys(extra)]
 
-    frame = store.get(
-        PRICES,
-        as_of=as_of,
-        entity=entity,
-        lookback=lookback,
-        until=until,
-        columns=fetch,
-        market=market,
+    stocks, funds = _split_funds(entity)
+    frame = (
+        store.get(
+            PRICES,
+            as_of=as_of,
+            entity=stocks,
+            lookback=lookback,
+            until=until,
+            columns=fetch,
+            market=market,
+        )
+        # 펀드만 물었으면 종목 표를 열지 않는다. 그 밖엔 예전 그대로(빈 목록도 그대로 넘긴다).
+        if not funds or stocks
+        else pd.DataFrame()
     )
+    if funds:
+        frame = _with_funds(
+            store, frame, funds=funds, as_of=as_of, lookback=lookback, until=until,
+            columns=fetch, market=market,
+        )
     # until은 기존 계약대로 배타적이다. as_of 자체의 유효 가격은 포함한다.
     if not frame.empty:
         frame = frame[frame["valid_from"] <= pd.Timestamp(as_of)]
@@ -157,6 +185,49 @@ def read_prices(
     if adjusted:
         alive = adjust(alive)
     return alive if requested is None else _project(alive, requested)
+
+
+def _split_funds(
+    entity: str | Sequence[str] | None,
+) -> tuple[str | list[str] | None, list[str]]:
+    """(종목 쪽 인자, 펀드 ID). 이름으로 묻지 않으면(``None``) 펀드는 없다 — 시장 전체 조회에 끼지 않는다."""
+    if entity is None:
+        return None, []
+    names = [entity] if isinstance(entity, str) else [str(item) for item in entity]
+    funds = [name for name in names if name.startswith(FUND_PREFIX)]
+    if not funds:
+        return entity if isinstance(entity, str) else list(entity), []
+    return [name for name in names if not name.startswith(FUND_PREFIX)], funds
+
+
+def _with_funds(
+    store: Store,
+    frame: pd.DataFrame,
+    *,
+    funds: list[str],
+    as_of: datetime,
+    lookback: timedelta | int | None,
+    until: datetime | None,
+    columns: Sequence[str] | None,
+    market: str | None,
+) -> pd.DataFrame:
+    """펀드 일봉을 ``indices`` 에서 읽어 종목 프레임 뒤에 붙인다. 같은 게이트(``observed_at <= as_of``·정정본)를 탄다.
+
+    ``indices`` 에는 ``adj_factor`` 가 없다 — 분할이 없었던 것으로(빈 값) 둔다. 펀드 분할은 드물고, 생기면 보정이 **안 된
+    것이 보이는** 쪽이 낫다는 ``adjust`` 의 규칙 그대로다.
+    """
+    wanted = None if columns is None else [name for name in columns if name != FACTOR_COLUMN]
+    extra = store.get(
+        FUND_TABLE, as_of=as_of, entity=funds, lookback=lookback, until=until, columns=wanted, market=market,
+    )
+    if extra.empty:
+        return frame
+    extra = extra.drop(columns=[name for name in FUND_ONLY_COLUMNS if name in extra.columns])
+    if columns is None or FACTOR_COLUMN in columns:
+        extra[FACTOR_COLUMN] = np.nan
+    if frame.empty:
+        return extra.reset_index(drop=True)
+    return pd.concat([frame, extra], ignore_index=True)
 
 
 def drop_dead_sessions(

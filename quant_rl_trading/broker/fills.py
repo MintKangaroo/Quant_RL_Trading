@@ -337,7 +337,9 @@ def _sync_fills_locked(
                                         detail="cumulative fill notional requires reconciliation"))
             continue
         price = gross / delta
-        fee, tax = rates.costs(side=BookSide(str(item.side)), gross=gross, currency=currency)
+        fee, tax = rates.costs(
+            side=BookSide(str(item.side)), gross=gross, currency=currency, entity_id=item.entity_id
+        )
 
         fill = Fill(
             order_id=item.order_id,

@@ -15,6 +15,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from quant_rl_trading.accounting.book import KRW, USD, Side, Trade
+from quant_rl_trading.store.errors import ConfigNotFound
+from quant_rl_trading.store.prices import FUND_PREFIX
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -32,6 +34,9 @@ class Rates:
     capital_gains_us: float
     #: 해외 양도세 기본공제(연간, 원화). 과세연도마다 새로 주어진다.
     capital_gains_allowance_krw: float
+    #: 국내 상장 ETF 매도세(``accounting.transaction_tax_kr_etf``). 증권거래세·농특세 둘 다 없다. ``None`` 이면(키가 없는
+    #: 시점) 주식 요율로 본다 — 모르면 비싼 쪽. 펀드 ID 는 ``store.prices.FUND_PREFIX``.
+    transaction_tax_kr_etf: float | None = None
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> Rates:
@@ -47,20 +52,28 @@ class Rates:
             capital_gains_allowance_krw=float(
                 store.config("accounting.capital_gains_allowance_krw", as_of=as_of)
             ),
+            transaction_tax_kr_etf=_optional(store, "accounting.transaction_tax_kr_etf", as_of=as_of),
         )
 
     # -- 비용 계산 --------------------------------------------------------------
 
-    def costs(self, *, side: Side, gross: float, currency: str) -> tuple[float, float]:
+    def costs(
+        self, *, side: Side, gross: float, currency: str, entity_id: str = ""
+    ) -> tuple[float, float]:
         """(수수료, 세금). **증권거래세는 매도에만 붙는다.**
 
         매수에도 붙이면 왕복 비용이 두 배로 잡히고, 백테스트가 실제보다
         비관적이 된다 — 비관적인 백테스트도 틀린 백테스트다.
+
+        ``entity_id`` 가 국내 상장 ETF 면 매도세는 ETF 요율이다(지수+V6 shadow, 2026-10-04).
         """
         if currency == USD:
             return abs(gross) * self.fee_us, 0.0
         fee = abs(gross) * self.fee_kr
-        tax = abs(gross) * self.transaction_tax_kr if side is Side.SELL else 0.0
+        rate = self.transaction_tax_kr
+        if self.transaction_tax_kr_etf is not None and str(entity_id).startswith(FUND_PREFIX):
+            rate = self.transaction_tax_kr_etf
+        tax = abs(gross) * rate if side is Side.SELL else 0.0
         return fee, tax
 
     def priced(
@@ -73,7 +86,9 @@ class Rates:
         currency: str = KRW,
     ) -> Trade:
         """비용을 계산해 붙인 체결. Executor 가 이걸로 장부에 넣는다."""
-        fee, tax = self.costs(side=side, gross=quantity * price, currency=currency)
+        fee, tax = self.costs(
+            side=side, gross=quantity * price, currency=currency, entity_id=entity_id
+        )
         return Trade(
             entity_id=entity_id,
             side=side,
@@ -106,3 +121,12 @@ class Rates:
             allowance = self.capital_gains_allowance_krw
         taxable = max(0.0, realized_usd_krw - allowance)
         return taxable * self.capital_gains_us
+
+
+
+def _optional(store: Store, name: str, *, as_of: datetime) -> float | None:
+    """그 시점 설정에 없으면 ``None`` — 숫자를 지어내지 않는다. 호출부가 기존 요율로 물러선다."""
+    try:
+        return float(store.config(name, as_of=as_of))
+    except ConfigNotFound:
+        return None

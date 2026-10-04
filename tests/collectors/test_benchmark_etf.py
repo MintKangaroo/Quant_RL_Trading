@@ -56,3 +56,27 @@ def test_판정_벤치마크는_신선도_띠에_있다() -> None:
 
     entities = {item[5] for item in DATASETS}
     assert bench.BENCHMARK_ETF in entities
+
+
+def test_마감_직후_LS_봉은_그날_ETF_한_줄이다() -> None:
+    """지수+V6 shadow 가 세션 d(as_of d 16:00)에 d 종가를 보려면 그 봉이 16:00 전에 관측돼야 한다(portfolio-construction.md)."""
+    from datetime import date
+
+    quote = {"shcode": "069500", "price": "112060", "open": "111185", "high": "112265", "low": "110600",
+             "volume": "26144725", "value": "2930000"}
+    rows = bench.rows_from_quote(quote, day=date(2026, 10, 2), observed_at=OBSERVED)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["entity_id"] == bench.BENCHMARK_ETF and row["source"] == bench.LS_SOURCE
+    assert row["valid_from"] == datetime(2026, 10, 2, tzinfo=UTC), "KRX 행과 같은 순간 — 정정본으로 합류한다"
+    assert row["value"] == 2930000 * 1_000_000, "t8407 거래대금은 백만원"
+    assert row["observed_at"] == OBSERVED
+
+
+def test_개장_전_스텁과_다른_종목은_버린다() -> None:
+    from datetime import date
+
+    stub = {"shcode": "069500", "price": "112060", "open": "0", "high": "0", "low": "0", "volume": "0"}
+    assert bench.rows_from_quote(stub, day=date(2026, 10, 5), observed_at=OBSERVED) == []
+    other = {"shcode": "005930", "price": "1", "open": "1", "high": "1", "low": "1", "volume": "1"}
+    assert bench.rows_from_quote(other, day=date(2026, 10, 5), observed_at=OBSERVED) == []

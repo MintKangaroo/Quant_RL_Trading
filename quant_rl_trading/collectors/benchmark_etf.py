@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 #: 판정 대조군. 이름은 `KR:IDX:*` 와 갈라 둔다 — 지수가 아니라 **살 수 있는 상품**이다.
 BENCHMARK_ETF = "KR:ETF:069500"
@@ -36,6 +37,12 @@ UNDERLYING_INDEX = "KR:IDX:KOSPI200"
 TABLE = "indices"
 SOURCE = "krx_etf_069500"
 TICKER = "069500"
+#: 같은 ETF 의 **그날** 일봉 — 마감 직후 LS `t8407`(복수종목 현재가, 시세 TR)로 받는다(지수+V6 shadow, 2026-10-04).
+#: KRX(pykrx) 원천은 다음 날 09:10 에야 받히는데, 그 ETF 를 실제로 사고파는 장부는 세션 d(as_of d 16:00)에 d 종가로
+#: 사이징하고 d+1 봉으로 체결한다 — 둘 다 그 시각 전에 관측돼 있어야 보인다. `observed_at` 은 실제 수집 시각(16:00 전)
+#: 그대로 적는다. 다음 날 KRX 행이 같은 (entity, valid_from)으로 오면 정정본이 된다.
+LS_SOURCE = "ls_t8407_etf"
+SEOUL = ZoneInfo("Asia/Seoul")
 
 
 def _number(value: Any) -> float | None:
@@ -85,6 +92,33 @@ def rows_from_frame(frame: Any, *, observed_at: datetime) -> list[dict[str, Any]
                 "close": underlying, "volume": None, "value": None,
             })
     return out
+
+
+def rows_from_quote(row: dict[str, Any], *, day: date, observed_at: datetime) -> list[dict[str, Any]]:
+    """LS `t8407` OutBlock1 한 줄 → indices 행(ETF 만, 기초지수 없음).
+
+    **개장 전 스텁을 버린다** — 장 전엔 현재가에 전일 종가, 시·고·저·거래량엔 0 이 온다(tools/collect_prices_ls.py 의 교훈).
+    거래대금은 백만원 단위다.
+    """
+    if str(row.get("shcode", "")).strip() != TICKER:
+        return []
+    close = _number(row.get("price"))
+    fields = {name: _number(row.get(name)) for name in ("open", "high", "low", "volume")}
+    if close is None or any(value is None for value in fields.values()):
+        return []
+    value = _number(row.get("value"))
+    return [{
+        "entity_id": BENCHMARK_ETF,
+        # KRX 행과 같은 순간(UTC 자정 = 서울 09:00). observed_at 의 시간대를 쓰면 안 된다 — 서울 시각이면 하루 어긋난다.
+        "valid_from": datetime(day.year, day.month, day.day, 9, 0, tzinfo=SEOUL),
+        "observed_at": observed_at,
+        "source": LS_SOURCE,
+        "market": "KR",
+        "board": "ETF",
+        **fields,
+        "close": close,
+        "value": value * 1_000_000 if value is not None else None,
+    }]
 
 
 def run_id(start: date, end: date) -> str:

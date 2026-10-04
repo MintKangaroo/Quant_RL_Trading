@@ -45,6 +45,7 @@ accounting:
   fee_kr: 0.000_15           # 위탁수수료(편도)
   fee_us: 0.002_5            # 해외주식 위탁수수료(편도)
   transaction_tax_kr: 0.001_8  # 증권거래세 — **매도에만** 붙는다
+  transaction_tax_kr_etf: 0.0  # 국내 상장 ETF(KR:ETF:*) 매도세 — 거래세 면제·농특세 없음 (2026-10-04, 지수+V6 shadow)
 
 universe:
   min_turnover_20d_kr: 500_000_000   # 원
@@ -171,6 +172,8 @@ selector:
   weights_override: {}         # 샌드박스 전용 {analyst: weight} — 비면 측정표(analyst_weights). BE2 shadow 가
                                # {be2: 1.0, risk: 1.0} 로 켠다(be2-shadow.md). 실전 창고는 덮어쓰기 파일을 거부한다
 
+  fixed_basket: []             # 샌드박스 전용 — 선정을 건너뛰고 이 종목들을 같은 점수로. 지수+V6 shadow 가
+                               # [KR:ETF:069500] 로 켠다(portfolio-construction.md "지수+V6 트랙")
 collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내보내는 문턱
   consensus_max_fail_ratio: 0.10   # 국장 컨센서스(tools/collect_consensus_naver.py) 종목 실패 비율.
                                    # 넘으면 사유를 적고 rc=1. 평소 실패는 ~5%(2,800 중 ~135 —

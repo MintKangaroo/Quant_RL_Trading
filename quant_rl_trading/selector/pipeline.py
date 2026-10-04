@@ -20,6 +20,7 @@ from quant_rl_trading.selector import ksic
 from quant_rl_trading.selector.candidates import Candidate, SelectionParams, SelectionTrace
 from quant_rl_trading.selector.combine import combined_scores, missing_as_zero
 from quant_rl_trading.selector.weights import weight_census
+from quant_rl_trading.store import ConfigNotFound
 
 if TYPE_CHECKING:
     from quant_rl_trading.store import Store
@@ -189,6 +190,16 @@ def run(
     그때는 그 사실이 흔적에 남는다. 조용히 건너뛰면 나중에 "섹터 상한이 왜
     안 걸렸지" 를 아무도 묻지 않게 된다.
     """
+    basket = fixed_basket(store, as_of=as_of, market=market)
+    if basket:
+        # **고정 바구니** (portfolio-construction.md "지수+V6 트랙") — 고르지 않는다. 신호·유니버스·상관·섹터를 건너뛰고
+        # 설정에 적힌 종목을 같은 점수로 낸다. 배분·노출·집행은 아래 세션 경로 그대로다. 기본값 [] 이면 이 줄은 안 탄다.
+        trace = SelectionTrace()
+        trace.note(f"고정 바구니 {len(basket)}종목 — 선정 단계를 건너뛴다 (selector.fixed_basket)")
+        trace.stage("fixed_basket", len(basket))
+        fixed = tuple(Candidate(entity_id=name, score=1.0, raw_score=1.0) for name in basket)
+        return Selection(as_of, market, fixed, {}, trace)
+
     first = screen(store, as_of=as_of, market=market, equity=equity)
     trace, params, weights = first.trace, first.params, first.weights
     if first.fault:
@@ -250,6 +261,17 @@ def run(
         held=held,
     )
     return Selection(as_of, market, tuple(chosen), weights, trace)
+
+
+def fixed_basket(store: Store, *, as_of: datetime, market: str) -> list[str]:
+    """``selector.fixed_basket``(시장 접미사 우선). 키가 없는 시점이면 빈 목록 — 옛 동작(선정)이다."""
+    try:
+        raw = candidates_module.market_config(store, "selector.fixed_basket", as_of=as_of, market=market)
+    except ConfigNotFound:
+        return []
+    if isinstance(raw, str):
+        raw = [raw] if raw.strip() else []
+    return [str(name).strip() for name in (raw or []) if str(name).strip()]
 
 
 def _silent_score_reason(signals: pd.DataFrame, weights: Mapping[str, float]) -> str:
