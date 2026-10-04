@@ -404,9 +404,18 @@ KR 250세션 실측:
 
 - **현금은 여기서 안 뺀다**(`cash_floor=0`). 레짐 현금은 뒤의 `exposure.apply`
   한 곳이 정한다 — 투영에서도 빼면 이중으로 빠진다.
-- **RC 상한이 `max_position_weight` 를 대체한다.** risk_parity 경로는
-  `_normalize`(비중 상한)를 안 타고 `project`(RC 상한)를 탄다. 비중 21%라도
-  위험 기여 15% 면 통과 — 이것이 "금액이 아니라 위험" 의 결론이다.
+- ~~**RC 상한이 `max_position_weight` 를 대체한다.**~~ → **RC 상한과 비중 상한을 둘 다 건다**(2026-10-04 정정, 사용자 승인,
+  `docs/diag/position-cap-mismatch.md`). 처음엔 risk_parity 경로가 `_normalize`(비중 상한)를 안 타고 `project`(RC 상한)만 탔다
+  — "비중 21%라도 위험 기여 15% 면 통과". 바꾼 이유 둘:
+  ① **집행의 위험 한도(`risk/account.py`)가 같은 키 `allocator.max_position_weight` 를 매수마다 건다.** 배분기가 상한 위
+  목표를 내면 그 몫은 아무 데도 안 가고 위험 차단으로 끝난다(9/28 KR:097955 16.8%, 백테스트 2026-01~06 세션 18% 가 초과).
+  ② **저변동성 ≠ 저위험인 종목**이 있다 — 우선주·거래가 얇은 종목은 가격이 덜 움직여 측정 변동성이 낮게 나오고, 리스크
+  패리티가 거기로 쏠린다(097955 = CJ제일제당우, 변동성 22.6%·거래대금 11.4억, 보통주 101억). 공분산 추정 오차를 막는 마지막
+  자리가 비중 상한이다.
+  규칙: `project` 가 하방 베타 → [RC 상한 → **비중 상한**]을 둘 다 만족할 때까지 번갈아 건다(최대 반복 안에서). 비중 상한은
+  `baseline._normalize` 와 같은 water-fill — 넘친 몫을 상한 밑 종목에 여유 비례로, 전부 상한이면 현금. 끝까지 하나라도
+  남으면 `ProjectionError`(기존 계약: 세션 0 주문 + fault). 실현 가능 조건은 RC 상한과 같다(후보 ≥ 1/0.15 ≈ 7종목).
+  발효 2026-10-06 세션.
 
 새 config 키 다섯(`allocator.score_tilt`·`name_risk_cap`·`sector_risk_cap`·
 `downside_beta_cap`·`risk_window`)은 **RL 캐시 지문에 넣었다.** RL env 가
