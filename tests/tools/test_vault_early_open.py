@@ -169,8 +169,21 @@ def test_be2_model_hashes_come_from_the_early_document() -> None:
     hashes = vj.frozen_hashes("BE2")
     assert vj.BE2_STEM in hashes and len(hashes[vj.BE2_STEM]) == 16
     assert not any(k.startswith("doc:") for k in hashes)
-    # C0 은 아직 안 얼렸다 — 초안에는 해시가 없고, 그래서 BE2 판정이 거부된다(아래 frozen_be2 테스트)
-    assert vj.C0_STEM not in hashes
+    # C0 줄은 해시 뒤에 괄호 메모가 붙어 고정됐다 — 그 줄도 읽어야 BE2 판정이 돈다(2026-10-04 리허설에서 찾은 결함)
+    assert hashes[vj.C0_STEM] == "2f856986d7e668a8"
+
+
+def test_hash_line_does_not_swallow_the_next_line() -> None:
+    body = "- `a` 0123456789abcdef (메모)\n- `b` fedcba9876543210\n"
+    assert dict(vj.HASH_LINE.findall(body)) == {"a": "0123456789abcdef", "b": "fedcba9876543210"}
+
+
+def test_real_frozen_be2_matches_the_early_document() -> None:
+    """문서에서 읽은 해시로 **실제** 얼린 파일을 싣는다 — 픽스처 해시만 쓰던 테스트가 C0 줄 결함을 놓쳤다."""
+    if not (vj.BE2_MODELS / f"{vj.C0_STEM}.json").exists():
+        pytest.skip("얼린 BE2·C0 파일이 없는 환경")
+    model, c0 = vj.frozen_be2(vj.frozen_hashes("BE2"))
+    assert sorted(c0) == sorted(model.seeds)
 
 
 # --------------------------------------------------------------------------- (f) 금고 창 be2 신호

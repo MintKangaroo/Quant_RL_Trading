@@ -256,7 +256,9 @@ US_EXIT_MULT = 3            # AR·AS 등록: 완충 3N
 BD_EXIT_MULT, BD_WIDE, BD_CAP = 2, 500, 0.10   # BD 등록: 완충 48 · 시총 상위 500 · 종목 상한 10%
 BD_CRISIS_FLOOR = -0.03
 BD_MIN_BEAR = 10
-HASH_LINE = re.compile(r"^- `([A-Za-z0-9.:-]+)` ([0-9a-f]{16})\s*$", re.M)
+#: 해시 뒤의 같은 줄 덧붙임(괄호 메모)은 허용한다 — 앞당김 문서의 C0 줄이 "2f85… (9/30 11:1x 얼림, …)" 로 고정돼
+#: 줄끝 `$` 만 받던 식이 C0 해시를 못 읽어 BE2 판정이 거부될 뻔했다(2026-10-04 리허설). 줄바꿈은 넘지 않는다(`[ \t]`).
+HASH_LINE = re.compile(r"^- `([A-Za-z0-9.:-]+)` ([0-9a-f]{16})(?:[ \t][^\n]*)?$", re.M)
 
 
 def _today() -> date:
@@ -1198,9 +1200,11 @@ def bake_plan(win: Window | None = None) -> list[tuple[str, Path, str]]:
          f".venv/bin/python tools/vault_judge.py --bake{flag}   # bake_long_panel 을 금고 창으로 직접 부른다"),
         ("①′ 국장 타깃 h5(판정 가능일 이후 — 라벨이 닫힌 뒤)", VAULT / "targets-KR-h5.pkl",
          f".venv/bin/python tools/vault_judge.py --bake{flag}   # 판정 가능일 이후에 다시"),
-        ("② 미장 Analyst 점수·타깃(AR·AS·BD)", US_WORK,
+        # 측정 시점이 달 말일이면 창 끝 h5 라벨이 그 시점에 없어 창 끝 세션이 **채점에서도** 빠진다(10/4 리허설: 미장 57/64).
+        # 판정 가능일 달까지 시점을 늘리고(공표된 마지막 세션으로 물러난다) 창 밖 라벨은 버린다. 점검: tools/vault_coverage.py
+        ("② 미장 Analyst 점수·타깃(AR·AS·BD) — 판정 가능일 이후", US_WORK,
          f".venv/bin/python tools/backfill_ic_history.py --market US --start {VAULT_START:%Y-%m} "
-         f"--end {VAULT_END:%Y-%m} --work {US_WORK} --sessions 120"),
+         f"--end {OPEN_FROM:%Y-%m} --last-session {VAULT_END} --work {US_WORK} --sessions 120"),
         ("③ 국장 원피처(AS)", RAW_DIRS["KR"] / "features-chart-KR.pkl",
          f".venv/bin/python tools/diagnose_ic.py cache-extra --market KR --cache-dir {RAW_DIRS['KR']} "
          f"--analyst {' '.join(RAW_ANALYSTS['KR'])}"),

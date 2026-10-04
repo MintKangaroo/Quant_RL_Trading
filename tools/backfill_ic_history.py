@@ -183,9 +183,14 @@ def stamp(moment: datetime) -> str:
 
 
 def build_windows(
-    store: Store, *, points: list[datetime], market: Market, sessions: int, work: Path
+    store: Store, *, points: list[datetime], market: Market, sessions: int, work: Path,
+    last_session: date | None = None,
 ) -> dict[str, list[date]]:
-    """시점마다 라벨을 만들어 저장하고, 채점할 창(세션 목록)을 돌려준다."""
+    """시점마다 라벨을 만들어 저장하고, 채점할 창(세션 목록)을 돌려준다.
+
+    ``last_session`` 이 있으면 그 뒤 세션의 라벨은 버린다 — 금고 창 끝(예: 9/30)의 라벨이 닫힌 뒤 시점으로 재되,
+    창 밖(다음 금고) 라벨은 작업 파일에도 남기지 않는다(tools/vault_coverage.py, 2026-10-04).
+    """
     windows: dict[str, list[date]] = {}
     index_path = work / "windows.json"
     if index_path.exists():
@@ -201,6 +206,8 @@ def build_windows(
         targets = ic.build_targets(
             store, as_of=point, lookback=target_span(sessions), market=str(market)
         )
+        if last_session is not None:
+            targets = targets[targets["session"] <= last_session]
         if targets.empty:
             print(f"  {key}: 라벨 0행 — 건너뛴다", flush=True)
             continue
@@ -434,7 +441,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, help="앞에서부터 이만큼 시점만 (예행용)")
     parser.add_argument("--save", action="store_true", help="analyst_weights 에 적재")
     parser.add_argument("--run-tag", default="", help="run id 꼬리표 — 뒤늦게 생긴 Analyst 를 기존 시점에 덧붙일 때")
+    parser.add_argument("--last-session", type=date.fromisoformat,
+                        help="YYYY-MM-DD — 이 뒤 세션의 라벨은 버린다(금고 창 굽기 전용, --save 와 함께 못 쓴다)")
     args = parser.parse_args(argv)
+    if args.last_session is not None and args.save:
+        parser.error("--last-session 은 창을 자른 굽기 전용이라 analyst_weights 에 적지 않는다(--save 불가)")
 
     load_env()
     store = build_store(args.data_root)
@@ -450,7 +461,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"시점 {len(points)}개: {points[0]:%Y-%m-%d} ~ {points[-1]:%Y-%m-%d}", flush=True)
 
     print("\n=== 1단계 · 시점별 라벨과 창 ===", flush=True)
-    windows = build_windows(store, points=points, market=market, sessions=args.sessions, work=work)
+    windows = build_windows(store, points=points, market=market, sessions=args.sessions, work=work,
+                            last_session=args.last_session)
     covered = sorted({day for window in windows.values() for day in window})
     if not covered:
         print("창이 비었다. prices 백필을 확인할 것.", file=sys.stderr)
