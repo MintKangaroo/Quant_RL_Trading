@@ -198,3 +198,18 @@ X 의 창 밖 품질 비교(제목 20종 분류 macro-F1): A 0.966 · B 0.958 �
 3. **지도 머리** — 2023-01-31 에 얼린 리지(권고, X 의 실패 원인에 대한 직접 답) / 비지도만(X 반복이라 권하지 않는다).
 4. **금고** — second 창(10/1~11/13, 11/23)에 얼린 T 를 추가 등록(짧다, 국장 약 30세션) / 전방 창(2027-01 경, L1 판정과 같은 시점).
 5. 시행 예산 — family `sources` 1회 소모(X 에 이은 같은 원천 두 번째).
+
+## 준비된 코드 (2026-10-04, 사용자 승인 "코드 미리" — 측정·학습·판정은 하지 않았다)
+
+- 인코더 A `jhgan/ko-sroberta-multitask@8fca7c9c98c26599be0e14b9916b11a756a26f19` 캐시·오프라인 로드 확인. 모델 카드 사본
+  `data/models/tx/MODEL_CARD-ko-sroberta-8fca7c9c.md` — **라이선스 표기 없음**(기반 KLUE-RoBERTa·KorNLI/KorSTS 는 CC BY-SA 4.0), 내부 연구용.
+- `tools/tx_embed.py` — 정제(`tx-clean-v1`: 머리말 줄·수신처 다음 줄 제출일·라벨+값 줄 제거, 본문 날짜는 남김) → 회사명(`filer`, `(주)`·`주식회사` 뗀 변형,
+  두 글자 이상)·6자리 숫자 가림 → 앞 8,000자 → 512 토큰 조각 최대 4 → 평균 풀링·토큰 가중·L2 → `data/_diag/tx/vectors/tx-clean-v1/<연월>/part-*.npz`(float16).
+  시간 관문(00:40~07:35 · 평일 08:50~15:40), DART 백필이 돌면 멈춤, 1,000건마다 저장·이어받기. RSS 1.63GB.
+- `tools/tx_features.py` — `fit_frozen`(유형 중심·표준화·리지, 관측 ≤ 2023-01-31 만, 늦은 컷오프는 `CutoffViolation`, 시간순 5겹 퍼지 5 OOF) ·
+  `aggregate`(tone20·worst60) · `lazy_prices`(같은 종류·같은 기간 달의 전년 보고서 중 그때까지 나온 마지막 판 대비, 절 = 'II. 사업의 내용'~'III.' +
+  'IV. 이사의 경영진단'~'V.' 중 가장 긴 구간 — 목차 회피) · 월 조각 `data/_diag/tx/features/TX-KR-<연월>`. `--stage fit` 은 이 문서가 초안이면 rc 4.
+- `scripts/run_tx_prepare.sh` — 임베딩 → (다 됐으면) fit → bake → coverage. 크론은 아직 없다.
+- 실측(실제 원문 60건, 8스레드, load 2.5): **1.19건/초 · 2.74조각/초 · 문서당 2.30조각**. Lazy Prices 35.7건/초(정기보고서 30건, 절은 원문의 17%).
+- 대상(10/4, 백필 진행 중): 수시공시 66,502건 → 백필 끝나면 약 8.6만 건 → 관문 열린 시간 약 20시간.
+- 회차 kit 묶음 연결(`final_round_kit.GROUPS`/`_group_block` 에 `TX` 추가)은 등록 고정 때 한다 — FA 는 고정이라 지금 건드리지 않는다.
