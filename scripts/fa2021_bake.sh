@@ -2,6 +2,9 @@
 # 2022 하락장을 판정·학습 창에 넣기 위한 FA 재료 굽기 — 2021-11-10 ~ 기존 캐시 첫 날 앞까지 (사용자 승인 2026-10-04, 자료 준비만).
 #
 #   setsid nohup scripts/fa2021_bake.sh > /dev/null 2>&1 &
+#   # 묶음과 미장 원피처를 나란히(잠금을 나눈다):
+#   STAGES=us-groups LOCK_SUFFIX=-groups PARALLEL_OK=1 setsid nohup scripts/fa2021_bake.sh > /dev/null 2>&1 &
+#   STAGES=us-raw LOCK_SUFFIX=-usraw setsid nohup scripts/fa2021_bake.sh > /dev/null 2>&1 &
 #
 # **기존 캐시는 건드리지 않는다.** 등록된 시행(final-model-round 'KR+US-20220701-20260630', BE3 패널, vault-early …)이
 # kr-long · w-us · ranker-sources · final-round 를 읽는다. 여기서는 전부 data/_diag/fa2021/ 아래 새 파일로만 굽는다.
@@ -16,7 +19,7 @@
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 LOG="logs/fa2021-bake-$(date +%Y%m%d).log"
-LOCK="data/_locks/fa2021-bake.lock"
+LOCK="data/_locks/fa2021-bake${LOCK_SUFFIX:-}.lock"
 OUT=data/_diag/fa2021
 RSS_LIMIT_KB=$((4 * 1024 * 1024))
 STAGES="${STAGES:-kr-raw kr-groups us-groups us-raw merge}"
@@ -52,7 +55,8 @@ wait_gate() {
     if pgrep -f "${LIVE}" > /dev/null; then
       echo "  $(date '+%T') 운용 세션·대사·shadow 가 도는 중 — 5분 뒤"; sleep 300; continue
     fi
-    if pgrep -f "${HEAVY}" > /dev/null; then
+    # PARALLEL_OK=1 — 같은 굽기의 다른 단계(미장 원피처)와 나란히 도는 묶음 굽기. 둘 다 합쳐 RSS 4GB 안쪽이다.
+    if [ -z "${PARALLEL_OK:-}" ] && pgrep -f "${HEAVY}" > /dev/null; then
       echo "  $(date '+%T') 다른 무거운 연구 작업이 도는 중 — 5분 뒤"; sleep 300; continue
     fi
     avail=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)

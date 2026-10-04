@@ -5,6 +5,8 @@
 (입력 파일 크기·수정 시각·행 수)을 남겨 어떤 조각으로 만들었는지 되짚을 수 있게 한다.
 
 한 시장의 조각이 하나라도 덜 구워졌으면 그 시장은 **만들지 않는다** — 반쯤 이은 캐시는 구멍을 0(순위 중앙)으로 숨긴다.
+"덜 구워짐" 과 "원천이 그 기간에 없어 비었다" 는 파일만으로 구별되지 않는다(`diagnose_ic` 는 빈 피처면 파일을 안 만든다).
+그래서 후자는 사람이 로그("피처가 비었다")를 확인하고 `features-{a}-{시장}.empty`(사유 한 줄)를 남겨야 빈 조각으로 친다.
 
     .venv/bin/python tools/fa2021_merge.py [--market KR US]
 """
@@ -36,6 +38,10 @@ def _sessions(path: Path) -> pd.Series:
     return pd.to_datetime(pd.read_pickle(path)["session"]).dt.date  # invariant-allow: data-access — 진단 캐시(창고 아님)
 
 
+def _empty_marker(seg: Path, analyst: str, market: str) -> Path:
+    return seg / f"features-{analyst}-{market}.empty"
+
+
 def missing_parts(market: str) -> list[str]:
     """덜 구워진 조각 — 달력은 있는데 Analyst 피처 파일이 없는 자리. 달력이 비었으면(세션 0) 빈 조각으로 친다."""
     out = []
@@ -44,7 +50,7 @@ def missing_parts(market: str) -> list[str]:
             out.append(str(seg / f"calendar-{market}.pkl"))
             continue
         out += [str(seg / f"features-{a}-{market}.pkl") for a in ANALYSTS[market]
-                if not (seg / f"features-{a}-{market}.pkl").exists()]
+                if not (seg / f"features-{a}-{market}.pkl").exists() and not _empty_marker(seg, a, market).exists()]
     return out
 
 
@@ -63,6 +69,9 @@ def merge_market(market: str) -> int:
         frames = []
         for s in sources:
             path = s / name
+            if not path.exists() and _empty_marker(s, a, market).exists():
+                manifest["files"][str(path)] = {"empty": _empty_marker(s, a, market).read_text().strip()}  # type: ignore[index]
+                continue
             stat = path.stat()
             f = pd.read_pickle(path)  # invariant-allow: data-access — 진단 캐시(창고 아님)
             manifest["files"][str(path)] = {"bytes": stat.st_size, "mtime": stat.st_mtime, "rows": len(f)}  # type: ignore[index]
