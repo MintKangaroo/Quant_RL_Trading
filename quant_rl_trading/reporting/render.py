@@ -1289,7 +1289,7 @@ def _freshness_line(briefing: Briefing) -> list[tuple[str, str, bool]]:
     for item in getattr(briefing, "freshness", None) or []:
         iso = item.get("observed")
         md = f"{int(iso[5:7])}/{int(iso[8:10])}" if iso else "없음"
-        # 환율은 본래 D+1(Yahoo·FRED) — 1세션까지는 늦은 것이 아니다 (tools/briefing_ready 와 같은 규칙).
+        # 환율은 본래 D+1(LS SMBS·FRED) — 1세션까지는 늦은 것이 아니다 (tools/briefing_ready 와 같은 규칙).
         tolerance = 1 if item.get("key") == "fx" else 0
         late = item.get("status") == "stale" and (item.get("lag_sessions") or 0) > tolerance
         text = f"{md} ⚠{item.get('lag_sessions')}세션" if late else md

@@ -29,7 +29,7 @@ REQUIRED = ("kr_prices", "kr_index", "us_index", "fx")
 def main() -> int:
     load_env()
     result = summary(build_store(None), as_of=LiveClock().now())
-    # 환율(Yahoo/FRED)은 본래 D+1 이라 1세션까지는 늦은 것이 아니다.
+    # 환율(LS SMBS·FRED)은 본래 D+1 이라 1세션까지는 늦은 것이 아니다.
     tolerance = {"fx": 1}
     late = [i for i in result["items"] if i["key"] in REQUIRED
             and (i["status"] == "unknown" or (i["lag_sessions"] or 0) > tolerance.get(i["key"], 0))]

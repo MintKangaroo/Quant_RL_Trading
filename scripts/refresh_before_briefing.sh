@@ -59,14 +59,16 @@ note() {   # note <이름> <rc>
     .venv/bin/python tools/collect_macro.py
     note "거시·미장지수" "$?"
     # FRED 는 전날 미장 지수를 미국 오후에 낸다 → 06:30 브리핑은 이틀 전 종가였다.
-    # Yahoo 는 마감 몇 분 뒤 그날 종가를 준다. 같은 entity 라 FRED 가 오면 정정본이 된다.
-    .venv/bin/python tools/collect_indices_us.py
-    note "미장 지수(Yahoo)" "$?"
-    .venv/bin/python tools/collect_fx_yahoo.py
-    note "환율(Yahoo)" "$?"
+    # LS t3518 은 마감 직후 그날 종가를 준다. 같은 entity 라 FRED 가 오면 정정본이 된다.
+    # (2026-10-04 까지 Yahoo 였다 — robots.txt 전체 금지라 걷어냈다, data-contract §4-2)
+    .venv/bin/python tools/collect_indices_us_ls.py
+    note "미장 지수(LS t3518)" "$?"
+    # 원달러 SMBS 전날 봉은 05:4x 정산 틱 뒤 확정 — 06:00 이면 잡힌다(도구가 06:00 전엔 안 적는다)
+    .venv/bin/python tools/collect_fx_ls.py
+    note "환율(LS)" "$?"
     # 시총 상위 60 + ETF 의 전날 종가 — 브리핑 "시가총액 상위 전일대비" 가 06:30 에 비지 않게
-    .venv/bin/python tools/collect_prices_us_top.py
-    note "미장 시총상위 종가(Yahoo)" "$?"
+    .venv/bin/python tools/collect_prices_us_top_ls.py
+    note "미장 시총상위 종가(LS)" "$?"
     # 거시지표 시장 예측치(컨센서스)
     .venv/bin/python tools/collect_consensus_ff.py
     note "컨센서스(FF)" "$?"

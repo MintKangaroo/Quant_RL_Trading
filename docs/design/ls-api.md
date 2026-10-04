@@ -341,6 +341,27 @@ live_account_fingerprint:
   OutBlock 을 한 번도 못 봤다.
 - **주문 본문 검증.** 실계좌라 보낼 수 없다. 첫 미장 주문 때 확인해야 한다.
 
+### 0-12-1. 해외지수·환율 — `t3518`·`t3521` (`/stock/investinfo`, 실측 2026-10-04)
+
+`/overseas-stock/*` 에는 지수가 없지만(0-12) **국장 투자정보 그룹에 있다.** 초당 1건.
+
+```
+t3521InBlock = {"kind": "S", "symbol": "SPI@SPX"}          # 현재 종가 한 줄 (date·close·hname)
+t3518InBlock = {"kind": "S", "symbol": "SPI@SPX", "cnt": 20, "jgbn": "0", "nmin": 0,
+                "cts_date": " ", "cts_time": " "}          # jgbn 0=일봉, 4=틱
+```
+
+- kind=S 확인된 심볼: `SPI@SPX` `NAS@IXIC` `NAS@NDX` `DJI@DJI` `DJI@DJT` `DJI@DJU` `NAS@SOX`.
+  **VIX·VXN·RUT 는 없다**(`CBOE@VIX`·`SPI@VIX`·`VIX@VIX`·`CBO@VIX`·`CBT@VIX`·`USI@VIX`·`CBOE@VXN`·`NAS@VXN`·`RUS@RUT` 전부 빈 응답 `00000`).
+  모르는 심볼은 **오류가 아니라 빈 블록**(close "0", date "")이 온다 — 0 을 값으로 쓰지 마라.
+- kind=R: `USDKRWSMBS`(서울외국환중개, 원/달러) · `USDKRWCOMP`(합성). `USDKRW` 는 빈 응답.
+- **`t3518` 지수 일봉은 소수점이 두 자리 밀려 온다** — S&P 500 7722.72 가 `"77.2272"`. 환율(kind=R)은 정상.
+  `t3521.close` 는 정상이라 둘을 견줘 배율을 정한다(`tools/collect_indices_us_ls.py`).
+- 합성 환율은 토요일에 open=0 인 줄을 준다. **open·price 가 0 인 줄은 버린다.**
+- 틱 시각(`time`)은 `HHMMSScc`, 자정 넘김은 24 를 더해 적는다(`29423132` = 다음날 05:42:31).
+  SMBS 일봉은 그 정산 틱(d+1 05:4x) 뒤에 확정이다.
+- 모의 키(`LS_PAPER_`)로도 조회된다. `PAPER_ALLOWED_TR` 에 들어 있다.
+
 ---
 
 ### 0-13. 분봉 TR — 국장 `t8412` · 미장 `g3203` (실측 2026-08-18)

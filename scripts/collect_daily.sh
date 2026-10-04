@@ -81,8 +81,9 @@ step_rc() {
         step_rc "미장 공매도 잔고(FINRA)" $?
         .venv/bin/python tools/collect_fx.py
         step_rc "환율" $?
-        .venv/bin/python tools/collect_fx_yahoo.py
-        step_rc "환율(Yahoo)" $?
+        #      원달러 일봉(LS t3518 SMBS) — Yahoo 대체(2026-10-04, robots 금지). 전날 봉은 06:00 KST 에 확정이라 08:40 에 잡힌다.
+        .venv/bin/python tools/collect_fx_ls.py
+        step_rc "환율(LS)" $?
     fi
 
     # 1-1. 미장 시세. **여기 없어서 매번 며칠씩 밀려 있었다** — 실측 2026-08-18
@@ -193,8 +194,8 @@ step_rc() {
         .venv/bin/python tools/backfill.py \
             --market US --table market-cap --sessions "${SESSIONS}"
         step_rc "미장 시가총액" $?
-        .venv/bin/python tools/collect_indices_us.py
-        step_rc "미장 지수(Yahoo)" $? core
+        .venv/bin/python tools/collect_indices_us_ls.py
+        step_rc "미장 지수(LS t3518)" $? core
         #      미장 공시(SEC 8-K). **여기 없어서 한 달을 얼어 있었다**(2026-09-27 발견): 8/19·8/25 손 백필이 전부였고
         #      일일 줄이 없어 event(미장)·G2·G6·G11 이 8/25 에 멈췄다. 최근 7일을 매일 다시 본다 — 받은 날은 이력으로
         #      건너뛰고, 당일치(18:00 ET 전)는 적지 않고 다음 날 받는다(edgar_filings.run_day). 부가 단계.
@@ -270,8 +271,8 @@ step_rc() {
     if [ "${MARKET}" != "US" ]; then
         .venv/bin/python tools/collect_fx.py
         step_rc "환율" $?
-        .venv/bin/python tools/collect_fx_yahoo.py
-        step_rc "환율(Yahoo)" $?
+        .venv/bin/python tools/collect_fx_ls.py
+        step_rc "환율(LS)" $?
     fi
 } >>"${LOG}" 2>&1
 RC=0
