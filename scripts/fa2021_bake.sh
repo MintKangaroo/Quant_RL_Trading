@@ -37,9 +37,18 @@ export MALLOC_ARENA_MAX=2 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREA
 HEAVY="tools/(measure_ic|trial_[a-z_0-9]+|final_round_controls|train_ranker|backfill_ic_history|diagnose_ic|compact_partitions)\.py"
 LIVE="tools/(run_session|reconcile_fills|reconcile_backlog|reconcile_snapshot|chase_orders)\.py|scripts/run_(daily|shadow[a-z0-9_]*)\.sh"
 
+#: 날짜 관문(리드 2026-10-04) — 10/10(토)·10/11(일)은 TX 임베딩, 10/13(화)부터는 금고 판정이 머신을 쓴다.
+#: 10/12(월) 저녁까지 못 끝나면 멈추고 보고한다(DEADLINE 지나면 기다리지 않고 rc 9 로 나간다).
+BLOCKED_DAYS="${BLOCKED_DAYS:-2026-10-10 2026-10-11}"
+DEADLINE="${DEADLINE:-2026-10-13}"
+
 allowed_now() {
-  local hm dow
-  hm=$((10#$(date +%H%M))); dow=$(date +%u)
+  local hm dow today
+  hm=$((10#$(date +%H%M))); dow=$(date +%u); today=$(date +%F)
+  if [[ ! "${today}" < "${DEADLINE}" ]]; then
+    echo "  $(date '+%F %T') 마감(${DEADLINE}) — 멈추고 보고한다"; exit 9
+  fi
+  case " ${BLOCKED_DAYS} " in *" ${today} "*) return 1 ;; esac
   [ "${hm}" -ge 2140 ] && return 1
   [ "${hm}" -lt 730 ] && return 1
   if [ "${dow}" -le 5 ] && [ "${hm}" -ge 820 ] && [ "${hm}" -lt 1645 ]; then return 1; fi
