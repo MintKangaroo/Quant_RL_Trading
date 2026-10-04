@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from quant_rl_trading.backtest import execution
 from quant_rl_trading.broker import Ack
@@ -113,3 +113,27 @@ def test_주문번호_없는_sent_는_대사하지_않는다(store, capsys) -> N
     pending = pending_from_orders(store, as_of=NOW, market="KR", session_id=SESSION)
     assert pending == []
     assert "주문번호가 없다" in capsys.readouterr().err
+
+
+def test_지난_거래일의_번호_없는_건은_한_줄로_접는다(store, capsys) -> None:
+    """9/22 킬스위치 조각 하나가 20분마다 찍혀 열흘에 170줄이 넘었다(2026-10-04). 오늘 것만 줄마다."""
+    store.seed_config_defaults()
+    yesterday = NOW - timedelta(days=3)
+    store.append(
+        "orders",
+        [
+            {**_order_row("KR:OLD1", "submitting"), "valid_from": yesterday, "observed_at": yesterday,
+             "session_id": "KR-2026-08-27"},
+            {**_order_row("KR:OLD2", "submitting", slice_seq=1), "valid_from": yesterday,
+             "observed_at": yesterday, "session_id": "KR-2026-08-27"},
+            _order_row("KR:NEW", "submitting"),
+        ],
+        ingest_run_id="orders-stale",
+    )
+    assert pending_from_orders(store, as_of=NOW, market="KR", session_id=SESSION) == []
+    err = capsys.readouterr().err
+    # 오늘 것은 실제 상태와 함께 줄마다 — "sent" 라고 거짓으로 적지 않는다.
+    assert "KR:NEW slice 0: submitting 인데 주문번호가 없다" in err
+    assert "KR:OLD1 slice" not in err and "KR:OLD2 slice" not in err
+    assert "지난 거래일 주문번호 없는 건 2건" in err
+    assert "--confirm-not-received" in err

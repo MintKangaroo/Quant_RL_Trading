@@ -78,6 +78,11 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
     filled = filled_quantities(store, as_of=as_of)
     cancelled = cancelled_quantities(store, as_of=as_of)
     bindings = submission_bindings(store, as_of=as_of)
+    venue = ZoneInfo("America/New_York" if market == "US" else "Asia/Seoul")
+    today = as_of.astimezone(venue).date()
+    # **지난 거래일의 번호 없는 건은 줄마다 찍지 않는다.** 9/22 킬스위치 조각 하나가 20분마다
+    # 추격 로그에 찍혀 열흘 동안 170줄이 넘었다(2026-10-04). 오늘 것만 줄마다, 지난 것은 건수 한 줄.
+    stale_unnumbered: list[str] = []
     out: list[PendingFill] = []
     for row in frame.itertuples(index=False):
         reason = str(getattr(row, "reason", "") or "")
@@ -94,7 +99,11 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
         if accounted == float(row.quantity):
             continue
         if not reason.startswith(BROKER_ORDER_NO_PREFIX):
-            print(f"  ⚠️  {row.entity_id} slice {row.slice_seq}: sent 인데 주문번호가 없다 — 대사 불가", file=sys.stderr)
+            if row.observed_at.tz_convert(venue).date() == today:
+                print(f"  ⚠️  {row.entity_id} slice {row.slice_seq}: {row.status} 인데 주문번호가 없다 — 대사 불가",
+                      file=sys.stderr)
+            else:
+                stale_unnumbered.append(f"{logical}({row.status})")
             continue
         out.append(
             PendingFill(
@@ -110,6 +119,9 @@ def pending_from_orders(store: Store, *, as_of: datetime, market: str, session_i
                 ).date()),
             )
         )
+    if stale_unnumbered:
+        print(f"  지난 거래일 주문번호 없는 건 {len(stale_unnumbered)}건 — 예: {', '.join(stale_unnumbered[:3])}"
+              " · 미도착이면 tools/reconcile_backlog.py --confirm-not-received 로 닫는다", file=sys.stderr)
     return out
 
 

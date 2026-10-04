@@ -3,6 +3,8 @@
     .venv/bin/python tools/reconcile_backlog.py                    # 미리보기(적재 안 함)
     .venv/bin/python tools/reconcile_backlog.py --apply            # 확정된 것만 적재
     .venv/bin/python tools/reconcile_backlog.py --day 2026-09-18   # 그 주문일만
+    .venv/bin/python tools/reconcile_backlog.py --confirm-not-received 'KR-2026-09-21|KR:005945|1'          # 미리보기
+    .venv/bin/python tools/reconcile_backlog.py --confirm-not-received 'KR-2026-09-21|KR:005945|1' --apply  # 닫기
 
 15:45 대사(``reconcile_fills.py``)는 t0425 를 쓰고 **그 TR 은 당일만 답한다** — 그래서 지난
 거래일의 미확정 주문은 매일 같은 줄로 다시 보고될 뿐 확정되지 않았다. ``CSPAQ13700`` 은
@@ -11,7 +13,12 @@
 **조회만 한다.** 주문·정정·취소 TR 을 부르지 않는다. 증거가 없는 건은 그대로 미확정으로
 남긴다 — 날짜가 지났다는 것은 취소 증거가 아니다.
 
-종료코드: 0 미확정 없음 · 1 사람 확인이 필요한 건이 있다 · 2 대사할 주문이 없다.
+``--confirm-not-received`` 는 주문번호 없이 남은 조각(전송 응답 미수신)을 **사람이** 닫는 길이다.
+주문일 후보를 전부 조회해 같은 종목·방향 행이 모두 우리 다른 조각 번호로 설명될 때만 미도착을
+확인하고, ``--apply`` 면 ``orders`` 에 ``rejected`` revision 을 적는다(``execution-safety.md``
+2026-10-04 절). 설명 안 되는 행이 있으면 거부한다.
+
+종료코드: 0 미확정 없음(미도착 확인됨) · 1 사람 확인이 필요한 건이 있다(미도착 거부) · 2 대사할 주문이 없다.
 """
 
 from __future__ import annotations
@@ -74,6 +81,44 @@ def classify(
     return "체결0", f"{match.day} 그날 체결 0 · 잔량 {item.remaining:g}주는 당일 소멸(표기는 후속 범위)"
 
 
+def confirm_not_received(store: Store, clock: LiveClock, order_id: str, *, market: str, apply: bool) -> int:
+    """번호 없는 조각 하나의 미도착을 확인하고, ``apply`` 면 닫는다. 조회 TR 만 부른다."""
+    now = clock.now()
+    today = local_time(Market.KR, now).date()
+    found = [c for c in backlog.candidates(store, as_of=now, market=market, today=today) if c.order_id == order_id]
+    if not found:
+        print(f"{order_id}: 지난 거래일 미확정 주문이 아니다(이미 닫혔거나 오늘 것이거나 ID 가 틀렸다).")
+        return 2
+    (item,) = found
+    print(f"{item.order_id} · {item.side.value} {item.quantity:g}주 · 상태 {item.status} · "
+          f"주문일 후보 {', '.join(str(d) for d in item.days)}")
+    client = _client(store, as_of=now, market=market)
+    print(f"계좌 지문 {getattr(client.credentials, 'fingerprint', '') or '(없음)'} · "
+          f"선언 {getattr(client.credentials, 'kind', '') or '(미선언)'}")
+    days: dict[date, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for day in item.days:
+        try:
+            rows = backlog.fetch_day(client, day)
+        except Exception as error:  # 못 물어본 날은 "그날 주문 없음" 이 아니다 — 비워 두면 거부된다.
+            print(f"  ⚠️  {day} 조회 실패: {type(error).__name__}: {error}", file=sys.stderr)
+            continue
+        days[day] = backlog.index_day(rows)
+        print(f"  {day} 조회 {len(rows)}행")
+    result = backlog.check_not_received(item, days, backlog.known_orders(store, as_of=now, market=market))
+    for day, number, owner in result.same_symbol:
+        print(f"  같은 종목·방향 {day} 주문번호 {number} → {owner or '설명 안 됨'}")
+    if not result.confirmed:
+        print(f"미도착 확인 거부 — {result.refusal}")
+        return 1
+    print(result.reason())
+    if not apply:
+        print("미리보기다 — 아무것도 적지 않았다. 닫으려면 --apply.")
+        return 0
+    written = backlog.record_not_received(store, clock, result)
+    print(f"orders {written}행 적재 — {item.order_id} → {backlog.NOT_RECEIVED_STATUS}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--market", default="KR", choices=["KR"],
@@ -81,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sandbox", default="data/_paper")
     parser.add_argument("--day", help="이 주문일만 대사한다 (기본: 오늘 뺀 전부)")
     parser.add_argument("--apply", action="store_true", help="확정된 것을 창고에 적재한다")
+    parser.add_argument("--confirm-not-received", metavar="ORDER_ID",
+                        help="주문번호 없는 조각의 미도착 확인 ('세션|종목|조각'). --apply 면 rejected 로 닫는다")
     args = parser.parse_args(argv)
 
     load_env()
@@ -89,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
     source = build_store(None)
     layer = overlay.build(root=Path(args.sandbox), source=source.root, writable=JOURNAL)
     store = Store(root=layer.root)
+    if args.confirm_not_received:
+        return confirm_not_received(store, clock, args.confirm_not_received, market=args.market, apply=args.apply)
     if args.apply:
         # 미리보기는 창고를 건드리지 않는다. 상태 되적기는 15:45 대사가 매일 이미 한다.
         refresh_order_states(store, clock)
@@ -123,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
         days[day] = backlog.index_day(rows)
         print(f"  {day} 조회 {len(rows)}행")
 
-    matches = backlog.match_all(items, days)
+    matches = backlog.match_all(items, days, backlog.known_orders(store, as_of=now, market=args.market))
     # **스냅샷 정정을 먼저 읽는다.** 그게 이미 장부에 넣은 체결을 또 적으면 포지션이 두 배가 된다.
     corrections = backlog.snapshot_corrections(store, as_of=now)
     tally: Counter[str] = Counter()

@@ -7,12 +7,15 @@
 2. 취소 확정 — 취소확인 행의 수량이 잔량과 같을 때만 취소로 분류한다.
 3. 증거 없음은 그대로 둔다 — 번호 없음·종목/수량 불일치·후보 날짜 둘 다 맞음.
 4. 이미 적힌 체결을 두 번 세지 않는다.
+5. 번호 없는 조각 — 우리 번호로 설명된 행은 후보가 아니고, 같은 종목 행이 전부 설명될 때만 미도착이다.
 """
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from quant_rl_trading.broker import backlog
 from quant_rl_trading.broker.fills import FillState, sync_fills
@@ -291,3 +294,131 @@ def test_부분체결이_장부에_있으면_차분만_적는다(store, ts) -> N
     assert trades["quantity"].sum() == 121
     # 신규 체결 단가는 누적 평균가가 아니라 (누적대금 − 기록대금) / 신규수량이다.
     assert abs(result.outcomes[0].fill.price - 10141.95) < 1e-6
+
+
+# -- 5. 번호 없는 조각 — 미도착 확인 (2026-10-04, KR:005945 실측 재현) ----------------
+#
+# 9/22 KR-2026-09-21 세션: 조각 0 은 08:40 에 나가 번호 86 으로 72주 체결, 조각 1 은 10:00:41
+# 전송 응답 미수신(킬스위치)으로 ``submitting`` 에 남았다. 증권사 그날 005945 주문은 86 하나뿐.
+# 9/27 미리보기는 86 을 조각 1 의 "후보" 로 보여 줬다 — 86 은 조각 0 의 번호다.
+
+KILL_DAY = date(2026, 9, 22)
+KILL_SESSION = "KR-2026-09-21"
+ROW_86 = {"OrdNo": 86, "OrgOrdNo": 0, "IsuNo": "A005945", "BnsTpCode": "2", "MrcTpNm": "정상",
+          "OrdQty": 72, "ExecQty": 72, "AllExecQty": 72, "ExecPrc": "23050.00", "OrdPrc": "23100.00",
+          "OrdTime": "08:40:44", "LastExecTime": "09:00:08"}
+ROW_OTHER = {"OrdNo": 8320, "OrgOrdNo": 0, "IsuNo": "A005385", "BnsTpCode": "2", "MrcTpNm": "정상",
+             "OrdQty": 20, "ExecQty": 0, "AllExecQty": 0, "ExecPrc": "0.00", "OrdPrc": "174500.00",
+             "OrdTime": "10:00:40", "LastExecTime": ":  :"}
+
+
+def _kst(day: date, hour: int, minute: int = 0) -> datetime:
+    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=SEOUL)
+
+
+def _seed_kill_day(store) -> None:  # type: ignore[no-untyped-def]
+    base = {"entity_id": "KR:005945", "source": "executor", "market": "KR", "session_id": KILL_SESSION,
+            "side": "buy", "quantity": 72.0, "limit_price": 23100.0, "target_weight": 0.089}
+    store.append(
+        "orders",
+        [
+            {**base, "slice_seq": 0, "valid_from": _kst(date(2026, 9, 21), 16),
+             "observed_at": _kst(KILL_DAY, 9, 20), "status": "filled", "reason": "broker_order_no=86"},
+            {**base, "slice_seq": 1, "valid_from": _kst(KILL_DAY, 10),
+             "observed_at": _kst(KILL_DAY, 10, 1), "status": "submitting", "reason": ""},
+        ],
+        ingest_run_id="kill-day-orders",
+    )
+    store.append(
+        "trades",
+        [{"entity_id": "KR:005945", "valid_from": _kst(KILL_DAY, 9, 20), "observed_at": _kst(KILL_DAY, 9, 21),
+          "source": "broker", "market": "KR", "side": "buy", "quantity": 72.0, "price": 23050.0,
+          "currency": "KRW", "fee": 0.0, "tax": 0.0, "order_id": f"{KILL_SESSION}|KR:005945|0#72"}],
+        ingest_run_id="kill-day-trades",
+        source="broker",
+    )
+
+
+def _kill_candidate(store):  # type: ignore[no-untyped-def]
+    (item,) = backlog.candidates(store, as_of=_kst(date(2026, 10, 4), 12), market="KR", today=date(2026, 10, 4))
+    assert item.order_id == f"{KILL_SESSION}|KR:005945|1"
+    return item
+
+
+def test_이미_우리_번호로_설명된_행은_후보로_보이지_않는다(store) -> None:  # type: ignore[no-untyped-def]
+    _seed_kill_day(store)
+    item = _kill_candidate(store)
+    as_of = _kst(date(2026, 10, 4), 12)
+    day = {KILL_DAY: backlog.index_day([ROW_86, ROW_OTHER])}
+    known = backlog.known_orders(store, as_of=as_of)
+    assert backlog.explain(ROW_86, KILL_DAY, known) == f"{KILL_SESSION}|KR:005945|0"
+    (match,) = backlog.match_all([item], day, known)
+    assert "주문번호 없음" in match.reason
+    assert match.orphans == ()
+    # known 을 안 주면 예전처럼 보인다 — 9/27 오해가 이것이었다.
+    (old,) = backlog.match_all([item], day)
+    assert [str(r["OrdNo"]) for r in old.orphans] == ["86"]
+
+
+def test_같은_종목_행이_전부_설명되면_미도착을_확인한다(store) -> None:  # type: ignore[no-untyped-def]
+    _seed_kill_day(store)
+    item = _kill_candidate(store)
+    known = backlog.known_orders(store, as_of=_kst(date(2026, 10, 4), 12))
+    result = backlog.check_not_received(item, {KILL_DAY: backlog.index_day([ROW_86, ROW_OTHER])}, known)
+    assert result.confirmed, result.refusal
+    assert result.queried == {KILL_DAY: 2}
+    assert result.same_symbol == ((KILL_DAY, "86", f"{KILL_SESSION}|KR:005945|0"),)
+    assert "86=KR-2026-09-21|KR:005945|0" in result.reason()
+
+
+def test_설명_안_되는_같은_종목_행이_있으면_거부한다(store) -> None:  # type: ignore[no-untyped-def]
+    """응답만 못 받고 실제로 들어간 경우 — 그 행이 이 조각일 수 있다."""
+    _seed_kill_day(store)
+    item = _kill_candidate(store)
+    stranger = {**ROW_86, "OrdNo": 8315, "OrdTime": "10:00:41"}
+    known = backlog.known_orders(store, as_of=_kst(date(2026, 10, 4), 12))
+    result = backlog.check_not_received(item, {KILL_DAY: backlog.index_day([ROW_86, stranger])}, known)
+    assert not result.confirmed
+    assert "8315" in result.refusal
+
+
+def test_다른_날의_같은_번호는_설명이_아니다(store) -> None:  # type: ignore[no-untyped-def]
+    """번호는 날짜마다 다시 센다 — 9/23 의 86 은 조각 0 의 86 이 아니다."""
+    _seed_kill_day(store)
+    known = backlog.known_orders(store, as_of=_kst(date(2026, 10, 4), 12))
+    assert backlog.explain(ROW_86, date(2026, 9, 24), known) == ""
+    # 정정·취소 사슬의 자식은 원주문번호로 설명된다(수량은 줄어 있다).
+    child = {**ROW_86, "OrdNo": 9000, "OrgOrdNo": 86, "OrdQty": 30, "MrcTpNm": "취소확인"}
+    assert backlog.explain(child, KILL_DAY, known) == f"{KILL_SESSION}|KR:005945|0"
+
+
+def test_조회_못_한_날이_있으면_거부한다(store) -> None:  # type: ignore[no-untyped-def]
+    _seed_kill_day(store)
+    item = _kill_candidate(store)
+    known = backlog.known_orders(store, as_of=_kst(date(2026, 10, 4), 12))
+    result = backlog.check_not_received(item, {}, known)
+    assert not result.confirmed
+    assert "조회 못 한" in result.refusal
+
+
+def test_미도착_확인은_rejected_revision_을_append_한다(store) -> None:  # type: ignore[no-untyped-def]
+    _seed_kill_day(store)
+    item = _kill_candidate(store)
+    now = _kst(date(2026, 10, 4), 14)
+    known = backlog.known_orders(store, as_of=now)
+    result = backlog.check_not_received(item, {KILL_DAY: backlog.index_day([ROW_86])}, known)
+    assert backlog.record_not_received(store, ReplayClock(now), result) == 1
+    orders = store.get("orders", as_of=now)
+    row = orders[orders["slice_seq"] == 1].iloc[0]
+    assert row["status"] == "rejected"
+    assert int(row["revision"]) == 1
+    assert row["reason"].startswith("미도착 확인")
+    # 옛 시점 조회는 옛 상태 그대로 — 정정은 덮어쓰기가 아니다.
+    before = store.get("orders", as_of=_kst(date(2026, 10, 4), 12))
+    assert before[before["slice_seq"] == 1].iloc[0]["status"] == "submitting"
+    # 체결 장부는 그대로 72주, 닫힌 조각은 더는 대사 대상이 아니다.
+    assert store.get("trades", as_of=now)["quantity"].sum() == 72
+    assert backlog.candidates(store, as_of=now, market="KR", today=date(2026, 10, 4)) == []
+    # 판정 뒤 상태가 바뀌었으면(여기선 이미 닫힘) 다시 적지 않는다.
+    with pytest.raises(ValueError):
+        backlog.record_not_received(store, ReplayClock(now), result)

@@ -18,6 +18,9 @@
 3. **증거가 없으면 그대로 둔다.** 조회에 행이 없거나, 신원이 어긋나거나, 후보 날짜가 둘
    이상 맞으면 미확정으로 남긴다. 날짜 경과는 취소 증거가 아니다.
 4. **조회만 한다.** 주문·정정·취소 TR 을 부르지 않는다.
+5. **번호 없는 조각은 사람이 닫는다.** :func:`check_not_received` 가 그날 같은 종목 행이 전부
+   우리 다른 주문 번호로 설명될 때만 미도착을 확인하고, :func:`record_not_received` 가 ``rejected``
+   revision 을 적는다. 크론이 부르지 않는다(2026-10-04 절).
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.executor.action_journal import cancelled_quantities, submission_bindings
 from quant_rl_trading.executor.orders import client_order_id
 from quant_rl_trading.executor.pipeline import BROKER_ORDER_NO_PREFIX
+from quant_rl_trading.replay.events import payload_hash
 from quant_rl_trading.risk.account import (
     UNVERIFIED_TERMINAL,
     filled_quantities,
@@ -41,19 +45,26 @@ from quant_rl_trading.risk.account import (
     order_trading_day,
 )
 from quant_rl_trading.schemas.order import Side
+from quant_rl_trading.store.locking import account_lock
 
 if TYPE_CHECKING:
     from quant_rl_trading.collectors.ls_client import LSClient
+    from quant_rl_trading.replay.clock import Clock
     from quant_rl_trading.store import Store
 
 __all__ = [
     "INQUIRY_TR",
     "Candidate",
+    "KnownOrder",
     "Match",
+    "NotReceived",
     "candidates",
+    "check_not_received",
     "dated_query",
+    "explain",
     "fetch_day",
     "identify",
+    "known_orders",
     "match_all",
 ]
 
@@ -161,6 +172,28 @@ def fetch_day(client: LSClient, day: date) -> list[dict[str, Any]]:
     raise RuntimeError(f"{INQUIRY_TR} 쪽이 {MAX_PAGES} 을 넘는다 — 다 못 읽었다")
 
 
+def _legacy_days(row: Any) -> tuple[date, ...]:
+    """저널 없는 주문 행의 주문일 후보.
+
+    legacy 행의 주문일은 증명할 수 없다. ``session_id`` 의 날짜는 **주문일이 아니다** —
+    세션은 전날 데이터로 짜고 다음 아침에 나가므로 348건 전부 하루 어긋난다(실측).
+    그래서 행이 가리키는 두 시각(계획·관측)의 KST 날짜를 후보로 둔다.
+    ``order_trading_day`` 도 같이 후보로 둔다 — 장 마감 뒤에 적힌 계획은 다음 거래일에
+    나갔다(8/27 세션의 주문은 8/28 에 나간다). 후보가 늘어도 ②의 "정확히 하나" 규칙이
+    남의 주문을 막는다.
+    """
+    return tuple(
+        sorted(
+            {
+                row.valid_from.tz_convert(SEOUL).date(),
+                row.observed_at.tz_convert(SEOUL).date(),
+                order_trading_day(Market.KR, row.valid_from.to_pydatetime()),
+                order_trading_day(Market.KR, row.observed_at.to_pydatetime()),
+            }
+        )
+    )
+
+
 def candidates(store: Store, *, as_of: datetime, market: str, today: date) -> list[Candidate]:
     """수량 원장이 원주문을 채우지 못한 **지난 거래일** 주문들.
 
@@ -198,26 +231,7 @@ def candidates(store: Store, *, as_of: datetime, market: str, today: date) -> li
         )
         binding = bindings.get(logical)
         bound_day = date.fromisoformat(binding["order_day"]) if binding else None
-        # legacy 행의 주문일은 증명할 수 없다. ``session_id`` 의 날짜는 **주문일이 아니다** —
-        # 세션은 전날 데이터로 짜고 다음 아침에 나가므로 348건 전부 하루 어긋난다(실측).
-        # 그래서 행이 가리키는 두 시각(계획·관측)의 KST 날짜를 후보로 둔다.
-        # ``order_trading_day`` 도 같이 후보로 둔다 — 장 마감 뒤에 적힌 계획은 다음 거래일에
-        # 나갔다(8/27 세션의 주문은 8/28 에 나간다). 후보가 늘어도 ②의 "정확히 하나" 규칙이
-        # 남의 주문을 막는다.
-        days = (
-            (bound_day,)
-            if bound_day is not None
-            else tuple(
-                sorted(
-                    {
-                        row.valid_from.tz_convert(SEOUL).date(),
-                        row.observed_at.tz_convert(SEOUL).date(),
-                        order_trading_day(Market.KR, row.valid_from.to_pydatetime()),
-                        order_trading_day(Market.KR, row.observed_at.to_pydatetime()),
-                    }
-                )
-            )
-        )
+        days = (bound_day,) if bound_day is not None else _legacy_days(row)
         days = tuple(day for day in days if day < today)
         if not days:
             continue
@@ -331,16 +345,87 @@ def identify(candidate: Candidate, raw: dict[str, dict[str, Any]]) -> str:
     return ""
 
 
+@dataclass(frozen=True)
+class KnownOrder:
+    """장부가 증권사 주문번호를 아는 우리 주문 한 건 — 조회 행을 "우리 것" 으로 설명하는 근거."""
+
+    order_id: str
+    entity_id: str
+    side: str
+    quantity: float
+    #: 이 번호가 나간 주문일 후보. 저널이 있으면 그 하루, legacy 행은 :func:`_legacy_days`.
+    days: tuple[date, ...]
+
+
+def known_orders(store: Store, *, as_of: datetime, market: str = "KR") -> dict[str, list[KnownOrder]]:
+    """주문번호 → 그 번호를 가진 우리 주문들. ``orders.reason`` 과 전송 저널(``submitted``) 둘 다 읽는다.
+
+    **번호는 날짜마다 다시 센다** — 그래서 번호 하나에 여러 주문이 매달릴 수 있고, 조회 행을
+    설명할 때 날짜까지 맞춰 본다(:func:`explain`).
+    """
+    out: dict[str, dict[str, KnownOrder]] = {}
+    bindings = submission_bindings(store, as_of=as_of)
+    frame = store.get("orders", as_of=as_of, market=market)
+    for row in frame.itertuples(index=False) if not frame.empty else ():
+        reason = str(getattr(row, "reason", "") or "")
+        logical = key(str(row.session_id), str(row.entity_id), int(row.slice_seq))
+        binding = bindings.get(logical)
+        number = _ordno(binding["broker_order_no"]) if binding else ""
+        if not number and reason.startswith(BROKER_ORDER_NO_PREFIX):
+            number = _ordno(reason[len(BROKER_ORDER_NO_PREFIX):])
+        if not number:
+            continue
+        days = (date.fromisoformat(binding["order_day"]),) if binding else _legacy_days(row)
+        out.setdefault(number, {})[logical] = KnownOrder(
+            order_id=logical,
+            entity_id=str(row.entity_id),
+            side=str(row.side),
+            quantity=float(row.quantity),
+            days=days,
+        )
+    return {number: list(group.values()) for number, group in out.items()}
+
+
+def explain(row: dict[str, Any], day: date, known: dict[str, list[KnownOrder]]) -> str:
+    """이 조회 행이 우리 어느 주문의 것인지 — 주문 ID, 설명 못 하면 빈 문자열.
+
+    원주문 행은 번호·종목·방향·원주문 수량·주문일이 모두 맞아야 한다(:func:`identify` 와 같은
+    네 개 + 날짜). 정정·취소 사슬의 자식 행(``OrgOrdNo`` ≠ 0)은 수량이 줄어 있으므로
+    원주문번호로 찾고 수량은 보지 않는다.
+    """
+    parent = _ordno(row.get("OrgOrdNo"))
+    number = parent or _ordno(row.get("OrdNo"))
+    symbol = str(row.get("IsuNo", "")).strip().removeprefix("A")
+    side = {"1": "sell", "2": "buy"}.get(str(row.get("BnsTpCode", "")).strip())
+    try:
+        ordered = float(row.get("OrdQty", ""))
+    except (TypeError, ValueError):
+        ordered = None
+    for order in known.get(number, ()):
+        if order.entity_id != f"KR:{symbol}" or order.side != side or day not in order.days:
+            continue
+        if not parent and ordered != order.quantity:
+            continue
+        return order.order_id
+    return ""
+
+
 def match_all(
-    items: list[Candidate], days: dict[date, tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]]
+    items: list[Candidate],
+    days: dict[date, tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]],
+    known: dict[str, list[KnownOrder]] | None = None,
 ) -> list[Match]:
-    """후보마다 증거를 찾는다. **맞는 날이 정확히 하나일 때만** 받는다."""
+    """후보마다 증거를 찾는다. **맞는 날이 정확히 하나일 때만** 받는다.
+
+    ``known`` (:func:`known_orders`) 을 주면 번호 없는 건의 후보에서 이미 우리 다른 주문으로
+    설명되는 행을 뺀다 — 안 빼면 같은 세션 조각 0 의 체결이 조각 1 의 후보로 보인다(2026-09-27 오해).
+    """
     out: list[Match] = []
     for candidate in items:
         if not candidate.broker_order_no:
             out.append(
                 Match(candidate, reason="주문번호 없음 — 전송 응답 미수신, 조회로 찾을 번호가 없다",
-                      orphans=_orphans(candidate, days))
+                      orphans=_orphans(candidate, days, known or {}))
             )
             continue
         found: list[tuple[date, dict[str, Any], dict[str, Any]]] = []
@@ -388,14 +473,18 @@ def match_all(
 def _orphans(
     candidate: Candidate,
     days: dict[date, tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]],
+    known: dict[str, list[KnownOrder]],
 ) -> tuple[dict[str, Any], ...]:
-    """번호 없는 건의 사람 확인용 — 같은 날·종목·방향·수량인 행. **적재하지 않는다.**"""
+    """번호 없는 건의 사람 확인용 — 같은 날·종목·방향·수량이고 **우리 다른 주문으로 설명되지
+    않는** 행. **적재하지 않는다.**"""
     out: list[dict[str, Any]] = []
     for day in candidate.days:
         indexed = days.get(day)
         if indexed is None:
             continue
         for row in indexed[1].values():
+            if explain(row, day, known):
+                continue
             symbol = str(row.get("IsuNo", "")).strip().removeprefix("A")
             side = {"1": "sell", "2": "buy"}.get(str(row.get("BnsTpCode", "")).strip())
             try:
@@ -409,6 +498,120 @@ def _orphans(
             ):
                 out.append({**row, "_day": day.isoformat()})
     return tuple(out)
+
+
+#: 미도착 확인으로 닫을 수 있는 상태 — 전송 응답을 못 받은 것들뿐이다.
+NOT_RECEIVED_STATUSES = frozenset({"submitting", "sent"})
+
+
+@dataclass(frozen=True)
+class NotReceived:
+    """번호 없는 조각의 미도착 판정 (``docs/design/execution-safety.md`` 2026-10-04 절)."""
+
+    candidate: Candidate
+    #: 비어 있으면 미도착이 확인됐다. 아니면 닫으면 안 되는 이유다.
+    refusal: str
+    #: 조회한 날 → 그날 행 수.
+    queried: dict[date, int]
+    #: 같은 종목·방향 행과 그것을 설명하는 우리 주문 ID(설명 못 하면 빈 문자열).
+    same_symbol: tuple[tuple[date, str, str], ...]
+
+    @property
+    def confirmed(self) -> bool:
+        return not self.refusal
+
+    def reason(self) -> str:
+        """장부 ``reason`` 에 남길 근거 — 한 달 뒤에도 왜 닫았는지 말할 수 있게."""
+        days = ", ".join(f"{day} {n}행" for day, n in sorted(self.queried.items()))
+        ours = ", ".join(f"{day} {no}={owner}" for day, no, owner in self.same_symbol) or "없음"
+        return f"미도착 확인 — {INQUIRY_TR} {days}에 이 조각 없음 · 같은 종목·방향 행: {ours}"
+
+
+def check_not_received(
+    candidate: Candidate,
+    days: dict[date, tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]],
+    known: dict[str, list[KnownOrder]],
+) -> NotReceived:
+    """번호 없는 조각이 증권사에 **안 들어갔다**고 말할 수 있는가.
+
+    전부 맞아야 한다: 번호 없음 · 미확정 상태 · 장부 체결·취소 0 · 주문일 후보 **전부** 조회 성공 ·
+    그 날들의 같은 종목·방향 행이 **전부** 우리 다른 주문 번호로 설명됨. 설명 안 되는 행이 하나라도
+    있으면 그게 우리 조각일 수 있다(응답만 못 받은 경우) — 거부하고 사람이 본다.
+    """
+    queried = {day: len(days[day][1]) for day in candidate.days if day in days}
+    same: list[tuple[date, str, str]] = []
+
+    def refuse(text: str) -> NotReceived:
+        return NotReceived(candidate, text, queried, tuple(same))
+
+    if candidate.broker_order_no:
+        return refuse(f"주문번호 {candidate.broker_order_no} 가 있다 — 미도착이 아니라 주문일 대사 대상")
+    if candidate.status not in NOT_RECEIVED_STATUSES:
+        return refuse(f"상태 {candidate.status} — 전송 응답 미수신 건이 아니다")
+    if candidate.accounted:
+        return refuse(f"장부에 체결·취소 {candidate.accounted:g}주가 있다 — 도착했다는 뜻")
+    if not candidate.days:
+        return refuse("주문일 후보가 없다")
+    missing = [day for day in candidate.days if day not in days]
+    if missing:
+        return refuse(f"조회 못 한 주문일 {', '.join(str(d) for d in missing)} — 다 못 봤다")
+    for day in candidate.days:
+        for row in days[day][1].values():
+            symbol = str(row.get("IsuNo", "")).strip().removeprefix("A")
+            side = {"1": "sell", "2": "buy"}.get(str(row.get("BnsTpCode", "")).strip())
+            if f"KR:{symbol}" != candidate.entity_id or side != str(candidate.side):
+                continue
+            same.append((day, _ordno(row.get("OrdNo")), explain(row, day, known)))
+    strangers = [(day, no) for day, no, owner in same if not owner]
+    if strangers:
+        listed = ", ".join(f"{day} {no}" for day, no in strangers)
+        return refuse(f"우리 번호로 설명 안 되는 같은 종목 행 {listed} — 이 조각일 수 있다, LS 화면 확인")
+    return NotReceived(candidate, "", queried, tuple(same))
+
+
+#: 미도착 확인 정정 행의 출처 — 사람이 명령을 쳐서 닫았다는 표시.
+NOT_RECEIVED_SOURCE = "not-received-confirmed"
+NOT_RECEIVED_STATUS = "rejected"
+
+
+def record_not_received(store: Store, clock: Clock, result: NotReceived) -> int:
+    """확인된 미도착을 ``orders`` 의 새 revision 으로 적는다(append-only). 적은 행 수.
+
+    잠금 안에서 그 조각을 다시 읽어, 판정 뒤에 상태나 번호가 바뀌었으면 적지 않는다.
+    ``trades``·``execution_events`` 는 건드리지 않는다 — 체결이 없었다는 사실만 상태로 남긴다.
+    """
+    if not result.confirmed:
+        raise ValueError(f"미도착이 확인되지 않았다: {result.refusal}")
+    item = result.candidate
+    session, entity, seq = item.order_id.rsplit("|", 2)
+    with account_lock(store.root):
+        now = clock.now()
+        frame = store.get("orders", as_of=now, market="KR")
+        rows = frame[
+            (frame["session_id"] == session)
+            & (frame["entity_id"] == entity)
+            & (frame["slice_seq"] == int(seq))
+        ] if not frame.empty else frame
+        if len(rows) != 1:
+            raise ValueError(f"{item.order_id}: 주문 행이 {len(rows)}개다")
+        current = rows.iloc[0].to_dict()
+        if str(current["status"]) != item.status or str(current.get("reason") or "").startswith(
+            BROKER_ORDER_NO_PREFIX
+        ):
+            raise ValueError(f"{item.order_id}: 판정 뒤 상태가 바뀌었다({current['status']}) — 다시 판정한다")
+        revision = int(current["revision"]) + 1
+        row = {
+            **current,
+            "status": NOT_RECEIVED_STATUS,
+            "reason": result.reason()[:300],
+            "revision": revision,
+            "observed_at": now,
+            "source": NOT_RECEIVED_SOURCE,
+        }
+        identity = payload_hash([item.order_id, revision, NOT_RECEIVED_STATUS])
+        return int(
+            store.append("orders", [row], ingest_run_id=f"not-received-{identity}", source=NOT_RECEIVED_SOURCE)
+        )
 
 
 def dated_query(day: date, folded: dict[str, dict[str, Any]]) -> FillQuery:
