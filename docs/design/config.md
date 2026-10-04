@@ -163,6 +163,8 @@ execution:                     # 체결 시뮬레이터
 exposure:                      # 노출 제어 (selector/exposure.py)
   regime_confirm_sessions: 2   # 국면 배수 확인 기간 — 낮추기 즉시, 올리기 N 세션 연속 확인.
                                # crisis↔volatile 이 하루걸러 뒤집혀 절반을 팔았다 사던 왕복을 막는다 (2026-08-28)
+                               # **세는 축은 관측된 종가 세션이다**(2026-10-04 결함 수정) — 직전 N 세션 = as_of 창고에 실제로 있는
+                               # 마지막 지수 세션들. portfolio-construction.md "노출 국면 확인 창"
 
 selector:
   exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
