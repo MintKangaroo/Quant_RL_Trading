@@ -179,6 +179,13 @@ collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내�
                                    # 날짜별 장부 data/_dart_quota/ 로 센다. 나머지 5,000 은 정규 수집들 몫.
                                    # 몫 ≥ 한도면 도구가 rc=2 로 멈춘다. 2026-10-02 심음(seed_config --apply)
 
+modelops:                      # 랭커 ModelOps (modelops-ranker.md ①)
+  ranker:
+    fail_streak: 2             # 랭커 IC 가 합격선 아래로 연속 이 횟수면 "랭커 감쇠"
+    input_decay_ratio: 0.5     # 랭커 입력 IC 가 직전 측정의 이 비율 아래면 "입력 감쇠"
+  exposure_eval_sessions: 120  # regime(노출 지표) 평가 창 — 최근 N세션 노출 적용 지수 대 지수 100%. 표시만, 임계 없음.
+                               # 새 키(2026-10-04) — seed_config --apply
+
 dashboard:                     # 학습 탭 "마지막 모델 회차" 카드의 상태 배지 (dashboard.md §5)
   training_stall_factor: 3     # 마지막 진행 기록이 평균 단위(블록·폴드) 시간 × 이 배수보다 오래되면 "느림/멈춤 의심"
   training_trend_window: 5     # 최근 이 단위 수에서 학습 손실↓ · 학습창 안쪽 검증↓(나빠짐) 이면 "과적합 의심".
