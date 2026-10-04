@@ -178,7 +178,16 @@ PY
           done
         done ;;
       merge)
+        # 미장 잇기는 flow_us 1,100만 행 때문에 최대 RSS 6.8GB 였다(2026-10-04) — 4GB 감시에 걸린다. 다시 이을 일이 있으면
+        # 잇기만 따로, 가용 메모리 넉넉할 때 손으로 돌린다(tools/fa2021_merge.py --market US).
         step "이어 붙이기 raw-KR · raw-US" .venv/bin/python -u tools/fa2021_merge.py ;;
+      panel)
+        # 확장 FA 패널 — 시장·반기 조각으로(tools/fa2021_build_panel.py). 끝나면 회차 패널과 겹치는 세션 비교 · 채움률.
+        P="${OUT}/panel/panel-KR-KR+US-20211110-20260630.parquet"
+        step "FA 패널 KR" .venv/bin/python -u tools/fa2021_build_panel.py --market KR
+        step "FA 패널 US" .venv/bin/python -u tools/fa2021_build_panel.py --market US
+        step "회차 패널과 비교(국장)" .venv/bin/python -u tools/fa2021_build_panel.py --verify
+        step "채움률(월)" .venv/bin/python -u tools/fa_coverage.py "${P}" "${P/panel-KR-/panel-US-}" --end 2024-07-31 ;;
     esac
   done
   echo "=== $(date '+%F %T') 끝 · 실패 ${FAILED} ==="
