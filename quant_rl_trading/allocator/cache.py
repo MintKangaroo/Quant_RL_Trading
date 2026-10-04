@@ -653,6 +653,7 @@ CONFIG_INDEPENDENT = frozenset(
         # 재조정 주기(selector/cadence.py) — 보유일엔 보유를 드는 세션 결정이다. 캐시는 보유를 모른다.
         "selector.rebalance_every",
         "selector.rebalance_anchor",
+        "selector.hold_fill_min_weight",
         # 지수+V6 shadow(portfolio-construction.md) — 펀드 매도세·고정 바구니. 캐시는 펀드를 안 들고 바구니 없이 굽는다(기본 []).
         "accounting.transaction_tax_kr_etf",
         "selector.fixed_basket",

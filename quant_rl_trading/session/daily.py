@@ -40,7 +40,7 @@ from quant_rl_trading.executor.sizing import Target
 from quant_rl_trading.replay.clock import ReplayClock
 from quant_rl_trading.replay.events import EventLog, payload_hash
 from quant_rl_trading.selector import cadence as cadence_module
-from quant_rl_trading.selector import exposure
+from quant_rl_trading.selector import exposure, hold_fill
 from quant_rl_trading.selector import pipeline as selector_pipeline
 from quant_rl_trading.store import mode as store_mode
 from quant_rl_trading.store.prices import adjust, read_prices
@@ -275,7 +275,17 @@ def run(
     # 2026-08 OOS 백테스트에서 실제로 그랬다: 매도 주문 191건이 전부 그날의
     # 후보였던 종목이고, 후보 밖 보유 3,109건(종목×일) 에는 한 건도 안 나갔다.
     # 밑의 targets 주석이 막으려던 것이 바로 이 자리에서 무너져 있었다.
-    entities = list(dict.fromkeys([*result.candidates, *holdings]))
+    # **재조정 주기** (selector.md §5 7번, 시행 AO). 시세보다 먼저 정한다 — 보유일이면 직전 재조정 목표의 종목(못 산 종목 포함)
+    # 시세도 같이 읽어야 잔여를 채운다(아래 hold_fill).
+    cadence = cadence_module.for_session(store, as_of=as_of, market=market)
+    rebalance: hold_fill.RebalanceTarget | None = None
+    if not cadence.rebalance and any(quantity > 0 for quantity in holdings.values()):
+        rebalance, why = hold_fill.rebalance_target(store, as_of=as_of, market=market)
+        if why:
+            result.notes.append(why)
+    entities = list(dict.fromkeys([
+        *result.candidates, *holdings, *(rebalance.weights if rebalance is not None else ()),
+    ]))
     prices, adv, volatility = market_stats(
         store, as_of=as_of, entities=entities, market=market
     )
@@ -283,9 +293,8 @@ def run(
     allocate_driver = str(params.baseline)
     rl_params = LiveParams.from_store(store, as_of=as_of)
     policy_decision: PolicyDecision | None = None
-    # **재조정 주기** (selector.md §5 7번, 시행 AO). 보유일엔 명단도 상대 비중도 안 바꾼다 — 지금 보유의 평가금액
-    # 비중을 그대로 목표로 둔다. 노출 배수만 아래에서 매일 따른다. 선정은 위에서 돌았고 기록만 남는다.
-    cadence = cadence_module.for_session(store, as_of=as_of, market=market)
+    # 보유일엔 명단도 상대 비중도 안 바꾼다 — 지금 보유의 평가금액 비중을 그대로 목표로 둔다. 노출 배수만 아래에서 매일
+    # 따른다. 선정은 위에서 돌았고 기록만 남는다. 예외 하나: 직전 재조정이 못 끝낸 주식 수(잔여 채움, 아래).
     held_weights = {
         entity: quantity * prices[entity] / equity
         for entity, quantity in holdings.items()
@@ -293,6 +302,7 @@ def run(
     }
     holding_day = not cadence.rebalance and bool(held_weights)
     held_exposure: float | None = None
+    fill = hold_fill.HoldFill()
     if holding_day:
         # 지금 비중은 직전 노출 배수가 이미 곱해진 값이다. 배수 전으로 되돌려 두면 아래 exposure.apply 가
         # 새 배수/옛 배수 비율로 보유 전체를 같이 줄이거나 늘린다.
@@ -301,6 +311,16 @@ def run(
         weights = {entity: value / base for entity, value in held_weights.items()}
         allocate_driver = "hold:cadence"
         result.notes.append(cadence.describe())
+        # **잔여 채움** (selector.md §5 7번, 2026-10-04 결함 수정). 직전 재조정의 목표 주식 수와 어긋난 종목만 그 수량을
+        # 목표로 바꾼다 — 그 재조정의 배수 전으로 되돌려, 위 보유와 같이 새 배수가 곱해진다. 반 주를 얹는 것은 사이징의 내림이
+        # 부동소수 오차로 한 주를 깎지 않게 하려는 것이다(목표가 0주면 반 주도 0주로 내려간다).
+        fill = hold_fill.plan(
+            store, as_of=as_of, market=market, target=rebalance, holdings=holdings, prices=prices, equity=equity,
+        )
+        result.notes.extend(fill.notes)
+        if fill.target is not None:
+            for entity, shares in fill.shares.items():
+                weights[entity] = (shares + 0.5) * prices[entity] / equity / fill.target.scale
     elif rl_params.active_for(store_mode.of(store.root).code):
         from quant_rl_trading.allocator import live as live_rl
 
@@ -465,13 +485,17 @@ def run(
     unchanged = (
         decision.scale >= 1.0 - 1e-9 if held_exposure is None else abs(decision.scale - held_exposure) < 1e-9
     )
-    if holding_day and unchanged:
+    if holding_day and unchanged and not fill.shares:
         log.record("execute", "executor", {"orders": [], "blocked_by": None, "notes": ["보유일 — 명단·노출 불변"]})
         log.flush()
         return result
 
     # 3. 집행. 보유 중인데 목표에서 빠진 종목도 넣는다 — 안 넣으면 팔 기회가
     #    영영 오지 않는다.
+    #
+    # 보유일에 배수가 그대로면 **잔여 종목만** 넘긴다. 나머지 보유를 목표 = 지금 보유로 넘기면 내림이 1주씩 판다(위 주석).
+    # 집행기는 목표에 없는 보유를 건드리지 않는다(킬스위치 강제 청산만 예외 — 그건 원래 전 종목이다).
+    names = fill.shares if holding_day and unchanged else dict.fromkeys([*weights, *holdings])
     targets = [
         Target(
             entity_id=entity,
@@ -479,7 +503,7 @@ def run(
             price=prices.get(entity, 0.0),
             adv_value=adv.get(entity, 0.0),
         )
-        for entity in dict.fromkeys([*weights, *holdings])
+        for entity in names
     ]
     execution = executor_pipeline.run(
         store,
