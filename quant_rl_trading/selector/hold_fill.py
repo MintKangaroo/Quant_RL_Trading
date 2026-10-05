@@ -140,18 +140,13 @@ def residual_shares(
     prices: dict[str, float],
     equity: float,
     min_weight: float,
-    max_position: float = 1.0,
-    slippage: float = 0.0,
 ) -> dict[str, int]:
     """목표 주식 수와 보유가 ``min_weight``(자본 대비) 이상 어긋난 종목만 → 목표 주식 수. 순수 함수.
 
     ``growth`` = 지금 보정가 / 재조정일 보정가, ``prices`` = 지금 원주가. 둘 중 하나라도 없으면 그 종목은 뺀다 — 모르는 값으로
     주식 수를 내면 그것이 곧 틀린 주문이다.
 
-    **매수는 종목 상한까지만** — ``max_position``(= 위험 한도의 종목 상한, `allocator.max_position_weight`)을 지정가
-    (기준가 × (1+``slippage``))로 잰 수량. 위험 한도가 매수를 그 값으로 평가하므로, 넘는 잔여는 보유일마다 위험 차단으로
-    끝나면서 그날의 현금 몫만 묶는다(2026-10-04 dry-run: 9/28 목표가 상한 위 16.8% 인 종목이 실제로 있었다). 매도는 줄이지
-    않는다 — 상한 위 보유를 상한까지 파는 것은 새 재조정이지 잔여가 아니다.
+    종목 상한은 여기서 자르지 않는다 — 사이징(`executor/sizing`)이 위험 한도 잣대로 재조정일·보유일 공통으로 자른다.
     """
     out: dict[str, int] = {}
     if equity <= 0:
@@ -167,9 +162,6 @@ def residual_shares(
             continue
         # 내림 — executor.sizing 과 같은 이유(넘치는 쪽으로 틀리면 현금 부족 → 거부 → 재시도).
         desired = math.floor(weight * target.equity * ratio / price + 1e-9)
-        if desired > held:
-            cap = math.floor(max_position * equity / (price * (1.0 + slippage)) + 1e-9)
-            desired = min(desired, max(cap, held))
         if desired == held:
             continue
         if abs(desired - held) * price / equity < min_weight:
@@ -206,8 +198,6 @@ def plan(
     growth = _growth(store, as_of=as_of, since=target.as_of, market=market, entities=entities)
     result.shares = residual_shares(
         target, holdings=holdings, growth=growth, prices=prices, equity=equity, min_weight=min_weight,
-        max_position=float(store.config("allocator.max_position_weight", as_of=as_of)),
-        slippage=float(store.config("execution.max_slippage", as_of=as_of)),
     )
     if result.shares:
         buys = sum(1 for e, q in result.shares.items() if q > holdings.get(e, 0))

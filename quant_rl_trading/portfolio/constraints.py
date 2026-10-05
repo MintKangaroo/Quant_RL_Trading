@@ -45,6 +45,9 @@ MAX_RC_ITERATIONS = 200
 #: RC 상한 수렴 여유 — 상한을 이만큼 넘지 않으면 만족으로 본다.
 RC_TOLERANCE = 1e-4
 
+#: RC 상한 ↔ 비중 상한 번갈아 거는 최대 횟수. 넘침이 한두 종목이면 두세 번에 든다.
+MAX_WEIGHT_ALTERNATIONS = 50
+
 #: 하방 베타 이분 탐색의 최대 λ 와 반복.
 MAX_LAMBDA = 50.0
 BISECT_ITERATIONS = 60
@@ -93,6 +96,26 @@ def cap_risk_contributions(
             for entity in members:
                 factor[entity] = min(factor[entity], damp)
         w = _renormalize(w * factor)
+    return w
+
+
+def cap_weights(weights: pd.Series, *, cap: float) -> pd.Series:
+    """종목 **비중** 상한 — 넘친 몫을 상한 밑 종목에 여유 비례로 나눈다(water-fill). 합은 그대로, 전부 상한이면 남는 몫은 현금.
+
+    `allocator/baseline._normalize` 와 같은 규칙이다. RC 상한만으로는 저변동 종목(우선주·거래 얇은 종목)의 비중이 상한을
+    넘을 수 있고, 집행의 위험 한도가 같은 상한을 매수마다 건다(portfolio-construction.md 6a, 2026-10-04 정정).
+    """
+    w = weights.astype(float).copy()
+    for _ in range(len(w) + 1):
+        excess = float((w - cap).clip(lower=0.0).sum())
+        if excess <= 1e-12:
+            break
+        w = w.clip(upper=cap)
+        room = (cap - w)[w < cap - 1e-12]
+        headroom = float(room.sum())
+        if headroom <= 1e-12:
+            break  # 전부 상한 — 남는 몫은 현금
+        w[room.index] += min(excess, headroom) * room / headroom
     return w
 
 
@@ -145,20 +168,23 @@ def project(
     sector_rc_cap: float,
     downside_beta_cap: float,
     cash_floor: float,
+    name_weight_cap: float = 1.0,
 ) -> pd.Series:
-    """네 제약을 모두 건 최종 목표 비중. 합은 ``1 - cash_floor`` 이하.
+    """다섯 제약을 모두 건 최종 목표 비중. 합은 ``1 - cash_floor`` 이하.
 
     입력이 잘못됐거나 최종 제약이 남으면 ``ProjectionError``다. 보조 함수는
     근사 단계이므로 한 제약을 맞춘 뒤 다른 제약을 다시 어길 수 있다.
 
-    순서: 하방 베타 → RC 상한 → 현금 하한. 하방 베타 틸트가 비중을 옮기므로
-    RC 상한을 그 뒤에 다시 걸어, 저베타로 쏠리며 생긴 집중을 잡는다. 현금
-    하한은 마지막에 전체를 스케일 다운한다 — RC 는 분수라 스케일에 안 변하니
-    현금을 마지막에 빼도 상한은 유지된다.
+    순서: 하방 베타 → [RC 상한 → 비중 상한] 번갈아 → 현금 하한. 하방 베타 틸트가 비중을 옮기므로
+    RC 상한을 그 뒤에 다시 걸어, 저베타로 쏠리며 생긴 집중을 잡는다. 비중 상한(``name_weight_cap``,
+    기본 1.0 = 끔)은 RC 상한이 못 막는 저변동 종목의 쏠림을 막는다 — 넘친 몫을 나누면 다른 종목의 RC 가
+    오르므로 둘을 함께 만족할 때까지 번갈아 건다. 현금 하한은 마지막에 전체를 스케일 다운한다 — RC 는
+    분수라 스케일에 안 변하니 현금을 마지막에 빼도 상한은 유지된다(비중은 줄어들기만 한다).
     """
-    caps = np.asarray([name_rc_cap, sector_rc_cap, downside_beta_cap, cash_floor])
+    caps = np.asarray([name_rc_cap, sector_rc_cap, downside_beta_cap, cash_floor, name_weight_cap])
     if (
         not np.isfinite(caps).all()
+        or not 0 < name_weight_cap <= 1
         or not 0 < name_rc_cap <= 1
         or not 0 < sector_rc_cap <= 1
         or downside_beta_cap < 0
@@ -199,6 +225,13 @@ def project(
     w = _renormalize(active.copy())
     w = cap_downside_beta(w, downside_beta, cap=downside_beta_cap)
     w = cap_risk_contributions(w, cov, sectors, name_cap=name_rc_cap, sector_cap=sector_rc_cap)
+    for _ in range(MAX_WEIGHT_ALTERNATIONS):
+        if float(w.max()) <= name_weight_cap + RC_TOLERANCE:
+            break
+        w = cap_weights(w, cap=name_weight_cap)
+        if float(w.sum()) < 1.0 - 1e-9:
+            break  # 전부 상한 — 남는 몫은 현금. RC 는 분수라 그대로 잰다
+        w = cap_risk_contributions(w, cov, sectors, name_cap=name_rc_cap, sector_cap=sector_rc_cap)
     variance = float(w.to_numpy() @ sigma @ w.to_numpy())
     if not np.isfinite(w).all() or variance <= 0:
         raise ProjectionError("Portfolio risk cannot be measured")
@@ -212,6 +245,8 @@ def project(
         else 0.0
     )
     violations = []
+    if float(w.max()) > name_weight_cap + RC_TOLERANCE:
+        violations.append("name weight")
     if rc.max() > name_rc_cap + RC_TOLERANCE:
         violations.append("name risk contribution")
     if sector_rc.max() > sector_rc_cap + RC_TOLERANCE:

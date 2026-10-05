@@ -130,17 +130,6 @@ def test_가격이_올라도_목표_주식_수는_그대로다() -> None:
                                      equity=1.2e8, min_weight=0.002) == {}
 
 
-def test_매수_잔여는_종목_상한까지만_매도는_그대로() -> None:
-    """위험 한도가 지정가로 평가하는 종목 상한을 넘는 잔여는 위험 차단으로 끝나며 그날 현금만 묶는다 — 상한까지만 낸다."""
-    target = hold_fill.RebalanceTarget(session_id="KR-x", as_of=NOW, equity=1e8, scale=1.0,
-                                       weights={"A": 0.20, "B": 0.0})
-    shares = hold_fill.residual_shares(
-        target, holdings={"A": 1_000, "B": 2_000}, growth={"A": 1.0, "B": 1.0},
-        prices={"A": 10_000.0, "B": 10_000.0}, equity=1e8, min_weight=0.002, max_position=0.15, slippage=0.01,
-    )
-    assert shares == {"A": 1_485, "B": 0}   # ⌊0.15 × 1억 / (1만 × 1.01)⌋ = 1,485 · 매도 잔여는 상한과 무관
-
-
 # ------------------------------------------------------------------ 세션 경로
 
 
@@ -240,12 +229,6 @@ def _backtest_store(root) -> Store:  # type: ignore[no-untyped-def]
         "confidence": 1.0, "horizon_days": 5, "features_hash": "x", "evidence_json": "[]", "latency_ms": 1.0,
     } for day in trading_days(Market.KR, START - timedelta(days=140), START) if day < START
         for offset, entity in enumerate(ENTITIES)], ingest_run_id="sig")
-    # 종목 상한을 넉넉히(0.95) 둬 목표가 상한에 안 붙게 한다. 상한(= 위험 한도 `allocator.max_position_weight`)에 붙은 목표는
-    # 마지막 조각이 위험 한도(지정가로 평가)에 막혀 백테스트에서도 잔여가 생긴다 — 잔여 채움이 아니라 사이징과 위험 한도 사이의
-    # 기존 어긋남이고, 그런 종목은 보유일마다 같은 이유로 또 막힌다(selector.md §5 7번 5항 "매수 잔여는 종목 상한까지만").
-    store.append("config", [{"entity_id": "allocator.max_position_weight", "valid_from": moment(START - timedelta(days=60)),
-                             "observed_at": moment(START - timedelta(days=60)), "source": "t", "value_json": "0.95"}],
-                 ingest_run_id="cfg", source="t")
     measured = moment(START - timedelta(days=30))
     store.append("analyst_weights", [{"entity_id": "fundamental", "valid_from": measured, "observed_at": measured,
                                       "source": "test", "market": "KR", "ic": 0.077, "weight": 1.0}],
@@ -255,7 +238,11 @@ def _backtest_store(root) -> Store:  # type: ignore[no-untyped-def]
 
 def test_e_백테스트는_잔여_채움이_있어도_결과가_같다(tmp_path, monkeypatch) -> None:
     """2세션 주기(8/3 재조정 · 8/4 보유 · 8/5 재조정 …). 백테스트는 재조정 주문이 다 체결되므로 보유일 잔여가 0 — 잔여 채움을
-    끈 실행과 지문·거래가 같아야 한다. 같은 코드에 분기 없이(불변식 5)."""
+    끈 실행과 지문·거래가 같아야 한다. 같은 코드에 분기 없이(불변식 5).
+
+    이 하네스는 3종목이라 score 배분이 목표를 상한 15% 에 붙인다. 예전엔 그 마지막 조각이 위험 한도(지정가 평가)에 막혀
+    백테스트에서도 잔여가 생겨, 상한을 0.95 로 올려 우회했다. 사이징이 위험 한도 잣대로 자르게 된 뒤(agents.md §7, 2026-10-04)
+    우회 없이 차단 0 이다 — 아래가 그것도 확인한다."""
     monkeypatch.setattr(cadence, "settings", lambda store, *, as_of, market: (2, START))
     calls: list[int] = []
     original = hold_fill.plan
@@ -266,7 +253,8 @@ def test_e_백테스트는_잔여_채움이_있어도_결과가_같다(tmp_path,
         return out
 
     monkeypatch.setattr(hold_fill, "plan", counting)
-    on = loop.run(_backtest_store(tmp_path / "on"), start=START, end=END, market="KR", capital=EQUITY)
+    on_store = _backtest_store(tmp_path / "on")
+    on = loop.run(on_store, start=START, end=END, market="KR", capital=EQUITY)
     assert calls, "보유일 경로를 한 번도 안 탔다 — 시험이 아무것도 증명하지 않는다"
     assert sum(calls) == 0, "백테스트 보유일에 잔여가 생겼다"
 
@@ -276,3 +264,5 @@ def test_e_백테스트는_잔여_채움이_있어도_결과가_같다(tmp_path,
     assert on.digest() == off.digest()
     assert [day.nav for day in on.days] == [day.nav for day in off.days]
     assert sum(day.filled for day in on.days) > 0, "체결이 하나도 없으면 비교가 비어 있다"
+    orders = on_store.get("orders", as_of=datetime.combine(END, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL), lookback=30)
+    assert not orders["reason"].astype(str).str.contains("maximum position size").any(), "상한에 붙은 마지막 조각이 막혔다"

@@ -144,6 +144,8 @@ def allocate_risk_parity(
         sector_rc_cap=params.sector_rc_cap,
         downside_beta_cap=params.downside_beta_cap,
         cash_floor=0.0,  # 레짐 현금은 exposure.apply 가 정한다
+        # 비중 상한도 건다 — RC 상한만으론 저변동 종목이 넘고, 위험 한도가 같은 상한을 매수마다 건다(6a, 2026-10-04 정정).
+        name_weight_cap=fallback.max_position_weight,
     )
     weights = {
         entity: round(float(value), 10)

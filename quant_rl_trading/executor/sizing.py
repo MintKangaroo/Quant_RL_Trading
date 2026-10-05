@@ -35,6 +35,11 @@ class SizingParams:
     max_price_ratio: float
     #: 매도 대금이 예수금이 되기까지의 거래일. 주문가능금액을 잴 때만 쓴다.
     settlement_days: int = 2
+    #: 종목 상한(`allocator.max_position_weight`) — **위험 한도와 같은 값.** 1.0 이면 끔(순수 함수 테스트용 기본).
+    max_position: float = 1.0
+    #: 위험 한도가 매수를 평가하는 값과 기준가의 비 — (1+슬리피지)²(1+수수료). 지정가 = 기준가 × (1+슬리피지) 를 호가단위로
+    #: 올리고 추격이 슬리피지만큼 더 올릴 수 있어서, 현금 예산 쿠션(executor/pipeline)과 같은 식을 쓴다.
+    position_cushion: float = 1.0
 
     @classmethod
     def from_store(
@@ -58,6 +63,12 @@ class SizingParams:
             max_price_ratio=float(store.config("universe.max_price_ratio", as_of=as_of)),
             # 결제일은 시장마다 다르다 — 국장 D+2, 미장 T+1(2024-05~).
             settlement_days=ledger.settlement_days_for(store, market=market, as_of=as_of),
+            max_position=float(store.config("allocator.max_position_weight", as_of=as_of)),
+            position_cushion=(1.0 + float(store.config("execution.max_slippage", as_of=as_of))) ** 2
+            * (1.0 + float(
+                store.config("accounting.fee_us", as_of=as_of) if str(market).upper() == "US"
+                else store.config("accounting.fee_kr", as_of=as_of)
+            )),
         )
 
 
@@ -163,6 +174,20 @@ def size_orders(
         if capped < quantity:
             reason = f"거래대금 {params.max_adv_ratio:.0%} 상한으로 {quantity}→{capped}"
         quantity = capped
+
+        # 5-b. 종목 상한 — **위험 한도와 같은 잣대로** 자른다(agents.md §7, 2026-10-04). 위험 한도(risk/budget.py)는 보유를
+        # 평가가로, 대기 매수를 지정가로 재서 종목 비중 ≤ 상한을 건다. 기준가로만 자르면 상한 ÷ (1+슬리피지) 를 넘는 목표의
+        # 마지막 조각이 `risk: maximum position size` 로 막혀 그 몫의 현금이 그날 논다. 매도는 자르지 않는다.
+        if side is Side.BUY and params.max_position < 1.0 and equity > 0:
+            room = (params.max_position * equity - held * target.price) / (target.price * params.position_cushion)
+            allowed = _floor_lot(max(room, 0.0) + 1e-9, target.lot_size)
+            if allowed <= 0:
+                skipped.append(Skipped(target.entity_id, target.weight, "종목 상한 — 위험 한도 잣대로 더 살 수 없다"))
+                continue
+            if allowed < quantity:
+                note = f"종목 상한 {params.max_position:.0%}(위험 한도 잣대)로 {quantity}→{allowed}"
+                reason = f"{reason} · {note}" if reason else note
+                quantity = allowed
 
         value = quantity * target.price
         if side is Side.BUY and value < params.min_order_value:
