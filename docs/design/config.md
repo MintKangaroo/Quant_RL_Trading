@@ -198,6 +198,10 @@ dashboard:                     # 학습 탭 "마지막 모델 회차" 카드의 
                                # 판정 창은 보지 않는다 — 사전등록. 새 키라 기존 창고엔 tools/seed_config.py --apply 로 심는다
   fill_rate_window_sessions: 20  # 트레이딩 탭 "체결율" 칸의 두 번째 기간 — 전송 조각이 있는 최근 N 세션 (dashboard.md §4).
                                # 새 키(2026-09-29) — 창고에 없으면 화면은 당일만 재고 창 칸에 이유를 적는다
+  ir_windows_sessions: [20, 60]  # 장부별 지수 대비 IR 패널(dashboard.md §4)의 롤링 창 — 장부 세션 N개. '전체'·'리셋 뒤' 는 항상 붙는다
+  ir_min_sessions: 20          # 창의 세션이 이보다 적으면 IR·β·α·추적오차 대신 '표본 부족'
+  ir_reset_date: "2026-11-26"  # 모의계좌 측정 리셋일(실자금 관문 측정 창 시작). 이날부터의 창을 따로 싣는다 — 전에는 빈 칸.
+                               # 새 키(2026-10-05) — seed_config --apply. 창고에 없으면 패널은 숫자 없이 이유를 적는다
 
 allocator:                     # 유동시총 가중(float_cap — Z2·미장 G1 트랙). portfolio-construction.md "Z2 트랙"
   float_cap_limit: 0.10        # 한 종목 상한. 샌드박스 덮어쓰기로 켠다

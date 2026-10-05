@@ -3,6 +3,7 @@
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='trading.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='control.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='alpha_ir.css') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
@@ -58,6 +59,11 @@
     <div id="perf-summary" class="perf-summary"></div>
     <details class="fold"><summary>당일 체결과 실현손익</summary><div id="perf-fills" class="scroll dense"></div></details>
     <p class="note">자산 증감에는 입출금이 포함된다. 수익률은 입출금을 제외한 TWR이며, 비용 분해와 같은 회계 세션을 기준으로 읽는다.</p>
+  </section>
+  {# 장부별 지수 대비 IR (dashboard.md §4 "지수 대비 IR"). 학습 탭과 같은 API·같은 렌더러(alpha_ir.js). #}
+  <section class="panel" id="panel-alpha-ir">
+    <h2>지수 대비 IR <span class="sub">장부별 · KODEX200 총수익 대비</span> <span class="right sub" id="alpha-ir-stamp"></span></h2>
+    <div id="alpha-ir" class="scroll dense"><p class="empty">장부별 IR 을 계산하고 있다.</p></div>
   </section>
   <section class="grid-half">
     <div class="panel">
@@ -195,4 +201,5 @@
 <script src="{{ url_for('static', filename='calendar.js') }}"></script>
 <script src="{{ url_for('static', filename='candles.js') }}"></script>
 <script src="{{ url_for('static', filename='trading.js') }}"></script>
+<script src="{{ url_for('static', filename='alpha_ir.js') }}"></script>
 {% endblock %}

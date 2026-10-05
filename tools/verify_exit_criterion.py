@@ -36,16 +36,14 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-
+from quant_rl_trading.accounting import relative  # noqa: E402
 from quant_rl_trading.collectors.benchmark_etf import BENCHMARK_ETF  # noqa: E402
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.replay.clock import LiveClock  # noqa: E402
@@ -55,21 +53,14 @@ from quant_rl_trading.store.errors import ConfigNotFound  # noqa: E402
 #: 사전등록된 판정 창. **여기를 고치면 사후 해석이다.**
 START = date(2026, 8, 28)
 SESSIONS = 60
-YIELD_KEY = "benchmark.kodex200_distribution_yield_annual"
-#: 연율 가정을 거래일로 나눈다. 국내 증시 연 거래일.
-TRADING_DAYS_PER_YEAR = 245
+#: 수식은 `accounting/relative.py` 한 곳에 있다(accounting.md §8.2) — 실자금 관문 1·대시보드 IR 패널이 같은 것을 부른다.
+YIELD_KEY = relative.YIELD_KEY
+TRADING_DAYS_PER_YEAR = relative.TRADING_DAYS_PER_YEAR
 
 
 def judgment_day() -> date:
     days = trading_days(Market.KR, START, date(START.year + 1, 6, 30))
     return days[SESSIONS - 1]
-
-
-def _series(frame: pd.DataFrame, column: str) -> pd.Series:
-    out = frame.copy()
-    out["day"] = out["valid_from"].dt.tz_convert("Asia/Seoul").dt.date
-    out = out.sort_values("valid_from").groupby("day", as_index=True).tail(1)
-    return out.set_index("day")[column].astype(float)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -87,50 +78,38 @@ def main(argv: list[str] | None = None) -> int:
 
     book = Store(root=Path(args.sandbox))
     source = Store(root=Path("data"))
-    nav = book.get("nav_daily", as_of=now, lookback=200)
-    if nav.empty:
+    ours = relative.book_index(book, as_of=now, lookback=200)
+    if ours.empty:
         print("nav_daily 가 비었다 — 계산 불가", file=sys.stderr)
         return 2
-    ours = _series(nav, "index_value")
-    bench = source.get("indices", as_of=now, lookback=200, entity=BENCHMARK_ETF,
-                       columns=["valid_from", "close"])
-    if bench.empty:
+    etf = relative.etf_close(source, as_of=now, lookback=200)
+    if etf.empty:
         print(f"{BENCHMARK_ETF} 가 창고에 없다 — 대조군 없이는 판정할 수 없다", file=sys.stderr)
         return 2
-    etf = _series(bench, "close")
 
-    both = sorted(set(ours.index) & set(etf.index) & set(window))
-    missing = [d for d in window if d <= min(now.date(), end) and d not in set(ours.index)]
+    both = relative.overlap(ours, etf, window)
     if len(both) < 2:
         print(f"겹치는 세션이 {len(both)}개 — 계산 불가", file=sys.stderr)
         return 2
-    a = ours.loc[both] / ours.loc[both].iloc[0]
-    b = etf.loc[both] / etf.loc[both].iloc[0]
-
     try:
-        annual = float(source.config(YIELD_KEY, as_of=now))
+        annual = relative.distribution_yield(source, as_of=now)
     except (ConfigNotFound, LookupError, ValueError):
         print(f"{YIELD_KEY} 가 창고에 없다 — 분배금 보정 없이는 등록 문구(총수익)를 못 맞춘다",
               file=sys.stderr)
         return 2
-    # 분배금은 **창의 거래일 수**에 비례해 더한다. ETF 가격에는 보수가 이미 들어 있다.
-    # `len(both)` 를 쓰면 안 된다 — 우리 장부에 빈 거래일이 있으면(9/13~16 정지) 그 기간의
-    # ETF 수익은 다 세면서 분배금만 덜 붙어 **벤치마크가 과소평가되고 우리가 유리해진다.**
-    # 이 보정의 취지는 그 반대다.
-    spanned = len(trading_days(Market.KR, both[0], both[-1])) - 1
-    dividend = annual * max(spanned, 0) / TRADING_DAYS_PER_YEAR
-    ours_total = float(a.iloc[-1]) - 1.0
-    etf_price = float(b.iloc[-1]) - 1.0
-    etf_total = etf_price + dividend
+    # 분배금은 **창의 거래일 수**에 비례해 더한다(relative.compare). 우리 장부에 빈 거래일이 있어도(9/13~16 정지)
+    # 세션 수가 아니라 거래일로 세므로 벤치마크가 과소평가되지 않는다 — 이 보정의 취지가 그것이다.
+    result = relative.compare(ours, etf, window=window, annual_yield=annual, through=min(now.date(), end))
+    assert result is not None  # 겹치는 세션이 둘 이상인 것을 위에서 봤다
+    excess = result.excess
+    our_mdd, etf_mdd = result.our_mdd, result.etf_mdd
 
-    our_mdd = float((a / a.cummax() - 1).min())
-    etf_mdd = float((b / b.cummax() - 1).min())
-    excess = ours_total - etf_total
-
-    print(f"세션 {len(both)}/{SESSIONS}" + (f" · 우리 장부에 없는 거래일 {len(missing)}개" if missing else ""))
-    print(f"  우리            {ours_total * 100:+7.2f}%   MDD {our_mdd * 100:7.2f}%")
-    print(f"  KODEX200 가격   {etf_price * 100:+7.2f}%   MDD {etf_mdd * 100:7.2f}%")
-    print(f"  KODEX200 총수익 {etf_total * 100:+7.2f}%   (분배금 가정 연 {annual * 100:.2f}% → 이 창 {dividend * 100:+.2f}%p)")
+    print(f"세션 {len(result.sessions)}/{SESSIONS}"
+          + (f" · 우리 장부에 없는 거래일 {len(result.missing)}개" if result.missing else ""))
+    print(f"  우리            {result.ours_total * 100:+7.2f}%   MDD {our_mdd * 100:7.2f}%")
+    print(f"  KODEX200 가격   {result.etf_price * 100:+7.2f}%   MDD {etf_mdd * 100:7.2f}%")
+    print(f"  KODEX200 총수익 {result.etf_total * 100:+7.2f}%   "
+          f"(분배금 가정 연 {annual * 100:.2f}% → 이 창 {result.dividend * 100:+.2f}%p)")
     one = excess <= 0
     two = our_mdd <= etf_mdd  # MDD 는 음수 — 우리 값이 더 작으면(더 깊으면) 개선 없음
     print(f"\n① 초과수익 {excess * 100:+.2f}%p → {'중단 쪽(≤0)' if one else '계속 쪽(>0)'}")
@@ -139,13 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     verdict = "중단·재정의" if (one and two) else "계속"
     print(f"\n판정: **{verdict}**  (둘 다 참일 때만 중단)")
 
-    ra, rb = a.pct_change().dropna(), b.pct_change().dropna()
-    if len(rb) > 2 and float(np.var(rb)) > 0:
-        # **ddof 를 맞춘다.** `np.cov` 는 기본 ddof=1, `np.var` 는 ddof=0 이라 그냥 나누면
-        # 베타가 n/(n−1) 만큼 부푼다(60세션이면 +1.7%). 사전등록한 수식은 표본 공분산/표본 분산이다.
-        beta = float(np.cov(ra, rb, ddof=1)[0, 1] / np.var(rb, ddof=1))
-        alpha = ours_total - beta * etf_total
-        print(f"\n참고(관문 아님) · 베타 {beta:.2f} · 베타 보정 알파 {alpha * 100:+.2f}%p")
+    if result.beta is not None and result.alpha is not None:
+        print(f"\n참고(관문 아님) · 베타 {result.beta:.2f} · 베타 보정 알파 {result.alpha * 100:+.2f}%p")
         print("  노출을 걷어내면 무엇이 남나. 2026-09-18 사전등록 — 판정에는 넣지 않는다.")
     if not final:
         print("\n아직 판정일이 아니다. 이 숫자로 기준을 고치지 않는다(사전등록 원칙).")

@@ -14,8 +14,9 @@ from typing import Any
 from flask import Blueprint, current_app, request
 from werkzeug.exceptions import BadRequest
 
-from quant_rl_trading.dashboard.api.common import shadow_store, clock, envelope, scope, store
+from quant_rl_trading.dashboard.api.common import shadow_store, clock, envelope, research_store, scope, store
 from quant_rl_trading.dashboard.services import account as account_service
+from quant_rl_trading.dashboard.services import alpha_ir as alpha_ir_service
 from quant_rl_trading.dashboard.services import trading as service
 from quant_rl_trading.executor import guards
 
@@ -89,6 +90,27 @@ def calendar() -> Any:
             market=(request.args.get("market") or "KR").upper(),
         ),
     )
+
+
+@bp.get("/alpha-ir")
+def alpha_ir() -> Any:
+    """장부별 KODEX200 총수익 대비 IR·β·α·추적오차 (dashboard.md §4 "지수 대비 IR"). 학습 탭도 이 경로를 그린다.
+
+    수식은 ``accounting/relative.py`` — 종료 판정 도구·실자금 관문 1 과 같은 함수다. 장부는 연구 창고 옆
+    디렉터리(``data/_paper``·``data/_*_shadow``), ETF 종가·분배금 가정도 연구 창고에서(판정 도구와 같은 곳),
+    화면 임계치(창·표본 하한·리셋일)는 다른 ``dashboard.*`` 처럼 주 장부 config 에서. ``ledger`` 파라미터와 무관하다.
+    """
+    from pathlib import Path
+
+    from quant_rl_trading.store.memo import derived
+
+    current = scope()
+    source = research_store()
+    main = store()
+    result = derived(main, ("alpha_ir", current.as_of.isoformat()),
+                     lambda: alpha_ir_service.alpha_ir(Path(source.root), config=main, source=source,
+                                                       as_of=current.as_of))
+    return envelope(current, result)
 
 
 @bp.get("/account")

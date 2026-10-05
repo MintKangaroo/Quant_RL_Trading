@@ -1,0 +1,727 @@
+{
+ "trading/alpha-ir": {
+  "as_of": "2026-10-05T09:00:00+09:00",
+  "live": false,
+  "lookback_days": 90,
+  "thresholds": {},
+  "data": {
+   "available": true,
+   "note": null,
+   "benchmark": "KR:ETF:069500",
+   "annual_yield": 0.015,
+   "trading_days_per_year": 245,
+   "min_sessions": 20,
+   "reset_date": "2026-11-26",
+   "reset_open": false,
+   "through": "2026-10-02",
+   "columns": [
+    {
+     "key": "20",
+     "label": "최근 20세션",
+     "sessions": 20
+    },
+    {
+     "key": "60",
+     "label": "최근 60세션",
+     "sessions": 60
+    },
+    {
+     "key": "all",
+     "label": "전체",
+     "sessions": null
+    },
+    {
+     "key": "reset",
+     "label": "리셋 뒤",
+     "sessions": null,
+     "since": "2026-11-26"
+    }
+   ],
+   "books": [
+    {
+     "key": "paper",
+     "name": "모의계좌",
+     "ledger": "data/_paper",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-08-28",
+     "windows": {
+      "20": {
+       "sessions": 20,
+       "need": 20,
+       "sufficient": true,
+       "missing": [
+        "2026-09-14",
+        "2026-09-15"
+       ],
+       "first": "2026-09-01",
+       "last": "2026-10-02",
+       "ours_total": -0.029126206537087085,
+       "etf_total": 0.03998432855090401,
+       "excess": -0.06911053508799109,
+       "ir": -3.042217693543679,
+       "tracking_error": 0.30807932475478017,
+       "beta": 0.15443529729163202,
+       "alpha": -0.03530119820385223
+      },
+      "60": {
+       "sessions": 22,
+       "need": 60,
+       "sufficient": false,
+       "missing": [
+        "2026-09-14",
+        "2026-09-15"
+       ],
+       "first": "2026-08-28",
+       "last": "2026-10-02",
+       "ours_total": -0.02086309436827538,
+       "etf_total": 0.04693904589266206,
+       "excess": -0.06780214026093745,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 22,
+       "need": 20,
+       "sufficient": true,
+       "missing": [
+        "2026-09-14",
+        "2026-09-15"
+       ],
+       "first": "2026-08-28",
+       "last": "2026-10-02",
+       "ours_total": -0.02086309436827538,
+       "etf_total": 0.04693904589266206,
+       "excess": -0.06780214026093745,
+       "ir": -2.8131801754654253,
+       "tracking_error": 0.2939025651102529,
+       "beta": 0.15501289520499534,
+       "alpha": -0.02813925177025707
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-08-28",
+       0.0
+      ],
+      [
+       "2026-08-31",
+       -0.0034276723996717546
+      ],
+      [
+       "2026-09-01",
+       0.00181083676860745
+      ],
+      [
+       "2026-09-02",
+       0.023402669084588983
+      ],
+      [
+       "2026-09-03",
+       0.025947948615842514
+      ],
+      [
+       "2026-09-04",
+       0.011665503400845548
+      ],
+      [
+       "2026-09-07",
+       -0.035855670111185865
+      ],
+      [
+       "2026-09-08",
+       -0.03226246947499899
+      ],
+      [
+       "2026-09-09",
+       -0.05535910561400443
+      ],
+      [
+       "2026-09-10",
+       -0.05396237912111515
+      ],
+      [
+       "2026-09-11",
+       -0.030089420825076145
+      ],
+      [
+       "2026-09-16",
+       -0.016637975166978625
+      ],
+      [
+       "2026-09-17",
+       -0.015342287315668524
+      ],
+      [
+       "2026-09-18",
+       -0.044616074593476315
+      ],
+      [
+       "2026-09-21",
+       -0.0579073746594846
+      ],
+      [
+       "2026-09-22",
+       -0.05547510143296228
+      ],
+      [
+       "2026-09-23",
+       -0.06799606340553782
+      ],
+      [
+       "2026-09-28",
+       -0.029790370597365022
+      ],
+      [
+       "2026-09-29",
+       -0.04292197629689641
+      ],
+      [
+       "2026-09-30",
+       -0.04846559575555837
+      ],
+      [
+       "2026-10-01",
+       -0.06628715334041516
+      ],
+      [
+       "2026-10-02",
+       -0.06780214026093745
+      ]
+     ]
+    },
+    {
+     "key": "idxv6",
+     "name": "지수+V6",
+     "ledger": "data/_idxv6_shadow",
+     "market": "KR",
+     "status": "no_book",
+     "reason": "장부 아직 없음 — 첫 NAV 가 생기면 줄이 찬다",
+     "since": null,
+     "windows": {},
+     "curve": []
+    },
+    {
+     "key": "z2",
+     "name": "Z2",
+     "ledger": "data/_z2_shadow",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-09-21",
+     "windows": {
+      "20": {
+       "sessions": 8,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-21",
+       "last": "2026-10-02",
+       "ours_total": -0.0046308555775343985,
+       "etf_total": 0.0036514899603530106,
+       "excess": -0.008282345537887408,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "60": {
+       "sessions": 8,
+       "need": 60,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-21",
+       "last": "2026-10-02",
+       "ours_total": -0.0046308555775343985,
+       "etf_total": 0.0036514899603530106,
+       "excess": -0.008282345537887408,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 8,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-21",
+       "last": "2026-10-02",
+       "ours_total": -0.0046308555775343985,
+       "etf_total": 0.0036514899603530106,
+       "excess": -0.008282345537887408,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-09-21",
+       0.0
+      ],
+      [
+       "2026-09-22",
+       -0.0016726837556865985
+      ],
+      [
+       "2026-09-23",
+       -0.013058885864104018
+      ],
+      [
+       "2026-09-28",
+       0.0329705956074262
+      ],
+      [
+       "2026-09-29",
+       0.018295256606540324
+      ],
+      [
+       "2026-09-30",
+       0.012231674979353905
+      ],
+      [
+       "2026-10-01",
+       -0.00717851263411708
+      ],
+      [
+       "2026-10-02",
+       -0.008282345537887408
+      ]
+     ]
+    },
+    {
+     "key": "k200v6",
+     "name": "K200 V6",
+     "ledger": "data/_k200v6_shadow",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-09-23",
+     "windows": {
+      "20": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": 0.02114685316202758,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.030430195559042087,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "60": {
+       "sessions": 6,
+       "need": 60,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": 0.02114685316202758,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.030430195559042087,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": 0.02114685316202758,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.030430195559042087,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-09-23",
+       0.0
+      ],
+      [
+       "2026-09-28",
+       0.03215407446287547
+      ],
+      [
+       "2026-09-29",
+       0.03041090550504917
+      ],
+      [
+       "2026-09-30",
+       0.029636902046307638
+      ],
+      [
+       "2026-10-01",
+       0.03126240683131146
+      ],
+      [
+       "2026-10-02",
+       0.030430195559042087
+      ]
+     ]
+    },
+    {
+     "key": "k200hmm",
+     "name": "K200 HMM",
+     "ledger": "data/_k200hmm_shadow",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-09-23",
+     "windows": {
+      "20": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": 0.02114685316202758,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.030430195559042087,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "60": {
+       "sessions": 6,
+       "need": 60,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": 0.02114685316202758,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.030430195559042087,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": 0.02114685316202758,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.030430195559042087,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-09-23",
+       0.0
+      ],
+      [
+       "2026-09-28",
+       0.03215407446287547
+      ],
+      [
+       "2026-09-29",
+       0.03041090550504917
+      ],
+      [
+       "2026-09-30",
+       0.029636902046307638
+      ],
+      [
+       "2026-10-01",
+       0.03126240683131146
+      ],
+      [
+       "2026-10-02",
+       0.030430195559042087
+      ]
+     ]
+    },
+    {
+     "key": "be2",
+     "name": "BE2",
+     "ledger": "data/_be2_shadow",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-09-30",
+     "windows": {
+      "20": {
+       "sessions": 3,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-30",
+       "last": "2026-10-02",
+       "ours_total": 0.0026573791829025417,
+       "etf_total": 0.023081050467564854,
+       "excess": -0.020423671284662312,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "60": {
+       "sessions": 3,
+       "need": 60,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-30",
+       "last": "2026-10-02",
+       "ours_total": 0.0026573791829025417,
+       "etf_total": 0.023081050467564854,
+       "excess": -0.020423671284662312,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 3,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-30",
+       "last": "2026-10-02",
+       "ours_total": 0.0026573791829025417,
+       "etf_total": 0.023081050467564854,
+       "excess": -0.020423671284662312,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-09-30",
+       0.0
+      ],
+      [
+       "2026-10-01",
+       -0.01809034494257796
+      ],
+      [
+       "2026-10-02",
+       -0.020423671284662312
+      ]
+     ]
+    },
+    {
+     "key": "w72",
+     "name": "W72",
+     "ledger": "data/_w72_shadow",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-09-23",
+     "windows": {
+      "20": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": -0.0030976889806164642,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.006185653416398044,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "60": {
+       "sessions": 6,
+       "need": 60,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": -0.0030976889806164642,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.006185653416398044,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": -0.0030976889806164642,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.006185653416398044,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-09-23",
+       0.0
+      ],
+      [
+       "2026-09-28",
+       0.03215407446287547
+      ],
+      [
+       "2026-09-29",
+       0.027794216245109207
+      ],
+      [
+       "2026-09-30",
+       0.026497002050781197
+      ],
+      [
+       "2026-10-01",
+       0.00913208934075518
+      ],
+      [
+       "2026-10-02",
+       0.006185653416398044
+      ]
+     ]
+    },
+    {
+     "key": "n24",
+     "name": "N24",
+     "ledger": "data/_n24_shadow",
+     "market": "KR",
+     "status": "ok",
+     "reason": null,
+     "since": "2026-09-23",
+     "windows": {
+      "20": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": -0.00595455717395621,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.0033287852230582983,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "60": {
+       "sessions": 6,
+       "need": 60,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": -0.00595455717395621,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.0033287852230582983,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "all": {
+       "sessions": 6,
+       "need": 20,
+       "sufficient": false,
+       "missing": [],
+       "first": "2026-09-23",
+       "last": "2026-10-02",
+       "ours_total": -0.00595455717395621,
+       "etf_total": -0.009283342397014508,
+       "excess": 0.0033287852230582983,
+       "ir": null,
+       "tracking_error": null,
+       "beta": null,
+       "alpha": null
+      },
+      "reset": null
+     },
+     "curve": [
+      [
+       "2026-09-23",
+       0.0
+      ],
+      [
+       "2026-09-28",
+       0.03215407446287547
+      ],
+      [
+       "2026-09-29",
+       0.02774693055673945
+      ],
+      [
+       "2026-09-30",
+       0.02068668455326638
+      ],
+      [
+       "2026-10-01",
+       0.003697934865109189
+      ],
+      [
+       "2026-10-02",
+       0.0033287852230582983
+      ]
+     ]
+    },
+    {
+     "key": "shadow",
+     "name": "shadow (국장+미장)",
+     "ledger": "data/_shadow",
+     "market": "MIXED",
+     "status": "not_applicable",
+     "reason": "국장·미장 슬리브가 한 장부에 섞여 있다 — KODEX200 대비로 재면 미장 수익이 초과로 섞인다",
+     "since": null,
+     "windows": {},
+     "curve": []
+    },
+    {
+     "key": "g1us",
+     "name": "G1 미장",
+     "ledger": "data/_g1us_shadow",
+     "market": "US",
+     "status": "not_applicable",
+     "reason": "미장 장부 — KODEX200 대비는 뜻이 없다(관문은 국장만)",
+     "since": null,
+     "windows": {},
+     "curve": []
+    }
+   ]
+  }
+ }
+}

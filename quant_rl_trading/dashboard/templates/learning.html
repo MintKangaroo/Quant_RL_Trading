@@ -2,6 +2,7 @@
 {% block title %}모델 검증 · Quant_RL_Trading{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='control.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='alpha_ir.css') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'learning' %}{% include "_scope.html" %}{% endwith %}
@@ -66,6 +67,12 @@
         <div id="live-tracks"></div>
       </section>
     </div>
+    {# 장부별 지수 대비 IR — 트레이딩 탭과 같은 API·같은 렌더러(alpha_ir.js, dashboard.md §5 ②). #}
+    <section class="ls-block" aria-labelledby="alpha-ir-title">
+      <h3 id="alpha-ir-title">장부별 지수 대비 IR <span class="sub">트랙을 수익 한 숫자가 아니라 KODEX200 총수익 대비 IR 로 견준다</span>
+        <span class="sub" id="alpha-ir-stamp"></span></h3>
+      <div id="alpha-ir" class="scroll dense"><p class="empty">장부별 IR 을 계산하고 있다.</p></div>
+    </section>
   </section>
 
   <section class="ls-zone" id="zone-history" aria-labelledby="zone-history-title">
@@ -149,4 +156,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
 <script src="{{ url_for('static', filename='learning.js') }}"></script>
+<script src="{{ url_for('static', filename='alpha_ir.js') }}"></script>
 {% endblock %}

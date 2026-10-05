@@ -8,6 +8,7 @@ Auditor·dashboard·reporting 이 각자 계산하면 반드시 어긋나고, �
     nav.py    NAV 평가, TWR, 낙폭, 혼합 벤치마크
     rates.py  수수료·세금·배당세 — 전부 store.config 에서 온다
     benchmark.py  창고의 지수로 혼합 벤치마크를 잰다 — NAV 와 같은 시각·환율
+    relative.py   KODEX200 총수익 대비 초과·IR·β·α — 종료 판정·실자금 관문 1·화면 IR 패널이 같은 수식
 """
 
 from quant_rl_trading.accounting.benchmark import Benchmark, BenchmarkSpec
