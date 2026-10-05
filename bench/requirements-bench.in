@@ -9,3 +9,7 @@ llama-cpp-python
 transformers
 huggingface_hub
 psutil
+
+# Moirai 2.0 — PyPI uni2ts 1.1.1 에 moirai2 가 없어 GitHub 판을 --no-deps 로 덮는다
+# uni2ts @ git+https://github.com/SalesforceAIResearch/uni2ts
+tiktoken
