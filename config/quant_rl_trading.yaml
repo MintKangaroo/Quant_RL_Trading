@@ -529,7 +529,7 @@ thirteen_f:
   min_mapped_value: 0.8
 
 llm:
-  monthly_budget_usd: 100   # 2026-08-30 사용자가 50 → 100 으로 올림
+  monthly_budget_usd: 50    # 2026-10-05 사용자 "클로드 api는 월에 50불까지만 허용" — 100 → 50 (전 사용처 합계, L1 $20 포함)
   news_screen_model: haiku
   news_deep_model: sonnet
   review_model: sonnet
