@@ -14,13 +14,13 @@ const airRatio = (v) => (v === null || v === undefined ? "—" : `${airSign(v)}$
 const airEsc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 /* 한 창의 한 값. 표본 부족이면 숫자 대신 그 사실을 — 화면이 잡음을 숫자로 보여 주지 않는다. */
-function airCell(win, field, format, toned) {
-  if (!win) return `<td class="num dim">—</td>`;
+function airCell(win, field, format, toned, extra = "") {
+  if (!win) return `<td class="num dim ${extra}">—</td>`;
   if (!win.sufficient) {
-    return `<td class="num dim" title="세션 ${win.sessions} < ${win.need} — 이 창의 비율 추정은 잡음이다">표본 부족 ${win.sessions}/${win.need}</td>`;
+    return `<td class="num dim ${extra}" title="세션 ${win.sessions} < ${win.need} — 이 창의 비율 추정은 잡음이다">표본 부족 ${win.sessions}/${win.need}</td>`;
   }
   const value = win[field];
-  return `<td class="num ${toned ? airTone(value) : ""}">${format(value)}</td>`;
+  return `<td class="num ${toned ? airTone(value) : ""} ${extra}">${format(value)}</td>`;
 }
 
 function airSessions(win) {
@@ -35,28 +35,28 @@ function airSessions(win) {
 function airRow(book, columns, data) {
   const head = `<td class="air-name" title="${airEsc(book.ledger)}">${airEsc(book.name)}</td>`;
   if (book.status !== "ok") {
-    return `<tr class="air-off">${head}<td colspan="${columns.length + 6}" class="dim">${airEsc(book.reason)}</td></tr>`;
+    return `<tr class="air-off">${head}<td colspan="${columns.length + 6}" class="dim air-reason">${airEsc(book.reason)}</td></tr>`;
   }
   const all = book.windows.all;
   const rolling = columns.filter((c) => c.key !== "all" && c.key !== "reset");
   const reset = book.windows.reset;
   const resetCell = reset
-    ? airCell(reset, "ir", airRatio, true)
-    : `<td class="num dim" title="측정 리셋(${airEsc(data.reset_date)}) 뒤 창 — 실자금 관문 측정 창">${airEsc(data.reset_date.slice(5).replace("-", "/"))} 부터</td>`;
+    ? airCell(reset, "ir", airRatio, true, "air-x")
+    : `<td class="num dim air-x" title="측정 리셋(${airEsc(data.reset_date)}) 뒤 창 — 실자금 관문 측정 창">${airEsc(data.reset_date.slice(5).replace("-", "/"))} 부터</td>`;
   // 전체 창부터 표본이 모자라면 IR·β·α·추적오차 칸을 하나로 접는다 — 같은 '표본 부족' 을 일곱 번 적으면 읽히지 않는다.
   const ratios = all && all.sufficient
     ? `${rolling.map((c) => airCell(book.windows[c.key], "ir", airRatio, true)).join("")}
     ${airCell(all, "ir", airRatio, true)}
-    ${airCell(all, "beta", (v) => (v === null || v === undefined ? "—" : v.toFixed(2)), false)}
-    ${airCell(all, "alpha", airPct, true)}
-    ${airCell(all, "tracking_error", (v) => (v === null || v === undefined ? "—" : (v * 100).toFixed(2) + "%"), false)}`
+    ${airCell(all, "beta", (v) => (v === null || v === undefined ? "—" : v.toFixed(2)), false, "air-x")}
+    ${airCell(all, "alpha", airPct, true, "air-x")}
+    ${airCell(all, "tracking_error", (v) => (v === null || v === undefined ? "—" : (v * 100).toFixed(2) + "%"), false, "air-x")}`
     : `<td colspan="${rolling.length + 4}" class="dim air-short" title="이 창의 비율 추정은 잡음이다 — 누적 초과만 싣는다">표본 부족 ${all ? all.sessions : 0}/${all ? all.need : data.min_sessions} · IR·β·α·추적오차는 ${all ? all.need : data.min_sessions}세션부터</td>`;
   return `<tr>${head}
     ${airSessions(all)}
     <td class="num ${airTone(all && all.excess)}" title="우리 ${airPct(all && all.ours_total)} · KODEX200 총수익 ${airPct(all && all.etf_total)}">${airPct(all && all.excess)}</td>
     ${ratios}
     ${resetCell}
-    <td class="air-spark-cell"><div class="air-spark" id="air-spark-${airEsc(book.key)}"></div></td>
+    <td class="air-spark-cell air-x"><div class="air-spark" id="air-spark-${airEsc(book.key)}"></div></td>
   </tr>`;
 }
 
@@ -106,11 +106,11 @@ function renderAlphaIr(target, stamp, data) {
       <thead><tr>
         <th>장부</th><th class="num">세션</th><th class="num" title="전체 창 — 우리 누적 − KODEX200 총수익 누적">누적 초과</th>
         ${rolling.map((c) => `<th class="num" title="장부 세션 ${c.sessions}개 — 결손일을 넘어 잇는다">IR ${c.sessions}</th>`).join("")}
-        <th class="num">IR 전체</th><th class="num" title="cov(우리, ETF 가격) / var(ETF 가격) — 표본 공분산·표본 분산">β</th>
-        <th class="num" title="우리 누적 − β × KODEX200 총수익 누적. 참고 — 관문 아님">베타 보정 α</th>
-        <th class="num" title="일간 초과의 표준편차 × √${data.trading_days_per_year}">추적오차</th>
-        <th class="num" title="측정 리셋(${airEsc(data.reset_date)}) 뒤 창의 IR — 실자금 관문 측정 창">리셋 뒤 IR</th>
-        <th>누적 초과 추이</th>
+        <th class="num">IR 전체</th><th class="num air-x" title="cov(우리, ETF 가격) / var(ETF 가격) — 표본 공분산·표본 분산">β</th>
+        <th class="num air-x" title="우리 누적 − β × KODEX200 총수익 누적. 참고 — 관문 아님">베타 보정 α</th>
+        <th class="num air-x" title="일간 초과의 표준편차 × √${data.trading_days_per_year}">추적오차</th>
+        <th class="num air-x" title="측정 리셋(${airEsc(data.reset_date)}) 뒤 창의 IR — 실자금 관문 측정 창">리셋 뒤 IR</th>
+        <th class="air-x">누적 초과 추이</th>
       </tr></thead>
       <tbody>${(data.books || []).map((b) => airRow(b, columns, data)).join("")}</tbody>
     </table>`;

@@ -12,3 +12,14 @@
 .air-spark-cell { width: 120px; min-width: 96px; padding-left: 8px; }
 .air-spark { width: 100%; height: 26px; }
 .air-table td.air-short { text-align: left; padding-left: 24px; white-space: nowrap; }
+
+/* 셀 글꼴을 표 안에서 하나로 — 사유 칸(colspan)이 본문 크기로 커지던 것(10/6 폰 화면). */
+.air-table td { font-size: 12.5px; }
+.air-table td.air-reason, .air-table td.air-short { white-space: normal; font-size: 11.5px; line-height: 1.45; }
+/* 폰: 보조 칸(β·α·추적오차·리셋 뒤·추이)을 접는다 — 장부·세션·누적 초과·IR 만 남겨 가로 스크롤 없이 읽히게. */
+@media (max-width: 760px) {
+  .air-table .air-x { display: none; }
+  .air-table col.c-air-name { width: auto; }
+  .air-table td.air-short { padding-left: 8px; }
+  .air-def { font-size: 11px; }
+}
