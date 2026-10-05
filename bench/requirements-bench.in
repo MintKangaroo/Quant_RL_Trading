@@ -1,0 +1,11 @@
+# 벤치 전용(docs/design/alpha-research-program.md §5.2). 실전 .venv 와 무관 — 이 파일로 실전 의존성을 바꾸지 않는다.
+torch
+tabpfn
+chronos-forecasting
+granite-tsfm
+uni2ts
+timesfm
+llama-cpp-python
+transformers
+huggingface_hub
+psutil
