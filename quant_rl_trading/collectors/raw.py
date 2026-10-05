@@ -10,7 +10,9 @@ curated 와 달리 raw 는 store 를 경유하지 않는다. 아직 정규화되
 
 from __future__ import annotations
 
+import gzip
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -46,17 +48,7 @@ class RawArchive:
         그래서 디스크에 있는 것을 진실로 본다. 메모리 카운터는 같은 프로세스
         안에서 stat 을 아끼는 용도로만 남긴다.
         """
-        target_dir = self.directory(source, observed_at)
-        target_dir.mkdir(parents=True, exist_ok=True)
-
-        key = f"{source}/{ingest_run_id}/{label}"
-        index = self._counter.get(key, 0)
-        path = target_dir / f"{ingest_run_id}-{label}-{index:04d}.json"
-        while path.exists():
-            index += 1
-            path = target_dir / f"{ingest_run_id}-{label}-{index:04d}.json"
-        self._counter[key] = index + 1
-
+        path = self._next_path(source, observed_at, ingest_run_id, label, ".json")
         path.write_text(
             json.dumps(
                 {
@@ -72,4 +64,56 @@ class RawArchive:
             ),
             encoding="utf-8",
         )
+        return path
+
+    def save_bundle(
+        self,
+        source: str,
+        entries: Sequence[str],
+        *,
+        observed_at: datetime,
+        ingest_run_id: str,
+        label: str,
+    ) -> Path:
+        """응답 여러 개를 **한 파일**(gzip JSON Lines, ``.jsonl.gz``)로 남긴다.
+
+        첫 줄은 ``save`` 와 같은 머리(source·label·ingest_run_id·observed_at), 그다음
+        ``entries`` 가 한 줄씩 — 호출부가 응답 하나를 이미 JSON 문자열로 만들어 넘긴다.
+        분봉처럼 한 실행에 수백 응답이 오는 원본용이다: 응답마다 한 파일이면 300종목에
+        하루 9천 파일·1.3GB, 묶어 압축하면 실행당 한 파일·약 1/20(docs/design/ls-api.md §0-14).
+        문자열로 받는 이유는 메모리다 — 응답 dict 수백 개를 끝까지 들고 있지 않는다.
+        덮지 않는 규칙은 ``save`` 와 같다.
+        """
+        path = self._next_path(source, observed_at, ingest_run_id, label, ".jsonl.gz")
+        head = json.dumps(
+            {
+                "source": source,
+                "label": label,
+                "ingest_run_id": ingest_run_id,
+                "observed_at": observed_at.isoformat(),
+                "entries": len(entries),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        with gzip.open(path, "wt", encoding="utf-8") as handle:
+            handle.write(head + "\n")
+            for entry in entries:
+                handle.write(entry + "\n")
+        return path
+
+    def _next_path(
+        self, source: str, observed_at: datetime, ingest_run_id: str, label: str, suffix: str
+    ) -> Path:
+        """아직 없는 다음 순번 경로 — 디스크가 진실이다(``save`` 독스트링)."""
+        target_dir = self.directory(source, observed_at)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        key = f"{source}/{ingest_run_id}/{label}"
+        index = self._counter.get(key, 0)
+        path = target_dir / f"{ingest_run_id}-{label}-{index:04d}{suffix}"
+        while path.exists():
+            index += 1
+            path = target_dir / f"{ingest_run_id}-{label}-{index:04d}{suffix}"
+        self._counter[key] = index + 1
         return path

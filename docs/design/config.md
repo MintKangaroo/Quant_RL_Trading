@@ -184,6 +184,18 @@ collectors:                    # 수집기가 "조용한 실패" 를 rc 로 내�
   dart_text_backfill_daily_cap: 15000  # 그중 공시 원문 과거 백필(tools/backfill_filing_texts.py, 시행 TX 재료)의 몫.
                                    # 날짜별 장부 data/_dart_quota/ 로 센다. 나머지 5,000 은 정규 수집들 몫.
                                    # 몫 ≥ 한도면 도구가 rc=2 로 멈춘다. 2026-10-02 심음(seed_config --apply)
+  intraday:                        # 국장 분봉 수집 확대(ls-api.md §0-14, 2026-10-05 사용자 승인)
+    kr_top_n: 300                  # 20세션 평균 거래대금 상위 N(보유·후보는 별도로 늘 포함). 예산 초과가 이어지면 줄인다
+    adv_sessions: 20
+    wide_intervals: [1m, 5m]       # 넓게 받는 구간. 15m·1H·4H 는 보유·후보만
+    kr_min_interval_sec: 1.1       # t8412 카탈로그 한도 초당 1(TR 별)
+    run_budget_sec: 780            # 도구 한 번(한 구간)의 예산. 넘으면 남은 종목은 안 받고 rc=1
+    max_fail_ratio: 0.10           # 종목 실패 비율 — 넘으면 rc=1(적재는 한다)
+    max_consecutive_failures: 10   # 연속 실패면 API 장애로 보고 그 구간을 멈춘다
+    qrycnt_live_1m: 120            # 장중 회차의 호출당 봉 수. 개장 뒤 첫 회차·마감 회차는 500
+    qrycnt_live_5m: 30
+    full_fetch_minutes_after_open: 20
+    kr_wide_when_orders_share_key: false  # 주문이 같은 appkey(LS_)를 쓰는 실전 모드에서도 넓힐지 — 실측 전엔 끈다
 
 modelops:                      # 랭커 ModelOps (modelops-ranker.md ①)
   ranker:

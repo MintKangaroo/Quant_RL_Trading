@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -22,12 +22,15 @@ from quant_rl_trading.collectors.intraday_collector import (
     MAX_ROWS_PER_CALL,
     PATH_CHART_KR,
     PATH_CHART_US,
+    TARGETS_TABLE,
     TR_KR,
     TR_US,
     IntradayCollector,
+    daily_targets,
     ingest_run_id,
     normalize_kr,
     normalize_us,
+    select_top_value,
 )
 from quant_rl_trading.collectors.ls_client import LSClient, LSCredentials
 from quant_rl_trading.collectors.ls_us_source import LsUsSource
@@ -290,12 +293,129 @@ def test_collect_kr_bars_are_invisible_before_collection(kr_collector, store, ts
     assert store.get("prices_intraday", as_of=ts(2026, 8, 18, 6)).empty
 
 
-def test_raw_response_is_archived_per_symbol(kr_collector, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
-    """정규화 버그를 나중에 발견해도 원본이 남아 있어야 복구할 수 있다."""
+def test_raw_responses_are_archived_as_one_gzip_bundle_per_run(kr_collector, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    """정규화 버그를 나중에 발견해도 원본이 남아 있어야 복구할 수 있다.
+
+    300종목이면 종목마다 들여쓴 JSON 한 파일이 하루 9천 파일·1.3GB 다(ls-api.md §0-14).
+    실행 하나에 gzip 한 파일 — 안에는 종목마다 응답이 **그대로** 있다.
+    """
+    import gzip
+
     kr_collector.collect_kr(["005930", "000660"], interval="1m", ingest_run_id="run-archive")
 
-    files = list((tmp_path / "data" / "raw" / "ls_intraday" / "date=2026-08-18").glob("*.json"))
-    assert len(files) == 2
+    files = list((tmp_path / "data" / "raw" / "ls_intraday" / "date=2026-08-18").glob("*"))
+    assert len(files) == 1 and files[0].name.endswith(".jsonl.gz")
+    head, *lines = gzip.decompress(files[0].read_bytes()).decode("utf-8").splitlines()
+    assert json.loads(head)["entries"] == 2
+    entries = {entry["code"]: entry for entry in map(json.loads, lines)}
+    assert set(entries) == {"005930", "000660"}
+    assert entries["005930"]["payload"][f"{TR_KR}OutBlock1"] == KR_BARS
+
+
+def test_one_failing_symbol_does_not_kill_the_run(kr_collector, store, ts) -> None:  # type: ignore[no-untyped-def]
+    """9월 로그: 21종목 회차에서 읽기 시간 초과 42번, 그때마다 그 구간 전체가 0행이었다.
+
+    종목 하나의 실패는 세고 넘어간다. 나머지는 적재된다.
+    """
+    written = kr_collector.collect_kr(
+        ["005930", "FAIL", "000660"], interval="1m", ingest_run_id="run-partial"
+    )
+
+    assert written == 4  # 성공 2종목 × 유효 봉 2
+    assert kr_collector.last_failed == ["FAIL"]
+    assert kr_collector.last_unfetched == []
+    # 실패한 종목은 루프 끝에 한 번 더 불렀다.
+    assert kr_collector.kr_client.requested_shcodes == ["005930", "FAIL", "000660", "FAIL"]
+
+
+def test_transient_failure_is_retried_once(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    calls: dict[str, int] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 86400})
+        code = json.loads(request.content)[f"{TR_KR}InBlock"]["shcode"]
+        calls[code] = calls.get(code, 0) + 1
+        if code == "000660" and calls[code] == 1:
+            raise httpx.ReadTimeout("The read operation timed out")
+        return httpx.Response(200, json={"rsp_cd": "00000", f"{TR_KR}OutBlock1": KR_BARS})
+
+    collector = _collector(store, tmp_path, ts, handler)
+    written = collector.collect_kr(["005930", "000660"], interval="1m", ingest_run_id="run-retry")
+
+    assert written == 4
+    assert collector.last_failed == []
+
+
+def test_budget_stops_fetching_and_keeps_what_was_received(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    """시간 예산을 넘기면 남은 종목은 안 부르고, 받은 것은 적재한다. 시간은 Clock 으로 잰다."""
+    clock = ReplayClock(ts(2026, 8, 18, 7))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 86400})
+        clock.advance(timedelta(seconds=1))
+        return httpx.Response(200, json={"rsp_cd": "00000", f"{TR_KR}OutBlock1": KR_BARS})
+
+    collector = _collector(store, tmp_path, ts, handler, clock=clock)
+    written = collector.collect_kr(
+        ["000001", "000002", "000003", "000004", "000005"],
+        interval="1m", ingest_run_id="run-budget", budget_sec=2.5,
+    )
+
+    assert written == 6  # 3종목(0·1·2초에 시작) × 2봉
+    assert collector.last_unfetched == ["000004", "000005"]
+
+
+def test_consecutive_failures_abort_as_an_outage(store, tmp_path, ts) -> None:  # type: ignore[no-untyped-def]
+    """API 가 죽었으면 10초 시간 초과 × 300 을 기다리지 않는다."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/oauth2/token":
+            return httpx.Response(200, json={"access_token": "t", "token_type": "Bearer", "expires_in": 86400})
+        code = json.loads(request.content)[f"{TR_KR}InBlock"]["shcode"]
+        if code == "000001":
+            return httpx.Response(200, json={"rsp_cd": "00000", f"{TR_KR}OutBlock1": KR_BARS})
+        raise httpx.ConnectError("down")
+
+    collector = _collector(store, tmp_path, ts, handler)
+    written = collector.collect_kr(
+        ["000001", "000002", "000003", "000004", "000005"],
+        interval="1m", ingest_run_id="run-outage", max_consecutive_failures=2,
+    )
+
+    assert written == 2
+    assert collector.last_aborted
+    assert collector.last_failed == ["000002", "000003"]
+    assert collector.last_unfetched == ["000004", "000005"]
+
+
+def test_qrycnt_is_passed_through(kr_collector) -> None:  # type: ignore[no-untyped-def]
+    seen: list[int] = []
+    original = kr_collector.kr_client.request_tr
+
+    def spy(path, tr_cd, body, **kwargs):  # type: ignore[no-untyped-def]
+        seen.append(body[f"{TR_KR}InBlock"]["qrycnt"])
+        return original(path, tr_cd, body, **kwargs)
+
+    kr_collector.kr_client.request_tr = spy
+    kr_collector.collect_kr(["005930"], interval="1m", ingest_run_id="run-q", qrycnt=120)
+    kr_collector.collect_kr(["005930"], interval="1m", ingest_run_id="run-q500")
+
+    assert seen == [120, MAX_ROWS_PER_CALL]
+
+
+def _collector(store, tmp_path, ts, handler, *, clock=None):  # type: ignore[no-untyped-def]
+    clock = clock or ReplayClock(ts(2026, 8, 18, 7))
+    client = LSClient(
+        credentials=LSCredentials("key", "secret", "https://api.test"),
+        clock=clock,
+        transport=httpx.MockTransport(handler),
+        live_trading=True,
+        sleep=lambda _: None,
+    )
+    return IntradayCollector(
+        store=store, clock=clock, archive=RawArchive(root=tmp_path / "data"), kr_client=client
+    )
 
 
 def test_latency_is_measured_per_stage(kr_collector, store, ts) -> None:  # type: ignore[no-untyped-def]
@@ -314,6 +434,120 @@ def test_collect_kr_without_client_raises(store, tmp_path) -> None:  # type: ign
     )
     with pytest.raises(CollectorError, match="kr_client"):
         collector.collect_kr(["005930"], interval="1m", ingest_run_id="run-none")
+
+
+# -- 수집 대상: 거래대금 상위 N (ls-api.md §0-14) -------------------------------
+
+
+def _daily(rows: list[tuple[str, str, float]]):  # type: ignore[no-untyped-def]
+    import pandas as pd
+
+    return pd.DataFrame(
+        [{"entity_id": e, "valid_from": pd.Timestamp(d, tz="UTC"), "value": v} for e, d, v in rows]
+    )
+
+
+def test_select_top_value_ranks_by_mean_over_the_last_sessions() -> None:
+    frame = _daily([
+        # 창 밖(3세션 전) — 큰 값이어도 안 센다
+        ("KR:000001", "2026-09-28", 1e15), ("KR:000002", "2026-09-28", 1.0),
+        ("KR:000001", "2026-09-29", 10.0), ("KR:000002", "2026-09-29", 30.0),
+        ("KR:000001", "2026-09-30", 10.0), ("KR:000002", "2026-09-30", 30.0),
+        ("KR:000003", "2026-09-30", 20.0),
+    ])
+
+    ranked = select_top_value(frame, top_n=2, sessions=2)
+
+    assert list(ranked["entity_id"]) == ["KR:000002", "KR:000003"]
+    assert list(ranked["rank"]) == [1, 2]
+    assert ranked["adv"].iloc[0] == 30.0
+
+
+def test_select_top_value_drops_names_missing_on_the_last_session() -> None:
+    """거래정지·상폐 종목은 분봉도 안 나온다 — 마지막 세션에 행이 없으면 뺀다."""
+    frame = _daily([
+        ("KR:000001", "2026-09-29", 100.0),  # 마지막 세션에 없다
+        ("KR:000002", "2026-09-29", 1.0), ("KR:000002", "2026-09-30", 1.0),
+    ])
+
+    assert list(select_top_value(frame, top_n=5, sessions=20)["entity_id"]) == ["KR:000002"]
+
+
+def test_select_top_value_ties_are_deterministic() -> None:
+    frame = _daily([("KR:000009", "2026-09-30", 5.0), ("KR:000001", "2026-09-30", 5.0)])
+
+    assert list(select_top_value(frame, top_n=2, sessions=1)["entity_id"]) == ["KR:000001", "KR:000009"]
+
+
+def _seed_prices(store, ts) -> None:  # type: ignore[no-untyped-def]
+    rows = []
+    for day in (28, 29, 30):
+        for code, value in (("000001", 300.0), ("000002", 200.0), ("000003", 100.0)):
+            rows.append({
+                "entity_id": f"KR:{code}", "valid_from": ts(2026, 9, day, 6, 30),
+                "observed_at": ts(2026, 9, day, 7), "source": "test", "market": "KR",
+                "open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0, "value": value,
+            })
+    store.append("prices", rows, ingest_run_id="seed-prices")
+
+
+def test_daily_targets_records_once_and_later_runs_read_it(store, ts) -> None:  # type: ignore[no-untyped-def]
+    """그날 첫 회차가 계산해 적고, 뒤 회차는 그 기록을 읽는다(point-in-time)."""
+    from quant_rl_trading.collectors.market_hours import Market
+
+    _seed_prices(store, ts)
+    morning = ReplayClock(ts(2026, 10, 1, 0, 0))  # 09:00 KST
+    targets, computed = daily_targets(
+        store, morning, market=Market.KR, base=["KR:000003", "KR:777777"], top_n=2, sessions=20
+    )
+
+    assert computed
+    # 보유·후보가 먼저, 그다음 거래대금 순(000003 은 이미 base 에 있다).
+    assert targets == ["KR:000003", "KR:777777", "KR:000001", "KR:000002"]
+
+    recorded = store.get(TARGETS_TABLE, as_of=ts(2026, 10, 1, 1), market="KR")
+    top = recorded[recorded["basis"] == "top_value"].sort_values("rank")
+    assert list(top["entity_id"]) == ["KR:000001", "KR:000002"]
+    assert set(recorded.loc[recorded["basis"] == "base", "entity_id"]) == {"KR:000003", "KR:777777"}
+    assert (recorded["session"] == "2026-10-01").all()
+
+    later = ReplayClock(ts(2026, 10, 1, 3, 0))
+    again, computed_again = daily_targets(
+        store, later, market=Market.KR, base=["KR:888888"], top_n=2, sessions=20
+    )
+    assert not computed_again
+    assert again == ["KR:888888", "KR:000001", "KR:000002"]
+
+
+def test_daily_targets_are_invisible_before_they_were_computed(store, ts) -> None:  # type: ignore[no-untyped-def]
+    from quant_rl_trading.collectors.market_hours import Market
+
+    _seed_prices(store, ts)
+    daily_targets(store, ReplayClock(ts(2026, 10, 1, 0, 0)), market=Market.KR, base=[], top_n=2, sessions=20)
+
+    assert store.get(TARGETS_TABLE, as_of=ts(2026, 9, 30, 23, 59), market="KR").empty
+
+
+def test_daily_targets_dry_run_does_not_record(store, ts) -> None:  # type: ignore[no-untyped-def]
+    from quant_rl_trading.collectors.market_hours import Market
+
+    _seed_prices(store, ts)
+    targets, computed = daily_targets(
+        store, ReplayClock(ts(2026, 10, 1, 0, 0)), market=Market.KR, base=[], top_n=1, sessions=20,
+        record=False,
+    )
+
+    assert targets == ["KR:000001"] and not computed
+    assert store.get(TARGETS_TABLE, as_of=ts(2026, 10, 2), market="KR").empty
+
+
+def test_daily_targets_without_prices_raises_instead_of_recording_an_empty_list(store, ts) -> None:  # type: ignore[no-untyped-def]
+    """빈 명단을 그날의 기록으로 적으면 하루 내내 '추가 0' 이 정상처럼 돈다."""
+    from quant_rl_trading.collectors.market_hours import Market
+
+    with pytest.raises(CollectorError, match="상위"):
+        daily_targets(store, ReplayClock(ts(2026, 10, 1, 0, 0)), market=Market.KR, base=[], top_n=5, sessions=20)
+    assert store.get(TARGETS_TABLE, as_of=ts(2026, 10, 2), market="KR").empty
 
 
 # -- US 수집 파이프라인 --------------------------------------------------------
