@@ -149,6 +149,10 @@ raw 는 그 시점을 놓치면 영구히 사라진다.
 **중복 주문 의심** → 즉시 킬스위치 발동 → 증권사 체결 내역과 이벤트 로그 대조 →
 client order id 중복 확인 → 원인 파악 전까지 해제 금지
 
+**과거 회계 재계산** → 휴장일에 `tools/refresh_accounting.py --day` 를 손으로 돌리지 않는다. 호스트 정지·결손일(빈 칸을 새로 채운다),
+크론 밖 장부(`_g1us_shadow` 등 — KR 시각 행이 섞인다)는 특히 금지. 필요하면 `scripts/refresh_accounting.sh` 와 같은 장부·같은 시장·
+실제 세션이 있던 날만(2026-10-04 사고, `data/_quarantine/refresh-misfire-20261004/README.md`).
+
 ---
 
 ## 7. 스케줄
