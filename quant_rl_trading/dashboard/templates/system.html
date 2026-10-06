@@ -67,7 +67,7 @@
 
   <section class="panel">
     <h2>크론 작업 — 최근 성공/실패</h2>
-    <div id="jobs"></div>
+    <div id="jobs" class="mcard"></div>
     <p class="note">
       <code>crontab -l</code> 로 확인한 4개 작업뿐이다. 로그(<code>logs/*.log</code>)를
       읽어 판정하며, <strong>as_of 로 되감기지 않는다</strong> — 운영 로그이지
@@ -80,7 +80,7 @@
   <section class="grid2">
     <div class="panel">
       <h2>창고 테이블 — 최신성 · 최근 파티션 행수</h2>
-      <div class="scroll" id="tables"></div>
+      <div class="scroll mcard" id="tables"></div>
     </div>
     <div class="panel">
       <h2>수집 지연 — 단계별 (data-quality 와 같은 실측)</h2>
@@ -95,7 +95,7 @@
     </div>
     <div class="panel">
       <h2>LLM 캐시 (agent_cache) 적재 현황</h2>
-      <div id="cache"></div>
+      <div id="cache" class="mcard"></div>
       <p class="note">
         <strong>적중률은 이 표만으로는 알 수 없다.</strong> 캐시를 맞힌 호출은
         새 행을 쓰지 않으므로 재사용 횟수를 셀 수 없다 — 여기 보이는 것은
@@ -107,7 +107,7 @@
 
   <section class="panel">
     <h2>LLM 실제 호출 (llm_usage) — 모델별 토큰·비용</h2>
-    <div class="scroll" id="llm-usage"></div>
+    <div class="scroll mcard" id="llm-usage"></div>
     <p class="note" id="llm-usage-note"></p>
     <p class="note">
       HTTP 왕복 하나하나를 기록한 표라 호출 횟수·토큰은 실측이다. 비용은

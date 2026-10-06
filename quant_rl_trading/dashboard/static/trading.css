@@ -265,7 +265,8 @@
 .wl-card.on { background: var(--panel2); }
 .wl-name { font-size: 13.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wl-price { font-size: 13px; text-align: right; white-space: nowrap; }
-.wl-meta { display: flex; align-items: center; gap: 8px; font-size: 11.5px; min-width: 0; white-space: nowrap; overflow: hidden; }
+/* 손익이 길면(−1,248,009 (−6.27%)) 390px 에서 끝 글자가 잘렸다(10/6) — 숫자를 자르지 않고 다음 줄로 내린다. */
+.wl-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11.5px; min-width: 0; white-space: nowrap; overflow: hidden; }
 .wl-meta .sig { font-size: 9.5px; padding: 0 4px; line-height: 1.6; min-width: 3.4em; text-align: center; }
 .wl-code { font-size: 10.5px; color: var(--dim); text-align: right; white-space: nowrap; }
 @container watch (max-width: 560px) {

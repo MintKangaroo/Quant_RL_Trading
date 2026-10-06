@@ -1237,3 +1237,52 @@ td.num.bad { color: var(--bad); }
     animation-iteration-count: 1 !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   표 → 카드 (폰, 2026-10-06) — 컨테이너에 `mcard` 를 달면 768px 아래에서 줄마다 카드.
+   640px 아래 .scroll 은 가로 스와이프를 막으므로(위 블록) 열이 많은 표는 오른쪽이 잘려
+   안 보였다. 첫 칸이 제목 줄, 나머지는 "머리글 값" 으로 흘러 쌓인다. 머리글 글자는
+   mcard.js 가 칸마다 data-l 로 단다. 트레이딩 탭의 wl-cards·od-cards 와 같은 모양이다.
+   --------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .mcard table { min-width: 0; width: 100%; display: block; }
+  .mcard thead { display: none; }
+  .mcard tbody { display: block; }
+  .mcard tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .mcard tr > td, .mcard.scroll tr > td:first-child {
+    display: block;
+    position: static;
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    white-space: nowrap;
+    font-size: 11.5px;
+    max-width: 100%;
+  }
+  .mcard tr > td:first-child {
+    flex: 1 0 100%;
+    font-size: 13px;
+    color: var(--text);
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .mcard tr > td.mc-long { flex: 1 0 100%; white-space: normal; overflow-wrap: anywhere; }
+  .mcard tr > td[data-l]:not(:first-child)::before {
+    content: attr(data-l) " ";
+    color: var(--dim);
+    font-family: "Pretendard", system-ui, sans-serif;
+    font-size: 10.5px;
+  }
+  .mcard tr > td[data-l=""]::before { content: none; }
+  .mcard tr > td:empty { display: none; }
+  /* 패널 제목 — 부제가 길면 제목 글자가 눌려 "주문 · 체\n결" 로 꺾였다(10/6). 부제를 다음 줄로 내린다. */
+  .panel h2 { flex-wrap: wrap; row-gap: 2px; }
+}

@@ -143,7 +143,7 @@ function explainRows(items) {
     const [label, cls] = TONE[item.brief.tone] || TONE.neutral;
     const r = item.reaction;
     const reaction = r && r.change_pct !== null
-      ? `${esc(r.index)} ${r.change_pct > 0 ? "+" : ""}${r.change_pct.toFixed(2)}%`
+      ? `${r.index} ${r.change_pct > 0 ? "+" : ""}${r.change_pct.toFixed(2)}%`
       : "반응 미측정";
     const sp = item.surprise;
     const surprise = sp.diff === null ? "—"

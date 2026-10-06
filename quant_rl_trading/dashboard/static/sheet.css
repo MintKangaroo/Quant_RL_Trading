@@ -407,10 +407,12 @@ tbody tr:hover td { background: #0c0c0c; }
 .index-strip .index-group-panels > .index-panel:first-child { border-left: 0; padding-left: 0; }
 @media (max-width: 768px) {
   .index-strip .index-panel { border-left: 0; border-top: 1px solid var(--border); padding: 6px 0 2px; }
-  /* 계좌 대조 표는 11자리 숫자 넷이라 390px 에 못 들어간다 — 이 표만 자기 안에서 옆으로
-     민다(첫 열 고정). 잘라서 못 읽게 두는 것보다 낫다. */
+  /* 계좌 대조 표 — 숫자 열 셋은 390px 에 들어간다. 표를 넓힌 건 한 줄 각주(매도비용 차감)의
+     max-content 였다(10/6 실측 432px, 차이 열이 잘림). 표를 칸에 묶고 각주만 접는다.
+     그래도 넘치는 기기를 위해 가로 밀기는 남긴다. */
   #account-kpis.scroll, #account-kpis .scroll { overflow-x: auto; }
-  #account-kpis table { min-width: max-content; }
+  #account-kpis table { min-width: 0; width: 100%; }
+  #account-kpis td.acct-note { white-space: normal; }
 }
 /* main 은 grid 인데 열이 auto 라 자식의 max-content 로 커진다 — 시스템 탭에서 표(table-layout
    fixed·width 100%)가 순환 참조로 1e6px 이 되어 열이 100만 px, KPI 둘째 칸이 화면 밖으로

@@ -1174,7 +1174,7 @@ async function renderAccount(tradingBody) {
       <td class="r mono ${label === "당일 실현손익" || label === "평가손익" ? tone(ledger) : ""}">${label.includes("손익") ? sgn(ledger) : won(ledger)}</td>${cell}</tr>`;
   }
   if (haircut < 0.999) {
-    html += `<tr><td colspan="4" style="${muted};font-size:11px">증권사 평가금액은 매도비용 차감 기준(추정 ${((1 - haircut) * 100).toFixed(3)}%) — 위 표는 시장가치로 되돌려 비교한 값</td></tr>`;
+    html += `<tr><td colspan="4" class="acct-note" style="${muted};font-size:11px">증권사 평가금액은 매도비용 차감 기준(추정 ${((1 - haircut) * 100).toFixed(3)}%) — 위 표는 시장가치로 되돌려 비교한 값</td></tr>`;
   }
   const cntOk = a.positions === k.positions;
   html += `<tr><td>보유 종목 수</td><td class="r">${a.positions ?? "—"}</td><td class="r">${k.positions ?? "—"}</td>

@@ -15,8 +15,10 @@
 
 1. **본문이 가로로 스크롤되면 안 된다.** 넓은 것은 자기 컨테이너 안에서만
    밀려야 한다 — 페이지가 통째로 흐르면 좌우 배치가 무너진다.
-2. **표를 카드로 흩지 않는다.** 이 대시보드의 표는 열끼리 견주는 것이
-   요점이라 카드로 바꾸면 못 쓴다. 가로 스크롤 + 첫 열 고정이 처방이다.
+2. **열이 적은 표는 그대로 둔다.** 이 대시보드의 표는 열끼리 견주는 것이
+   요점이다. 다만 640px 아래 ``.scroll`` 은 가로 스와이프를 막으므로(2026-08-28
+   사용자 요청) 열이 많은 표는 오른쪽이 잘렸다 — 그런 표의 컨테이너는
+   ``mcard`` 를 달아 768px 아래에서 줄마다 카드가 된다(2026-10-06 폰 점검).
 3. **데스크톱을 깨뜨리지 않는다.** 좁은 화면 규칙은 미디어쿼리 안에 있거나,
    밖에 있다면 넓은 화면에서 값이 안 바뀌는 형태(`min()`)여야 한다.
 """
@@ -246,3 +248,16 @@ def test_col_class_를_건드리는_display_규칙이_없다() -> None:
                                 f"{path.name}: `{part}` 가 col class `.{cls}` 의 display 를 바꾼다"
                             )
     assert not offenders, "\n".join(offenders)
+
+
+def test_표_카드는_머리글을_칸마다_단다() -> None:
+    """``mcard`` 는 머리글(thead)을 숨기므로 칸마다 ``data-l`` 이 있어야 무슨 숫자인지 안다.
+    그 글자를 다는 mcard.js 가 전 탭 공통(base.html)에 걸려 있어야 하고, 카드 규칙은 좁은
+    화면에만 있어야 한다 — 데스크톱 표를 건드리면 안 된다(10/6)."""
+    base = (STATIC.parent / "templates" / "base.html").read_text(encoding="utf-8")
+    assert "mcard.js" in base, "base.html 이 mcard.js 를 안 싣는다 — 카드 칸에 머리글이 없다"
+    app = (STATIC / "app.css").read_text(encoding="utf-8")
+    rules = [(media, selector) for media, selector, _ in _blocks(app) if ".mcard" in selector]
+    assert rules, "app.css 에 .mcard 규칙이 없다"
+    wide = [selector for media, selector in rules if media is None or "max-width" not in media]
+    assert not wide, f".mcard 규칙이 미디어쿼리 밖에 있다(데스크톱 표가 카드가 된다): {wide}"

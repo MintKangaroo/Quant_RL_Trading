@@ -186,6 +186,8 @@
 .breadth-cell { display: flex; flex-direction: column; min-width: 0; }
 .breadth-cell .k { font-size: 10px; color: var(--muted); letter-spacing: 0.04em; }
 .breadth-cell .v { font-size: 15px; }
+/* 폰에선 다섯째 칸(거래대금)이 한 칸 폭에 갇혀 "5,443억달\n러" 로 꺾였다(10/6) — 두 칸을 준다. */
+@media (max-width: 768px) { .breadth-cell:last-child { grid-column: span 2; } }
 
 /* 상승·보합·하락의 비율 막대. 숫자 옆에 모양이 하나 있으면 "오늘 시장이
    한쪽으로 쏠렸나" 를 읽는 데 눈이 한 번만 든다. */

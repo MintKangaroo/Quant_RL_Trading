@@ -36,7 +36,7 @@
 
   <section class="panel" id="jobs-panel">
     <h2>진행 중인 작업</h2>
-    <div id="jobs"></div>
+    <div id="jobs" class="mcard"></div>
     <p class="note">
       백필은 10시간, IC 측정은 4시간이 걸린다. 진행률이 없으면
       <strong>느린 것과 죽은 것을 구분할 수 없다.</strong>
@@ -54,7 +54,7 @@
   <section class="panel">
     <h2>최근 수집 실패 <span class="right"><span class="sub" id="failures-count"></span></span></h2>
     {# 50줄이 화면을 1,200px 밀어냈다(2026-09-29 점검) — 패널 안에서 스크롤한다. #}
-    <div id="failures" class="scroll dense"></div>
+    <div id="failures" class="scroll dense mcard"></div>
   </section>
 </main>
 {% endblock %}

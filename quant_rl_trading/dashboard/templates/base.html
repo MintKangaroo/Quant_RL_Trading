@@ -163,6 +163,8 @@
 </script>
 {# 용어 풀이(IC·MDD·TWR…) — 전 탭 공통. 탭 스크립트가 그린 뒤에도 다시 훑는다(glossary.js). #}
 <script src="{{ url_for('static', filename='glossary.js', v='20261006e') }}"></script>
+{# 좁은 화면에서 표 → 카드(.mcard) — 칸마다 머리글을 data-l 로 단다(mcard.js). #}
+<script src="{{ url_for('static', filename='mcard.js', v='20261006m') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

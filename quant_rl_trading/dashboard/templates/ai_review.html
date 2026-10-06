@@ -80,7 +80,7 @@
   <section class="panel">
     <h2>LLM 비용 <span class="sub" id="cost-since"></span></h2>
     <div class="kpis" id="cost-kpis"></div>
-    <div id="cost-by-agent"></div>
+    <div id="cost-by-agent" class="mcard"></div>
     <p class="note">
       단가는 <code>config/quant_rl_trading.yaml</code>의 <code>llm.pricing</code>
       (store.config, 불변식 10) — 모델별 100만 토큰당 input/output/캐시쓰기/캐시읽기.
@@ -115,17 +115,17 @@
 
   <section class="panel">
     <h2>최근 LLM 호출</h2>
-    <div id="calls" class="scroll dense"></div>
+    <div id="calls" class="scroll dense mcard"></div>
   </section>
 
   <section class="grid2">
     <div class="panel">
       <h2>최근 거부 판정</h2>
-      <div id="verdicts" class="scroll dense"></div>
+      <div id="verdicts" class="scroll dense mcard"></div>
     </div>
     <div class="panel">
       <h2>최근 공시 · 뉴스 <span class="sub">판정의 입력</span></h2>
-      <div id="documents" class="scroll dense"></div>
+      <div id="documents" class="scroll dense mcard"></div>
     </div>
   </section>
 </main>
