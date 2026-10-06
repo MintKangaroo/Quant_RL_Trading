@@ -686,6 +686,7 @@ button.danger.engaged { background: #3a2a12; border-color: var(--warn); color: v
 .sig.buy { color: var(--up); border-color: color-mix(in srgb, var(--up) 50%, transparent); background: color-mix(in srgb, var(--up) 12%, transparent); }
 .sig.sell { color: var(--down); border-color: color-mix(in srgb, var(--down) 50%, transparent); background: color-mix(in srgb, var(--down) 12%, transparent); }
 .sig.hold { color: var(--muted); background: var(--panel2); }
+.sig.trim { color: var(--down); border-color: color-mix(in srgb, var(--down) 35%, transparent); background: transparent; }
 
 /* ---------------------------------------------------------------------------
    터미널 부품 — 시간대 버튼 · LIVE 점 · AI 결정 · 리스크 모니터.

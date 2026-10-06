@@ -961,17 +961,29 @@ def _attach_live(rows: list[dict[str, Any]], context: Context) -> None:
         row["live_change"] = quote.change_rate
 
 
-def _signal_of(target: float | None, held: float) -> str:
+def _signal_of(target: float | None, held: float, held_weight: float | None = None,
+               gap: float | None = None) -> str:
     """화면에 찍는 신호. **결정을 여기서 다시 내리지 않는다** — 기록된 목표
     비중과 보유를 읽어 이름만 붙인다.
 
-    BUY  : 목표가 있는데 아직 덜 샀다
+    BUY  : 목표가 있는데 아직 덜 샀다(안 샀거나, 목표보다 ``gap`` 넘게 모자란다 — 보유일 잔여 채움이 사는 몫)
     HOLD : 목표만큼 들고 있다
+    TRIM : 목표보다 ``gap`` 넘게 많이 들고 있다(잔여 채움이 파는 몫)
     SELL : 들고 있는데 목표에서 빠졌다
+
+    ``gap`` 은 보유일 잔여 채움의 하한(``selector.hold_fill_min_weight``)과 같은 값이다 — 화면이 '덜 샀다' 라고
+    부르는 경계와 실제로 잔여를 채우는 경계가 같아야 한다(10/6: 덜 산 종목이 전부 HOLD 로 보였다).
     """
     if target is None or target <= 0:
         return "SELL" if held > 0 else "—"
-    return "HOLD" if held > 0 else "BUY"
+    if held <= 0:
+        return "BUY"
+    if held_weight is not None and gap is not None:
+        if held_weight < target - gap:
+            return "BUY"
+        if held_weight > target + gap:
+            return "TRIM"
+    return "HOLD"
 
 
 def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
@@ -1004,6 +1016,15 @@ def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
         for entity, position in context.book.positions.items()
         if position.quantity > 0
     }
+    # 보유 비중 — 목표(재조정 때 그 세션 자본 대비)와 같은 잣대로: 종가 평가 + 원화 현금.
+    held_quotes = _quotes(store, as_of=as_of, entities=sorted(held), market=context.market)
+    equity = float(context.book.cash.get("KRW", 0.0)) + sum(
+        p.quantity * held_quotes[e]["close"] for e, p in held.items()
+        if e in held_quotes and held_quotes[e].get("close"))
+    try:
+        gap = float(store.config("selector.hold_fill_min_weight", as_of=as_of))
+    except Exception:  # noqa: BLE001 — 키가 없던 시점이면 옛 이름표(보유=HOLD)로
+        gap = None
 
     rows: list[dict[str, Any]] = []
     for entity, score in top:
@@ -1025,7 +1046,9 @@ def watchlist(store: Store, context: Context) -> list[dict[str, Any]]:
                 "value": quotes.get(entity, {}).get("value"),
                 "position": quantity,
                 "target_weight": targets.get(entity),
-                "signal": _signal_of(targets.get(entity), quantity),
+                "signal": _signal_of(
+                    targets.get(entity), quantity,
+                    (quantity * price / equity) if (price is not None and equity > 0) else None, gap),
                 "pnl": pnl,
                 "pnl_pct": (
                     (price / position.avg_cost - 1.0)
