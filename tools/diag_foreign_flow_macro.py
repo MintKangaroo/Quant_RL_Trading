@@ -317,10 +317,10 @@ def build_signals(p: pd.DataFrame) -> pd.DataFrame:
     return s
 
 
-def predicted_inflow(s: pd.DataFrame, target: pd.Series, days: list[date]) -> pd.Series:
+def predicted_inflow(s: pd.DataFrame, target: pd.Series, days: list[date], cols: list[str] = MACRO) -> pd.Series:
     """§1(c) — 확장창 OLS, 학습 = 목표가 d 전에 실현된 관측(신호일 ≤ d−20), 매월 첫 세션 재적합, 최소 120관측."""
     pos = {d: i for i, d in enumerate(days)}
-    X = s[MACRO]
+    X = s[cols]
     out, coef, month = {}, None, None
     for d in days:
         i = pos[d]
@@ -330,7 +330,7 @@ def predicted_inflow(s: pd.DataFrame, target: pd.Series, days: list[date]) -> pd
             if cutoff is not None:
                 train = pd.concat([X, target.rename("y")], axis=1).loc[:cutoff].dropna()
                 if len(train) >= MIN_TRAIN:
-                    A = np.column_stack([np.ones(len(train)), train[MACRO].to_numpy()])
+                    A = np.column_stack([np.ones(len(train)), train[cols].to_numpy()])
                     coef, *_ = np.linalg.lstsq(A, train["y"].to_numpy(), rcond=None)
         if coef is None or X.loc[d].isna().any():
             continue
@@ -448,7 +448,7 @@ def run(store: Store) -> int:
     return 0
 
 
-def report(res: dict) -> None:
+def report(res: dict, *, ext: bool = False) -> None:
     def cell(c: dict) -> str:
         return f"{c['ic']:+.3f}({c['t']:+.1f})" if np.isfinite(c["ic"]) else "—"
 
@@ -458,10 +458,13 @@ def report(res: dict) -> None:
         for key, row in res[part].items():
             n = row["전체"]
             print(f"{key:28s} " + "  ".join(cell(row[c]) for c in cols) + f"   n={n['n']} 독립≈{n['n_indep']}")
-    print("\n## 시차 상관 corr(F1_t, Δfx_{t+L}) — L<0: 환율이 먼저")
-    print(" ".join(f"{L}:{v:+.2f}" for L, v in res["lag"]["daily"].items()))
-    print("5세션 블록: " + " ".join(f"{L}:{v:+.2f}" for L, v in res["lag"]["block5"].items()))
-    print(f"\n## (c) {res['c']['eval_start']} ~ {res['c']['eval_end']}")
+    if not ext:
+        print("\n## 시차 상관 corr(F1_t, Δfx_{t+L}) — L<0: 환율이 먼저")
+        print(" ".join(f"{L}:{v:+.2f}" for L, v in res["lag"]["daily"].items()))
+        print("5세션 블록: " + " ".join(f"{L}:{v:+.2f}" for L, v in res["lag"]["block5"].items()))
+        print(f"\n## (c) {res['c']['eval_start']} ~ {res['c']['eval_end']}")
+    else:
+        print(f"\n## (c′) {res['c']['eval']}")
     for name, row in res["c"].items():
         if not isinstance(row, dict) or "전체" not in row:
             continue
@@ -473,11 +476,195 @@ def report(res: dict) -> None:
         print(f"{name:4s} " + " | ".join(parts))
 
 
+# -- §3 확장: ECOS · FRED(최초 공표일) --------------------------------------------------------------------------------
+
+#: §3.0 — 목록 API(StatisticItemList)로 이름을 대조한 코드. 짐작하지 않는다.
+ECOS_SERIES = {
+    "cd91": ("817Y002", "010502000"), "call": ("817Y002", "010101000"),
+    "ktb3y": ("817Y002", "010200000"), "ktb10y": ("817Y002", "010210000"),
+    "frg_kospi": ("802Y001", "0030000"), "frg_kosdaq": ("802Y001", "0113000"), "cap_kospi": ("802Y001", "0183000"),
+    "usdkrw_1530": ("731Y003", "0000003"),
+}
+FRED_SERIES = ["DGS3MO", "DGS2", "DGS5", "DGS10", "DGS30", "T10Y2Y", "T10Y3M", "SOFR", "DFII10", "DTWEXBGS", "BAA10Y"]
+EXT = ["Y1", "Y2", "Y3", "Y4", "Y5", "Y6"]
+
+
+def fetch_macro() -> int:
+    """ECOS 일별 계열 · FRED 최초 공표본(ALFRED output_type=4) → 연구 캐시 JSON. 키는 출력하지 않는다."""
+    import httpx
+
+    from quant_rl_trading.collectors.macro_source import ECOS_BASE, FRED_BASE
+    from quant_rl_trading.settings import load_env
+
+    load_env()
+    ecos_key = os.environ.get("ECOS_API_KEY", "").strip()
+    fred_key = os.environ.get("FRED_API_KEY", "").strip()
+    if not ecos_key or not fred_key:
+        print("ECOS_API_KEY / FRED_API_KEY 없음", flush=True)
+        return 2
+    out: dict = {"ecos": {}, "fred": {}}
+    with httpx.Client(timeout=60) as client:
+        for name, (table, item) in ECOS_SERIES.items():
+            url = "/".join([f"{ECOS_BASE}/StatisticSearch", ecos_key, "json", "kr", "1", "100000",
+                            table, "D", "20210501", "20260731", item])
+            body = client.get(url)
+            if body.text.lstrip().startswith("<"):
+                print(f"ECOS {name}: HTML 응답(키 문제)", flush=True)
+                return 1
+            rows = body.json().get("StatisticSearch", {}).get("row", [])
+            out["ecos"][name] = {r["TIME"]: r["DATA_VALUE"] for r in rows}
+            print(f"ECOS {name} {len(rows)}행", flush=True)
+            _time.sleep(0.5)
+        for sid in FRED_SERIES:
+            r = client.get(f"{FRED_BASE}/series/observations", params={
+                "series_id": sid, "api_key": fred_key, "file_type": "json", "output_type": 4,
+                "observation_start": "2021-04-01", "observation_end": "2026-07-31",
+                "realtime_start": "2021-05-01", "realtime_end": "9999-12-31"})
+            if r.status_code != 200:
+                print(f"FRED {sid} HTTP {r.status_code}", flush=True)
+                return 1
+            obs = r.json().get("observations", [])
+            out["fred"][sid] = [(o["date"], o["realtime_start"], o["value"]) for o in obs]
+            print(f"FRED {sid} {len(obs)}행", flush=True)
+            _time.sleep(0.5)
+    (OUT / "macro.json").write_text(json.dumps(out))
+    return 0
+
+
+def fred_known(rows: list, days: list[date]) -> tuple[pd.Series, pd.Series]:
+    """결정 d 에 아는 값(최초 공표일 R ≤ d−1)과 그 시점까지 알려진 일변화의 20개 표준편차."""
+    frame = pd.DataFrame(rows, columns=["obs", "rel", "v"])
+    frame["v"] = pd.to_numeric(frame["v"], errors="coerce")
+    frame = frame.dropna().assign(obs=lambda f: pd.to_datetime(f["obs"]).dt.date,
+                                  rel=lambda f: pd.to_datetime(f["rel"]).dt.date).sort_values("obs")
+    level, vol = {}, {}
+    for d in days:
+        known = frame[frame["rel"] <= d - timedelta(days=1)]
+        if known.empty:
+            continue
+        level[d] = float(known["v"].iloc[-1])
+        tail = known["v"].iloc[-21:]
+        if len(tail) == 21:
+            vol[d] = float(tail.diff().std())
+    return pd.Series(level), pd.Series(vol)
+
+
+def ext_signals(p: pd.DataFrame, s: pd.DataFrame, days: list[date]) -> tuple[pd.DataFrame, pd.Series]:
+    raw = json.loads((OUT / "macro.json").read_text())
+    pos = {d: i for i, d in enumerate(days)}
+
+    def ecos(name: str) -> pd.Series:
+        ser = pd.Series({datetime.strptime(k, "%Y%m%d").date(): _num(v) for k, v in raw["ecos"][name].items()})
+        return ser.sort_index()
+
+    def ecos_prev(name: str) -> pd.Series:
+        """결정 d 는 ECOS ≤ d−1 세션만(§3.0)."""
+        ser = ecos(name)
+        return pd.Series({d: ser[ser.index <= days[pos[d] - 1]].iloc[-1] for d in days
+                          if pos[d] > 0 and (ser.index <= days[pos[d] - 1]).any()})
+
+    fred = {sid: fred_known(rows, days) for sid, rows in raw["fred"].items()}
+    e = pd.DataFrame(index=pd.Index(days))
+    e["Y1"] = (ecos_prev("cd91") - fred["DGS3MO"][0]).diff(20)
+    e["Y2"] = fred["T10Y3M"][0].diff(20)
+    e["Y3"] = np.log(fred["DTWEXBGS"][0]).diff(20)
+    e["Y4"] = fred["BAA10Y"][0].diff(20)
+    e["Y5"] = fred["DFII10"][0].diff(20)
+    e["Y6"] = fred["DGS10"][1]
+    e = e.reindex(days)
+    for c in ("X4", "F20"):
+        e[c] = s[c]
+    fe = ecos("frg_kospi") / ecos("cap_kospi")
+    return e, fe.reindex(days)
+
+
+def run_ext(store: Store) -> int:
+    from tools.trial_overlay import metrics
+    from tools.v2_hmm_exposure import hmm_path, v6_path
+
+    p = pd.read_pickle(OUT / "panel.pkl")  # invariant-allow: data-access — 이 진단의 연구 캐시
+    p = p.join(krx_panel(), how="left")
+    days = list(p.index)
+    pos = {d: i for i, d in enumerate(days)}
+    s = build_signals(p)
+    e, fe = ext_signals(p, s, days)
+    res: dict = {"b2": {}, "b2_ecos": {}, "corr_F_FE": None, "c2": {}}
+
+    def clip_end(series: pd.Series, h: int, extra: int) -> pd.Series:
+        keep = [d for d in series.index if pos[d] + extra + h < len(days) and days[pos[d] + extra + h] <= LAST_DAY]
+        return series.reindex(keep)
+
+    win = [d for d in days if SIGNAL_START <= d <= LAST_DAY]
+    res["corr_F_FE"] = float(s["f_daily"].reindex(win).corr(fe.reindex(win)))
+    for h in (5, 20):
+        y = clip_end(fwd_sum(s["f_daily"], h), h, 0)
+        ye = clip_end(fwd_sum(fe, h), h, 0)
+        for x in EXT:
+            res["b2"][f"{x}→F h{h}"] = ic_row(e[x], y, h)
+            res["b2"][f"{x}→F h{h} |F20"] = ic_row(e[x], y, h, controls=s[["F20"]])
+        for x in [*MACRO, *EXT]:
+            sig = s[x] if x in MACRO else e[x]
+            res["b2_ecos"][f"{x}→F^E h{h} |F20"] = ic_row(sig, ye, h, controls=s[["F20"]])
+
+    target20 = fwd_sum(s["f_daily"], 20)
+    P2 = predicted_inflow(e, target20, days, cols=["X4", *EXT])
+    zP2 = expanding_z(P2)
+    res["b2"]["P2(표본밖)→F h20"] = ic_row(P2, clip_end(target20, 20, 0), 20)
+    z_risk = -pd.concat([expanding_z(e[c]) for c in ("Y3", "Y4", "Y5", "Y6")], axis=1).mean(axis=1, skipna=False)
+    k_c4 = stepped((1 + 0.25 * zP2).clip(0.5, 1.0))
+    k_d1 = stepped((1 + 0.25 * z_risk).clip(0.5, 1.0))
+    a_t2 = stepped((0.5 + 0.25 * zP2).clip(0.0, 1.0))
+    nxt = {d: days[pos[d] + 1] for d in days if pos[d] + 1 < len(days)}
+    e_days = list(nxt.values())
+    v6, hm = v6_path(store, e_days), hmm_path(e_days)
+    k_v6 = pd.Series({d: v6.get(x, np.nan) for d, x in nxt.items()})
+    k_hmm = pd.Series({d: hm.get(x, np.nan) for d, x in nxt.items()})
+    rk, rs = p["r_k200"].shift(-2), p["r_small"].shift(-2)
+    eval_days = [d for d in days if date(2022, 6, 28) <= d and d in nxt and pos[d] + 2 < len(days)
+                 and days[pos[d] + 2] <= LAST_DAY]
+    res["c2"]["eval"] = f"{eval_days[0]} ~ {eval_days[-1]} ({len(eval_days)})"
+    res["c2"]["first"] = {"C4": str(k_c4.index.min()), "D1": str(k_d1.index.min())}
+
+    def expo(k: pd.Series) -> tuple[pd.Series, pd.Series]:
+        k = k.reindex(eval_days).ffill().fillna(1.0)
+        prev = k.shift(1).fillna(k.iloc[0])
+        return k * rk.reindex(eval_days) - (k - prev).abs() * ONE_WAY_COST, k
+
+    def tilt(a: pd.Series) -> tuple[pd.Series, pd.Series]:
+        a = a.reindex(eval_days).ffill().fillna(0.5)
+        prev = a.shift(1).fillna(a.iloc[0])
+        return a * rk.reindex(eval_days) + (1 - a) * rs.reindex(eval_days) - 2 * (a - prev).abs() * ONE_WAY_COST, a
+
+    def both(a: pd.Series, b: pd.Series) -> pd.Series:
+        return pd.concat([a, b.reindex(a.index).ffill()], axis=1).min(axis=1)
+
+    variants = {"N0": expo(pd.Series(1.0, index=eval_days)), "V6": expo(k_v6), "HMM": expo(k_hmm),
+                "C4": expo(k_c4), "C5": expo(both(k_hmm, k_c4)), "D1": expo(k_d1), "D2": expo(both(k_hmm, k_d1)),
+                "T0": tilt(pd.Series(0.5, index=eval_days)), "T2": tilt(a_t2)}
+    bench = rk.reindex(eval_days)
+    for name, (r, k) in variants.items():
+        row = {}
+        for pname, (lo, hi) in {"전체": (date(2000, 1, 1), LAST_DAY), **PERIODS}.items():
+            m = [d for d in eval_days if lo <= d <= hi]
+            met = metrics(r.reindex(m), bench.reindex(m))
+            met["avg_k"] = float(k.reindex(m).mean())
+            met["switches"] = int((k.reindex(m).diff().abs() > 1e-9).sum())
+            row[pname] = met
+        res["c2"][name] = row
+    pd.DataFrame({"P2": P2, "zP2": zP2, "z_risk": z_risk, "k_c4": k_c4, "k_d1": k_d1, "a_t2": a_t2}).to_pickle(OUT / "paths-ext.pkl")
+    (OUT / "result-ext.json").write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str))
+    report({"a": {}, "b": {**res["b2"], **res["b2_ecos"]}, "lag": None, "c": res["c2"]}, ext=True)
+    print(f"창고 F 와 ECOS F^E 일별 상관 {res['corr_F_FE']:+.3f} · (c′) {res['c2']['eval']} · 첫 정의 {res['c2']['first']}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fetch", action="store_true")
     parser.add_argument("--panel", action="store_true")
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--fetch-macro", action="store_true", help="§3 ECOS·FRED → 연구 캐시")
+    parser.add_argument("--run-ext", action="store_true", help="§3 (b′)(c′)")
     args = parser.parse_args(argv)
     store = Store(root=Path("data"))
     if args.fetch:
@@ -486,6 +673,10 @@ def main(argv=None) -> int:
         return panel(store)
     if args.run:
         return run(store)
+    if args.fetch_macro:
+        return fetch_macro()
+    if args.run_ext:
+        return run_ext(store)
     parser.print_help()
     return 2
 
