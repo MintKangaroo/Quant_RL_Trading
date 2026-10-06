@@ -340,7 +340,11 @@ def test_cost_tracks_month_to_date_against_budget(usage_client) -> None:
     이달 1일을 덮으므로 month_to_date 는 총액과 같아야 한다."""
     data = body(usage_client.get("/api/ai-review/costs"))["data"]
 
-    assert data["budget_usd"] == 100.0  # config/quant_rl_trading.yaml llm.monthly_budget_usd (2026-08-30 50 → 100)
+    # 기대값을 시험에 박지 않는다 — yaml 의 llm.monthly_budget_usd 를 읽는다(2026-08-30 50→100, 2026-10-05 100→50).
+    import yaml
+    from pathlib import Path
+    cfg = yaml.safe_load((Path(__file__).resolve().parents[2] / "config" / "quant_rl_trading.yaml").read_text())
+    assert data["budget_usd"] == float(cfg["llm"]["monthly_budget_usd"])
     assert data["month_covered"] is True
     assert data["month_to_date_usd"] == pytest.approx(data["cost_usd"])
 
