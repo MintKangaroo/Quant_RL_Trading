@@ -300,6 +300,21 @@ ECOS_STATS: dict[str, dict[str, str]] = {
 }
 
 
+#: 일별 시장금리 — 창고 `indices` 에 시계열로 넣는다(`tools/backfill_ecos_daily_rates.py`).
+#: 지표 → (entity_id, 통계 조회 규격).
+#: **코드는 목록 API 로 이름을 대조했다**(2026-10-06, StatisticItemList 817Y002):
+#: 콜금리(1일, 전체거래) 010101000 · CD(91일) 010502000 · 국고채(3년) 010200000 ·
+#: 국고채(10년) 010210000. 같은 표에 2·5·20·30년·KOFR 도 있다(아직 안 싣는다).
+#: ECOS 의 일별 공표 시각은 확인하지 못했다 — 백필은 다음 세션 마감 뒤에 알았다고 본다
+#: (`extra_lag_days=1`).
+ECOS_DAILY_RATES: dict[str, tuple[str, dict[str, str]]] = {
+    "CALL": ("KR:RATE:CALL", {"stat_code": "817Y002", "item_code": "010101000", "cycle": "D"}),
+    "CD91": ("KR:RATE:CD91", {"stat_code": "817Y002", "item_code": "010502000", "cycle": "D"}),
+    "KTB3Y": ("KR:RATE:KTB3Y", {"stat_code": "817Y002", "item_code": "010200000", "cycle": "D"}),
+    "KTB10Y": ("KR:RATE:KTB10Y", {"stat_code": "817Y002", "item_code": "010210000", "cycle": "D"}),
+}
+
+
 @dataclass
 class EcosSource:
     """한국은행 ECOS.
