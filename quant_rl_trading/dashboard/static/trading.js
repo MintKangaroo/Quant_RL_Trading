@@ -504,7 +504,20 @@ function renderWatchlist(body) {
       </tr>`
     )
     .join("");
-  document.getElementById("watchlist").innerHTML = `<table>${head}${cells}</table>${signalLegend()}`;
+    // 좁은 칸(폰)에서는 표 대신 두 줄짜리 카드 — 5열 표는 포지션 칸이 3~4줄로 접혀 행 높이가 들쭉날쭉했다(10/6).
+  const cardRows = rows.map((row) => {
+    const held = row.position ? `<span class="up">LONG ${num(row.position)}</span>` : `<span class="dim">FLAT</span>`;
+    const pnl = row.pnl === null ? ""
+      : `<span class="${signClass(row.pnl)}">${num(Math.round(row.pnl))}${row.pnl_pct === null ? "" : " (" + pct(row.pnl_pct) + ")"}</span>`;
+    return `<li class="wl-card click${row.entity_id === selected ? " on" : ""}" data-entity="${row.entity_id}">
+      <span class="wl-name">${row.name}</span>
+      <span class="wl-price mono">${num(row.price)} <span class="${signClass(row.change)}">${arrow(row.change)}${pct(row.change)}</span></span>
+      <span class="wl-meta"><span class="sig ${row.signal.toLowerCase()}" title="${SIGNAL_HELP[row.signal] || ""}">${row.signal}</span>
+        <span class="mono">${held}</span>${pnl ? ` <span class="mono">${pnl}</span>` : ""}</span>
+      <span class="wl-code">${row.entity_id} · 점수 ${dec(row.score, 3)}</span>
+    </li>`;
+  }).join("");
+  document.getElementById("watchlist").innerHTML = `<table>${head}${cells}</table><ul class="wl-cards">${cardRows}</ul>${signalLegend()}`;
   bindRows("watchlist");
 }
 
@@ -521,7 +534,7 @@ const signalLegend = () => `<div class="sig-legend">${Object.entries(SIGNAL_HELP
   <span class="sig-note">목표 = 직전 재조정(10세션마다)이 정한 비중 · 차이가 작으면 HOLD</span></div>`;
 
 function bindRows(id) {
-  document.getElementById(id).querySelectorAll("tr.click").forEach((row) => {
+  document.getElementById(id).querySelectorAll("tr.click, li.click").forEach((row) => {
     row.addEventListener("click", () => selectEntity(row.dataset.entity));
   });
 }
