@@ -272,3 +272,17 @@
   #watchlist table { display: none; }
   #watchlist .wl-cards { display: block; }
 }
+
+/* 주문 카드 (10/6) — 기본 숨김, 좁은 화면에서 표 대신. */
+.od-cards { display: none; list-style: none; margin: 0; padding: 0; }
+.od-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; padding: 9px 0;
+  border-bottom: 1px solid var(--border); cursor: pointer; }
+.od-name { font-size: 13.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.od-right { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+.od-right .status { font-size: 9.5px; padding: 0 4px; line-height: 1.6; }
+.od-sub { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.od-time { font-size: 10.5px; color: var(--dim); text-align: right; white-space: nowrap; }
+@media (max-width: 768px) {
+  #orders table { display: none; }
+  #orders .od-cards { display: block; }
+}

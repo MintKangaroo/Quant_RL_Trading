@@ -1034,6 +1034,32 @@ function pnlCells(row) {
       <td class="r mono ${sign}">${rate}</td>`;
 }
 
+
+/* 주문 카드 — 좁은 칸(폰)에서 표 대신(10/6: 상태 칸이 오른쪽 밖으로 잘렸다).
+   1줄: 종목 · 방향 · 수량 · 상태 / 2줄: 체결가·실현손익(또는 체결 대기) · 시각. */
+function orderCards(rows) {
+  return `<ul class="od-cards">${rows.map((row) => {
+    const time = (row.updated || row.time).slice(5, 16).replace("T", " ");
+    let money;
+    if (row.realized_pnl !== null && row.realized_pnl !== undefined) {
+      const won = row.currency !== "USD";
+      const amount = won ? `${num(Math.round(row.realized_pnl))}원` : `$${row.realized_pnl.toFixed(2)}`;
+      const sign = row.realized_pnl >= 0 ? "up" : "down";
+      money = `<span class="${sign}">${row.realized_pnl >= 0 ? "+" : ""}${amount}${row.realized_rate == null ? "" : " (" + pct(row.realized_rate) + ")"}</span>`;
+    } else if (String(row.side).toLowerCase() === "sell") {
+      money = `<span class="dim">${row.fill_quantity ? "손익 계산 불가" : "체결 대기"}</span>`;
+    } else money = "";
+    const fill = row.fill_price ? `체결 ${num(Math.round(row.fill_price))}` : `<span class="dim">미체결</span>`;
+    return `<li class="od-card click" data-entity="${row.entity_id}">
+      <span class="od-name">${row.name}</span>
+      <span class="od-right"><span class="side ${row.side}">${row.side.toUpperCase()}</span> <span class="mono">${num(row.quantity)}주</span>
+        <span class="status ${row.status}">${row.status.toUpperCase()}</span></span>
+      <span class="od-sub mono">${fill}${money ? " · " + money : ""}</span>
+      <span class="od-time mono">${time}</span>
+    </li>`;
+  }).join("")}</ul>`;
+}
+
 function renderOrders(body) {
   const rows = body.data.orders;
   // 서버가 **마지막 주문일 하루치만** 준다(사용자 요청 2026-09-07). 어느 날인지 머리에 적는다.
@@ -1076,7 +1102,7 @@ function renderOrders(body) {
       <td class="mid"><span class="status ${row.status}">${row.status.toUpperCase()}</span></td>
     </tr>`
       )
-      .join("")}</table>`;
+      .join("")}</table>${orderCards(rows)}`;
   bindRows("orders");
 }
 
