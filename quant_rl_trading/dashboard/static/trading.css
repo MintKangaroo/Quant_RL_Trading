@@ -249,3 +249,11 @@
 .os-cell.partial { background: linear-gradient(90deg, var(--text) 50%, transparent 50%); border-color: var(--text); }
 .os-cell.pending { background: transparent; }
 .os-cell.cancelled { border-color: var(--bad); background: repeating-linear-gradient(135deg, var(--bad) 0 2px, transparent 2px 5px); }
+
+/* AI 신호 풀이 (10/6) — 작은 이름표 + 한 줄 풀이를 격자로. 폰 2열, 넓은 화면 4열. */
+.sig-legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 14px;
+  margin: 8px 0 2px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted); }
+.sig-item { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sig-legend .sig { flex: none; min-width: 3.4em; padding: 0 4px; font-size: 9.5px; line-height: 1.6; text-align: center; }
+.sig-note { grid-column: 1 / -1; font-size: 10.5px; color: var(--dim); }
+@media (min-width: 900px) { .sig-legend { grid-template-columns: repeat(4, max-content); } }

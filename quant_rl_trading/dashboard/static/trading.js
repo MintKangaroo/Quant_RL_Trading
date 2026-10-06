@@ -492,7 +492,7 @@ function renderWatchlist(body) {
             <span class="code">${row.entity_id} · 점수 ${dec(row.score, 3)}</span></td>
         <td class="r mono">${num(row.price)}</td>
         <td class="r mono ${signClass(row.change)}">${arrow(row.change)}${pct(row.change)}</td>
-        <td class="mid"><span class="sig ${row.signal.toLowerCase()}">${row.signal}</span></td>
+        <td class="mid"><span class="sig ${row.signal.toLowerCase()}" title="${SIGNAL_HELP[row.signal] || ""}">${row.signal}</span></td>
         <td class="mid mono ${row.position ? "up" : ""}">${row.position ? "LONG" : "FLAT"}
             <span class="code">${row.position ? num(row.position) : ""}</span>
             <span class="code pnl-inline ${signClass(row.pnl)}">${
@@ -504,9 +504,21 @@ function renderWatchlist(body) {
       </tr>`
     )
     .join("");
-  document.getElementById("watchlist").innerHTML = `<table>${head}${cells}</table>`;
+  document.getElementById("watchlist").innerHTML = `<table>${head}${cells}</table>${signalLegend()}`;
   bindRows("watchlist");
 }
+
+
+/* AI 신호 이름표 풀이 — 서비스(_signal_of)가 붙인 이름을 그대로 설명한다(10/6 사용자 요청: "설명 적어놔줘"). */
+const SIGNAL_HELP = {
+  BUY: "목표보다 덜 들고 있어서 더 사는 중",
+  HOLD: "목표만큼 들고 있음",
+  TRIM: "목표보다 많아서 줄이는 중",
+  SELL: "목표에서 빠져서 파는 중",
+};
+const signalLegend = () => `<div class="sig-legend">${Object.entries(SIGNAL_HELP)
+  .map(([k, v]) => `<span class="sig-item"><span class="sig ${k.toLowerCase()}">${k}</span><span>${v}</span></span>`).join("")}
+  <span class="sig-note">목표 = 직전 재조정(10세션마다)이 정한 비중 · 차이가 작으면 HOLD</span></div>`;
 
 function bindRows(id) {
   document.getElementById(id).querySelectorAll("tr.click").forEach((row) => {
