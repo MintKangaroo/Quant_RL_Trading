@@ -3,7 +3,7 @@
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='trading.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='control.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='alpha_ir.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='alpha_ir.css', v='20261006') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'trading' %}{% include "_scope.html" %}{% endwith %}
@@ -201,5 +201,5 @@
 <script src="{{ url_for('static', filename='calendar.js') }}"></script>
 <script src="{{ url_for('static', filename='candles.js') }}"></script>
 <script src="{{ url_for('static', filename='trading.js') }}"></script>
-<script src="{{ url_for('static', filename='alpha_ir.js') }}"></script>
+<script src="{{ url_for('static', filename='alpha_ir.js', v='20261006') }}"></script>
 {% endblock %}

@@ -113,8 +113,27 @@ function renderAlphaIr(target, stamp, data) {
         <th class="air-x">누적 초과 추이</th>
       </tr></thead>
       <tbody>${(data.books || []).map((b) => airRow(b, columns, data)).join("")}</tbody>
-    </table>`;
+    </table>
+    <ul class="air-cards">${(data.books || []).map((b) => airCard(b, data)).join("")}</ul>`;
   for (const book of data.books || []) if (book.status === "ok") airSpark(book);
+}
+
+
+/* 폰(≤760px)에서는 표 대신 장부마다 두 줄짜리 카드 — 표는 칸이 많아 좁은 화면에서 잘린다(10/6 폰 화면 두 번). */
+function airCard(book, data) {
+  const name = `<span class="air-card-name">${airEsc(book.name)}</span>`;
+  if (book.status !== "ok") {
+    return `<li class="air-card air-off">${name}<span class="air-card-sub">${airEsc(book.reason)}</span></li>`;
+  }
+  const all = book.windows.all;
+  const missing = (all && all.missing) || [];
+  const gap = missing.length ? ` · 결손 ${missing.length}` : "";
+  const ir = all && all.sufficient
+    ? `IR <b class="${airTone(all.ir)}">${airRatio(all.ir)}</b> · β ${all.beta === null || all.beta === undefined ? "—" : all.beta.toFixed(2)}`
+    : `표본 부족 ${all ? all.sessions : 0}/${all ? all.need : data.min_sessions}`;
+  return `<li class="air-card">${name}
+    <span class="air-card-main"><b class="${airTone(all && all.excess)}">${airPct(all && all.excess)}</b> <span class="dim">지수 대비</span></span>
+    <span class="air-card-sub">${all ? all.sessions : 0}세션${gap} · ${ir}</span></li>`;
 }
 
 async function loadAlphaIr() {

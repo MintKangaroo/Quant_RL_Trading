@@ -55,7 +55,9 @@ def test_두_탭에서_실제_응답으로_표가_그려진다(template: str, tm
     line = next((x for x in result.stdout.splitlines() if x.startswith("RESULT ")), None)
     assert line, f"{result.stdout}\n{result.stderr}"
     out = json.loads(line[len("RESULT "):])
-    body = out["html"]
+    html = out["html"]
+    # 표와 폰용 카드 목록(≤760px 에서 표 대신 보인다, 10/6)을 나눠 센다.
+    body, _, cards = html.partition('<ul class="air-cards">')
 
     assert "<table" in body and "못 읽었다" not in body
     assert "undefined" not in body and "NaN" not in body
@@ -73,3 +75,7 @@ def test_두_탭에서_실제_응답으로_표가_그려진다(template: str, tm
     short += sum(1 for b in ok if b["windows"]["all"]["sufficient"]
                  for k in ("20", "60") if not b["windows"][k]["sufficient"])
     assert short > 0 and body.count("표본 부족 ") == short
+    # 카드: 장부마다 하나, 전체 창이 모자란 장부만 '표본 부족' 한 번.
+    assert cards.count('<li class="air-card') == len(books)
+    assert cards.count("표본 부족 ") == sum(1 for b in ok if not b["windows"]["all"]["sufficient"])
+    assert "undefined" not in cards and "NaN" not in cards
