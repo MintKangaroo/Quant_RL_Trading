@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-"""한국 일별 시장금리(콜·CD91·국고 3·10년)를 ECOS 에서 시계열로 창고 `indices` 에 넣는다.
+"""한국 일별 금리(콜·CD91·국고 3·10년·기준금리)를 ECOS 에서 시계열로 창고 `indices` 에 넣는다.
 
     .venv/bin/python tools/backfill_ecos_daily_rates.py \
-        --start 2020-01-02 --end 2026-10-06 [--dry-run]
+        --start 2020-01-02 --end 2026-10-06 [--only BASE] [--dry-run]
 
 `backfill_kr_base_rate.py` 와 같은 자리(`indices`, `board="rate"`, `RATE` 접두어 —
 벤치마크 후보에 안 섞이게)다. 일정 표(`macro_releases`)가 아니라 여기인 이유도 같다 —
@@ -10,10 +10,11 @@
 
 ## 관측시각
 
-ECOS 일별 계열의 공표 시각을 확인하지 못했다. 그래서 **d 값은 다음 세션 마감
-(+ 국장 공표 지연 설정)에 알았다**고 찍는다(`PublicationPolicy.for_session(d,
-extra_lag_days=1)`). 늦게 아는 쪽으로 틀리면 백테스트가 비관적일 뿐이지만, 일찍 아는
-쪽으로 틀리면 미래를 본다. 아직 공표 전인 세션(`NotYetPublished`)과 거래일이 아닌
+계열마다 `lag_sessions`(macro_source.ECOS_DAILY_RATES)만큼 뒤 세션 마감(+ 국장 공표 지연
+설정)에 알았다고 찍는다(`PublicationPolicy.for_session(d, extra_lag_days=...)`). 시장금리는
+ECOS 공표 시각을 확인하지 못해 다음 세션(1), 기준금리는 결정일 오전 공표라 그날 마감(0).
+늦게 아는 쪽으로 틀리면 백테스트가 비관적일 뿐이지만, 일찍 아는 쪽으로 틀리면 미래를 본다.
+아직 공표 전인 세션(`NotYetPublished`)과 거래일이 아닌
 날짜는 건너뛰고 개수를 적는다.
 
 ## 재실행
@@ -61,6 +62,9 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="YYYY-MM-DD — 조회 구간의 끝(창고 시각은 응답의 날짜에서만 온다)",
     )
+    parser.add_argument(
+        "--only", nargs="*", default=None, help="지표 이름만(예: BASE). 생략하면 전부"
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
@@ -75,7 +79,9 @@ def main(argv: list[str] | None = None) -> int:
     start, end = args.start.replace("-", ""), args.end.replace("-", "")
 
     rows: list[dict[str, object]] = []
-    for name, (entity, spec) in ECOS_DAILY_RATES.items():
+    names = args.only or list(ECOS_DAILY_RATES)
+    for name in names:
+        entity, spec = ECOS_DAILY_RATES[name]
         raw = source.search(spec, start=start, end=end, limit=ROW_LIMIT)
         kept = pending = holiday = 0
         for item in raw:
@@ -84,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             day = datetime.strptime(period, "%Y%m%d").date()
             try:
-                observed = policy.for_session(day, extra_lag_days=1)
+                observed = policy.for_session(day, extra_lag_days=int(spec["lag_sessions"]))
             except NotYetPublished:
                 pending += 1
                 continue
@@ -124,7 +130,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         print("(dry-run — 적재하지 않았다)")
         return 0
-    run_id = f"ecos-daily-rates-{args.start}-{args.end}"
+    # 전부 돌린 첫 적재(2026-10-06)의 run_id 는 이름 없이 구간만 — 그 뒤는 지표 이름을 붙인다.
+    tag = "" if args.only is None else "-" + "-".join(names)
+    run_id = f"ecos-daily-rates{tag}-{args.start}-{args.end}"
     if store.ingest_run_recorded("indices", run_id):
         print("이미 적재된 구간이다 — 건너뛴다.")
         return 0

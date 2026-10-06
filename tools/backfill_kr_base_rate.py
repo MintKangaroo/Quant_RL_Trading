@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 """한국은행 기준금리를 **시계열로** 창고에 넣는다 — 한 번만 돌린다.
 
+## ⚠️ 사용 중지 (2026-10-06) — 미래 누수
+
+이 도구가 넣은 `KR:RATE:BASE` 는 월별 값을 그 달 1일(관측 2일)로 찍는다. 기준금리는 달 중간
+금통위에서 바뀌므로 **그 달의 결정이 23~27일 미리 보인다**(2024-11-28 인하가 11/02 에 보임).
+대체: `tools/backfill_ecos_daily_rates.py --only BASE` → `KR:RATE:BASE_DAILY`(722Y001 일별,
+결정일 마감에 관측). 옛 행은 append-only 라 남겨 두고, 이 도구는 다시 돌지 않게 막았다.
+
     uv run python tools/backfill_kr_base_rate.py --start 2023-06
 
 ## 왜 `macro_releases` 가 아니라 `indices` 인가
@@ -51,6 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--end", default=None, help="YYYY-MM (생략하면 이번 달)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if not args.dry_run:
+        print(
+            "사용 중지(2026-10-06, 미래 누수) — backfill_ecos_daily_rates.py --only BASE 를 쓴다.",
+            file=sys.stderr,
+        )
+        return 2
 
     load_env()
     key = os.environ.get("ECOS_API_KEY") or os.environ.get("BOK_API_KEY")

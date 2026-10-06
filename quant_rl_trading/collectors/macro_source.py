@@ -300,18 +300,28 @@ ECOS_STATS: dict[str, dict[str, str]] = {
 }
 
 
-#: 일별 시장금리 — 창고 `indices` 에 시계열로 넣는다(`tools/backfill_ecos_daily_rates.py`).
-#: 지표 → (entity_id, 통계 조회 규격).
-#: **코드는 목록 API 로 이름을 대조했다**(2026-10-06, StatisticItemList 817Y002):
+#: 일별 금리 — 창고 `indices` 에 시계열로 넣는다(`tools/backfill_ecos_daily_rates.py`).
+#: 지표 → (entity_id, 통계 조회 규격 + `lag_sessions`).
+#: **코드는 목록 API 로 이름을 대조했다**(2026-10-06, StatisticItemList 817Y002·722Y001):
 #: 콜금리(1일, 전체거래) 010101000 · CD(91일) 010502000 · 국고채(3년) 010200000 ·
-#: 국고채(10년) 010210000. 같은 표에 2·5·20·30년·KOFR 도 있다(아직 안 싣는다).
-#: ECOS 의 일별 공표 시각은 확인하지 못했다 — 백필은 다음 세션 마감 뒤에 알았다고 본다
-#: (`extra_lag_days=1`).
+#: 국고채(10년) 010210000 · 한국은행 기준금리(일별) 0101000. 같은 표에 2·5·20·30년·KOFR 도
+#: 있다(아직 안 싣는다).
+#: `lag_sessions` — d 값을 언제 알았다고 찍나(세션 마감 기준). 시장금리는 ECOS 일별 공표 시각을
+#: 확인하지 못해 다음 세션 마감(1). 기준금리는 결정일 오전(금통위 ~10시) 공표라 그날 마감(0) —
+#: 공표보다 늦게 잡는 쪽이다.
+#: **기준금리는 월별(722Y001 M)을 쓰지 않는다.** 그 달 1일로 찍으면 달 중간 결정이 23~27일
+#: 미리 보인다(`KR:RATE:BASE`, 2026-10-06 사용 중지 — docs/design/config.md allocator.env).
 ECOS_DAILY_RATES: dict[str, tuple[str, dict[str, str]]] = {
-    "CALL": ("KR:RATE:CALL", {"stat_code": "817Y002", "item_code": "010101000", "cycle": "D"}),
-    "CD91": ("KR:RATE:CD91", {"stat_code": "817Y002", "item_code": "010502000", "cycle": "D"}),
-    "KTB3Y": ("KR:RATE:KTB3Y", {"stat_code": "817Y002", "item_code": "010200000", "cycle": "D"}),
-    "KTB10Y": ("KR:RATE:KTB10Y", {"stat_code": "817Y002", "item_code": "010210000", "cycle": "D"}),
+    "CALL": ("KR:RATE:CALL", {"stat_code": "817Y002", "item_code": "010101000", "cycle": "D",
+                              "lag_sessions": "1"}),
+    "CD91": ("KR:RATE:CD91", {"stat_code": "817Y002", "item_code": "010502000", "cycle": "D",
+                              "lag_sessions": "1"}),
+    "KTB3Y": ("KR:RATE:KTB3Y", {"stat_code": "817Y002", "item_code": "010200000", "cycle": "D",
+                                "lag_sessions": "1"}),
+    "KTB10Y": ("KR:RATE:KTB10Y", {"stat_code": "817Y002", "item_code": "010210000", "cycle": "D",
+                                  "lag_sessions": "1"}),
+    "BASE": ("KR:RATE:BASE_DAILY", {"stat_code": "722Y001", "item_code": "0101000", "cycle": "D",
+                                    "lag_sessions": "0"}),
 }
 
 

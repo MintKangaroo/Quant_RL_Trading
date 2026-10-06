@@ -207,6 +207,14 @@ allocator:                     # 유동시총 가중(float_cap — Z2·미장 G1
   float_cap_limit: 0.10        # 한 종목 상한. 샌드박스 덮어쓰기로 켠다
   float_cap_min_coverage: 0.8  # 후보 중 시총을 아는 비율이 이보다 낮으면 동일가중으로 물러선다.
                                # 아는 몇 종목에만 예산을 다 실으면 나머지가 목표 0 = 이유 없는 전량 매도다 (2026-09-26)
+  env:
+    kr_policy_rate_series: "KR:RATE:BASE_DAILY"   # 한미 정책금리차 칸이 읽는 `indices` 이름. ECOS 722Y001 **일별**(결정일에 바뀐다),
+                               # 관측 = 그 세션 마감 + 국장 공표 지연(tools/backfill_ecos_daily_rates.py). 정정 2026-10-06 — 옛 값
+                               # "KR:RATE:BASE"(월별을 그 달 1일·관측 2일로 찍음)는 달 중간 금리 결정을 **23~27일 미리 보여준다**
+                               # (2024-11-28 인하가 11/02 에 보임). 옛 행은 append-only 라 남아 있고 2026-10-06 이후 사용 중지.
+                               # seed_config 정정본은 지금 시각 발효라 과거 as_of 조회는 여전히 옛 이름을 읽는다.
+                               # **과거 RL 결과(M4 1~4회차)는 이 누수 아래에서 나왔다** — RL 은 종료 상태라 재평가하지 않는다.
+    us_policy_rate_series: "US:RATE:FED_FUNDS"
 ```
 
 ---

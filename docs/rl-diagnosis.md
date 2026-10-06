@@ -227,6 +227,11 @@ EV 를 버리는 것은 **판정 도구 하나를 잃는 것**이다. 현금 59%
 - 미국: FRED `DFF` → `indices` 의 `US:RATE:FED_FUNDS` (1,174행, 2023-06~)
 - 한국: ECOS `722Y001/0101000` → `indices` 의 `KR:RATE:BASE`
   (38행, 월별, `tools/backfill_kr_base_rate.py`)
+  — **2026-10-06 사용 중지: 미래 누수.** 월별 값을 그 달 1일(관측 2일)로 찍어서 달 중간 금통위 결정이
+  **23~27일 미리** 보였다(2024-11-28 인하가 11/02 에 보임). 일별 `KR:RATE:BASE_DAILY`(결정일에 바뀜,
+  `tools/backfill_ecos_daily_rates.py --only BASE`)로 바꾸고 `allocator.env.kr_policy_rate_series` 를 정정했다
+  (정정본은 2026-10-06 발효라 그 전 as_of 는 옛 이름을 읽는다). **과거 RL 결과(M4 1~4회차)는 이 누수 아래에서
+  나왔다** — RL 은 종료 상태라 재평가하지 않는다(docs/design/config.md allocator.env).
 - `_rate_differential` 이 `indices.close` 를 읽는다
 - 계열 이름 config 2건을 **2023-06-01 소급**으로 시딩했다. config 정정본은 보통
   오늘부터 유효해야 하지만(과거 백테스트 재현), 옛 이름은 **어느 as_of 에서도 한

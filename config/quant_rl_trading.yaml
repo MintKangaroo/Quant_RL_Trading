@@ -471,7 +471,9 @@ allocator:
     # 그 표는 "언제 무엇이 발표되나" 를 담는 일정 표라 valid_from 이 수집
     # 시각이고, 과거 as_of 로 조회하면 한 행도 안 걸린다 — RL 환경의 금리차
     # 칸이 200k 스텝 내내 0 이었던 이유가 이것이다(2026-08-19).
-    kr_policy_rate_series: "KR:RATE:BASE"
+    # 2026-10-06 정정: "KR:RATE:BASE"(월별을 그 달 1일로 찍어 달 중간 결정이 23~27일 미리 보임) → 일별(결정일에 바뀜).
+    # 옛 행은 append-only 라 남는다 — 사용 중지. docs/design/config.md allocator.env.
+    kr_policy_rate_series: "KR:RATE:BASE_DAILY"
     us_policy_rate_series: "US:RATE:FED_FUNDS"
 
 fx:
