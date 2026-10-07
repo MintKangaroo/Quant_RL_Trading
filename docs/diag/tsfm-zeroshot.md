@@ -97,6 +97,51 @@
 2. `bench/tsfm_zeroshot_infer.py`(`.venv-bench`)는 **입력 계열만** 읽어 예측을 쓴다. 라벨 파일 경로를 받지 않는다.
 3. `tools/diag_tsfm_zeroshot.py score`(실전 `.venv`)만 예측과 라벨을 합친다.
 
+### §1-보충 (2026-10-07 밤, **어떤 모델 결과도 보기 전**) — Kronos 추가와 삭제 기준
+
+리드 지시로 덧붙인다. 이 시점에 extract(입력·라벨 파일 생성)는 돌았다. 모델 추론과 score 는 **하나도 돌지 않았다**(합성 자료 스모크만 했다).
+
+**Kronos(주식 특화 캔들 트랜스포머)**
+
+| 모델 | HF id @ 리비전 | 크기 | 라이선스 | 사전학습 자료 | 이 진단의 D₀ |
+|---|---|---|---|---|---|
+| Kronos-small | `NeoQuasar/Kronos-small` @ `901c26c1` | 24.7M | MIT | 45개 이상 거래소의 K-line 120억 개 이상. 거래소에 **KRX(XKRX)·NASDAQ(XNAS) 포함**. 일봉 포함(1분~주). 논문은 "extends up to June 2024" 라고 적었다(arXiv 2508.02739) | 2025-09-30 |
+| Kronos-base | `NeoQuasar/Kronos-base` @ `2b554741` | 102.3M | MIT | 같다 | 2025-09-30 |
+| 토크나이저 | `NeoQuasar/Kronos-Tokenizer-base` @ `0e011738` | 4M | MIT | — | — |
+
+- **D₀**: 논문의 컷오프(2024-06)로 잡으면 2024-10-01 이다. 그런데 공개 가중치(HF 2025-06-30)가 논문 판 그대로인지 카드에 적혀 있지 않다.
+  그래서 **공개일 + 3개월 = 2025-09-30** 을 쓴다. 따라서 **창 A 만** 돌리고 창 B 는 돌리지 않는다.
+- **오염 경고**: Kronos 는 우리 두 시장의 일봉을 학습했다. 2024-06 이전(또는 보수적으로 2025-06 이전) 구간에 대한 어떤 Kronos 결과도 **"오염 가능, 참고"** 로만 읽는다.
+  의미 있는 판정은 **금고·전방**에서만 한다. 창 A 결과도 진단일 뿐 판정이 아니다.
+- **입력**: 보정 OHLC + 원 거래량 + 거래대금(원종가 × 원거래량), 길이 256·64(위와 같은 창 길이). 타임스탬프는 실제 세션 날짜이고, 미래 6개는 그 시장의 다음 6세션이다.
+- **예측**: `KronosPredictor.predict_batch`, `sample_count=5`, T 1.0, top_p 0.9, `torch.manual_seed(0)`. 저장소 코드가 5개 표본 경로를 평균한다.
+  - 수익 r̂ = 평균 경로의 종가로 §1 과 같게 계산한다.
+  - 변동성 σ̂ = 평균 경로의 고가·저가로 만든 **Parkinson** 추정 `sqrt(Σ_{k=2..6} ln(H/L)² / (4 ln 2))`. 캔들 모델이니 범위로 잰다. 미리 정한 하나다.
+- 코드: GitHub `shiyu-coder/Kronos` @ `67b630e` 의 `model/` 만 `/mnt/d/quant_rl_trading/tools/kronos-67b630e/` 에 복사했다(MIT).
+
+**벤치·진단 뒤 삭제 기준 (사용자 10/7 "쓸모없는 모델은 지워" — 결과 보기 전 고정)**
+
+삭제 대상은 HDD `/mnt/d/quant_rl_trading/hf` 와 `~/.cache/huggingface` 둘 다다. 지우기 전에 목록과 크기를 리드에게 보고한다.
+다시 받을 수 있게 모델 ID·리비전은 [alpha-research-program.md](../design/alpha-research-program.md) 부록 C 에 남긴다.
+
+| # | 기준 | 적용 대상 | 판단 자료 |
+|---|---|---|---|
+| D-a | **CPU 운영 예산 미달**. 시계열·표 모델: 2,800 계열(또는 300행 표) 매일 30분 안. LLM: 후보 100 × 주 1회가 밤 2시간 안(종목당 72초 이하) | 전부 | `bench/run_cpu_bench.sh` 결과 JSON |
+| D-b | **제로샷이 단순 대조에 못 미침**: 창 A·L256 에서 **두 시장 모두** IC 가 max(모멘텀, 반전) 이하 **이고** 변동성 ρ 가 EWMA 이하 | 시계열·Kronos | 이 진단의 score.json |
+| D-c | **같은 계열 큰 판이 나을 게 없음**: 큰 판이 작은 판보다 창 A·L256 의 IC 또는 변동성 ρ 에서 0.01 이상 나은 시장·과제가 **하나도 없음** → 큰 판 삭제 | Kronos base 대 small · Chronos-2 대 Chronos-Bolt | score.json |
+| D-d | **읽을 수 없는 파일** | EXAONE-3.5-7.8B Q4(부록 C — 불량 블록) | 검증 로그 |
+| D-e | **어떤 등록·계획에도 안 쓰임** | ProsusAI/finbert(영어, 계획 없음) · snunlp/KR-SBERT-V40K(TX 인코더 후보 C, 채택 안 됨) | 문서 |
+
+- **예외 — 등록 판정 전엔 지우지 않는다**:
+  - TTM(P2-a 1순위)
+  - ChronoGPT 연도별 판 2021~2024(P2-c)
+  - polyglot-ko-5.8b(P2-d)
+  - ko-sroberta(TX)
+  - multilingual-e5-small(기각된 시행 X 의 고정 모델 — 재현용)
+  - TabPFN v2·2.5(P2-b — 벤치는 합성이라 품질 판단 자료가 없다)
+  - Qwen3·EXAONE-4.0 GGUF(전방 shadow 후보 — 품질 비교 자료가 없어 D-a 만 적용한다)
+- 품질 비교 자료가 없는 큰 판(Qwen3-8B 대 1.7B)에는 D-c 를 적용하지 않는다. D-a 만 적용한다.
+
 ## §2 결과
 
 (돌린 뒤 붙인다.)
