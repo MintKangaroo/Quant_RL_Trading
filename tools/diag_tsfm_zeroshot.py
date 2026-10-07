@@ -266,6 +266,12 @@ def score() -> None:
                 run = json.loads((OUT / "preds" / f"{model}-run.json").read_text()) if (OUT / "preds" / f"{model}-run.json").exists() else {}
                 cell = run.get("cells", {}).get(f"{market}-{w}-L{L}", {})
                 rows.append(_row(market, w, model, L, use, r_hat, s_hat, q_ref, cell))
+    for runf in sorted((OUT / "preds").glob("*-run.json")):    # 못 잰 칸도 표에 남긴다(조용히 빠지지 않게)
+        run = json.loads(runf.read_text())
+        for key, v in run.get("cells", {}).items():
+            if isinstance(v, str):
+                market, w, L = key.split("-")
+                rows.append({"시장": market, "창": w, "모델": run["model"], "L": L[1:], "상태": v})
     table = pd.DataFrame(rows)
     (OUT / "score.json").write_text(table.to_json(orient="records", force_ascii=False, indent=1))
     with pd.option_context("display.width", 220, "display.max_columns", 30):

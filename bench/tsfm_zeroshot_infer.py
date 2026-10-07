@@ -26,6 +26,9 @@ BUDGET_S = 90 * 60
 MODELS = ["ttm", "chronos_bolt", "moirai2", "timesfm", "chronos2", "kronos_small", "kronos_base"]
 KRONOS = {"kronos_small": "NeoQuasar/Kronos-small", "kronos_base": "NeoQuasar/Kronos-base"}
 KRONOS_HF = "/mnt/d/quant_rl_trading/hf"
+# 외장 D: 는 chkdsk 정상 판정 뒤에만 읽는다(10/7 리드). 판정이 나면 리드 지시로 이 파일을 만든다. 없으면 Kronos 칸은
+# D: 를 건드리지 않고 "미측정(디스크 점검 대기)" 로 적는다. 다른 모델(SSD)은 그대로 돈다.
+D_DRIVE_OK = Path("data/_bench/D_DRIVE_OK")
 KRONOS_TOP = 100      # §1-보충 2: 세션마다 거래대금 상위 100(keys 행 순서 = 거래대금 순)
 KRONOS_CODE = "/mnt/d/quant_rl_trading/tools/kronos-67b630e"   # GitHub shiyu-coder/Kronos @ 67b630e 의 model/ (MIT)
 # §1 순서: 창 A·L256 → 창 A·L64 → 창 B(TTM·Bolt 만, L256)
@@ -169,6 +172,10 @@ def run_model(name: str, threads: int) -> dict:
             continue
         if name in KRONOS and window != "A":              # Kronos 는 창 A 만(§1-보충)
             continue
+        if name in KRONOS and not D_DRIVE_OK.exists():
+            for market in MARKETS:
+                rec["cells"][f"{market}-{window}-L{L}"] = "미측정(디스크 점검 대기)"
+            continue
         for market in MARKETS:
             key = f"{market}-{window}-L{L}"
             src = ROOT / "inputs" / f"ctx-{market}-{window}.npz"
@@ -207,8 +214,7 @@ def run_model(name: str, threads: int) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--threads", type=int, default=10)
-    # 외장 D: 는 chkdsk 결과 전까지 읽지 않는다(10/7 리드) — Kronos(D: 에 있음)는 기본 묶음에서 뺀다. 검사 뒤 --models kronos_small kronos_base
-    ap.add_argument("--models", nargs="+", default=[m for m in MODELS if m not in KRONOS], choices=MODELS)
+    ap.add_argument("--models", nargs="+", default=MODELS, choices=MODELS)
     a = ap.parse_args()
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     bad = 0
