@@ -173,6 +173,20 @@ def panel_path(arm: str) -> Path:
     return fkit.FA2021_DIR / "panel" / "panel-US-KR+US-20211110-20260630.parquet"  # invariant-allow: data-access — 연구 패널 캐시
 
 
+#: §1 정정 5 — 이 진단이 읽는 패널 캐시(크기 B, 수정 시각). 명단 수정(619ec39) 뒤 누가 같은 자리에 새로 구웠으면 멈춘다.
+PANEL_STAMPS = {"old": (56443946, "2026-09-28 04:27"), "new": (97454387, "2026-10-05 07:53")}
+
+
+def check_stamps() -> None:
+    for arm, (size, when) in PANEL_STAMPS.items():
+        path = panel_path(arm)
+        st = path.stat()
+        got = (st.st_size, datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"))  # invariant-allow: wallclock — 파일 시각
+        if got != (size, when):
+            print(f"{path}: {got} ≠ 고정 {(size, when)} — 패널이 바뀌었다, 멈춘다", flush=True)
+            raise SystemExit(6)
+
+
 def read_panel(arm: str, columns: list[str] | None = None) -> pd.DataFrame:
     from tools import final_round_kit as fkit
     p = pd.read_parquet(panel_path(arm), columns=columns)  # invariant-allow: data-access — 연구 패널 캐시
@@ -247,6 +261,7 @@ def bake(args: argparse.Namespace) -> int:
         print(f"시작하지 않는다 — {why}", flush=True)
         return 7
     arm = args.arm
+    check_stamps()
     feats = c1_feats(arm)
     panel = read_panel(arm)
     if arm == "blank":
@@ -459,6 +474,7 @@ def run(args: argparse.Namespace) -> int:
     if why:
         print(f"시작하지 않는다 — {why}", flush=True)
         return 7
+    check_stamps()
     store = Store(root=Path("data"))
     ret, bench = ukit.market()
     cost = cost_one_way(store, datetime.combine(date(2026, 6, 30), time(23), tzinfo=UTC))
