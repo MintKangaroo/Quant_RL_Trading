@@ -287,3 +287,8 @@
   #orders table { display: none; }
   #orders .od-cards { display: block; }
 }
+
+/* 봉 차트 — 폰에서 더 크게(10/7: 봉 영역이 손바닥만 했다). */
+@media (max-width: 768px) {
+  #chart-candle.chart.tall { height: 560px; }
+}

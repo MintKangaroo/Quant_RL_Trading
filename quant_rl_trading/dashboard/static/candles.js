@@ -249,13 +249,33 @@ function candleOption(c, opts) {
   // 되어 아무것도 안 보인다. 나머지는 스크롤로 간다.
   const span = (c.sessions || []).length;
   const startPct = span > 120 ? Math.max(0, (1 - 120 / span) * 100) : 0;
+  // 폰(≤768px): 범례를 숨기고 여백을 줄여 봉 영역을 넓힌다. 툴팁은 왼쪽 위에 작게 고정 — 기본 툴팁(9줄)이
+  // 차트 한가운데를 다 덮었다(10/7 사용자 화면).
+  const narrow = typeof window !== "undefined" && window.innerWidth <= 768;
+  const maRow = (rows, name) => {
+    const r = (rows || []).find((x) => x.seriesName === name);
+    return r && r.value !== null && r.value !== undefined && r.value !== "-" ? `${name} ${dec(r.value, 0)}` : "";
+  };
+  const narrowTip = narrow ? {
+    tooltip: { ...BASE.tooltip, position: [6, 4], padding: [3, 6],
+      textStyle: { ...BASE.tooltip.textStyle, fontSize: 10.5 },
+      formatter: (rows) => {
+        const ohlc = candleTooltipFormatter(c, "")(rows);
+        const mas = ["MA5", "MA20", "MA60"].map((n) => maRow(rows, n)).filter(Boolean).join(" · ");
+        return mas ? `${ohlc}<br>${mas}` : ohlc;
+      } },
+  } : {};
   return {
     ...BASE,
-    legend: { ...BASE.legend, data: ["봉", "MA5", "MA20", "MA60"] },
+    ...narrowTip,
+    legend: narrow ? { show: false } : { ...BASE.legend, data: ["봉", "MA5", "MA20", "MA60"] },
     // 높이를 비율로 주면 봉 영역이 패널 높이에 따라 접힌다 — 실제로 봉이
     // 세로로 눌려 보였다. 거래량(56px)과 손잡이(24px)는 고정 크기이므로
     // 픽셀로 잡고, 남는 세로는 전부 봉이 가져간다.
-    grid: [
+    grid: narrow ? [
+      { left: 46, right: 12, top: 8, bottom: 96 },
+      { left: 46, right: 12, height: 48, bottom: 40 },
+    ] : [
       { left: 56, right: 62, top: 26, bottom: 108 },
       { left: 56, right: 62, height: 56, bottom: 46 },
     ],
@@ -293,7 +313,11 @@ function candleOption(c, opts) {
     yAxis: [
       // scale + 확대 구간 기준 재계산. 없으면 5년 최고가에 눌려 최근 봉이
       // 납작해진다.
-      { type: "value", scale: true, ...AXIS, gridIndex: 0 },
+      // 폰: 가격 축 글자를 만 단위로(280,000 → 28만) — 일곱 자리 글자가 왼쪽 여백 밖으로 잘렸다(10/7).
+      narrow
+        ? { type: "value", scale: true, ...AXIS, gridIndex: 0,
+            axisLabel: { ...AXIS.axisLabel, formatter: (v) => (Math.abs(v) >= 10000 ? `${+(v / 10000).toFixed(1)}만` : `${v}`) } }
+        : { type: "value", scale: true, ...AXIS, gridIndex: 0 },
       { type: "value", gridIndex: 1, axisLabel: { show: false }, splitLine: { show: false },
         axisLine: AXIS.axisLine },
     ],

@@ -170,10 +170,36 @@ function currentEntity() {
   return new URLSearchParams(window.location.search).get("entity");
 }
 
-function selectEntity(entityId) {
+/* 후보·보유 종목을 고르면 **그 종목에 걸린 부분만** 다시 그린다(10/7 사용자 요청 — 전엔 화면 전체를 새로 불렀다).
+ * 주소의 ?entity= 는 history.replaceState 로 바꿔 둔다 — "그때 그 화면" 링크와 새로고침 재현은 그대로다.
+ * 다시 그리는 것: 후보 표의 선택 표시 · 'AI 결정 · 왜 샀나' · 차트. KPI·주문·계좌·곡선은 종목과 무관해 그대로 둔다. */
+let selectSeq = 0;
+async function selectEntity(entityId) {
   const query = new URLSearchParams(window.location.search);
   query.set("entity", entityId);
-  window.location.search = query.toString();
+  history.replaceState(null, "", `${window.location.pathname}?${query.toString()}`);
+  // 선택 표시는 응답을 기다리지 않고 바로 옮긴다(누른 느낌).
+  document.querySelectorAll("#watchlist .on, #positions .on").forEach((el) => el.classList.remove("on"));
+  document.querySelectorAll(`[data-entity="${CSS.escape(entityId)}"]`).forEach((el) => el.classList.add("on"));
+  const chartNote = document.getElementById("chart-note");
+  if (chartNote) chartNote.textContent = "불러오는 중…";
+  const seq = ++selectSeq;
+  let body;
+  try {
+    body = await fetchJson(`trading?entity=${encodeURIComponent(entityId)}`);
+  } catch (error) {
+    if (chartNote) chartNote.textContent = "종목 조회 실패 · 다시 눌러 본다.";
+    return;
+  }
+  if (seq !== selectSeq) return;   // 그 사이 다른 종목을 눌렀다 — 늦게 온 응답으로 덮지 않는다
+  if (body.data.unavailable) return;
+  renderDecision(body);
+  candidateContext = body.data;
+  const details = document.getElementById("candidate-details");
+  if (!details || details.open) {
+    try { await renderCandles(body.data.decision.entity_id, body.data.positions); }
+    catch (_) { if (chartNote) chartNote.textContent = "차트 조회 실패 · 다시 눌러 본다."; }
+  }
 }
 
 /* -- 상태 바 -------------------------------------------------------------- */
