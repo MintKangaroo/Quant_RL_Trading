@@ -23,7 +23,11 @@ ROOT = Path("data/_diag/tsfm-zeroshot")
 H = 6
 BATCH = 256
 BUDGET_S = 90 * 60
-MODELS = ["ttm", "chronos_bolt", "moirai2", "timesfm", "chronos2"]
+MODELS = ["ttm", "chronos_bolt", "moirai2", "timesfm", "chronos2", "kronos_small", "kronos_base"]
+KRONOS = {"kronos_small": "NeoQuasar/Kronos-small", "kronos_base": "NeoQuasar/Kronos-base"}
+KRONOS_HF = "/mnt/d/quant_rl_trading/hf"
+KRONOS_TOP = 100      # §1-보충 2: 세션마다 거래대금 상위 100(keys 행 순서 = 거래대금 순)
+KRONOS_CODE = "/mnt/d/quant_rl_trading/tools/kronos-67b630e"   # GitHub shiyu-coder/Kronos @ 67b630e 의 model/ (MIT)
 # §1 순서: 창 A·L256 → 창 A·L64 → 창 B(TTM·Bolt 만, L256)
 PLAN = [("A", 256), ("A", 64), ("B", 256)]
 WINDOW_B_MODELS = {"ttm", "chronos_bolt"}
@@ -42,11 +46,15 @@ class Forecaster:
         self.revision = None
         self._cache: dict = {}
 
+    deadline = float("inf")
+
     def __call__(self, x: np.ndarray) -> np.ndarray:
         L = x.shape[1]
         fn = getattr(self, f"_{self.name}")
         out = []
         for i in range(0, len(x), BATCH):
+            if time.perf_counter() > self.deadline:
+                raise TimeoutError("모델 예산 90분 소진(칸 도중)")
             out.append(np.asarray(fn(x[i:i + BATCH], L), dtype=np.float32))
         return np.concatenate(out) if out else np.zeros((0, H), np.float32)
 
@@ -110,14 +118,56 @@ class Forecaster:
         return q[:, qi, :H].reshape(len(x), H).numpy()
 
 
+def kronos_cell(name: str, market: str, L: int, cache: dict, deadline: float) -> tuple[np.ndarray, np.ndarray]:
+    """§1-보충: Kronos — 보정 OHLC·원 거래량·거래대금 → 평균 경로(표본 5). 종가 경로와 Parkinson 분산(일별)을 돌려준다."""
+    import sys
+
+    import pandas as pd
+
+    if KRONOS_CODE not in sys.path:
+        sys.path.insert(0, KRONOS_CODE)
+    from model import Kronos, KronosPredictor, KronosTokenizer
+
+    if "pred" not in cache:
+        def local(repo: str) -> str:                     # 외장 D: 에 받은 스냅숏을 경로로 직접 연다(다른 모델은 ~/.cache 그대로)
+            return str(next((Path(KRONOS_HF) / "hub" / f"models--{repo.replace('/', '--')}" / "snapshots").iterdir()))
+
+        tok = KronosTokenizer.from_pretrained(local("NeoQuasar/Kronos-Tokenizer-base"))
+        cache["pred"] = KronosPredictor(Kronos.from_pretrained(local(KRONOS[name])), tok, device="cpu", max_context=512)
+    d = np.load(ROOT / "inputs" / f"kronos-{market}-A.npz")
+    x, rs, stamps = d["ohlcva"], d["row_session"], d["stamps"]
+    rank_in_session = pd.Series(rs).groupby(rs).cumcount().to_numpy()
+    rows = np.flatnonzero(rank_in_session < KRONOS_TOP)
+    cols = ["open", "high", "low", "close", "volume", "amount"]
+    price = np.full((len(x), H), np.nan, np.float32)
+    sq = np.full((len(x), H), np.nan, np.float32)
+    for i in range(0, len(rows), BATCH):
+        if time.perf_counter() > deadline:
+            raise TimeoutError("모델 예산 90분 소진(칸 도중)")
+        torch.manual_seed(0)
+        part = rows[i:i + BATCH]
+        dfs = [pd.DataFrame(x[j, -L:], columns=cols) for j in part]
+        xs = [pd.Series(pd.to_datetime(stamps[rs[j], -(L + H):-H])) for j in part]
+        ys = [pd.Series(pd.to_datetime(stamps[rs[j], -H:])) for j in part]
+        out = cache["pred"].predict_batch(dfs, xs, ys, pred_len=H, T=1.0, top_p=0.9, sample_count=5, verbose=False)
+        for j, o in zip(part, out, strict=True):
+            price[j] = o["close"].to_numpy(np.float32)
+            hl = np.log(np.clip(o["high"].to_numpy(), 1e-9, None) / np.clip(o["low"].to_numpy(), 1e-9, None))
+            sq[j] = (hl ** 2 / (4 * np.log(2))).astype(np.float32)
+    return price, sq
+
+
 def run_model(name: str, threads: int) -> dict:
     torch.set_num_threads(threads)
     fc = Forecaster(name)
     t_start = time.perf_counter()
+    fc.deadline = t_start + BUDGET_S
     rec = {"model": name, "threads": threads, "cells": {}}
     (ROOT / "preds").mkdir(parents=True, exist_ok=True)
     for window, L in PLAN:
         if window == "B" and name not in WINDOW_B_MODELS:
+            continue
+        if name in KRONOS and window != "A":              # Kronos 는 창 A 만(§1-보충)
             continue
         for market in MARKETS:
             key = f"{market}-{window}-L{L}"
@@ -131,17 +181,23 @@ def run_model(name: str, threads: int) -> dict:
             if avail_mb() < 6000:
                 rec["cells"][key] = f"미측정(메모리 {avail_mb()}MB)"
                 continue
-            d = np.load(src)
             t0 = time.perf_counter()
             try:
-                price = fc(d["price"][:, -L:].astype(np.float32))
-                sq = fc(d["sq"][:, -L:].astype(np.float32))
-            except Exception as e:
+                if name in KRONOS:
+                    price, sq = kronos_cell(name, market, L, fc._cache, fc.deadline)
+                else:
+                    d = np.load(src)
+                    price = fc(d["price"][:, -L:].astype(np.float32))
+                    sq = fc(d["sq"][:, -L:].astype(np.float32))
+            except TimeoutError:
+                rec["cells"][key] = "미측정(시간)"
+                continue
+            except Exception as e:  # 실패도 결과다
                 rec["cells"][key] = f"오류 {type(e).__name__}: {e}"[:300]
                 continue
             secs = time.perf_counter() - t0
             np.savez(ROOT / "preds" / f"{name}-{key}.npz", price=price, sq=sq)
-            rec["cells"][key] = {"n": len(price), "seconds": secs, "per_series_ms": 1000 * secs / max(2 * len(price), 1)}
+            rec["cells"][key] = {"n": int(np.isfinite(price[:, 0]).sum()), "seconds": secs, "per_series_ms": 1000 * secs / max(int(np.isfinite(price[:, 0]).sum()), 1)}  # 계열 = (수익+변동성) 한 쌍
             print(name, key, rec["cells"][key], flush=True)
     rec["total_s"] = time.perf_counter() - t_start
     (ROOT / "preds" / f"{name}-run.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1))

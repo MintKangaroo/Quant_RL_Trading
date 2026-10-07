@@ -20,11 +20,11 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT_DIR))
 
-import numpy as np
-import pandas as pd
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
-from quant_rl_trading.store import Store
-from quant_rl_trading.store.prices import wide_close_and_turnover
+from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store.prices import FACTOR_COLUMN, adjust, read_prices, wide_close_and_turnover  # noqa: E402
 
 OUT = ROOT_DIR / "data" / "_diag" / "tsfm-zeroshot"
 KST = timezone(timedelta(hours=9))
@@ -121,6 +121,41 @@ def build_rows(close: pd.DataFrame, dv: pd.DataFrame, market: str, positions: li
     return (pd.concat(keys, ignore_index=True), np.concatenate(prices), np.concatenate(sqs), pd.concat(labels, ignore_index=True))
 
 
+def kronos_inputs(store: Store, market: str, close: pd.DataFrame, keys: pd.DataFrame) -> dict:
+    """§1-보충: Kronos 입력 — 보정 OHLC + 원 거래량 + 거래대금(원종가 × 원거래량), 창 A 행과 같은 순서. 라벨 없음."""
+    ents = sorted(keys["entity_id"].unique())
+    days = (AS_OF.date() - HIST_START).days + 40
+    raw = read_prices(store, as_of=AS_OF, lookback=days, market=market, entity=ents,
+                      columns=["open", "high", "low", "close", "volume", FACTOR_COLUMN], adjusted=False)
+    raw["day"] = pd.to_datetime(raw["valid_from"]).dt.date
+    adj = adjust(raw)
+
+    def wide(frame: pd.DataFrame, col: str) -> pd.DataFrame:
+        w = frame.pivot_table(index="day", columns="entity_id", values=col, aggfunc="last")
+        return w.reindex(index=close.index, columns=ents)
+
+    o, h, lo, c = (wide(adj, k) for k in ("open", "high", "low", "close"))
+    amount = wide(raw, "close") * wide(raw, "volume")
+    vol = wide(raw, "volume")
+    idx = list(close.index)
+    pos = {d: i for i, d in enumerate(idx)}
+    x = np.zeros((len(keys), CTX, 6), np.float32)
+    stamps = []
+    for r, (t, e) in enumerate(zip(keys["session"], keys["entity_id"], strict=True)):
+        i = pos[t]
+        sl = slice(i - CTX + 1, i + 1)
+        cc = c[e].iloc[sl].ffill(limit=MAX_GAP).bfill()
+        block = np.column_stack([
+            o[e].iloc[sl].fillna(cc), h[e].iloc[sl].fillna(cc), lo[e].iloc[sl].fillna(cc), cc,
+            vol[e].iloc[sl].fillna(0.0), amount[e].iloc[sl].fillna(0.0)])
+        x[r] = block
+    for t in sorted(keys["session"].unique()):
+        i = pos[t]
+        stamps.append([str(d) for d in idx[i - CTX + 1: i + H + 1]])
+    return {"ohlcva": x, "row_session": keys["session"].map({t: k for k, t in enumerate(sorted(keys["session"].unique()))}).to_numpy(),
+            "stamps": np.array(stamps)}
+
+
 def fit_har(close: pd.DataFrame, dv: pd.DataFrame, market: str) -> list[float]:
     idx = list(close.index)
     keys, _, _, lab = build_rows(close, dv, market, decision_sessions(idx, *HAR_FIT))
@@ -145,6 +180,8 @@ def extract() -> None:
             keys, p, s, lab = build_rows(close, dv, market, pos)
             assert lab["session"].max() < VAULT_START and max(idx[i + H] for i in pos) < VAULT_START
             np.savez(OUT / "inputs" / f"ctx-{market}-{w}.npz", price=p, sq=s)
+            if w == "A":                                   # Kronos 는 창 A 만(§1-보충)
+                np.savez(OUT / "inputs" / f"kronos-{market}-{w}.npz", **kronos_inputs(store, market, close, keys))
             keys.to_pickle(OUT / "inputs" / f"keys-{market}-{w}.pkl")
             lab.to_pickle(OUT / "labels" / f"labels-{market}-{w}.pkl")
             print(f"{market} 창 {w}: 세션 {keys['session'].nunique()} · 행 {len(keys)} · 세션당 중앙 "
@@ -204,17 +241,31 @@ def score() -> None:
             ewma_q = _qlike(base["sigma"].to_numpy(), ctrl["EWMA"][1].to_numpy())
             for name, (rh, sh) in ctrl.items():
                 rows.append(_row(market, w, name, "-", base, rh, sh, ewma_q, None))
+            subset_done = False
             for f in sorted((OUT / "preds").glob(f"*-{market}-{w}-L*.npz")):
                 model, L = f.stem.split(f"-{market}-")[0], f.stem.rsplit("-L", 1)[1]
                 d = np.load(f)
                 if len(d["price"]) != len(base):
                     raise SystemExit(f"{f.name}: 행 수 {len(d['price'])} ≠ 입력 {len(base)}")
                 p, s = d["price"], d["sq"]
+                mask = np.isfinite(p[:, 0])
                 r_hat = pd.Series(p[:, H - 1] / p[:, 0] - 1.0)
                 s_hat = pd.Series(np.sqrt(np.clip(s[:, 1:H], 0, None).sum(1)))
+                use = base
+                q_ref = ewma_q
+                if not mask.all():                       # §1-보충 2: Kronos 상위 100 — 대조도 같은 부분집합에서
+                    use = base[mask].reset_index(drop=True)
+                    r_hat, s_hat = r_hat[mask].reset_index(drop=True), s_hat[mask].reset_index(drop=True)
+                    sub = {k: (None if a_ is None else a_[mask].reset_index(drop=True),
+                               None if b_ is None else b_[mask].reset_index(drop=True)) for k, (a_, b_) in ctrl.items()}
+                    q_ref = _qlike(use["sigma"].to_numpy(), sub["EWMA"][1].to_numpy())
+                    if not subset_done:
+                        for name, (rh, sh) in sub.items():
+                            rows.append(_row(market, w, f"{name}@상위100", "-", use, rh, sh, q_ref, None))
+                        subset_done = True
                 run = json.loads((OUT / "preds" / f"{model}-run.json").read_text()) if (OUT / "preds" / f"{model}-run.json").exists() else {}
                 cell = run.get("cells", {}).get(f"{market}-{w}-L{L}", {})
-                rows.append(_row(market, w, model, L, base, r_hat, s_hat, ewma_q, cell))
+                rows.append(_row(market, w, model, L, use, r_hat, s_hat, q_ref, cell))
     table = pd.DataFrame(rows)
     (OUT / "score.json").write_text(table.to_json(orient="records", force_ascii=False, indent=1))
     with pd.option_context("display.width", 220, "display.max_columns", 30):

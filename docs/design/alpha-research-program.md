@@ -429,6 +429,7 @@ LLM 은 학습 시점까지의 세상을 안다. 2024 년 공시를 2025 년에 
 | `manelalab/chrono-gpt-instruct-v1-20231231` | 같다 | 7.4GB | `fbbe820d…` OK |
 | `manelalab/chrono-gpt-instruct-v1-20241231` | 같다 | 7.4GB | `47d89294…` OK |
 | `LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct-GGUF` Q4_K_M @ `c618bf67` | 같다 | 4.8GB | **확인 불가** — 파일 393.4MiB 지점 64KB 블록이 되풀이해 EIO(다른 곳은 읽힘). 외장 HDD 불량 섹터 의심 |
+| `NeoQuasar/Kronos-small` @ `901c26c1` · `Kronos-base` @ `2b554741` · `Kronos-Tokenizer-base` @ `0e011738`(MIT) | 같다(D:). 코드: GitHub `shiyu-coder/Kronos` @ `67b630e` 의 `model/` → `/mnt/d/quant_rl_trading/tools/kronos-67b630e/` | 99MB · 409MB · 16MB | `b082dfcb…` · `abff193a…` · `59d85f6a…` OK. 컷오프는 [부록](../protocols/model-cutoffs-2026-10-addendum.md) — KRX·NASDAQ 일봉 학습, 오염 경고 |
 
 - **외장 HDD 주의(10/7)**: 쓰기 약 3MB/s(drvfs·exFAT), 그리고 위 EIO. 같은 디스크에 다른 프로젝트(`velo_archive`)도 있다. Windows 쪽 디스크 검사(chkdsk·SMART)를 사용자에게 권한다. 확인 전에는 이 디스크에 새로 쓰지 않는다.
 - 변환기: llama.cpp `ad21565` 의 `convert_hf_to_gguf.py`·`conversion/`·`gguf-py` 만 `/mnt/d/quant_rl_trading/tools/llama.cpp-ad21565/` 에 복사했다. `conversion/gptneox.py` 한 줄을 패치했다 — transformers 5 가 `rotary_pct` 를 `rope_parameters.partial_rotary_factor` 로 옮겨서다. 러너는 `bench/convert_polyglot.sh`(q8_0 → Q4_K_M 재양자화, 가용 6GB·시간 창 가드).
