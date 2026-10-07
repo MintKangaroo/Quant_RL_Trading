@@ -2,7 +2,7 @@
 # 분봉 수집 — **장중에 반복해서 돈다.** 일봉과 자리가 다르다.
 #
 #   scripts/collect_intraday.sh KR live     장중 구간(1m·5m)
-#   scripts/collect_intraday.sh KR close    마감 구간(15m·1H·4H)
+#   scripts/collect_intraday.sh KR close    마감 구간(1m·5m·15m·1H·4H)
 #
 # ## 왜 일봉(collect_daily.sh) 에 안 넣었나
 #
@@ -33,6 +33,15 @@
 #     ─────────────────────────────────────────────────────────
 #     하루 29파일 · 한 달(22거래일) 약 640파일
 #
+# ## 국장 확대 — 거래대금 상위 300 (2026-10-05, docs/design/ls-api.md §0-14)
+#
+# 국장 1m·5m 는 보유·후보 + 그날 20세션 거래대금 상위 300(약 320종목)을 받는다.
+# 간격 1.1초(t8412 한도 초당 1) — 장중 회차 약 640호출·12분, 마감 회차 약 13분.
+# 마감 회차에 1m·5m 를 더한 이유: 장중 회차는 호출당 봉을 줄여(1m 120·5m 30)
+# 받으므로, 그날 장 전체를 한 번 500봉으로 다시 덮는다. 15m·1H·4H 는 보유·후보만.
+# 회차가 겹치면(앞 회차가 30분을 넘기면) 이번 회차는 건너뛰고 rc=1 — 두 프로세스가
+# 같은 TR 한도를 나눠 쓰면 둘 다 느려진다.
+#
 # **파일 개수를 세는 이유가 있다.** 읽기 비용은 데이터 양이 아니라 파일
 # 개수에 붙는다 — flows 를 합쳐 49배, indices 를 19,374→1,558 로 줄인 것이
 # 이 저장소의 반복된 교훈이다. 한 달에 640개면 분기마다 한 번
@@ -60,7 +69,8 @@ PHASE="${2:-live}"
 
 case "${PHASE}" in
     live)  INTERVALS="1m 5m" ;;
-    close) INTERVALS="15m 1H 4H" ;;
+    # 국장 마감은 1m·5m 를 500봉으로 한 번 더(위 "국장 확대"). 미장은 그대로.
+    close) if [ "${MARKET}" = "KR" ]; then INTERVALS="1m 5m 15m 1H 4H"; else INTERVALS="15m 1H 4H"; fi ;;
     *) echo "phase 는 live | close 다: $PHASE" >&2; exit 2 ;;
 esac
 
@@ -97,11 +107,18 @@ if [ "${GUARD}" != "go" ]; then
     exit 0
 fi
 
+#: **회차 겹침 금지.** 앞 회차가 아직 돌면 이번 회차는 건너뛴다 — 조용히가 아니라 rc=1 로.
+exec 9> "logs/.intraday-${MARKET}.lock"
+if ! flock -n 9; then
+    echo "$(date '+%F %T %Z') ${MARKET} ${PHASE} — skip 앞 회차가 아직 돈다(30분 초과 — kr_top_n 을 줄일 신호)" >> "${LOG}"
+    exit 1
+fi
+
 RC=0
 {
     echo "=== $(date '+%F %T %Z') — ${MARKET} ${PHASE} (${INTERVALS}) ==="
     for interval in ${INTERVALS}; do
-        .venv/bin/python tools/collect_intraday.py --market "${MARKET}" --interval "${interval}"
+        .venv/bin/python tools/collect_intraday.py --market "${MARKET}" --interval "${interval}" --phase "${PHASE}"
         code=$?
         # **0행을 성공으로 적지 않는다.** 수집 도구가 rc 로 구분해 준다.
         [ "${code}" -ne 0 ] && RC="${code}" && echo "  ${interval} 종료코드 ${code}"

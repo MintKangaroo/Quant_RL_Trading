@@ -130,6 +130,25 @@ _SPECS: dict[str, TableSpec] = {
             "전 종목·전 구간을 받지 않는다."
         ),
     ),
+    # 분봉 수집 대상의 그날 기록(docs/design/ls-api.md §0-14). 그날 첫 회차가 거래대금 상위 N 을
+    # 계산해 한 번 적고, 뒤 회차는 읽기만 한다 — "그날 어느 종목의 분봉이 왜 있었나" 를 생존편향 없이 되짚는 자리.
+    "intraday_targets": TableSpec(
+        name="intraday_targets",
+        columns={
+            "market": pa.string(),
+            "session": pa.string(),     # 그 시장의 현지 날짜(YYYY-MM-DD)
+            "basis": pa.string(),       # base(보유·후보) | top_value(거래대금 상위)
+            "rank": pa.int64(),         # 거래대금 순위(1부터). base 만인 종목은 비어 있다
+            "adv": pa.float64(),        # adv_sessions 세션 평균 거래대금(원). base 만인 종목은 비어 있다
+            "adv_sessions": pa.int64(),
+        },
+        natural_key=("entity_id", "valid_from"),
+        observation_lag_days=1,
+        doc=(
+            "분봉 수집 대상 스냅샷 — valid_from = observed_at = 계산 시각, 그 시각까지 관측된 일봉으로 고른 "
+            "거래대금 상위 N + 그 시각의 보유·후보. 계산은 collectors/intraday_collector.select_top_value 한 곳."
+        ),
+    ),
     "flows": TableSpec(
         name="flows",
         columns={

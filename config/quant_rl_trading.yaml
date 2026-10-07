@@ -610,6 +610,29 @@ collectors:
   dart_daily_limit: 20000
   dart_text_backfill_daily_cap: 15000
 
+  # 국장 분봉 수집 확대(2026-10-05 사용자 승인, 알파 탐색 결정 9) — 설계 docs/design/ls-api.md §0-14.
+  intraday:
+    # 20세션 평균 거래대금 상위 N. 보유·후보는 이것과 별도로 늘 들어간다. 회차가 예산을 넘기면 여기를 줄인다.
+    kr_top_n: 300
+    adv_sessions: 20
+    # 넓게 받는 구간. 15m·1H·4H 는 화면용이고 1m 에서 만들 수 있어 보유·후보만.
+    wide_intervals: [1m, 5m]
+    # t8412 카탈로그 한도 초당 1(TR 별). 실측 10/5 호출당 1.07~1.10초, 한도 초과 0.
+    kr_min_interval_sec: 1.1
+    # 도구 한 번(한 구간)의 시간 예산(초). 회차는 두 구간이라 30분 회차 안에 26분.
+    run_budget_sec: 780
+    # 종목 실패 비율 문턱 — 넘으면 rc=1(적재는 한다). 9월 21종목 회차에서 읽기 시간 초과가 42번.
+    max_fail_ratio: 0.10
+    # 연속 실패가 이만큼이면 API 장애로 보고 그 구간을 멈춘다(10초 시간 초과 × 300 을 기다리지 않는다).
+    max_consecutive_failures: 10
+    # 장중 회차의 호출당 봉 수. 개장 뒤 첫 회차·마감 회차는 500(전날 NXT 애프터·오늘 장 전체를 덮는다).
+    qrycnt_live_1m: 120
+    qrycnt_live_5m: 30
+    full_fetch_minutes_after_open: 20
+    # 주문이 분봉과 같은 appkey(LS_)를 쓰는 모드(account_mode: real)에서도 넓게 받을지. 한도는 TR 별이지만
+    # 계정 총량 규칙은 확인 못 했다 — 실전 전환 때 실측하고 켠다. 끄면 보유·후보만.
+    kr_wide_when_orders_share_key: false
+
   # 원본이 그 세션 값을 **낸다고 실측으로 확인한** 시각. 세션 마감 뒤 시간(h).
   #
   # 수집이 0행으로 끝났을 때 그것이 "원본이 안 냈다" 인지 "우리가 못 받았다"
