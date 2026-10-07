@@ -99,6 +99,13 @@ step() {  # $1 이름, 나머지 명령 — rc 7(파이썬 쪽 시간 관문)이
 
 echo "=== $(date '+%F %T') 미장 알파 진단 시작 ==="
 PY=".venv/bin/python -u tools/diag_us_alpha.py"
+# 계산 배선을 먼저 확인한다(시드 0 · N24 · 있는 예측만, 원본은 smoke/) — 굽기 네 시간 뒤에 계산이 깨지면 그날 저녁을 잃는다.
+if [ ! -f "${OUT}/smoke/results.json" ]; then
+  if ! step "smoke run" env US_ALPHA_SMOKE=1 taskset -c 0-3 ${PY} run; then
+    echo "=== $(date '+%F %T') 스모크 실패 — 굽기 전에 멈춘다 ==="; exit 1
+  fi
+  US_ALPHA_SMOKE=1 ${PY} report > "${OUT}/smoke/report.md" 2>&1
+fi
 for arm in old new cut blank; do
   want="C0 C1"; [ "${arm}" = blank ] && want="C1"
   if have_preds "${arm}" "${want}"; then echo "  ${arm}: 예측 있음 — 건너뛴다"; continue; fi
