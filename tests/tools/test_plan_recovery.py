@@ -145,6 +145,80 @@ def test_당일_시세가_없으면_미룬다(store: Store) -> None:
     assert reasons == [f"{SESSION.isoformat()} 시세가 없다"]
 
 
+# -- 부분 수집 — 봉이 있다 ≠ 다 들어왔다 (2026-09-29) ------------------------------
+
+
+def _bars(store: Store, day: date, count: int) -> None:
+    store.append(
+        "prices", [_price_row(day, f"KR:{i:06d}") for i in range(count)],
+        ingest_run_id=f"prices-{day}-{count}", source="test",
+    )
+
+
+def test_반쪽_수집은_시세_관문이_미룬다(store: Store) -> None:
+    """2026-09-29: 재부팅이 수집을 첫 배치에서 끊었는데 그 배치의 봉 때문에 "준비됨" 이었다."""
+    store.seed_config_defaults()
+    for day in (date(2026, 8, 18), date(2026, 8, 19), WARMUP):
+        _bars(store, day, 10)
+    _bars(store, SESSION, 3)
+
+    reasons = plan_recovery.gate(
+        store, market="KR", as_of=AS_OF, session=SESSION, stage="prices"
+    )
+
+    assert reasons == [f"{SESSION.isoformat()} 시세가 일부뿐이다 (3/10종목 — 부분 수집)"]
+
+
+def test_기준은_직전_최대치다(store: Store) -> None:
+    """반쪽이었던 전날이 기준이 되면 반쪽을 반쪽으로 통과시킨다."""
+    store.seed_config_defaults()
+    _bars(store, date(2026, 8, 19), 10)
+    _bars(store, WARMUP, 3)
+    _bars(store, SESSION, 3)
+
+    thin = plan_recovery.thin_sessions(store, market="KR", as_of=AS_OF, days=[WARMUP, SESSION])
+
+    assert [line[:10] for line in thin] == [WARMUP.isoformat(), SESSION.isoformat()]
+
+
+def test_종목_수가_조금_흔들리는_것은_통과한다(store: Store) -> None:
+    store.seed_config_defaults()
+    _bars(store, WARMUP, 100)
+    _bars(store, SESSION, 95)
+
+    assert plan_recovery.thin_sessions(store, market="KR", as_of=AS_OF, days=[SESSION]) == []
+
+
+def test_설정을_모르는_창고는_옛_판정(store: Store) -> None:
+    """키가 없던 시점(심기 전)엔 아무것도 더하지 않는다."""
+    _bars(store, WARMUP, 10)
+    _bars(store, SESSION, 1)
+
+    assert plan_recovery.thin_sessions(store, market="KR", as_of=AS_OF, days=[SESSION]) == []
+
+
+def test_반쪽이면_셸이_읽는_NEED_줄을_낸다(
+    store: Store, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """wait_us_prices·reboot_recover 는 "NEED collect   <시장> 시세" 머리말만 grep 한다."""
+    store.seed_config_defaults()
+    _bars(store, WARMUP, 10)
+    _bars(store, SESSION, 2)
+    monkeypatch.setattr(plan_recovery, "expected_session", lambda *a, **k: SESSION)
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[no-untyped-def, override]
+            return AS_OF
+
+    monkeypatch.setattr(plan_recovery, "datetime", _Frozen)
+
+    assert plan_recovery.main(["--market", "KR", "--root", str(store.root)]) == 0
+
+    out = capsys.readouterr().out
+    assert "NEED collect   KR 시세: 2026-08-21 시세가 일부뿐이다 (2/10종목" in out
+
+
 # -- 세션 관문 — 2026-08-20 을 막았을 관문 -----------------------------------------
 
 

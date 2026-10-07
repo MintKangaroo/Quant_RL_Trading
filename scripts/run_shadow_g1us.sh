@@ -11,6 +11,11 @@ for _ in $(seq 1 80); do
     pgrep -f "bin/python[^ ]* tools/run_session.py --market US" > /dev/null || break
     sleep 30
 done
+# 시세 미완이면 미룬다 — 기존 미장 shadow 와 같은 판정(wait_us_prices, rc=6). 그 뒤라 대개 즉시 답한다.
+if ! scripts/wait_us_prices.sh >> "${LOG}" 2>&1; then
+    echo "rc=6 미장 시세 미완 — G1 세션 미룸" >> "${LOG}"
+    exit 6
+fi
 EXTRA=()
 [ -e "${BOOK}/.funded" ] || EXTRA=(--capital 503000000)
 RC=0

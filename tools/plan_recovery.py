@@ -74,7 +74,7 @@ import pandas as pd  # noqa: E402
 
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.reporting.sessions import expected_session  # noqa: E402
-from quant_rl_trading.store import Store  # noqa: E402
+from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
 #: 창고를 거꾸로 훑는 창. 연휴가 끼어도 마지막 거래일이 들어오도록 넉넉히.
@@ -88,6 +88,10 @@ DEFERRAL_LOG = REPO_ROOT / "logs" / "recovery-deferrals.log"
 #: run_session.py 가 ``warmup_days=1`` 로 굴리는 날 수. 세션 하루를 돌리려면
 #: 전날도 같이 굴려야 D+1 체결 단계가 돌기 때문이다.
 WARMUP_DAYS = 1
+
+#: 부분 수집을 가려낼 기준 창 — 그날 앞 이만큼 거래일 중 **최대** 종목 수와 견준다. 최대치라야 반쪽이었던 날이
+#: 다음 날의 기준이 되어 반쪽을 반쪽으로 통과시키는 일이 없다.
+COVERAGE_REFERENCE_SESSIONS = 5
 
 #: 미룬 세션을 되짚어 보는 창(달력일). 무한정 되짚으면 두 가지가 같이 는다 —
 #: 화면의 줄 수와, 석 달 전 날짜를 덮으려고 여는 파티션 수. 그때쯤이면 답은
@@ -168,6 +172,57 @@ def missing_prices(
         set(pd.to_datetime(frame["valid_from"]).dt.date) if not frame.empty else set()
     )
     return [f"{day.isoformat()} 시세가 없다" for day in days if day not in have]
+
+
+def thin_sessions(
+    store: Store, *, market: str, as_of: datetime, days: list[date]
+) -> list[str]:
+    """봉은 있는데 종목이 모자란 날 — **부분 수집**. 없는 날은 ``missing_prices`` 가 말한다.
+
+    "봉이 하나라도 있으면 들어왔다" 로 보면 끊긴 수집이 완료로 읽힌다. 2026-09-29 09:37 재부팅이 미장 수집(종목당 1콜,
+    4배치 2~3시간)을 첫 배치(A~D)에서 끊었는데, 그 배치가 남긴 봉 때문에 `wait_us_prices` 가 12:20 "준비됨" 으로 읽었고
+    미장 shadow 두 장부가 반쪽 시세로 돌았다 — 9/25 매수 311건 중 225건이 "체결일 시세 없음", 그날 세션은 품질 게이트로
+    매수 차단(G1 후보 335/450 결측). 그날의 종목 수를 직전 거래일들의 최대치와 견줘
+    ``data_quality.ready_min_coverage`` 미만이면 아직이다.
+
+    키가 없는 창고(심기 전·과거 재생)는 옛 판정 그대로 — 아무것도 더하지 않는다.
+    """
+    try:
+        floor = float(store.config("data_quality.ready_min_coverage", as_of=as_of))
+    except ConfigNotFound:
+        return []
+    venue = Market(market)
+    span = timedelta(days=int(COVERAGE_REFERENCE_SESSIONS * 7 / 5) + 14)
+    calendar = trading_days(venue, min(days) - span, max(days))
+    try:
+        frame = read_prices(
+            store,
+            as_of=as_of,
+            lookback=_lookback_for(as_of, calendar or days),
+            market=market,
+            columns=["entity_id", "valid_from"],
+        )
+    except Exception as exc:  # noqa: BLE001 — 판정 실패는 이유로 내보낸다
+        return [f"시세 조회 실패: {exc}"]
+    if frame.empty:
+        return []
+    counts = (
+        frame.assign(day=pd.to_datetime(frame["valid_from"]).dt.date)
+        .groupby("day")["entity_id"]
+        .nunique()
+    )
+    out: list[str] = []
+    for day in days:
+        have = int(counts.get(day, 0))
+        if have == 0:
+            continue
+        before = [d for d in calendar if d < day][-COVERAGE_REFERENCE_SESSIONS:]
+        reference = max((int(counts.get(d, 0)) for d in before), default=0)
+        if reference > 0 and have < floor * reference:
+            out.append(
+                f"{day.isoformat()} 시세가 일부뿐이다 ({have:,}/{reference:,}종목 — 부분 수집)"
+            )
+    return out
 
 
 def failed_analysts(
@@ -270,6 +325,7 @@ def gate(
     if not days:
         return [f"{session.isoformat()} 앞뒤로 거래일을 못 찾았다"]
     reasons = missing_prices(store, market=market, as_of=as_of, days=days)
+    reasons += thin_sessions(store, market=market, as_of=as_of, days=days)
     if stage == "session":
         reasons += failed_analysts(store, market=market, as_of=as_of, days=days)
         reasons += missing_orders(
@@ -414,6 +470,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"NEED collect   {market} 시세: 최근 {LOOKBACK_DAYS}일에 한 행도 없다 (기대 {expected})")
     elif observed < expected:
         print(f"NEED collect   {market} 시세: 창고가 {observed.isoformat()} 까지다 (기대 {expected})")
+    elif thin := thin_sessions(store, market=market, as_of=now, days=[observed]):
+        # 셸(wait_us_prices·reboot_recover)이 읽는 머리말은 그대로 — "NEED collect   <시장> 시세".
+        print(f"NEED collect   {market} 시세: {thin[0]}")
     else:
         print(f"OK   collect   {market} 시세: {observed.isoformat()}")
 

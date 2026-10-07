@@ -17,8 +17,13 @@ RC=0
     # 가상 주소공간 16GB. 8GB 는 2026-09-02·03 미장 daily 를 죽였다 — RSS 는 2.2GB 였는데
     # 스레드 아레나·duckdb·OpenMP 가 가상 공간을 먼저 채운다. 실메모리는 memory-guard 가 본다.
     # **미장은 시세가 다 들어온 뒤에 돈다** (pipeline-must-run-after-data).
-    # 수집이 2~3시간짜리라 재부팅·지연이면 여기서 기다린다. 마감(13:30) 넘기면 그냥 진행한다.
-    [ "${MARKET}" = "US" ] && scripts/wait_us_prices.sh
+    # 수집이 2~3시간짜리라 재부팅·지연이면 여기서 기다린다. 마감(13:30) 넘겨도 미완이면 미룬다(rc=6).
+    if [ "${MARKET}" = "US" ] && ! scripts/wait_us_prices.sh; then
+        # 마감까지 시세 미완 — 반쪽 시세로 돌지 않는다(rc=6, runbook §7.1). 블록을 빠져나가 rc 를 그대로 낸다.
+        RC=6
+        echo "rc=${RC}"
+        exit "${RC}"
+    fi
     ulimit -v 16777216
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/run_session.py --market "${MARKET}" --capital "${CAPITAL}"

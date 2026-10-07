@@ -8,8 +8,10 @@
 # 판단은 로그가 아니라 **창고**로 한다(reboot_recover 와 같은 규칙): `plan_recovery.py --market US`
 # 가 "NEED collect US 시세" 를 안 찍으면 준비된 것이다.
 #
-# 마감(기본 13:30 KST)을 넘기면 기다리지 않고 0 을 돌려준다 — 그 뒤는 품질 게이트가 막는다.
-# 세션을 통째로 건너뛰면 그날의 사실이 창고에서 사라지고, 그게 더 나쁘다.
+# 마감(기본 13:30 KST)을 넘겨도 아직이면 **6 을 돌려주고 호출부가 세션을 미룬다**(2026-10-07, runbook §7.1).
+# 예전엔 0 을 돌려주고 "품질 게이트가 막는다" 고 했다 — 게이트는 매수만 막는다. 9/29 반쪽 시세(첫 배치만)로 돈 세션은
+# 신호·매도 주문·"체결일 시세 없음" 미체결을 append-only 창고에 그대로 남겼다. 반쪽 답을 박는 것이 건너뛰는 것보다 나쁘다.
+# 준비 판정은 "봉이 있나" 가 아니라 "종목이 다 왔나" 다(plan_recovery.thin_sessions · data_quality.ready_min_coverage).
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 
@@ -38,8 +40,8 @@ while true; do
         exit 0
     fi
     if [ "$(date +%H:%M)" \> "${DEADLINE}" ]; then
-        echo "  $(date '+%T') 마감 ${DEADLINE} 초과 — 기다리지 않고 진행한다(품질 게이트가 막는다)"
-        exit 0
+        echo "  $(date '+%T') 마감 ${DEADLINE} 초과 — 미장 시세 미완(상태 ${STATE}) · 세션을 미룬다 rc=6"
+        exit 6
     fi
     echo "  $(date '+%T') 미장 시세 대기 — ${INTERVAL}초 뒤 다시 본다"
     sleep "${INTERVAL}"

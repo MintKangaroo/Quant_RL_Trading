@@ -207,11 +207,12 @@ def test_같은_날을_두_번_쓰지_않는다(funded) -> None:
 
 
 def test_결제일은_시장마다_다르다(tmp_path) -> None:
-    """국장 D+2 · 미장 T+1(2024-05~). 하나로 두면 미장 매도대금이 하루 더 묶인다."""
+    """시장 키가 공용 키를 이긴다. 둘 다 0 이다 — 국장은 상계(2026-09-21), 미장은 T+1 대금이 다음 날 매수 체결일에
+    이미 결제돼 있어서(2026-10-07, accounting.md §1). 하나로 두면 미장 매도대금이 하루 더 묶인다(2026-09-16 $17.6k)."""
     store = Store(root=tmp_path / "warehouse")
     store.seed_config_defaults()
     moment = datetime(2026, 9, 21, tzinfo=UTC)
-    assert ledger_module.settlement_days_for(store, market="US", as_of=moment) == 1
+    assert ledger_module.settlement_days_for(store, market="US", as_of=moment) == 0
     # 국장 0 — 매도대금은 즉시 재매수에 쓸 수 있다(2026-09-21, 증권사 실측으로 정정).
     assert ledger_module.settlement_days_for(store, market="KR", as_of=moment) == 0
     # 시장 키가 없는 창고(옛 설정)에서는 공용 키로 되돌아간다.
