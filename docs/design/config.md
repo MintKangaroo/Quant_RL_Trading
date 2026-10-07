@@ -69,6 +69,10 @@ execution:
   # **0 으로 두면 오늘 판 돈으로 오늘 사게 된다.** 이게 없던 동안 백테스트가
   # 레버리지 3.2배까지 갔다 — 가용 현금을 보는 코드가 아예 없었다 (2026-08-15).
   settlement_days: 2
+  # 시장별 키가 있으면 그것을 쓴다(ledger.settlement_days_for). 국장 0(2026-09-21, 상계 — accounting.md §1),
+  # 미장 0(2026-10-07, T+1 매도대금은 다음 날 매수 체결일에 이미 결제돼 있다 — accounting.md §1). 과거 as_of 는 옛 값(2·1)으로 재현된다.
+  settlement_days_kr: 0
+  settlement_days_us: 0
 
 analyst:
   ic_threshold: 0.03
@@ -154,6 +158,9 @@ data_quality:                  # 데이터 화면 경고선
   default_lookback_days: 90
   max_lookback_days: 400       # 화면 하나가 창고를 통째로 올리지 않게
   failure_rows: 50
+  ready_min_coverage: 0.9      # 수집 완료 판정 — 기대 세션의 시세 종목 수가 직전 세션들 최대치의 이 비율 미만이면 "부분 수집" = 아직
+                               # (tools/plan_recovery, wait_us_prices·reboot_recover 가 읽는다). 2026-09-29 재부팅이 미장 수집을 b000(A~D)에서
+                               # 끊었는데 "봉이 하나라도 있으면 준비됨" 이라 세션이 1/4 배치로 돌았다(G1 후보 335/450 결측). 새 키(2026-10-07)
   index_divergence_warn: 0.015 # 지수 짝(KRX300↔K200·KRX100↔K200·TMI↔코스피) 같은 날 일수익 차가 이보다 크면 경고만(data-contract §3-1).
                                # 근거: 2020-08~2026-10 약 1,500세션 최대 1.20%p·99.9% 분위 ≤0.92%p → 0건. 새 키(2026-10-03) — seed_config --apply
 
