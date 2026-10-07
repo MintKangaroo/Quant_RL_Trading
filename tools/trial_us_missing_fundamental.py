@@ -21,7 +21,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from quant_rl_trading.store import Store  # noqa: E402
-from quant_rl_trading.store.prices import read_prices  # noqa: E402
+from quant_rl_trading.store.prices import wide_close_and_turnover  # noqa: E402
 from tools.trial_overlay import ANN, MAX_MOVE, metrics  # noqa: E402
 from tools.trial_pooled_rank import rank_gauss  # noqa: E402
 from tools.trial_ranker_kit import fit, record  # noqa: E402
@@ -88,14 +88,10 @@ def main(argv=None) -> int:
     span = (JUDGE_END - JUDGE_START).days + 60
     cost = float(store.config("accounting.fee_us", as_of=now))
 
-    prices = read_prices(store, as_of=now, lookback=span + 40, columns=["close", "volume"], adjusted=True, market="US")
-    prices["day"] = pd.to_datetime(prices["valid_from"]).dt.date
-    close = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
-    volume = prices.pivot_table(index="day", columns="entity_id", values="volume", aggfunc="last").sort_index()
-    del prices
+    # 명단은 원 거래대금(2026-10-07 정정 — `trial_us_kit.us_panel` 과 같은 함수). 판정(9/25)은 보정 종가 × 원 거래량이었다.
+    close, dv = wide_close_and_turnover(store, as_of=now, lookback=span + 40, market="US")
     bench_close = close.pop(BENCH) if BENCH in close.columns else None
-    volume = volume.drop(columns=[BENCH], errors="ignore")
-    dv = (close * volume).rolling(20, min_periods=10).mean()
+    dv = dv.drop(columns=[BENCH], errors="ignore")
     dv = dv[(dv.index >= JUDGE_START) & (dv.index <= JUDGE_END)]
     in_universe = dv.rank(axis=1, ascending=False) <= UNIVERSE
     keep = in_universe.stack()

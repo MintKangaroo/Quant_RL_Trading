@@ -23,7 +23,7 @@ from scipy.cluster.hierarchy import fcluster, linkage  # noqa: E402
 from scipy.spatial.distance import squareform  # noqa: E402
 
 from quant_rl_trading.store import Store  # noqa: E402
-from quant_rl_trading.store.prices import read_prices  # noqa: E402
+from quant_rl_trading.store.prices import wide_close_and_turnover  # noqa: E402
 
 OUT = Path("data/_diag/v2")
 WINDOW, MIN_OBS = 60, 50
@@ -58,13 +58,9 @@ def main(argv=None) -> int:
     until = date.fromisoformat(args.until)
     start = date.fromisoformat(args.start)
     end = datetime.combine(until, time(23), tzinfo=UTC)
-    prices = read_prices(store, as_of=end, lookback=(until - start).days + 150, columns=["close", "volume"], adjusted=True, market=args.market)
-    prices["day"] = pd.to_datetime(prices["valid_from"]).dt.date
-    close = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
-    volume = prices.pivot_table(index="day", columns="entity_id", values="volume", aggfunc="last").sort_index()
-    del prices
+    # 명단(거래대금 상위)은 원 거래대금 — 보정 종가로 곱하면 창 끝까지의 분할이 과거 명단을 정한다(data-contract §4-1).
+    close, dv = wide_close_and_turnover(store, as_of=end, lookback=(until - start).days + 150, market=args.market)
     ret = close.pct_change(fill_method=None).where(lambda x: x.abs() < 0.5)
-    dv = (close * volume).rolling(20, min_periods=10).mean()
     days = [d for d in close.index if start <= d <= until]
     firsts = pd.Series(days, index=pd.PeriodIndex(pd.to_datetime(pd.Series(days)), freq="M")).groupby(level=0).first()
     rows, sizes = [], []

@@ -13,7 +13,7 @@ import pandas as pd
 
 from quant_rl_trading.analysts.regime import LOOKBACK_DAYS, classify
 from quant_rl_trading.store import Store
-from quant_rl_trading.store.prices import read_prices
+from quant_rl_trading.store.prices import wide_close_and_turnover
 from tools.trial_overlay import ANN, MAX_MOVE, metrics
 from tools.trial_pooled_rank import rank_gauss
 from tools.trial_ranker_kit import fit
@@ -52,17 +52,17 @@ def us_panel(store: Store, *, start=JUDGE_START, end=JUDGE_END,
 
     ``start``·``end``·``work_dirs`` 는 **금고 판정부(tools/vault_judge.py)만** 바꾼다 — 금고 창(2026-07~11)의 점수 조각은
     따로 굽고(`data/_diag/vault-window/ic-history-us`) 규칙은 여기 것을 그대로 쓴다. 기본값은 AT·AU~AY 와 같다.
+
+    거래대금은 **원주가 × 원 거래량**(2026-10-07 정정). 그 전의 결과(AT·AU~AY·회차 미장 다리·BD 학습)는 보정 종가 × 원 거래량
+    명단 — 창 끝까지의 분할이 과거 명단을 정한 것 — 위에서 쟀다(docs/trials-postmortem.md "미장 명단 누수").
     """
     now = datetime.combine(end, time(23), tzinfo=UTC)
     span = (end - start).days + 60
-    prices = read_prices(store, as_of=now, lookback=span + 40, columns=["close", "volume"], adjusted=True, market="US")
-    prices["day"] = pd.to_datetime(prices["valid_from"]).dt.date
-    close = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
-    volume = prices.pivot_table(index="day", columns="entity_id", values="volume", aggfunc="last").sort_index()
-    del prices
+    # 명단은 **원** 거래대금으로 고른다(2026-10-07 정정) — 예전엔 보정 종가 × 원 거래량이라 창 끝(as_of) 까지의 분할이
+    # 과거 명단을 정했다(docs/diag/us-alpha.md §1 정정, data-contract §4-1). 보정 종가는 수익(y5·ret)에만 쓴다.
+    close, dv = wide_close_and_turnover(store, as_of=now, lookback=span + 40, market="US")
     bench_close = close.pop(BENCH)
-    volume = volume.drop(columns=[BENCH], errors="ignore")
-    dv = (close * volume).rolling(20, min_periods=10).mean()
+    dv = dv.drop(columns=[BENCH], errors="ignore")
     dv = dv[(dv.index >= start) & (dv.index <= end)]
     in_universe = dv.rank(axis=1, ascending=False) <= UNIVERSE
     keep = in_universe.stack()

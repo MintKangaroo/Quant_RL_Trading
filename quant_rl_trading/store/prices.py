@@ -302,3 +302,44 @@ def adjust(frame: pd.DataFrame) -> pd.DataFrame:
         if name in adjusted.columns:
             adjusted[name] = pd.to_numeric(adjusted[name], errors="coerce") * trailing
     return adjusted.reindex(frame.index)
+
+
+#: 명단(유동성 순위)에 쓰는 거래대금 평균 창과 최소 관측 수 — 연구 도구들이 쓰던 값 그대로.
+TURNOVER_WINDOW = 20
+TURNOVER_MIN_PERIODS = 10
+
+
+def wide_close_and_turnover(
+    store: Store,
+    *,
+    as_of: datetime,
+    lookback: timedelta | int | None,
+    market: str | None,
+    entity: str | Sequence[str] | None = None,
+    window: int = TURNOVER_WINDOW,
+    min_periods: int = TURNOVER_MIN_PERIODS,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(보정 종가, **원** 거래대금 ``window`` 일 평균) — 세션(date) × 종목 넓은 표 둘.
+
+    **거래대금은 원주가 × 원 거래량이다** (data-contract §4-1 "읽는 쪽", 2026-10-07). 보정 종가로 곱하면 ``as_of`` 까지
+    알려진 분할이 과거 세션의 거래대금을 바꾼다 — 창 전체를 ``as_of`` 한 번(창 끝)으로 읽어 과거 명단을 고르면 그 세션
+    **뒤의** 분할이 명단을 정한다(역분할 동전주가 부풀어 들어오고 액면분할 대형주가 빠졌다, docs/diag/us-alpha.md §1 정정).
+    원 거래대금은 그날 실제로 오간 돈이라 ``as_of`` 와 무관하다. 보정 종가는 수익 계산에만 쓴다.
+
+    한 번 읽고 ``adjust`` 로 한 번 더 접어 가른다(``session/daily.py`` 와 같은 방식).
+    """
+    frame = read_prices(
+        store, as_of=as_of, lookback=lookback, market=market, entity=entity,
+        columns=["close", "volume", FACTOR_COLUMN], adjusted=False,
+    )
+    frame["day"] = pd.to_datetime(frame["valid_from"]).dt.date
+
+    def wide(source: pd.DataFrame, column: str) -> pd.DataFrame:
+        return source.pivot_table(index="day", columns="entity_id", values=column, aggfunc="last").sort_index()
+
+    raw_close = wide(frame, "close")
+    volume = wide(frame, "volume").reindex(index=raw_close.index, columns=raw_close.columns)
+    turnover = (raw_close * volume).rolling(window, min_periods=min_periods).mean()
+    del raw_close
+    close = wide(adjust(frame), "close")
+    return close, turnover
