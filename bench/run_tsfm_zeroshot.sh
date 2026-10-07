@@ -4,6 +4,7 @@
 #   setsid nohup nice -n 5 bash -c 'bench/run_cpu_bench.sh; bench/run_tsfm_zeroshot.sh' > /dev/null 2>&1 &
 #
 # 1 extract(실전 .venv, 창고 읽기 — as_of 2026-06-30 고정, 금고 안 읽음) → 2 추론(.venv-bench, 입력 계열만) → 3 score(실전 .venv).
+# 기본 묶음은 ~/.cache(SSD) 모델만 — Kronos 는 D:(chkdsk 대기) 라 따로: BENCH_TSFM_MODELS="kronos_small kronos_base" bench/run_tsfm_zeroshot.sh
 # 시간 창: 평일 08:30~15:45·22:20~00:40·00:45~07:30 금지(시작할 때 본다 — 추론 중에는 모델마다 가용 6GB 를 본다). 모델마다 90분 예산.
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
@@ -18,7 +19,7 @@ AVAIL=$(free -m | awk '/^Mem:/{print $7}')
 [ "${AVAIL}" -ge 6000 ] || { log "가용 ${AVAIL}MB < 6000MB — 시작 안 함"; exit 4; }
 log "=== TSFM 제로샷 시작 · 스레드 ${THREADS} ==="
 nice -n 10 .venv/bin/python tools/diag_tsfm_zeroshot.py extract >> "${LOG}" 2>&1 || { log "extract 실패 rc=$?"; exit 1; }
-/usr/bin/time -v -o "${LOG%.log}.infer.time" nice -n 10 .venv-bench/bin/python bench/tsfm_zeroshot_infer.py --threads "${THREADS}" >> "${LOG}" 2>&1
+/usr/bin/time -v -o "${LOG%.log}.infer.time" nice -n 10 .venv-bench/bin/python bench/tsfm_zeroshot_infer.py --threads "${THREADS}" ${BENCH_TSFM_MODELS:+--models ${BENCH_TSFM_MODELS}} >> "${LOG}" 2>&1
 IRC=$?
 log "추론 rc=${IRC} 최대RSS=$(awk -F: '/Maximum resident/{printf "%.0f", $2/1024}' "${LOG%.log}.infer.time")MB"
 .venv/bin/python tools/diag_tsfm_zeroshot.py score 2>> "${LOG}" | tee -a "${LOG}"

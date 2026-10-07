@@ -207,7 +207,8 @@ def run_model(name: str, threads: int) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--threads", type=int, default=10)
-    ap.add_argument("--models", nargs="+", default=MODELS, choices=MODELS)
+    # 외장 D: 는 chkdsk 결과 전까지 읽지 않는다(10/7 리드) — Kronos(D: 에 있음)는 기본 묶음에서 뺀다. 검사 뒤 --models kronos_small kronos_base
+    ap.add_argument("--models", nargs="+", default=[m for m in MODELS if m not in KRONOS], choices=MODELS)
     a = ap.parse_args()
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     bad = 0
