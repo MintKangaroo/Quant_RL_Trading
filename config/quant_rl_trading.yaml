@@ -756,6 +756,9 @@ system:
   # 종료 판정 대조군(KODEX200)은 **KRX 가 다음 날 아침에 낸다** — 수집도 화~토 08:35 이다.
   # 국장 기본 유예(40분)로 재면 평일 16:40 부터 매일 빨간불이 켜진다. 16:00 공표 → 다음 날 10:00.
   freshness_grace_seconds_kr_benchmark: 64800
+  # 미장 세션(signals US) — 05:20 공표 → 14:20 KST. 12:00 run_daily 가 시세를 13:30 까지 기다린다(wait_us_prices). 그 뒤에도
+  # 없으면 세션을 미룬 것(rc=6)이라 ⚠. dashboard.md "미장 세션 줄" (2026-10-07)
+  freshness_grace_seconds_us_session: 32400
 
 # 화면 응답 속도 (docs/design/dashboard.md §API). 창고는 크론이 쓸 때만 바뀌므로
 # 화면은 그 사이 같은 값을 다시 계산할 이유가 없다.

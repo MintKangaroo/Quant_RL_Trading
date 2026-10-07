@@ -123,5 +123,51 @@ def test_판정_벤치마크는_자기_유예를_쓴다():
 
     row = next(item for item in DATASETS if item[0] == "kr_benchmark")
     assert row[6] == "system.freshness_grace_seconds_kr_benchmark", "자기 유예 키가 있어야 한다"
-    others = [item[6] for item in DATASETS if item[0] != "kr_benchmark"]
+    own = {"kr_benchmark", "us_session"}  # 미장 세션 줄도 자기 유예(14:20 KST)를 쓴다 — dashboard.md "미장 세션 줄"
+    others = [item[6] for item in DATASETS if item[0] not in own]
     assert all(key is None for key in others), "나머지는 시장 기본값을 쓴다"
+
+
+def _us_signal(store, stamped):  # type: ignore[no-untyped-def]
+    store.append("signals", [{
+        "entity_id": "US:AAPL", "valid_from": stamped, "observed_at": stamped, "source": "test",
+        "analyst": "ranker", "analyst_version": "t", "score": 0.1, "confidence": 0.5, "horizon_days": 5,
+    }], ingest_run_id=f"sig-{stamped.isoformat()}")
+
+
+def test_미장_세션을_미룬_날은_띠에_지연으로_뜬다(store):  # type: ignore[no-untyped-def]
+    """2026-10-07: 시세 미완으로 run_daily.sh US 가 rc=6 으로 미루면 그날 미장 점수가 창고에 없다. 로그 rc 는 밤 국장 실행이
+    덮으므로 창고로 본다 — 아침 메일·모든 탭 머리의 기준일 띠가 같은 계산이다."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kst = ZoneInfo("Asia/Seoul")
+    store.seed_config_defaults()
+    # 9/28(월) 세션 점수는 있다(세션 시각 9/29 05:20 KST). 9/29(화) 세션은 미뤘다 — 점수 없음.
+    _us_signal(store, datetime(2026, 9, 29, 5, 20, tzinfo=kst))
+
+    def status(at):  # type: ignore[no-untyped-def]
+        items = {i["key"]: i for i in freshness.summary(store, as_of=at)["items"]}
+        return items["us_session"]
+
+    # 9/30 12:30 — 9/29 세션은 아직 돌 시간이다(14:20 까지 유예)
+    noon = status(datetime(2026, 9, 30, 12, 30, tzinfo=kst))
+    assert noon["observed"] == "2026-09-28" and noon["status"] == "pending", noon
+    # 9/30 15:00 — 미뤘다
+    assert status(datetime(2026, 9, 30, 15, 0, tzinfo=kst))["status"] == "stale"
+    # 다음 날 아침 메일(10/1 07:10) — 9/30 세션은 유예 안이지만 9/29 를 놓쳐 두 세션 뒤
+    morning = status(datetime(2026, 10, 1, 7, 10, tzinfo=kst))
+    assert morning["lag_sessions"] == 2 and morning["status"] == "stale", morning
+
+
+def test_미장_세션이_돌았으면_정상이다(store):  # type: ignore[no-untyped-def]
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    kst = ZoneInfo("Asia/Seoul")
+    store.seed_config_defaults()
+    _us_signal(store, datetime(2026, 10, 3, 5, 20, tzinfo=kst))  # 금 10/2 세션 → 토 05:20
+
+    items = {i["key"]: i for i in freshness.summary(store, as_of=datetime(2026, 10, 5, 9, 0, tzinfo=kst))["items"]}
+    assert items["us_session"]["observed"] == "2026-10-02"
+    assert items["us_session"]["status"] == "ok"

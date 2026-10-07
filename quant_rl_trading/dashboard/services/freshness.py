@@ -44,7 +44,14 @@ DATASETS: tuple[tuple[str, str, str, Market, str | None, str | None, str | None]
     # 따로 준다(16:00 공표 → 다음 날 10:00).
     ("kr_benchmark", "판정 벤치마크", "indices", Market.KR, None, BENCHMARK_ETF,
      "system.freshness_grace_seconds_kr_benchmark"),
+    # **미장 세션이 돌았나** (2026-10-07). 시세가 13:30 까지 미완이면 run_daily.sh US 가 세션을 미룬다(rc=6, runbook §7.1) —
+    # 그날 미장 점수가 창고에 없다. 로그의 rc 는 밤 국장 실행이 덮어 화면에서 사라지므로 창고로 본다(dashboard.md 미장 세션 줄).
+    ("us_session", "미장 세션", "signals", Market.US, "US", None,
+     "system.freshness_grace_seconds_us_session"),
 )
+
+#: ``valid_from`` 이 봉의 날짜가 아니라 **세션 시각**(미장 d+1 05:20 KST)인 줄. 그 시각 직전의 거래일이 세션이다.
+SESSION_STAMPED = frozenset({"us_session"})
 
 
 def _latest_session(store: Store, table: str, *, as_of: datetime, market: str | None, entity: str | None) -> date | None:
@@ -61,6 +68,12 @@ def _latest_session(store: Store, table: str, *, as_of: datetime, market: str | 
     if frame.empty:
         return None
     return frame["valid_from"].max().date()
+
+
+def _session_before(market: Market, stamped: date) -> date | None:
+    """세션 시각의 KST 날짜 → 그 직전 거래일(미장 d+1 05:20 → d). 주말·휴장을 건너뛴다."""
+    days = [d for d in trading_days(market, stamped - timedelta(days=10), stamped) if d < stamped]
+    return days[-1] if days else None
 
 
 def _lag_sessions(market: Market, observed: date, expected: date) -> int:
@@ -96,6 +109,8 @@ def summary(store: Store, *, as_of: datetime) -> dict[str, Any]:
     for key, label, table, market, market_filter, entity, grace_key in DATASETS:
         expected = expected_session(store, market, as_of=as_of)
         observed = _latest_session(store, table, as_of=as_of, market=market_filter, entity=entity)
+        if observed is not None and key in SESSION_STAMPED:
+            observed = _session_before(market, observed)
         lag = _lag_sessions(market, observed, expected) if (observed and expected) else None
         if observed and expected and observed > expected:
             status = "unexpected"
