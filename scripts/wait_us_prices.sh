@@ -22,7 +22,8 @@ INTERVAL="${US_WAIT_INTERVAL:-300}"
 # 크래시해 출력이 비면 grep 이 못 찾아 "준비됨" 으로 읽었다. 로그가 거짓말을 하며 낡은 시세로 세션이 돌 수 있었다.
 ready() {
     local out rc
-    out=$(QUANT_RL_DUCKDB_MEMORY_LIMIT=400MB .venv/bin/python tools/plan_recovery.py --market US 2>&1)
+    # --seen-by: 마감 뒤에 받은 봉은 받은 시각으로 찍혀 세션 as_of 에서 안 보인다(data-contract §5-0b) — 마감까지 관측된 것만 센다.
+    out=$(QUANT_RL_DUCKDB_MEMORY_LIMIT=400MB .venv/bin/python tools/plan_recovery.py --market US --seen-by "${DEADLINE}" 2>&1)
     rc=$?
     if [ "${rc}" -ne 0 ]; then
         echo "  $(date '+%T') 시세 판정 실패(rc=${rc}): $(printf '%s' "${out}" | tail -1)"

@@ -63,7 +63,8 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -406,6 +407,12 @@ def main(argv: list[str] | None = None) -> int:
         "(prices: 수집 뒤 · signals: run_daily 뒤에 묻는다)",
     )
     parser.add_argument(
+        "--seen-by",
+        metavar="HH:MM",
+        help="오늘(KST) 이 시각까지 관측된 것만 본다. 지금이 그 뒤면 as_of 를 그 시각으로 고정한다 — "
+        "wait_us_prices 가 마감 뒤에 늦게 받은 봉(받은 시각으로 찍힌다, data-contract §5-0b)을 준비로 읽지 않게",
+    )
+    parser.add_argument(
         "--follow-up",
         action="store_true",
         help="미뤄 둔 세션이 그 뒤에 채워졌는지 같은 관문으로 재판정한다",
@@ -415,6 +422,13 @@ def main(argv: list[str] | None = None) -> int:
     # **여기서는 벽시계가 맞다.** "지금 무엇이 비었나" 가 질문이라 고정된
     # as_of 로 물으면 언제 돌려도 같은 답이 나와 복구가 안 된다.
     now = datetime.now(UTC)  # invariant-allow: wallclock
+    if args.seen_by:
+        # 마감 뒤에 받은 봉은 받은 시각으로 찍힌다(§5-0b). 세션 as_of(공표 시각)에선 안 보이므로 "준비됨" 으로 읽으면
+        # 세션이 결측 그대로 돈다 — 마감 시각까지 관측된 것만 센다.
+        seoul = ZoneInfo("Asia/Seoul")
+        local = now.astimezone(seoul)
+        cutoff = datetime.combine(local.date(), time.fromisoformat(args.seen_by), tzinfo=seoul)
+        now = min(now, cutoff.astimezone(UTC))
     market = args.market
     store = Store(root=Path(args.root))
     # 오버레이가 아직 없을 수도 있다(첫 실행). 그때는 주문도 당연히 없고,

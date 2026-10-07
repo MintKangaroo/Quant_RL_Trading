@@ -127,6 +127,48 @@ def publication_policy(store: Store, market: Market, *, clock: Clock) -> Publica
     return PublicationPolicy(market=market, lag_seconds=float(lag), clock=clock)
 
 
+#: 늦은 도착 판정의 기준 시각(공표일 KST 의 이 시각). 시장마다 키가 다르다 — 지금은 미장 증분만 쓴다.
+ON_TIME_KEYS: dict[Market, str] = {
+    Market.US: "backfill.us_on_time_until_kst",
+}
+
+SEOUL = ZoneInfo("Asia/Seoul")
+
+
+@dataclass(frozen=True)
+class LateArrivalPolicy:
+    """라이브 증분 수집 — 제때 받은 봉은 공표 시각, **세션이 돈 뒤에 받은 봉은 받은 시각** (data-contract §5-0b).
+
+    증분 수집은 ``PublicationPolicy`` 로 찍어 왔다. 세션 as_of 가 공표 시각(미장 d+1 05:20 KST)이라, 받은 시각으로 찍으면
+    매일 08:40~11:50 에 받는 정상 봉을 그날 세션이 못 본다. 그런데 그 규칙은 **며칠 늦게 받은 봉도** 05:20 으로 찍었다 —
+    2026-09-29 재부팅으로 끊긴 9/28 봉 b001~b003 을 9/30 10:16~11:50 에 받고 9/29 05:20 으로 적었다. 라이브 세션은 그 봉 없이
+    돌아 매수 225건이 "체결일 시세 없음" 이었는데, 재생하면 봉이 보여 전부 체결된다. 재생이 운영 사고를 지운다.
+
+    그래서 경계를 하나 둔다: 공표일(KST) ``on_time_until`` 까지 받은 봉은 그날 세션이 실제로 봤으므로 공표 시각, 그 뒤에 받은
+    봉은 받은 시각. 경계는 ``wait_us_prices.sh`` 마감(13:30)과 같다 — 그 뒤로는 세션이 돌지 않고 미룬다(rc=6).
+
+    **백필에는 끼우지 않는다.** 5년치를 오늘 받았다고 "오늘 알았다" 로 찍으면 과거가 통째로 사라진다(모듈 서두).
+    """
+
+    inner: ObservedAtPolicy
+    clock: Clock
+    on_time_until: time
+
+    def for_session(self, day: date, *, extra_lag_days: int = 0) -> datetime:
+        published = self.inner.for_session(day, extra_lag_days=extra_lag_days)
+        local = published.astimezone(SEOUL)
+        cutoff = datetime.combine(local.date(), self.on_time_until, tzinfo=SEOUL)
+        received = self.clock.now()
+        return received if received > max(cutoff, local) else published
+
+
+def late_arrival_policy(store: Store, market: Market, *, clock: Clock) -> LateArrivalPolicy:
+    """``publication_policy`` 에 늦은 도착 경계를 씌운다. 경계는 store.config 에서 읽는다(불변식 10)."""
+    inner = publication_policy(store, market, clock=clock)
+    raw = store.config(ON_TIME_KEYS[market], as_of=clock.now())
+    return LateArrivalPolicy(inner=inner, clock=clock, on_time_until=time.fromisoformat(str(raw)))
+
+
 def resolve(policy: ObservedAtPolicy | datetime, day: date) -> datetime:
     """정책이든 고정 시각이든 관측시각 하나로 좁힌다.
 

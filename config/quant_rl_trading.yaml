@@ -587,6 +587,9 @@ backfill:
   # 0 으로 두면 마감 종소리와 동시에 종가를 알았다는 뜻이 된다.
   kr_publication_lag_seconds: 1800    # 15:30 마감 → 16:00 공표
   us_publication_lag_seconds: 1200    # 16:00 마감 → 16:20 공표
+  # 미장 증분 봉이 공표일(KST) 이 시각 뒤에 받히면 observed_at = 받은 시각(data-contract §5-0b, 2026-10-07).
+  # 그 전에 받은 봉은 그날 세션이 실제로 봤다. wait_us_prices.sh 마감(13:30)과 같아야 한다 — 그 뒤엔 세션이 rc=6 으로 미룬다.
+  us_on_time_until_kst: "13:30"
   # 공매도는 세션 당일에 나오지 않는다. 거래일 단위로 늦춰 찍는다.
   # 0 으로 두면 flow_kr 이 통째로 미래를 본다.
   shorting_lag_days: 2

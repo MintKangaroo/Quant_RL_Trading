@@ -219,6 +219,30 @@ def test_반쪽이면_셸이_읽는_NEED_줄을_낸다(
     assert "NEED collect   KR 시세: 2026-08-21 시세가 일부뿐이다 (2/10종목" in out
 
 
+def test_마감_뒤에_받은_봉은_준비로_세지_않는다(
+    store: Store, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """마감 뒤에 받은 봉은 받은 시각으로 찍혀(data-contract §5-0b) 세션 as_of 에서 안 보인다.
+    wait_us_prices 가 그것을 "준비됨" 으로 읽으면 세션이 결측 그대로 돈다 — ``--seen-by`` 가 마감까지 관측된 것만 센다."""
+    store.seed_config_defaults()
+    _bars(store, WARMUP, 10)
+    _bars(store, SESSION, 10)  # 관측 8/21 16:00 KST — 13:30 마감 뒤
+    monkeypatch.setattr(plan_recovery, "expected_session", lambda *a, **k: SESSION)
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[no-untyped-def, override]
+            return AS_OF  # 23:00 KST
+
+    monkeypatch.setattr(plan_recovery, "datetime", _Frozen)
+
+    plan_recovery.main(["--market", "KR", "--root", str(store.root)])
+    assert "OK   collect   KR 시세: 2026-08-21" in capsys.readouterr().out
+
+    plan_recovery.main(["--market", "KR", "--root", str(store.root), "--seen-by", "13:30"])
+    assert "NEED collect   KR 시세: 창고가 2026-08-20 까지다" in capsys.readouterr().out
+
+
 # -- 세션 관문 — 2026-08-20 을 막았을 관문 -----------------------------------------
 
 

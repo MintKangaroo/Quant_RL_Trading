@@ -47,6 +47,7 @@ from quant_rl_trading.collectors.market_hours import Market, trading_days  # noq
 from quant_rl_trading.collectors.publication import (  # noqa: E402
     NotATradingDay,
     NotYetPublished,
+    late_arrival_policy,
     publication_policy,
 )
 from quant_rl_trading.collectors.raw import RawArchive  # noqa: E402
@@ -452,7 +453,8 @@ def main(argv: list[str] | None = None) -> int:
         source=source,
         clock=clock,
         archive=RawArchive(root=store.root),
-        policy=publication_policy(store, MARKET, clock=clock),
+        # 제때 받은 봉은 공표 시각, 세션이 돈 뒤(공표일 13:30 KST 뒤)에 받은 봉은 받은 시각 — data-contract §5-0b.
+        policy=late_arrival_policy(store, MARKET, clock=clock),
         market=MARKET,
         exchanges=exchanges,
         scope=scope,
