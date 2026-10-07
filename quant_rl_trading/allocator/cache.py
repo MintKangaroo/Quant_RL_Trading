@@ -654,6 +654,8 @@ CONFIG_INDEPENDENT = frozenset(
         "selector.rebalance_every",
         "selector.rebalance_anchor",
         "selector.hold_fill_min_weight",
+        # 비용 인지 교체(selector.md §5 6번) — 완충처럼 보유가 있어야 선다. 캐시는 보유 없이 굽는다(기본 0 = 끔).
+        "selector.swap_min_z",
         # 지수+V6 shadow(portfolio-construction.md) — 펀드 매도세·고정 바구니. 캐시는 펀드를 안 들고 바구니 없이 굽는다(기본 []).
         "accounting.transaction_tax_kr_etf",
         "selector.fixed_basket",

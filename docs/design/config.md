@@ -177,6 +177,8 @@ exposure:                      # 노출 제어 (selector/exposure.py)
 
 selector:
   exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
+  swap_min_z: 0.0              # 비용 인지 교체 문턱(단면 z) — 완충 밖으로 떨어진 보유도 z 차이 ≥ 이 값인 진입이 있을 때만 판다.
+                               # 0 = 끔(옛 동작). 샌드박스 전용 — P1-b′ shadow(data/_p1b_shadow)가 1.0. selector.md §5 6번 (2026-10-08)
   hold_fill_min_weight: 0.002  # 보유일 잔여 채움 하한 — 직전 재조정 목표 주식 수와 보유의 차가 자본의 이 비율 이상인 종목만 (selector.md §5 7번, 2026-10-04)
   weights_override: {}         # 샌드박스 전용 {analyst: weight} — 비면 측정표(analyst_weights). BE2 shadow 가
                                # {be2: 1.0, risk: 1.0} 로 켠다(be2-shadow.md). 실전 창고는 덮어쓰기 파일을 거부한다

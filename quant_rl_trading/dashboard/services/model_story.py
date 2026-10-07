@@ -224,6 +224,10 @@ SHADOW_TRACKS: list[dict[str, str]] = [
      "compares": "KODEX200 한 종목을 100% 로, 노출만 지금 규칙(V6) 그대로 — 실자금 투입 관문 ② 의 '지수+V6' 대안을 계산값이 "
                  "아니라 실제 매매 기록으로. 모의계좌와 같은 정보 시점으로 결정한다(분배금은 안 받는다 — 그만큼 불리하게 적힌다).",
      "doc": "docs/design/portfolio-construction.md", "compare_ledger": "data/_paper", "compare_name": "모의계좌"},
+    {"name": "P1-b′", "ledger": "data/_p1b_shadow", "started": "auto",
+     "compares": "회전 줄이기 — 100종목·20세션 재조정·확실히 나을 때만 교체(θ1.0), 나머지는 지금 규칙 그대로. 지금 방식 24종목(N24)과 "
+                 "같은 창 수익·회전을 나란히 본다. 기록만 — 판정은 11/23 금고 창이다.",
+     "doc": "docs/protocols/p1b-prime-2026-10.md", "compare_ledger": "data/_n24_shadow", "compare_name": "N24"},
 ]
 
 

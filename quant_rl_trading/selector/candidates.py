@@ -74,15 +74,22 @@ class SelectionParams:
     rejection_cap: float = DEFAULT_REJECTION_CAP
     #: 완충 구간 — 보유 종목이 이 순위 안이면 남긴다. 0 이면 완충 없음(매일 재선정).
     exit_rank: int = 0
+    #: 비용 인지 교체 문턱(단면 z, selector.md §5 6번). 0 이면 끈다 — 완충 밖으로 떨어진 보유를 그대로 판다(옛 동작).
+    swap_min_z: float = 0.0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime, market: str | None = None) -> SelectionParams:
+        try:
+            swap_min_z = float(market_config(store, "selector.swap_min_z", as_of=as_of, market=market))
+        except ConfigNotFound:
+            swap_min_z = 0.0
         return cls(
             n_candidates=int(store.config("selector.n_candidates", as_of=as_of)),
             corr_threshold=float(store.config("selector.corr_threshold", as_of=as_of)),
             corr_penalty=float(store.config("selector.corr_penalty", as_of=as_of)),
             sector_cap=float(store.config("selector.sector_cap", as_of=as_of)),
             exit_rank=int(market_config(store, "selector.exit_rank", as_of=as_of, market=market)),
+            swap_min_z=swap_min_z,
         )
 
 
@@ -289,6 +296,9 @@ def select(
     chosen: list[Candidate] = []
     sector_counts: dict[str, int] = {}
     sector_limit = max(1, int(params.n_candidates * params.sector_cap))
+    #: 완충 밖으로 떨어진 보유(점수는 있다) — 비용 인지 교체가 켜져 있으면 아래에서 진입과 짝지어 남길지 정한다.
+    stale: list[str] = []
+    n_kept = 0
 
     # **완충 구간** (selector.md §5). ``held`` 는 지금 보유 중인 종목이고,
     # ``params.exit_rank`` 안에 있으면 먼저 후보에 남긴다. 25위↔24위가 하루걸러
@@ -307,6 +317,7 @@ def select(
             if sector is not None:
                 sector_counts[sector] = sector_counts.get(sector, 0) + 1
         dropped = [e for e in dict.fromkeys(held) if e in rank and rank[e] > params.exit_rank]
+        stale, n_kept = dropped, len(chosen)
         if kept or dropped:
             trace.note(
                 f"완충: 보유 {len(kept)}종목 유지(순위 ≤ {params.exit_rank}), "
@@ -339,5 +350,64 @@ def select(
                 remaining[other] -= params.corr_penalty
                 trace.note(f"{other}: {entity} 와 상관 {float(value):.2f} — 감점")
 
+    if params.swap_min_z > 0 and stale:
+        chosen = _swap_only_if_better(
+            chosen, n_kept=n_kept, stale=stale, scores=scores, raw=raw, params=params, sectors=sectors, trace=trace,
+        )
+
     trace.stage("selected", len(chosen))
     return chosen
+
+
+def _swap_only_if_better(
+    chosen: list[Candidate],
+    *,
+    n_kept: int,
+    stale: Sequence[str],
+    scores: pd.Series,
+    raw: Mapping[str, float],
+    params: SelectionParams,
+    sectors: Mapping[str, str] | None,
+    trace: SelectionTrace,
+) -> list[Candidate]:
+    """비용 인지 교체 (selector.md §5 6번, 진단 `style-hedge-and-cost.md` §1 ② CA(θ)).
+
+    ``chosen`` 은 완충이 남긴 보유 ``n_kept`` 개 뒤에 새 진입이 붙은 목록이다. 떨어진 보유 ``stale`` 가운데 진입으로 다시
+    뽑힌 것은 공통으로 본다. 빈 자리는 진입 위부터 채우고, 남은 진입(z 내림)과 떨어진 보유(z 오름)를 짝지어
+    z 차이가 문턱 이상인 짝만 바꾼다 — 처음 미달인 짝에서 멈추고 나머지 보유는 남긴다.
+    """
+    values = scores.astype(float)
+    spread = float(values.std())
+    if not spread > 0:
+        trace.note("비용 인지 교체: 점수가 흩어지지 않아 z 를 못 잰다 — 완충 규칙 그대로")
+        return chosen
+    z = (values - float(values.mean())) / spread
+    # 앞 ``n_kept`` 개가 완충 보유다. 그 뒤 진입 가운데 떨어진 보유가 다시 뽑혔으면 그것도 공통이다(판 적이 없다).
+    stale_set = set(stale)
+    common = chosen[:n_kept] + [item for item in chosen[n_kept:] if item.entity_id in stale_set]
+    picked = {item.entity_id for item in common}
+    rest = sorted((e for e in stale if e not in picked), key=lambda e: float(z[e]))
+    if not rest:
+        return chosen
+    entrants = sorted(
+        (item for item in chosen[n_kept:] if item.entity_id not in stale_set),
+        key=lambda item: -float(z[item.entity_id]),
+    )
+    free = max(0, params.n_candidates - len(common) - len(rest))
+    fill, pool = entrants[:free], entrants[free:]
+    swapped = 0
+    for out, incoming in zip(rest, pool, strict=False):
+        if float(z[incoming.entity_id]) - float(z[out]) < params.swap_min_z:
+            break
+        swapped += 1
+    retained = [
+        Candidate(entity, score=float(raw[entity]), raw_score=float(raw[entity]),
+                  sector=sectors.get(entity) if sectors else None)
+        for entity in rest[swapped:]
+    ]
+    trace.note(
+        f"비용 인지 교체(θ={params.swap_min_z:g}): 떨어진 보유 {len(rest)}종목 중 {swapped}종목만 교체, "
+        f"{len(retained)}종목 유지 · 빈 자리 {len(fill)}종목 진입"
+    )
+    trace.measure("swap_retained", len(retained))
+    return (common + retained + fill + pool[:swapped])[: params.n_candidates]

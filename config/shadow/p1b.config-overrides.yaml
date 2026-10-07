@@ -1,0 +1,14 @@
+# P1-b′ shadow — docs/protocols/p1b-prime-2026-10.md "shadow 장부". scripts/run_shadow_p1b.sh 가 첫 실행에
+# data/_p1b_shadow/config-overrides.yaml 로 복사한다. 이 샌드박스에서만 읽힌다(실전 창고는 덮어쓰기 파일을 거부한다).
+# 기록만 — 판정은 금고 second 창(11/23)이고 이 장부 성적은 기준에 들어가지 않는다.
+#
+# 바꾸는 것은 B1′ 구성 넷(N · 완충 · 재조정 주기 · 비용 인지 θ)과 그것을 담을 배관 둘뿐이다. 나머지(리스크 패리티 · 노출 V6 ·
+# 종목 상한 15% · 위험 하한 · 섹터 상한 · 보유일 잔여 채움 · 실전 랭커 점수)는 모의계좌 규칙 그대로다.
+selector.n_candidates: 100
+selector.exit_rank: 500
+selector.rebalance_every: 20
+selector.swap_min_z: 1.0
+# 첫 세션이 재조정일이 되게 anchor 를 첫 세션으로 — 빈 장부가 보유일에 시작하면 잔여 채움이 읽을 직전 재조정 기록이 없다.
+selector.rebalance_anchor: "2026-10-08"
+# 배관: 기본 max_positions 30 이 100종목 장부를 잘랐을 것이다(W72 첫 세션 선례). 비용 인지 교체는 보유를 N 안으로 두므로 N 위 여유만.
+risk.max_positions: 110

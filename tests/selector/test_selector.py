@@ -262,3 +262,62 @@ def test_완충이_꺼져_있으면_매일_재선정이다() -> None:
     scores = pd.Series({"A": 0.9, "B": 0.8, "C": 0.7, "D": 0.6})
     chosen = select(scores=scores, params=PARAMS, held=["D"])
     assert [c.entity_id for c in chosen] == ["A", "B", "C"]
+
+
+# -- 비용 인지 교체 (selector.md §5 6번, 2026-10-08) ------------------------------------
+
+
+def _ca_params(theta: float, *, n: int = 3, exit_rank: int = 4) -> SelectionParams:
+    return SelectionParams(
+        n_candidates=n, corr_threshold=0.7, corr_penalty=0.3, sector_cap=1.0, exit_rank=exit_rank, swap_min_z=theta
+    )
+
+
+def test_비용_인지_교체는_z_차이가_문턱_미만이면_떨어진_보유를_남긴다() -> None:
+    # F(0.55)는 완충(4위) 밖 — 옛 규칙이면 팔고 A 를 산다. A 와의 z 차이가 θ 보다 작으면 남긴다.
+    scores = pd.Series({"A": 0.60, "B": 0.59, "C": 0.58, "D": 0.57, "F": 0.55, "G": 0.0})
+    trace = SelectionTrace()
+    chosen = select(scores=scores, params=_ca_params(1.0), held=["C", "D", "F"], trace=trace)
+    assert [c.entity_id for c in chosen] == ["C", "D", "F"]
+    assert any("비용 인지 교체(θ=1)" in note and "0종목만 교체" in note for note in trace.notes)
+
+
+def test_비용_인지_교체는_확실히_나은_진입이면_바꾼다() -> None:
+    scores = pd.Series({"A": 0.9, "B": 0.8, "C": 0.7, "D": 0.6, "F": -0.5, "G": -0.6})
+    chosen = select(scores=scores, params=_ca_params(1.0), held=["C", "D", "F"])
+    assert [c.entity_id for c in chosen] == ["C", "D", "A"]
+
+
+def test_점수가_없는_보유는_비용_인지와_무관하게_나간다() -> None:
+    scores = pd.Series({"A": 0.60, "B": 0.59, "C": 0.58, "D": 0.57, "G": 0.0})
+    chosen = select(scores=scores, params=_ca_params(5.0), held=["C", "D", "GONE"])
+    assert [c.entity_id for c in chosen] == ["C", "D", "A"]
+
+
+def test_문턱_0_은_옛_동작이다() -> None:
+    scores = pd.Series({"A": 0.60, "B": 0.59, "C": 0.58, "D": 0.57, "F": 0.55, "G": 0.0})
+    old = select(scores=scores, params=_ca_params(0.0), held=["C", "D", "F"])
+    assert [c.entity_id for c in old] == ["C", "D", "A"]
+
+
+def test_비용_인지_교체는_진단_규칙과_같은_명단을_낸다() -> None:
+    """진단 `tools/diag_style_hedge_cost.cost_aware`(pick_mult 뒤)와 같은 집합 — 상관·섹터를 끈 같은 입력에서."""
+    import numpy as np
+
+    from tools.diag_style_hedge_cost import cost_aware
+    from tools.trial_selection_smoothing import pick_mult
+
+    rng = np.random.default_rng(0)
+    n, mult = 10, 3
+    names = [f"S{i:03d}" for i in range(120)]
+    held: list[str] = []
+    for theta in (0.5, 1.0):
+        held = []
+        for _ in range(30):
+            row = pd.Series(rng.normal(size=len(names)), index=names)
+            row = row.drop(rng.choice(names, size=5, replace=False))  # 그날 점수 없는 종목(강제 퇴출)
+            target = pick_mult(held, row.sort_values(ascending=False).index, n, mult)
+            expected = cost_aware(held, target, row, n, theta) if held else target
+            got = select(scores=row, params=_ca_params(theta, n=n, exit_rank=n * mult), held=held)
+            assert sorted(c.entity_id for c in got) == sorted(expected)
+            held = expected

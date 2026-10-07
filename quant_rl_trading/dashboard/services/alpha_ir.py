@@ -40,6 +40,7 @@ BOOKS: list[dict[str, str]] = [
     {"key": "be2", "name": "BE2", "ledger": "_be2_shadow", "market": "KR"},
     {"key": "w72", "name": "W72", "ledger": "_w72_shadow", "market": "KR"},
     {"key": "n24", "name": "N24", "ledger": "_n24_shadow", "market": "KR"},
+    {"key": "p1b", "name": "P1-b′", "ledger": "_p1b_shadow", "market": "KR"},
     {"key": "shadow", "name": "shadow (국장+미장)", "ledger": "_shadow", "market": "MIXED"},
     {"key": "g1us", "name": "G1 미장", "ledger": "_g1us_shadow", "market": "US"},
 ]
