@@ -145,6 +145,7 @@ backfill:
   years: 5
   kr_publication_lag_seconds: 1800   # 세션 종료 + 이 지연 = observed_at
   us_publication_lag_seconds: 1200
+  us_on_time_until_kst: "13:30"  # 미장 증분 봉이 공표일(KST) 이 시각 뒤에 받히면 observed_at = 받은 시각(data-contract §5-0b). wait_us_prices 마감과 같다. 새 키(2026-10-07)
   shorting_lag_days: 2         # 공매도는 T+2. 0이면 flow_kr 이 미래를 본다
   session_pause_ms: 200
 
