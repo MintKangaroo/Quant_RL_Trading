@@ -189,10 +189,12 @@ def blank_fa(p: pd.DataFrame, feats: list[str]) -> tuple[pd.DataFrame, date]:
     old = read_panel("old", ["entity_id", "session", "market", "miss_raw"])
     first = min(old.loc[old["miss_raw"] == 0, "session"])
     del old
-    early = p["session"] < first
+    early = (p["session"] < first).to_numpy()
     fa = [c for c in feats if c not in (*fkit.SCORE_FEATS, "is_us")]
     for c in fa:
-        p.loc[early, c] = np.float32(1.0 if c.startswith("miss_") else 0.0)
+        col = p[c].to_numpy(copy=True)
+        col[early] = 1.0 if c.startswith("miss_") else 0.0
+        p[c] = col
     return p, first
 
 
