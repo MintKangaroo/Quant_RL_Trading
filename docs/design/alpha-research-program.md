@@ -413,9 +413,25 @@ LLM 은 학습 시점까지의 세상을 안다. 2024 년 공시를 2025 년에 
 | 8 | 라이선스 원칙 | — | **결정됨(10/5): NC 모델도 연구·모의계좌·shadow 후보로 쓴다**("아직 상업 이용 안 하잖아"). 조건 둘 — (a) 실자금 관문·회사 설립 전 상업 라이선스 확보 또는 상업 가능 모델로 교체(교체 시 재검증) (b) 실계좌 전 라이선스 원문 확인(개인 자기자본 매매도 '상업적 이익' 해석 가능). §3.2.2 참조 | 결정됨 |
 | 9 | 분봉 수집 확대 범위 | — | **결정됨(10/5): 거래대금 상위 300**(별도 작업이 구현 중). API 시간 실측 뒤 확대 여부를 다시 본다 | 결정됨 |
 | 10 | 무료 항목 | — | **결정됨(10/5): "무료로 진행 가능한 거는 다 승인"** — Phase 0~2 의 무료 항목(진단·벤치·로컬 추론·무료 원천)은 승인된 것으로 진행한다. 판정 시행은 여전히 사전등록·해시 고정을 거친다 | 결정됨 |
-| 11 | 추가 모델 다운로드 | — | **결정됨(10/6): 10/13 외장 HDD 이전 뒤**(HF 캐시를 HDD 로 옮겨 심링크한 다음). 그 전엔 추가 다운로드 금지. 10/9~10 CPU 벤치는 이미 받은 모델로만(캐시 16GB — TTM·Chronos-Bolt·Chronos-2·TimesFM-2.5·Moirai-2.0·TabPFN v2/2.5·Qwen3-1.7B Q8·Qwen3-8B Q4·EXAONE-4.0-1.2B Q4·ChronoGPT-instruct 2022 판). **10/13 이후 받을 목록**: ① `EleutherAI/polyglot-ko-5.8b` 약 12GB(safetensors, 공식 GGUF 없음 — 받은 뒤 4비트 변환) — P2-d 누수 없는 국장 LLM Analyst ② `manelalab/chrono-gpt-instruct-v1-2021·2023·2024` 판 각 약 7.4GB — P2-c 연도별 워크포워드(결정 연도마다 직전 판) ③ (선택) `LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct` Q4 약 5GB(추정) — 국장 전방 shadow 품질 비교. polyglot-ko-12.8b(약 26GB)는 이 기계엔 무거워 받지 않는다 | 10/13 뒤 |
+| 11 | 추가 모델 다운로드 | — | **결정됨(10/6), 10/7 저녁 앞당김(외장 HDD 도착)**: 받음 — 위치·해시는 부록 C. polyglot-ko-5.8b(safetensors 12.0GB, 해시 OK) · ChronoGPT-instruct 2021·2023·2024 판(각 7.4GB, 해시 OK) · EXAONE-3.5-7.8B Q4_K_M(4.8GB, **읽기 불가 64KB 블록 하나 — 쓰지 않는다**, 부록 C). polyglot 4비트 변환은 10/8 15:30 뒤(변환기 패치 필요했다). polyglot-ko-12.8b 는 받지 않는다 | 받음 |
 
 ---
+
+## 부록 C — 받은 가중치 위치 (2026-10-07)
+
+컷오프 표 고정본([model-cutoffs-2026-10.md](../protocols/model-cutoffs-2026-10.md), `6454eae26c53cd01`)은 바꾸지 않는다. 위치·해시만 여기에 적는다.
+
+| 모델 | 위치 | 크기 | sha256(HF lfs 와 대조) |
+|---|---|---|---|
+| 벤치 1차 묶음(TTM·Chronos-Bolt·Chronos-2·TimesFM-2.5·Moirai-2.0·TabPFN v2/2.5·Qwen3-1.7B Q8·Qwen3-8B Q4·EXAONE-4.0-1.2B Q4·ChronoGPT 2022 판) | `~/.cache/huggingface`(C:) — 리드가 HDD 로 옮길 예정 | 16GB | 10/5 받음 |
+| `EleutherAI/polyglot-ko-5.8b` @ `581a4c3e` | `HF_HOME=/mnt/d/quant_rl_trading/hf`(외장 D:, exFAT) | 12.0GB(safetensors 13조각 — 중복 `pytorch_model.bin` 은 안 받음) | 13조각 전부 OK(`logs/bench-verify-d-20261007.log`) |
+| `manelalab/chrono-gpt-instruct-v1-20211231` | 같다 | 7.4GB | `93883b81…` OK |
+| `manelalab/chrono-gpt-instruct-v1-20231231` | 같다 | 7.4GB | `fbbe820d…` OK |
+| `manelalab/chrono-gpt-instruct-v1-20241231` | 같다 | 7.4GB | `47d89294…` OK |
+| `LGAI-EXAONE/EXAONE-3.5-7.8B-Instruct-GGUF` Q4_K_M @ `c618bf67` | 같다 | 4.8GB | **확인 불가** — 파일 393.4MiB 지점 64KB 블록이 되풀이해 EIO(다른 곳은 읽힘). 외장 HDD 불량 섹터 의심 |
+
+- **외장 HDD 주의(10/7)**: 쓰기 약 3MB/s(drvfs·exFAT), 그리고 위 EIO. 같은 디스크에 다른 프로젝트(`velo_archive`)도 있다. Windows 쪽 디스크 검사(chkdsk·SMART)를 사용자에게 권한다. 확인 전에는 이 디스크에 새로 쓰지 않는다.
+- 변환기: llama.cpp `ad21565` 의 `convert_hf_to_gguf.py`·`conversion/`·`gguf-py` 만 `/mnt/d/quant_rl_trading/tools/llama.cpp-ad21565/` 에 복사했다. `conversion/gptneox.py` 한 줄을 패치했다 — transformers 5 가 `rotary_pct` 를 `rope_parameters.partial_rotary_factor` 로 옮겨서다. 러너는 `bench/convert_polyglot.sh`(q8_0 → Q4_K_M 재양자화, 가용 6GB·시간 창 가드).
 
 ## 부록 A — 쉬운 말 풀이
 

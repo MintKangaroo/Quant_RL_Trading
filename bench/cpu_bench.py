@@ -150,7 +150,7 @@ def _tabpfn(a, version: str):
             _, fit_s = _timed(lambda: clf.fit(X[:rows], y[:rows]))
             _, pred_s = _timed(lambda: clf.predict_proba(X[rows:]))
             out["rows"][str(rows)] = {"fit_s": fit_s, "predict_200_s": pred_s}
-        except Exception as e:  # noqa: BLE001 — 한도 초과도 결과다
+        except Exception as e:
             out["rows"][str(rows)] = {"error": f"{type(e).__name__}: {e}"[:300]}
     return out
 
@@ -188,7 +188,7 @@ def _bench_gguf(a, key: str):
 
     path = hf_hub_download(*GGUF[key])
     llm, load_s = _timed(lambda: Llama(model_path=path, n_ctx=4096, n_threads=a.threads, n_batch=512, verbose=False, seed=0))
-    count = lambda t: len(llm.tokenize(t.encode("utf-8")))  # noqa: E731
+    count = lambda t: len(llm.tokenize(t.encode("utf-8")))
     prompt = _prompt(PROMPT_TOKENS, count)
     n_prompt = count(prompt)
 
@@ -276,7 +276,7 @@ def main() -> int:
     try:
         rec["result"] = BENCHES[a.model](a)
         rc = 0
-    except Exception as e:  # noqa: BLE001 — 실패도 결과로 적는다
+    except Exception as e:
         rec["error"] = f"{type(e).__name__}: {e}"[:500]
         rc = 1
     a.out.parent.mkdir(parents=True, exist_ok=True)
