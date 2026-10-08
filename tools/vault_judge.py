@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | `registered` | 2026-07-01~11-13 | 11-23 / 11-23 | AQ·AR·AS·BD | 각 시행의 등록 문서(원래 설계) |
 | `early` | 2026-07-01~09-30 | 문서가 정한다 | AQ·AR·AS·BD·BE2 | `docs/protocols/vault-early-open-2026-10.md` |
-| `second` | 2026-10-01~11-13 | 문서가 정한다 | BE2(확인) | 같은 문서 |
+| `second` | 2026-10-01~11-13 | 문서가 정한다 | BE2(확인)·BD(보류였으면) + 따로 등록 DF2·P1B | 같은 문서 + 각자 등록 문서 |
 
 `early`·`second` 의 날짜·시행은 **코드가 아니라 등록 문서의 `창` 줄**에서 읽는다(`windows()`). 날짜를 인자로 받지 않는
 것은 일부러다 — 인자로 창을 옮길 수 있으면 해시 잠금이 뜻을 잃는다. 대신 두 겹으로 잠근다:
@@ -133,10 +133,27 @@ BE2_GATE_IC, BE2_GATE_MDD, BE2_GATE_TURN, BE2_GATE_MODEL = 0.0, 0.02, 1.2, 0.01
 #: DF2(docs/protocols/df2-2026-10.md, 2026-09-30 사용자 "C로 하자") 는 두 번째 금고(second)에서 BE2·BD 와 **한 번에** 연다.
 DF2_PROTOCOL = Path("docs/protocols/df2-2026-10.md")
 DF2_PROTOCOL_HASH: str | None = "dbac9e2be1db35ef"   # 2026-09-30 고정
-EXTRA_TRIALS: dict[str, tuple[str, ...]] = {"second": ("DF2",)}
-EXTRA_PROTOCOLS: dict[str, tuple[Path, str | None]] = {"DF2": (DF2_PROTOCOL, DF2_PROTOCOL_HASH)}
+#: P1-b′(docs/protocols/p1b-prime-2026-10.md, 2026-10-08 사용자 설문 "등록 + shadow") 도 second 에서 같은 개봉으로 판정한다.
+P1B_PROTOCOL = Path("docs/protocols/p1b-prime-2026-10.md")
+P1B_PROTOCOL_HASH: str | None = "12f053518c05ae3c"   # 2026-10-08 고정(e483c7f)
+EXTRA_TRIALS: dict[str, tuple[str, ...]] = {"second": ("DF2", "P1B")}
+EXTRA_PROTOCOLS: dict[str, tuple[Path, str | None]] = {"DF2": (DF2_PROTOCOL, DF2_PROTOCOL_HASH),
+                                                       "P1B": (P1B_PROTOCOL, P1B_PROTOCOL_HASH)}
 FAMILY["DF2"] = "selection"
 ENTITY["DF2"] = "df2-2026-10:DF2"
+FAMILY["P1B"] = "selection"
+ENTITY["P1B"] = "p1b-prime-2026-10:P1B"
+#: P1-b′ 변형 — 등록 표 그대로 (N, 재조정 R, 완충 배수, 비용 인지 θ). B0 = 대조(현행).
+P1B_ARMS: dict[str, tuple[int, int, int, float | None]] = {"B0": (24, 10, 3, None), "B1′": (100, 20, 5, 1.0),
+                                                          "B2′": (24, 20, 3, None)}
+#: EMA5 를 데우는 창 앞 세션 수 — 등록은 "창 시작 전 세션 예측으로 데운다" 만 정했다. span 5 면 20세션 앞 무게는
+#: (2/3)^20 ≈ 3e-4 라 값에 영향이 없다. 데운 세션의 수익은 쓰지 않는다(장부는 창 첫 세션에 빈 손으로 시작).
+P1B_WARM = 20
+#: 기준 ①~④ — 등록(초안 P1-b 와 같다): ① 연 ≥ B0 + 1%p · NW t(lag 4) ≥ 2.0 ② 시드 5 중 4 ③ 국면(= 창 전체) ≥ B0 − 1%p
+#: ④ 연회전 ≤ B0 × 0.6 · MDD 가 B0 보다 2%p 넘게 깊지 않다.
+P1B_GATE_ANN, P1B_GATE_T, P1B_GATE_SHARE, P1B_GATE_REGIME = 0.01, 2.0, 4, -0.01
+P1B_GATE_TURN, P1B_GATE_MDD = 0.6, 0.02
+P1B_KEYS = ("ann", "turn", "mdd", "sel_ir")
 #: 얼린 BF1 사이드카(`tools/freeze_be2.py --arm BF1`) — 해시는 **얼린 뒤** 여기에 적는다(DF2 문서는 고정돼 못 고친다).
 #: None 이면 DF2 판정을 거부한다(얼리기가 먼저다).
 BF1_MODELS = Path("data/models/bf1")   # BE2 폴더와 따로 — be2 Analyst 가 보는 폴더에 섞지 않는다. manifest.json 도 여기
@@ -1135,7 +1152,136 @@ def run_df2(store: Store) -> tuple[list[str], str]:
     return lines, verdict
 
 
-RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2}
+# --------------------------------------------------------------------------- P1-b′ (p1b-prime-2026-10.md — 두 번째 금고, 국장)
+
+
+def p1b_stats(daily: pd.Series, turn: pd.Series, uni: pd.Series, days: list[date]) -> dict[str, float]:
+    """변형 하나·시드 하나의 지표 — 비용 후 연수익·연회전·MDD 와 **비용 후 선택 IR**(유니버스 EW 대비, 진단 ② 와 같은 정의)."""
+    r = daily.reindex(days).fillna(0.0)
+    sel = r - uni.reindex(days).fillna(0.0)
+    vol = float(sel.std() * np.sqrt(ANN))
+    nav = (1.0 + r).cumprod()
+    return {"ann": float(r.mean() * ANN), "turn": float(turn.reindex(days).fillna(0.0).sum() * ANN / len(days)),
+            "mdd": float((nav / nav.cummax() - 1.0).min()),
+            "sel_ann": float(sel.mean() * ANN), "sel_ir": float(sel.mean() * ANN / vol) if vol > 0 else float("nan")}
+
+
+def p1b_results(preds: dict[int, pd.DataFrame], ret: pd.DataFrame, bench: pd.Series, trad: dict[date, set[str]],
+                sessions: list[date], seeds: list[int]) -> dict[str, Any]:
+    """얼린 C0 시드별 원점수(데운 세션 포함) → EMA5 → 변형 셋의 롱 다리(`diag_style_hedge_cost.long_leg`, 등록 그대로).
+
+    창고를 안 읽는다(합성 스모크가 이 함수를 그대로 돈다). 반환 {res: {변형: [시드별 지표]}, daily: {변형: 시드 평균 일수익},
+    days, uni, style}. 데운 세션(창 첫 세션 앞)은 EMA 만 데우고 장부에 들이지 않는다.
+    """
+    from tools.diag_style_hedge_cost import long_leg
+    from tools.trial_ranker_kit import SPAN
+
+    first = sessions[0]
+    legs: dict[str, dict[int, pd.Series]] = {a: {} for a in P1B_ARMS}
+    turns: dict[str, dict[int, pd.Series]] = {a: {} for a in P1B_ARMS}
+    for seed in seeds:
+        wide = preds[int(seed)].pivot_table(index="session", columns="entity_id", values="pred").sort_index()
+        wide = wide.ewm(span=SPAN).mean()
+        wide = wide[wide.index >= first]
+        for arm, (n, every, mult, theta) in P1B_ARMS.items():
+            daily, turn, _ = long_leg(wide, ret, trad, n, every=every, mult=mult, theta=theta)
+            legs[arm][int(seed)], turns[arm][int(seed)] = daily, turn
+        del wide
+    days = sorted(set().union(*(s.index for by in legs.values() for s in by.values())))
+    if not days:
+        raise ValueError("P1-b′: 장부가 한 세션도 돌지 않았다 — 조용히 기각하지 않는다")
+    uni = pd.Series({d: float(ret.loc[d].reindex(list(trad.get(d, ()))).mean()) for d in days if d in ret.index}).reindex(days)
+    res = {a: [p1b_stats(legs[a][int(s)], turns[a][int(s)], uni, days) for s in seeds] for a in P1B_ARMS}
+    daily = {a: pd.DataFrame(by).reindex(days).fillna(0.0).mean(axis=1) for a, by in legs.items()}
+    style = float((uni - bench.reindex(days)).fillna(0.0).mean() * ANN)
+    return {"res": res, "daily": daily, "days": days, "uni": uni, "style": style}
+
+
+def judge_p1b(res: dict[str, list[dict[str, float]]], daily: dict[str, pd.Series]) -> tuple[list[str], str]:
+    """P1-b′ — 변형(B1′·B2′)마다 B0 대비 기준 넷. 둘 다 통과하면 비용 후 선택 IR 이 높은 쪽 하나가 후보(사용자 결정).
+
+    ③ 은 등록대로 second 창이 급등 국면 하나뿐이라 창 전체 비교다. 지표 키가 빠지거나 nan 이면 크게 멈춘다.
+    """
+    from quant_rl_trading.analysts import ic as ic_module
+
+    for arm in P1B_ARMS:
+        for i, row in enumerate(res[arm]):
+            bad = [k for k in P1B_KEYS if k not in row or not np.isfinite(row[k])]
+            if bad:
+                raise ValueError(f"judge_p1b: {arm} 시드 {i} 에 지표 {bad} 가 없다 — 조용히 기각하지 않는다")
+    b0 = res["B0"]
+    lines = ["| 변형 | 비용 후 연(시드 평균) | 시드별 | 선택 IR | 연회전 | MDD |", "|---|---|---|---|---|---|"]
+    for arm, rows in res.items():
+        lines.append(f"| {arm} | {_mean(rows, 'ann'):+.1%} | " + " / ".join(f"{r['ann']:+.1%}" for r in rows)
+                     + f" | {_mean(rows, 'sel_ir'):+.2f} | {_mean(rows, 'turn'):.1f} | {_mean(rows, 'mdd'):.1%} |")
+    passed = []
+    for arm in (a for a in P1B_ARMS if a != "B0"):
+        rows = res[arm]
+        d = _mean(rows, "ann") - _mean(b0, "ann")
+        t = float(ic_module.newey_west_t(daily[arm] - daily["B0"], lag=4))
+        wins = sum(r["ann"] > c["ann"] for r, c in zip(rows, b0, strict=True))
+        turn_ratio = _mean(rows, "turn") / _mean(b0, "turn")
+        deeper = _mean(b0, "mdd") - _mean(rows, "mdd")
+        c = (d >= P1B_GATE_ANN and t >= P1B_GATE_T, wins >= P1B_GATE_SHARE, d >= P1B_GATE_REGIME,
+             turn_ratio <= P1B_GATE_TURN and deeper <= P1B_GATE_MDD)
+        lines.append(f"{arm}: ①연 {d:+.1%}p (≥ +1%p) · NW t {t:+.2f} (≥ 2.0) {mark(c[0])} · ②시드 {wins}/{len(rows)} (≥ 4) {mark(c[1])} · "
+                     f"③창 전체 {d:+.1%}p (≥ −1%p) {mark(c[2])} · ④회전비 {turn_ratio:.2f} (≤ 0.6) · MDD {deeper:+.1%}p 깊음 "
+                     f"(≤ 2%p) {mark(c[3])}")
+        if all(c):
+            passed.append(arm)
+    if not passed:
+        return lines, "기각"
+    best = max(passed, key=lambda a: _mean(res[a], "sel_ir"))
+    return lines, f"채택 후보 {best} — ①~④ 통과({', '.join(passed)}), 후보이지 실전 전환이 아니다(사용자 결정)"
+
+
+def p1b_predictions(store: Store, sessions: list[date], c0: dict[int, Any], *, as_of_of: Any) -> dict[int, pd.DataFrame]:
+    """세션마다 창고 `fa_features` 로 얼린 C0 시드별 원점수 — BE2 금고와 같은 `session_batch`·같은 열. 구멍이면 멈춘다."""
+    parts: dict[int, list[pd.DataFrame]] = {int(s): [] for s in c0}
+    failed: list[str] = []
+    for day in sessions:
+        batch = be2_module.session_batch(store, "KR", as_of_of(day))
+        if isinstance(batch, str):
+            failed.append(f"{day}: {batch}")
+            continue
+        if batch.session != day:
+            failed.append(f"{day}: as_of 가 다른 세션({batch.session})을 가리킨다")
+            continue
+        x0 = batch.today.set_index("entity_id").loc[batch.entities, list(C0_FEATURES)].to_numpy(np.float32)
+        base = pd.DataFrame({"entity_id": batch.entities, "session": day})
+        for seed, booster in c0.items():
+            parts[int(seed)].append(base.assign(pred=np.asarray(booster.predict(x0), dtype=float)))
+    if failed:
+        raise SystemExit(f"P1-b′ {len(failed)}세션을 채점하지 못했다 — 창을 조용히 줄이지 않는다:\n  " + "\n  ".join(failed[:10]))
+    return {s: pd.concat(v, ignore_index=True) for s, v in parts.items()}
+
+
+def run_p1b(store: Store) -> tuple[list[str], str]:
+    """P1-b′ — 얼린 C0(시드 0~4) × 실전 경로 FA × 진단 ② 롱 다리 × 변형 셋(B0 대조). 시행은 1회 — 앞 판정이 있으면 멈춘다."""
+    from datetime import timedelta
+
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
+    from quant_rl_trading.collectors.publication import publication_policy
+    from quant_rl_trading.replay.clock import LiveClock
+
+    prior = prior_verdict(store, "P1B")
+    if prior is not None:
+        raise SystemExit(f"P1-b′ 는 이미 판정됐다({prior!r}) — 1회 시행이라 다시 돌지 않는다")
+    _, c0 = frozen_be2(frozen_hashes("BE2"))          # C0 사이드카 해시는 앞당김 문서 '모델 해시'(2f856986d7e668a8)
+    sessions = list(trading_days(Market.KR, VAULT_START, VAULT_END))
+    warm = list(trading_days(Market.KR, VAULT_START - timedelta(days=60), VAULT_START - timedelta(days=1)))[-P1B_WARM:]
+    policy = publication_policy(store, Market.KR, clock=LiveClock())
+    preds = p1b_predictions(store, [*warm, *sessions], c0, as_of_of=policy.for_session)
+    ret, bench, trad = market_data(store, sessions, cache=VAULT)
+    out = p1b_results(preds, ret, bench, trad, sessions, sorted(c0))
+    lines, verdict = judge_p1b(out["res"], out["daily"])
+    lines.append(f"기록(기준 아님) 장부 세션 {len(out['days'])} · 데운 세션 {len(warm)} · 선택 항(B0) "
+                 f"{_mean(out['res']['B0'], 'sel_ann'):+.1%} · 스타일 항(유니버스 EW − K200) {out['style']:+.1%} · "
+                 f"점수 = 얼린 C0 원점수 · 수익 = trial_ranker_kit.market_data(편도 {ONE_WAY_COST:.2%})")
+    return lines, verdict
+
+
+RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b}
 
 
 # --------------------------------------------------------------------------- 기록
@@ -1260,7 +1406,7 @@ def bake(store: Store, win: Window | None = None) -> int:
     for group in INSIDER:
         for market, days in sessions.items():
             build_panel(store, group, market, days, collect=False)
-    if win is not None and {"BE2", "DF2"} & set(trials_of(win)):
+    if win is not None and {"BE2", "DF2", "P1B"} & set(trials_of(win)):
         # BE2·DF2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
         from quant_rl_trading.analysts import fa_features
         first = be2_module.time_axis(VAULT_START)[-be2_module.WINDOW:][0]   # 첫 채점일의 60칸 창 첫날
