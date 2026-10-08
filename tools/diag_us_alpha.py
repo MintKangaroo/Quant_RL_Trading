@@ -40,6 +40,8 @@ CUT_START = date(2022, 7, 1)
 #: U-blank — U-cut 에서 회차 패널이 비어 있던 세션(미장 FA 첫 채움 전)의 FA 열을 회차 패널처럼 비운다(값 0 · 표지 1).
 #: 같은 (고친) 명단 위에서 채움 효과만 떼어 보는 군이다(§1 정정, 2026-10-07 검산 A).
 PRED_DIRS = {a: OUT / f"pred-{a}" for a in ARMS}
+#: ETF 원본은 입력이다 — 스모크가 OUT 을 smoke/ 로 바꿔도 같은 파일을 읽는다(10/8 스모크가 smoke/etf.parquet 를 찾다 멈췄다).
+ETF_PATH = OUT / "etf.parquet"  # invariant-allow: data-access — 진단 원본(LS g3204 연구 캐시)
 J_TAG = "KR+US-20220701-20260630"
 
 NS = (24, 50, 100)
@@ -150,7 +152,7 @@ def fetch_etf(_args: argparse.Namespace) -> int:
     frame = fetch_closes(STYLE_ETFS)
     frame = frame[frame["day"] <= ETF_END]
     OUT.mkdir(parents=True, exist_ok=True)
-    frame.to_parquet(OUT / "etf.parquet")  # invariant-allow: data-access — 진단 원본(LS g3204 연구 캐시)
+    frame.to_parquet(ETF_PATH)  # invariant-allow: data-access — 진단 원본(LS g3204 연구 캐시)
     levels = frame.pivot(index="day", columns="symbol", values="close").sort_index()
     jumps = levels.pct_change().abs().stack()
     print(f"|일수익| > 15% 칸: {int((jumps > 0.15).sum())} · 빈 칸: {int(levels.isna().sum().sum())}", flush=True)
@@ -159,7 +161,7 @@ def fetch_etf(_args: argparse.Namespace) -> int:
 
 def etf_returns() -> pd.DataFrame:
     """ETF 여섯 + 섹터 11 의 결정 t 값 = 종가 t+1 → t+2(kit 벤치 정렬)."""
-    e = pd.read_parquet(OUT / "etf.parquet").pivot(index="day", columns="symbol", values="close")  # invariant-allow: data-access — 진단 원본
+    e = pd.read_parquet(ETF_PATH).pivot(index="day", columns="symbol", values="close")  # invariant-allow: data-access — 진단 원본
     s = pd.read_parquet(SPDR_PATH).pivot(index="day", columns="sector", values="close")  # invariant-allow: data-access — 진단 원본
     lv = pd.concat([e, s], axis=1).sort_index()
     lv = lv[lv.index <= ETF_END]
