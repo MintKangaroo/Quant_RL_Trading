@@ -41,7 +41,7 @@ from tools.trial_overlay import ANN, ONE_WAY_COST  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/p1a-prime-2026-10.md")
 #: 등록 문서 sha256 앞 16자 — **사용자 승인 뒤** 적는다. None 이면 `run` 은 거부한다(점검만 허용).
-PROTOCOL_HASH: str | None = None
+PROTOCOL_HASH: str | None = "02e64f90586418ec"  # 2026-10-08 사용자 설문 고정
 OUT = Path("data/_diag/p1a-prime")
 CAPS = OUT / "caps-rank.parquet"  # invariant-allow: data-access — 시행 작업 캐시(창고 market_stats 를 store.get 으로 읽어 만든 것)
 ZONES: dict[str, tuple[int, int]] = {"A1": (1, 200), "A2": (201, 700)}

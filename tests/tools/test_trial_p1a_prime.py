@@ -93,7 +93,15 @@ def vjudge(res, ctrl, daily, kew):  # type: ignore[no-untyped-def]
     return p1a.judge(res, ctrl, daily, kew, cur_turn=20.0)[1]
 
 
-def test_run_refuses_before_hash_is_fixed(capsys: pytest.CaptureFixture[str]) -> None:
-    assert p1a.PROTOCOL_HASH is None
-    assert p1a.cmd_run(object(), save=False) == 2  # type: ignore[arg-type]
-    assert "판정 거부" in capsys.readouterr().out
+def test_protocol_hash_is_pinned_to_the_file() -> None:
+    import hashlib
+
+    assert p1a.PROTOCOL_HASH == hashlib.sha256(p1a.PROTOCOL.read_bytes()).hexdigest()[:16]
+    assert p1a.PROTOCOL.read_text().startswith("> **고정")
+
+
+def test_run_refuses_when_hash_differs(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    for pinned in (None, "0" * 16):                                   # 미고정 · 고정 뒤 문서가 바뀜
+        monkeypatch.setattr(p1a, "PROTOCOL_HASH", pinned)
+        assert p1a.cmd_run(object(), save=False) == 2  # type: ignore[arg-type]
+        assert "판정 거부" in capsys.readouterr().out
