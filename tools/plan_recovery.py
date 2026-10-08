@@ -75,6 +75,7 @@ import pandas as pd  # noqa: E402
 
 from quant_rl_trading.collectors.market_hours import Market, trading_days  # noqa: E402
 from quant_rl_trading.reporting.sessions import expected_session  # noqa: E402
+from quant_rl_trading.replay.events import EVENTS_TABLE  # noqa: E402
 from quant_rl_trading.store import ConfigNotFound, Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
 
@@ -290,6 +291,11 @@ def missing_orders(
         set(pd.to_datetime(frame["valid_from"]).dt.date) if not frame.empty else set()
     )
     if warmup in have:
+        return []
+    # 재조정 주기(시행 AO, 10세션)라 **주문 0건인 세션이 정상**이다. 그날 세션이 돌았다는 증거는 이벤트 로그
+    # (`session/daily.py` 의 EventLog, run_id = session-{시장}-{날짜} — 주문이 없어도 적힌다)로 본다. 이게 없던
+    # 시절엔 주문 0건 다음 날을 "전날이 안 돌았다" 로 읽어 shadow 를 헛미뤘다(2026-10-08 재부팅 복구).
+    if store.ingest_run_recorded(EVENTS_TABLE, f"events-session-{market}-{warmup.isoformat()}-0000"):
         return []
     return [
         f"{warmup.isoformat()} 주문이 창고에 없다 — 지금 돌리면 그날 결정을 "

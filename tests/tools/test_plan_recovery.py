@@ -274,6 +274,28 @@ def test_전날_주문이_있으면_통과한다(ready: Store) -> None:
     ) == []
 
 
+def test_주문_0건이어도_전날_세션_기록이_있으면_통과한다(store: Store) -> None:
+    """재조정 주기 10세션 — 보유일엔 주문이 0건이다. 그날 세션이 돈 증거는 이벤트 로그다(2026-10-08 헛미룸)."""
+    for day in (WARMUP, SESSION):
+        store.append(
+            "prices", [_price_row(day)],
+            ingest_run_id=f"prices-{day}", source="test",
+        )
+    from quant_rl_trading.replay.events import EventLog
+
+    class _Clock:
+        def now(self) -> datetime:
+            return AS_OF - timedelta(days=1)
+
+    log = EventLog(store=store, clock=_Clock(), run_id=f"session-KR-{WARMUP.isoformat()}", wall_clock=_Clock())
+    log.record("decide", "session", {"orders": 0})
+    log.flush()                                   # 실전 세션과 같은 run_id 로 적힌다
+
+    assert plan_recovery.gate(
+        store, market="KR", as_of=AS_OF, session=SESSION, stage="session"
+    ) == []
+
+
 def test_시세_관문은_주문을_묻지_않는다(store: Store) -> None:
     """주문은 run_daily·run_shadow 가 만든다. 그 앞 관문에서 물으면 언제나 없다."""
     for day in (WARMUP, SESSION):
