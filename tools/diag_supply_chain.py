@@ -161,7 +161,6 @@ def cmd_leadlag(store: Store) -> int:
 
     미국 종가(d)는 한국 d+1 개장 전에 나온다 — 시가→종가 는 개장 뒤 들어가 실행 가능한 쪽이다.
     """
-    from quant_rl_trading.analysts import ic as icm
     from quant_rl_trading.store.prices import read_prices
     from tools.trial_overlay import _index
 
