@@ -32,10 +32,18 @@ function airSessions(win) {
   return `<td class="num">${win.sessions}${gap}</td>`;
 }
 
+/* 두 번째 기준(K200 동일가중, 계산) 대비 누적 초과 — 표본이 차면 IR 을 괄호로. */
+function airEw(book) {
+  const ew = book.equal_weight;
+  if (!ew) return `<td class="num dim" title="동일가중 기준을 못 만들었다">—</td>`;
+  const ir = ew.sufficient && ew.ir !== null && ew.ir !== undefined ? ` <span class="dim">(${airRatio(ew.ir)})</span>` : "";
+  return `<td class="num ${airTone(ew.excess)}" title="우리 ${airPct(ew.ours_total)} · 동일가중 ${airPct(ew.etf_total)}">${airPct(ew.excess)}${ir}</td>`;
+}
+
 function airRow(book, columns, data) {
   const head = `<td class="air-name" title="${airEsc(book.ledger)}">${airEsc(book.name)}</td>`;
   if (book.status !== "ok") {
-    return `<tr class="air-off">${head}<td colspan="${columns.length + 6}" class="dim air-reason">${airEsc(book.reason)}</td></tr>`;
+    return `<tr class="air-off">${head}<td colspan="${columns.length + 7}" class="dim air-reason">${airEsc(book.reason)}</td></tr>`;
   }
   const all = book.windows.all;
   const rolling = columns.filter((c) => c.key !== "all" && c.key !== "reset");
@@ -54,6 +62,7 @@ function airRow(book, columns, data) {
   return `<tr>${head}
     ${airSessions(all)}
     <td class="num ${airTone(all && all.excess)}" title="우리 ${airPct(all && all.ours_total)} · KODEX200 총수익 ${airPct(all && all.etf_total)}">${airPct(all && all.excess)}</td>
+    ${airEw(book)}
     ${ratios}
     ${resetCell}
     <td class="air-spark-cell air-x"><div class="air-spark" id="air-spark-${airEsc(book.key)}"></div></td>
@@ -105,6 +114,7 @@ function renderAlphaIr(target, stamp, data) {
       <colgroup><col class="c-air-name"></colgroup>
       <thead><tr>
         <th>장부</th><th class="num">세션</th><th class="num" title="전체 창 — 우리 누적 − KODEX200 총수익 누적">누적 초과</th>
+        <th class="num" title="두 번째 기준 — ${airEsc(data.benchmark_ew || "동일가중 없음")}: 우리 누적 − 동일가중 누적(보정 종가). 괄호는 IR(표본이 차면)">동일가중 대비</th>
         ${rolling.map((c) => `<th class="num" title="장부 세션 ${c.sessions}개 — 결손일을 넘어 잇는다">IR ${c.sessions}</th>`).join("")}
         <th class="num">IR 전체</th><th class="num air-x" title="cov(우리, ETF 가격) / var(ETF 가격) — 표본 공분산·표본 분산">β</th>
         <th class="num air-x" title="우리 누적 − β × KODEX200 총수익 누적. 참고 — 관문 아님">베타 보정 α</th>
@@ -133,7 +143,8 @@ function airCard(book, data) {
     : `표본 부족 ${all ? all.sessions : 0}/${all ? all.need : data.min_sessions}`;
   return `<li class="air-card">${name}
     <span class="air-card-main"><b class="${airTone(all && all.excess)}">${airPct(all && all.excess)}</b> <span class="dim">지수 대비</span></span>
-    <span class="air-card-sub">${all ? all.sessions : 0}세션${gap} · ${ir}</span></li>`;
+    <span class="air-card-sub">${all ? all.sessions : 0}세션${gap} · ${ir}</span>
+    <span class="air-card-sub">동일가중 대비 ${book.equal_weight ? airPct(book.equal_weight.excess) : "—"}</span></li>`;
 }
 
 async function loadAlphaIr() {

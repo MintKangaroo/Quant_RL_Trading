@@ -68,6 +68,51 @@ def etf_close(source: Store, *, as_of: datetime, lookback: int | None) -> pd.Ser
     return session_series(bench, "close")
 
 
+#: 두 번째 기준(사용자 10/9 "둘 다 재기") — KOSPI200 구성종목 동일가중, 계산값. KRX 동일가중 지수가 창고에 없어 직접 잇는다.
+EQUAL_WEIGHT_LABEL = "K200 동일가중(계산)"
+#: 하루 수익이 이보다 크면 결측으로 본다(액면분할·자료 오류 — trial kit 의 MAX_MOVE 와 같은 값).
+EQUAL_WEIGHT_MAX_MOVE = 0.5
+
+
+def k200_equal_weight_index(source: Store, *, as_of: datetime, lookback: int) -> pd.Series:
+    """K200 동일가중 누적지수(세션 날짜 → 수준, 첫날 1.0). 날마다 **전날까지 관측된 마지막 구성 스냅샷** 종목을 같은 비중으로.
+
+    가격은 보정 종가(분할·배당 조정 — 배당 재투자에 가깝다). 구성 스냅샷이 없는 날은 건너뛴다. 결측·|일수익| > 50% 는 그날 평균에서 뺀다.
+    """
+    from quant_rl_trading.store.prices import read_prices
+
+    members = source.get("index_members", as_of=as_of, lookback=lookback + 30, market="KR",
+                         columns=["entity_id", "valid_from", "index_id"])
+    members = members[members["index_id"].astype(str).str.contains("KOSPI200")]
+    if members.empty:
+        return pd.Series(dtype=float)
+    members["day"] = members["valid_from"].dt.tz_convert("Asia/Seoul").dt.date
+    snaps = {d: set(g["entity_id"]) for d, g in members.groupby("day")}
+    snap_days = sorted(snaps)
+    prices = read_prices(source, as_of=as_of, lookback=lookback, columns=["close"], adjusted=True, market="KR")
+    if prices.empty:
+        return pd.Series(dtype=float)
+    prices["day"] = prices["valid_from"].dt.tz_convert("Asia/Seoul").dt.date
+    wide = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
+    rets = wide.pct_change(fill_method=None)
+    level, out = 1.0, {}
+    days = list(wide.index)
+    for prev, day in pairwise(days):
+        known = [d for d in snap_days if d <= prev]
+        if not known:
+            continue
+        names = [e for e in snaps[known[-1]] if e in rets.columns]
+        r = rets.loc[day, names]
+        r = r[r.abs() <= EQUAL_WEIGHT_MAX_MOVE].dropna()
+        if r.empty:
+            continue
+        if not out:
+            out[prev] = level
+        level *= 1.0 + float(r.mean())
+        out[day] = level
+    return pd.Series(out, dtype=float)
+
+
 def distribution_yield(source: Store, *, as_of: datetime) -> float:
     """분배금 연율 가정. 없으면 ``ConfigNotFound``·``LookupError``·``ValueError`` 가 그대로 난다 — 기본값을 지어내지 않는다."""
     return float(source.config(YIELD_KEY, as_of=as_of))

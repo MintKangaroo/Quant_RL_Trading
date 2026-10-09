@@ -123,6 +123,11 @@ def alpha_ir(root: Path, *, config: Store, source: Store, as_of: datetime) -> di
         return {"available": False, "books": [],
                 "note": f"{BENCHMARK_ETF} 종가가 창고에 없다 — 대조군 없이는 IR 을 못 잰다"}
     through = max(etf.index)  # as_of 로 이미 걸렀다 — 마지막 KODEX200 종가 세션이 창의 끝이다
+    # 두 번째 기준(사용자 10/9 "둘 다 재기") — K200 동일가중(계산). 보정 종가라 배당이 이미 들어 있어 분배금 가정은 0.
+    try:
+        ew = relative.k200_equal_weight_index(source, as_of=as_of, lookback=lookback)
+    except Exception:  # noqa: BLE001 — 두 번째 기준이 깨져도 주 표는 산다
+        ew = None
 
     columns = [{"key": str(n), "label": f"최근 {n}세션", "sessions": n} for n in windows]
     columns += [{"key": "all", "label": "전체", "sessions": None},
@@ -156,6 +161,11 @@ def alpha_ir(root: Path, *, config: Store, source: Store, as_of: datetime) -> di
             row["windows"]["reset"] = measure(trading_days(Market.KR, max(reset, since), through), need=minimum)
         else:
             row["windows"]["reset"] = None
+        if ew is not None and not ew.empty:
+            res = relative.compare(ours, ew, window=window, annual_yield=0.0)
+            row["equal_weight"] = _stats(res, need=minimum, sessions_hint=len(relative.overlap(ours, ew, window)))
+        else:
+            row["equal_weight"] = None
         full = relative.compare(ours, etf, window=window, annual_yield=annual)
         row["since"] = _iso(overlap[0]) if overlap else _iso(since)
         row["curve"] = [[d.isoformat(), v] for d, v in full.curve] if full else []
@@ -165,6 +175,7 @@ def alpha_ir(root: Path, *, config: Store, source: Store, as_of: datetime) -> di
         "available": True,
         "note": None,
         "benchmark": BENCHMARK_ETF,
+        "benchmark_ew": relative.EQUAL_WEIGHT_LABEL if ew is not None and not ew.empty else None,
         "annual_yield": annual,
         "trading_days_per_year": relative.TRADING_DAYS_PER_YEAR,
         "min_sessions": minimum,

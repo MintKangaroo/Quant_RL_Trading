@@ -40,7 +40,7 @@ def load(root: Path) -> pd.DataFrame:
         df["q10"], df["q50"], df["q90"] = q[:, -1, 0] / base - 1, q[:, -1, 1] / base - 1, q[:, -1, 2] / base - 1
         df["up"] = df["q90"] - df["q50"]
         df["skew"] = (df["q90"] - df["q50"]) - (df["q50"] - df["q10"])
-    caps = pd.read_parquet(CAPS).rename(columns={"cap": "c"})
+    caps = pd.read_parquet(CAPS).rename(columns={"cap": "c"})  # invariant-allow: data-access — 시행 작업 캐시
     caps["rank"] = caps.groupby("session")["c"].rank(ascending=False)
     df = df.merge(caps, on=["session", "entity_id"], how="left")
     return df
