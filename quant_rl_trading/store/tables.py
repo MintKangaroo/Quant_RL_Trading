@@ -1020,6 +1020,36 @@ _SPECS: dict[str, TableSpec] = {
             "(self-improvement.md §0). 리셋도 삭제도 없다."
         ),
     ),
+    "signal_scorecard": TableSpec(
+        name="signal_scorecard",
+        columns={
+            "market": pa.string(),
+            # 결정 세션(신호를 본 시점 = 그 세션 16:00 KST)과 라벨 지평. 라벨 = 다음 세션 종가 → +horizon 세션 종가.
+            "session": pa.string(),
+            "horizon": pa.int32(),
+            # all · k200(그 시점 구성종목) · rest(그 밖). 점수가 있고 라벨이 닫힌 종목만 센다.
+            "universe": pa.string(),
+            "n": pa.int32(),
+            "ic": pa.float64(),
+            # 상위·하위 10분위 동일가중 수익 − 같은 집합 동일가중 수익. 적중 = 상위가 평균을 넘은 비율 · 하위가 평균에 못 미친 비율.
+            "top_excess": pa.float64(),
+            "bottom_excess": pa.float64(),
+            "top_hit": pa.float64(),
+            "bottom_hit": pa.float64(),
+            "signal_version": pa.string(),
+        },
+        natural_key=("entity_id", "valid_from", "universe", "horizon"),
+        # 라벨이 닫히는 데 horizon+1 세션(주말 끼면 열흘 남짓) — 하한 프루닝 선언.
+        observation_lag_days=14,
+        # entity_id 가 종목이 아니라 analyst 이름이다(analyst_weights 와 같은 사정).
+        market_prefixed_entity=False,
+        doc=(
+            "자기개선 ① 채점지 — 매 결정 세션 · Analyst 마다 '그 신호가 5세션 뒤 맞았나'. "
+            "1행 = 한 Analyst · 한 세션 · 한 집합. tools/scorecard.py 가 라벨이 닫힌 세션만 적는다(전방 기록). "
+            "해설자(Claude 회고)는 이 표를 읽지만 보상·성적표에는 들어가지 않는다(불변식 8). "
+            "이 표를 본 뒤 만든 가설은 **본 마지막 세션 뒤의 창**에서만 판정한다(self-improvement.md §4)."
+        ),
+    ),
     "trial_progress": TableSpec(
         name="trial_progress",
         columns={
