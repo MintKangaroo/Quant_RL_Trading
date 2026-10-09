@@ -43,6 +43,7 @@ BOOKS: list[dict[str, str]] = [
     {"key": "p1b", "name": "P1-b′", "ledger": "_p1b_shadow", "market": "KR"},
     {"key": "ix", "name": "IX 지수−패자", "ledger": "_ix_shadow", "market": "KR"},
     {"key": "ix0", "name": "IX0 지수 복제", "ledger": "_ix0_shadow", "market": "KR"},
+    {"key": "ixt", "name": "IX-T TTM패자", "ledger": "_ixt_shadow", "market": "KR"},
     {"key": "shadow", "name": "shadow (국장+미장)", "ledger": "_shadow", "market": "MIXED"},
     {"key": "g1us", "name": "G1 미장", "ledger": "_g1us_shadow", "market": "US"},
 ]
