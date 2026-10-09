@@ -1410,8 +1410,10 @@ def run_tf(store: Store, kind: str) -> tuple[list[str], str]:
     # TF·TB 의 제외 목록은 시드와 무관하다(TTM 만 본다) — 첫 시드 것. TC 는 시드마다 다르니 평균.
     mech = pd.concat(mechs, axis=1).mean(axis=1) if kind == "TC" else mechs[0]
     lines, verdict = judge_tf(kind, treat, ctrl, mech)
-    lines.append(f"기록(기준 아님) 창 세션 {len(sessions)} · 제외 평균 {np.mean([len(v) for v in tf_exclusions(kind, lagged).values()]):.0f}종목/세션"
-                 f"(TC 는 C0 결합 전 수) · 점수 = 얼린 C0 · TTM = 금고 굽기 tsfm-KR.pkl(하루 늦춤)")
+    first = preds[sorted(preds)[0]]
+    n_cut = np.mean([len(v) for v in tf_exclusions(kind, lagged, first if kind == "TC" else None).values()])
+    lines.append(f"기록(기준 아님) 창 세션 {len(sessions)} · 원리 시험 세션 {len(mech)} · 제외 평균 {n_cut:.0f}종목/세션"
+                 f"{'(첫 시드)' if kind == 'TC' else ''} · 점수 = 얼린 C0 · TTM = 금고 굽기 tsfm-KR.pkl(하루 늦춤)")
     return lines, verdict
 
 
