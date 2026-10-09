@@ -17,13 +17,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import os  # noqa: E402
+
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from tools import diag_tsfm_zeroshot as z  # noqa: E402
 
-OUT = Path("data/_diag/tsfm-daily")
-START, END = date(2025, 3, 3), date(2026, 6, 30)
+#: TSFM_DAILY_VARIANT=long — 2022-08~2025-02(모델 공개 전이라 **참고용**, 국면 넓히기). 기본은 두 모델 D₀ 뒤 창.
+VARIANT = os.environ.get("TSFM_DAILY_VARIANT", "")
+OUT = Path("data/_diag/tsfm-daily" + (f"-{VARIANT}" if VARIANT else ""))
+START, END = (date(2022, 8, 1), date(2025, 2, 28)) if VARIANT == "long" else (date(2025, 3, 3), date(2026, 6, 30))
 MODELS = ("chronos_bolt", "ttm")
 COST = 0.0041
 
@@ -31,6 +35,8 @@ COST = 0.0041
 def extract() -> None:
     from quant_rl_trading.store import Store
     (OUT / "inputs").mkdir(parents=True, exist_ok=True)
+    if VARIANT == "long":
+        z.HIST_START = date(2021, 8, 1)
     close, dv = z.load_market(Store(), "KR")
     idx = list(close.index)
     pos = [i for i, d in enumerate(idx) if START <= d and i + z.H < len(idx) and idx[i + z.H] <= END]
@@ -70,7 +76,7 @@ def score() -> None:
         q = df.groupby("session")[m].transform(lambda x: pd.qcut(x.rank(method="first"), 10, labels=False))
         exc = df["r"] - df.groupby("session")["r"].transform("mean")
         dec = exc.groupby(q).mean()
-        print(f"  10분위 5일 초과(대 300 평균): " + " ".join(f"D{int(k) + 1} {v:+.2%}" for k, v in dec.items()), flush=True)
+        print("  10분위 5일 초과(대 300 평균): " + " ".join(f"D{int(k) + 1} {v:+.2%}" for k, v in dec.items()), flush=True)
         # 상위 N, 5세션마다 겹치지 않게(각 세션 다음 5일) — 순 비용: 회전 비율 × 편도 × 2
         sess = sorted(df["session"].unique())[::5]
         for n in (20, 30, 50):
@@ -90,5 +96,67 @@ def score() -> None:
                   flush=True)
 
 
+def ix() -> None:
+    """유동주 상위 300 — 시총가중(상한 30%)·동일가중 원본 대 TSFM 하위 q 제외, 5세션 재조정, 비용 0.41%×|Δw|, 당일·하루 늦춤."""
+    keys = pd.read_pickle(OUT / "inputs" / "keys-KR-D.pkl")
+    lab = pd.read_pickle(OUT / "labels-KR-D.pkl")
+    base = keys[["session", "entity_id"]].copy()
+    base["r"] = lab["r"].to_numpy()
+    for m in MODELS:
+        pr = np.load(OUT / "preds" / f"{m}.npz")["price"]
+        base[m] = pr[:, -1] / pr[:, 0] - 1.0
+    caps = pd.read_parquet("data/_diag/p1a-prime/caps-rank.parquet").rename(columns={"cap": "c"})  # invariant-allow: data-access — 시행 작업 캐시
+    base = base.merge(caps, on=["session", "entity_id"], how="left")
+    sessions = sorted(base["session"].unique())
+    nxt = dict(zip(sessions[:-1], sessions[1:], strict=True))
+
+    def capped(w: pd.Series, lim: float = 0.30) -> pd.Series:
+        w = w / w.sum()
+        for _ in range(50):
+            o = w > lim
+            if not o.any():
+                break
+            ex = (w[o] - lim).sum()
+            w[o] = lim
+            w[~o] += ex * w[~o] / w[~o].sum()
+        return w
+
+    halves = {}
+    for lag in (0, 1):
+        df = base.copy()
+        if lag:
+            for m in MODELS:
+                sh = df[["session", "entity_id", m]].copy()
+                sh["session"] = sh["session"].map(nxt)
+                df = df.drop(columns=[m]).merge(sh.dropna(subset=["session"]), on=["session", "entity_id"], how="left")
+        sess = sessions[lag::5]
+        for sig in MODELS:
+            for wt in ("cap", "ew"):
+                ref = None
+                for q in (0.0, 0.1, 0.2):
+                    rows, prev = [], None
+                    for ss in sess:
+                        g = df[df["session"] == ss].dropna(subset=["r"]).set_index("entity_id")
+                        if wt == "cap":
+                            g = g.dropna(subset=["c"])
+                        if q > 0:
+                            sc = g[sig].dropna()
+                            g = g[~g.index.isin(sc[sc <= sc.quantile(q)].index)]
+                        w = capped(g["c"].astype(float)) if wt == "cap" else pd.Series(1 / len(g), index=g.index)
+                        turn = 1.0 if prev is None else w.subtract(prev, fill_value=0).abs().sum()
+                        rows.append({"s": ss, "r": float((w * g["r"]).sum()) - COST * turn})
+                        prev = w
+                    f = pd.DataFrame(rows).set_index("s")["r"]
+                    if q == 0:
+                        ref = f
+                        continue
+                    x = f - ref
+                    k = 245 / 5
+                    half = len(x) // 2
+                    halves = (x.iloc[:half].mean() * k, x.iloc[half:].mean() * k)
+                    print(f"늦춤 {lag} · {sig:12s} {wt:3s} 하위 {int(q * 100):2d}%: 대 원본 {x.mean() * k:+.2%}p · IR {x.mean() / x.std() * np.sqrt(k):+.2f} · "
+                          f"이긴 창 {(x > 0).mean():.0%} · 전반/후반 {halves[0]:+.1%}p/{halves[1]:+.1%}p · 원본 연 {ref.mean() * k:+.1%}", flush=True)
+
+
 if __name__ == "__main__":
-    {"extract": extract, "score": score}[sys.argv[1]]()
+    {"extract": extract, "score": score, "ix": ix}[sys.argv[1]]()

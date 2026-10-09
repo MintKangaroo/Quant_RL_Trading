@@ -15,7 +15,9 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tsfm_zeroshot_infer import Forecaster  # noqa: E402
 
-ROOT = Path("data/_diag/tsfm-daily")
+import os  # noqa: E402
+
+ROOT = Path("data/_diag/tsfm-daily" + (f"-{os.environ['TSFM_DAILY_VARIANT']}" if os.environ.get("TSFM_DAILY_VARIANT") else ""))
 
 
 def main() -> int:
