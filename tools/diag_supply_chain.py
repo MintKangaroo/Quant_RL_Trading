@@ -170,7 +170,9 @@ def cmd_leadlag(store: Store) -> int:
         rec = json.loads(f.read_text())
         for c in rec.get("customers", []):
             tk = str(c.get("us_ticker") or "").strip().upper()
-            if tk:
+            country = str(c.get("country") or "").replace(" ", "").lower()
+            # 본사가 미국인 고객만 — 한국·일본 회사의 미국 장외 ADR 티커(HYMTF 등)는 자기 나라 주가의 그림자다.
+            if tk and any(k in country for k in ("미국", "us", "unitedstates", "usa")):
                 pairs.append((rec["entity_id"], f"US:{tk}"))
     pairs = sorted(set(pairs))
     print(f"짝 {len(pairs)} · 공급사 {len({a for a, _ in pairs})} · 미국 고객 {len({b for _, b in pairs})}", flush=True)
