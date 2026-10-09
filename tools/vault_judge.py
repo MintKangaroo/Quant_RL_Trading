@@ -136,13 +136,29 @@ DF2_PROTOCOL_HASH: str | None = "dbac9e2be1db35ef"   # 2026-09-30 고정
 #: P1-b′(docs/protocols/p1b-prime-2026-10.md, 2026-10-08 사용자 설문 "등록 + shadow") 도 second 에서 같은 개봉으로 판정한다.
 P1B_PROTOCOL = Path("docs/protocols/p1b-prime-2026-10.md")
 P1B_PROTOCOL_HASH: str | None = "12f053518c05ae3c"   # 2026-10-08 고정(e483c7f)
-EXTRA_TRIALS: dict[str, tuple[str, ...]] = {"second": ("DF2", "P1B")}
+#: 금고 early 추가 시행(docs/protocols/vault-early-additions-2026-10.md, 사용자 10/9) — TF·TB·TC(TTM 패자 하한 계열)·P1B2(P1-b′ 를 early 에서).
+#: **해시가 고정됐을 때만 early 창에 붙는다** — 미고정 문서가 붙으면 `extra_problems` 가 early 창 전체(BE2 등 기존 다섯)를 거부한다.
+ADD_PROTOCOL = Path("docs/protocols/vault-early-additions-2026-10.md")
+ADD_PROTOCOL_HASH: str | None = None
+ADD_TRIALS = ("TF", "TB", "TC", "P1B2")
+EXTRA_TRIALS: dict[str, tuple[str, ...]] = {"second": ("DF2", "P1B"), **({"early": ADD_TRIALS} if ADD_PROTOCOL_HASH else {})}
 EXTRA_PROTOCOLS: dict[str, tuple[Path, str | None]] = {"DF2": (DF2_PROTOCOL, DF2_PROTOCOL_HASH),
-                                                       "P1B": (P1B_PROTOCOL, P1B_PROTOCOL_HASH)}
+                                                       "P1B": (P1B_PROTOCOL, P1B_PROTOCOL_HASH),
+                                                       **{t: (ADD_PROTOCOL, ADD_PROTOCOL_HASH) for t in ADD_TRIALS}}
 FAMILY["DF2"] = "selection"
 ENTITY["DF2"] = "df2-2026-10:DF2"
 FAMILY["P1B"] = "selection"
 ENTITY["P1B"] = "p1b-prime-2026-10:P1B"
+for _t in ADD_TRIALS:
+    FAMILY[_t] = "selection"
+    ENTITY[_t] = f"vault-early-additions-2026-10:{_t}"
+#: TF·TB·TC 기준 — 등록 문서 그대로: ① 뺀 종목 5세션 초과 평균 < 0 · NW t ≤ −2 ② 연 ≥ 대조 ③ 시드 4/5 ④ 두 구간 ≥ −1%p ⑤ 회전 ×1.3 · MDD 2%p.
+TF_GATE_T, TF_GATE_SHARE, TF_GATE_HALF, TF_GATE_TURN, TF_GATE_MDD = -2.0, 4, -0.01, 1.3, 0.02
+#: 처리별 제외 규칙 — (TTM 하위 비율, TTM 상위 비율, C0·TTM 결합 하위 비율).
+TF_RULES: dict[str, tuple[float, float, float]] = {"TF": (0.20, 0.0, 0.0), "TB": (0.20, 0.10, 0.0), "TC": (0.0, 0.0, 0.10)}
+TSFM_VAULT = Path("data/_diag/vault-early/tsfm-KR.pkl")  # invariant-allow: data-access — 금고 작업 캐시(tools/vault_tsfm_bake.py)
+#: P1-b″ 기준 — ① 회전 ≤ B0×0.6 ② 연 ≥ B0 ③ 시드 3/5 ④ MDD 2%p.
+P1B2_GATE_TURN, P1B2_GATE_SHARE, P1B2_GATE_MDD = 0.6, 3, 0.02
 #: P1-b′ 변형 — 등록 표 그대로 (N, 재조정 R, 완충 배수, 비용 인지 θ). B0 = 대조(현행).
 P1B_ARMS: dict[str, tuple[int, int, int, float | None]] = {"B0": (24, 10, 3, None), "B1′": (100, 20, 5, 1.0),
                                                           "B2′": (24, 20, 3, None)}
@@ -1281,7 +1297,164 @@ def run_p1b(store: Store) -> tuple[list[str], str]:
     return lines, verdict
 
 
-RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b}
+# --------------------------------------------------------------------------- 금고 early 추가: TF·TB·TC(TTM 패자 하한) · P1B2
+
+
+def _c0_inputs(store: Store) -> tuple[dict[int, pd.DataFrame], list[date], pd.DataFrame, pd.Series, dict[date, set[str]]]:
+    """얼린 C0 시드별 원점수(데운 세션 포함) · 창 세션 · market_data — P1-b′ 판정과 같은 경로."""
+    from datetime import timedelta
+
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
+    from quant_rl_trading.collectors.publication import publication_policy
+    from quant_rl_trading.replay.clock import LiveClock
+
+    _, c0 = frozen_be2(frozen_hashes("BE2"))
+    sessions = list(trading_days(Market.KR, VAULT_START, VAULT_END))
+    warm = list(trading_days(Market.KR, VAULT_START - timedelta(days=60), VAULT_START - timedelta(days=1)))[-P1B_WARM:]
+    policy = publication_policy(store, Market.KR, clock=LiveClock())
+    preds = p1b_predictions(store, [*warm, *sessions], c0, as_of_of=policy.for_session)
+    ret, bench, trad = market_data(store, sessions, cache=VAULT)
+    return preds, sessions, ret, bench, trad
+
+
+def tsfm_lagged(tsfm: pd.DataFrame, sessions: list[date]) -> dict[date, pd.Series]:
+    """결정 세션 d → **d 바로 앞 세션**의 TTM r̂(entity_id → r̂). 하루 늦춤 — 실전에서 밤에 계산해 다음 세션에 쓰는 것과 같다."""
+    by = {d: g.set_index("entity_id")["r_hat"].astype(float) for d, g in tsfm.groupby("session")}
+    days = sorted(by)
+    out = {}
+    for d in sessions:
+        prev = [x for x in days if x < d]
+        if prev:
+            out[d] = by[prev[-1]]
+    return out
+
+
+def tf_exclusions(kind: str, lagged: dict[date, pd.Series], c0_pred: pd.DataFrame | None = None) -> dict[date, set[str]]:
+    """처리별 그날 제외 집합. TF·TB 는 TTM r̂ 분위, TC 는 (C0 백분위 + TTM 백분위)/2 하위. r̂ 가 없는 종목은 빼지 않는다."""
+    lo, hi, combo = TF_RULES[kind]
+    by_c0 = {} if c0_pred is None else {d: g.set_index("entity_id")["pred"] for d, g in c0_pred.groupby("session")}
+    out: dict[date, set[str]] = {}
+    for d, r in lagged.items():
+        r = r.dropna()
+        cut: set[str] = set()
+        # 비율이 아니라 개수(⌊n×q⌋)로 고른다 — 동점이 많으면 분위 비교가 전 종목을 뺀다(합성 검산이 잡았다).
+        if lo:
+            cut |= set(r.nsmallest(int(len(r) * lo)).index)
+        if hi:
+            cut |= set(r.nlargest(int(len(r) * hi)).index)
+        if combo and d in by_c0:
+            c = by_c0[d].reindex(r.index)
+            both = ((r.rank(pct=True) + c.rank(pct=True)) / 2.0).dropna()
+            cut |= set(both.nsmallest(int(len(both) * combo)).index)
+        out[d] = cut
+    return out
+
+
+def excluded_excess(excl: dict[date, set[str]], ret: pd.DataFrame, trad: dict[date, set[str]], horizon: int = 5) -> pd.Series:
+    """원리 시험 — 결정 세션 d 에 뺀 종목의 다음 ``horizon`` 세션 누적수익 − 그날 거래가능 전 종목 동일가중의 같은 수익(세션별)."""
+    logr = np.log1p(ret.clip(lower=-0.99))
+    fwd = np.expm1(logr[::-1].rolling(horizon, min_periods=horizon).sum()[::-1])      # 행 d = d..d+horizon−1 의 누적
+    out = {}
+    for d, names in excl.items():
+        if d not in fwd.index or not names:
+            continue
+        row = fwd.loc[d]
+        uni = row.reindex(list(trad.get(d, row.index))).dropna()
+        cut = row.reindex(list(names)).dropna()
+        if len(cut) >= 5 and len(uni) >= 50:
+            out[d] = float(cut.mean() - uni.mean())
+    return pd.Series(out).sort_index()
+
+
+def judge_tf(kind: str, treat: list[dict[str, float]], ctrl: list[dict[str, float]], mech: pd.Series) -> tuple[list[str], str]:
+    """TF·TB·TC 기준 다섯(등록 문서). 지표 키가 빠지면 크게 멈춘다."""
+    from quant_rl_trading.analysts import ic as ic_module
+
+    for rows in (treat, ctrl):
+        for i, r in enumerate(rows):
+            bad = [k for k in ("ann", "h1", "h2", "mdd", "turn") if k not in r or not np.isfinite(r[k])]
+            if bad:
+                raise ValueError(f"judge_tf {kind}: 시드 {i} 지표 {bad} 없음 — 조용히 기각하지 않는다")
+    if len(mech) < 10:
+        raise ValueError(f"judge_tf {kind}: 원리 시험 세션 {len(mech)} < 10 — 조용히 기각하지 않는다")
+    mt = float(ic_module.newey_west_t(mech, lag=4))
+    d = _mean(treat, "ann") - _mean(ctrl, "ann")
+    wins = sum(a["ann"] >= b["ann"] for a, b in zip(treat, ctrl, strict=True))
+    halves = (_mean(treat, "h1") - _mean(ctrl, "h1"), _mean(treat, "h2") - _mean(ctrl, "h2"))
+    c = (mech.mean() < 0 and mt <= TF_GATE_T, d >= 0.0, wins >= TF_GATE_SHARE, all(h >= TF_GATE_HALF for h in halves),
+         _mean(treat, "turn") <= _mean(ctrl, "turn") * TF_GATE_TURN and _mean(ctrl, "mdd") - _mean(treat, "mdd") <= TF_GATE_MDD)
+    lines = [f"{kind}: ①뺀 종목 5세션 초과 {mech.mean():+.2%}(NW t {mt:+.2f}, {len(mech)}세션) {mark(c[0])} · ②연 {_mean(treat, 'ann'):+.1%} 대 대조 "
+             f"{_mean(ctrl, 'ann'):+.1%}({d:+.1%}p) {mark(c[1])} · ③시드 {wins}/{len(treat)} {mark(c[2])} · ④두 구간 {halves[0]:+.1%}p/{halves[1]:+.1%}p "
+             f"{mark(c[3])} · ⑤회전 {_mean(treat, 'turn'):.1f} 대 {_mean(ctrl, 'turn'):.1f} · MDD {_mean(treat, 'mdd'):.1%} 대 {_mean(ctrl, 'mdd'):.1%} {mark(c[4])}"]
+    return lines, (f"채택 후보 — ①~⑤ 통과(원리 t {mt:+.2f})" if all(c) else "기각")
+
+
+def run_tf(store: Store, kind: str) -> tuple[list[str], str]:
+    """TF·TB·TC — 얼린 C0 × 실전 경로 FA 상위 24 포트에서 TTM(하루 늦춤) 제외. 대조 = 같은 포트 제외 없음. 1회 시행."""
+    prior = prior_verdict(store, kind)
+    if prior is not None:
+        raise SystemExit(f"{kind} 는 이미 판정됐다({prior!r}) — 1회 시행")
+    if not TSFM_VAULT.exists():
+        raise SystemExit(f"{TSFM_VAULT} 가 없다 — tools/vault_tsfm_bake.py 가 먼저다")
+    preds, sessions, ret, bench, trad = _c0_inputs(store)
+    lagged = tsfm_lagged(pd.read_pickle(TSFM_VAULT), sessions)  # invariant-allow: data-access — 금고 작업 캐시
+    treat, ctrl, mechs = [], [], []
+    for seed in sorted(preds):
+        pred = preds[seed]
+        excl = tf_exclusions(kind, lagged, pred if kind == "TC" else None)
+        d0, x0 = portfolio(pred, ret, trad, every=EVERY)
+        d1, x1 = portfolio(pred, ret, trad, every=EVERY, exclude=excl)
+        ctrl.append(stats(d0, bench, x0))
+        treat.append(stats(d1, bench, x1))
+        mechs.append(excluded_excess(excl, ret, trad))
+    # TF·TB 의 제외 목록은 시드와 무관하다(TTM 만 본다) — 첫 시드 것. TC 는 시드마다 다르니 평균.
+    mech = pd.concat(mechs, axis=1).mean(axis=1) if kind == "TC" else mechs[0]
+    lines, verdict = judge_tf(kind, treat, ctrl, mech)
+    lines.append(f"기록(기준 아님) 창 세션 {len(sessions)} · 제외 평균 {np.mean([len(v) for v in tf_exclusions(kind, lagged).values()]):.0f}종목/세션"
+                 f"(TC 는 C0 결합 전 수) · 점수 = 얼린 C0 · TTM = 금고 굽기 tsfm-KR.pkl(하루 늦춤)")
+    return lines, verdict
+
+
+def judge_p1b2(res: dict[str, list[dict[str, float]]]) -> tuple[list[str], str]:
+    """P1-b″ — 변형별 ① 회전 ≤ B0×0.6 ② 연 ≥ B0 ③ 시드 3/5 ④ MDD 2%p. 둘 다면 선택 IR 높은 쪽."""
+    for arm in P1B_ARMS:
+        for i, row in enumerate(res[arm]):
+            bad = [k for k in P1B_KEYS if k not in row or not np.isfinite(row[k])]
+            if bad:
+                raise ValueError(f"judge_p1b2: {arm} 시드 {i} 지표 {bad} 없음")
+    b0, lines, passed = res["B0"], [], []
+    for arm in (a for a in P1B_ARMS if a != "B0"):
+        rows = res[arm]
+        ratio = _mean(rows, "turn") / _mean(b0, "turn")
+        d = _mean(rows, "ann") - _mean(b0, "ann")
+        wins = sum(r["ann"] >= c["ann"] for r, c in zip(rows, b0, strict=True))
+        deeper = _mean(b0, "mdd") - _mean(rows, "mdd")
+        c = (ratio <= P1B2_GATE_TURN, d >= 0.0, wins >= P1B2_GATE_SHARE, deeper <= P1B2_GATE_MDD)
+        lines.append(f"{arm}: ①회전비 {ratio:.2f} {mark(c[0])} · ②연 {d:+.1%}p {mark(c[1])} · ③시드 {wins}/{len(rows)} {mark(c[2])} · "
+                     f"④MDD {deeper:+.1%}p 깊음 {mark(c[3])} · 선택 IR {_mean(rows, 'sel_ir'):+.2f}")
+        if all(c):
+            passed.append(arm)
+    if not passed:
+        return lines, "기각"
+    best = max(passed, key=lambda a: _mean(res[a], "sel_ir"))
+    return lines, f"채택 후보 {best} — ①~④ 통과({', '.join(passed)})"
+
+
+def run_p1b2(store: Store) -> tuple[list[str], str]:
+    """P1-b″ — P1-b′ 정의 그대로 early 창에서. 1회 시행."""
+    prior = prior_verdict(store, "P1B2")
+    if prior is not None:
+        raise SystemExit(f"P1-b″ 는 이미 판정됐다({prior!r}) — 1회 시행")
+    preds, sessions, ret, bench, trad = _c0_inputs(store)
+    out = p1b_results(preds, ret, bench, trad, sessions, sorted(preds))
+    lines, verdict = judge_p1b2(out["res"])
+    lines.append(f"기록(기준 아님) 장부 세션 {len(out['days'])} · 선택 항(B0) {_mean(out['res']['B0'], 'sel_ann'):+.1%}")
+    return lines, verdict
+
+
+RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b,
+           "TF": lambda st: run_tf(st, "TF"), "TB": lambda st: run_tf(st, "TB"), "TC": lambda st: run_tf(st, "TC"),
+           "P1B2": run_p1b2}
 
 
 # --------------------------------------------------------------------------- 기록
@@ -1337,6 +1510,9 @@ def bake_plan(win: Window | None = None) -> list[tuple[str, Path, str]]:
              BE2_MODELS / f"{C0_STEM}.json",
              "setsid nohup .venv/bin/python -u tools/freeze_be2.py --arm C0 --verify >> logs/freeze-c0.log 2>&1 &"),
         ]
+    if set(ADD_TRIALS) & set(trials):
+        extra.append(("⑧ 금고 창 TTM 예측(TF·TB·TC, 가격만 읽음)", TSFM_VAULT,
+                      ".venv/bin/python tools/vault_tsfm_bake.py   # 10/9 20:3x 구움 — 있으면 건너뛴다"))
     if "DF2" in trials:
         extra.append(("⑦ 얼린 BF1(DF2, LambdaRank) — 사이드카 해시를 vault_judge.BF1_SIDECAR_HASH 에 적는다",
                       BF1_MODELS / f"{BF1_STEM}.json",
@@ -1406,7 +1582,7 @@ def bake(store: Store, win: Window | None = None) -> int:
     for group in INSIDER:
         for market, days in sessions.items():
             build_panel(store, group, market, days, collect=False)
-    if win is not None and {"BE2", "DF2", "P1B"} & set(trials_of(win)):
+    if win is not None and {"BE2", "DF2", "P1B", *ADD_TRIALS} & set(trials_of(win)):
         # BE2·DF2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
         from quant_rl_trading.analysts import fa_features
         first = be2_module.time_axis(VAULT_START)[-be2_module.WINDOW:][0]   # 첫 채점일의 60칸 창 첫날
