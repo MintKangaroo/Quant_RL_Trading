@@ -7,13 +7,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
 
 from quant_rl_trading.selector import (
-    Candidate,
     ConstraintParams,
     SelectionParams,
     SelectionTrace,
@@ -277,6 +276,19 @@ def test_상한은_점수_상위를_개수로_뺀다() -> None:
     assert "KR:009" not in kept.index and "KR:010" in kept.index and len(kept) == 10
     assert apply_ceiling(scores, signals=frame, analyst="", percentile=0.1).equals(scores)
     assert ConstraintParams(risk_floor_percentile=0.2).ceiling_percentile == 0.0
+
+
+def test_결합_하한은_두_순위가_함께_낮은_종목만_뺀다() -> None:
+    """TC 전환 후보 — 합성 점수와 tsfm 이 둘 다 낮은 종목. 한쪽만 낮으면 남는다."""
+    from quant_rl_trading.selector.constraints import apply_combo_floor
+
+    names = [f"KR:{i:03d}" for i in range(10)]
+    scores = pd.Series([float(i) for i in range(10)], index=names)                  # 합성: 000 최하
+    frame = signals([(n, "tsfm", float(i), 0.0) for i, n in enumerate(names[:9])]   # tsfm: 000 최하, 009 점수 없음
+                    + [])
+    kept = apply_combo_floor(scores, signals=frame, analyst="tsfm", percentile=0.25)   # 관측 9종목 × 0.25 → 2개
+    assert "KR:000" not in kept.index and "KR:001" not in kept.index and "KR:009" in kept.index and len(kept) == 8
+    assert apply_combo_floor(scores, signals=frame, analyst="", percentile=0.2).equals(scores)
 
 
 # -- 완충 구간 (selector.md §5, 2026-08-27) -----------------------------------------

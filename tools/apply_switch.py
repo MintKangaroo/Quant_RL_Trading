@@ -38,14 +38,15 @@ COMPONENTS: dict[str, dict[str, str]] = {
     "TF": {"selector.extra_floor_analyst": "tsfm", "selector.extra_floor_percentile": "0.20"},
     "TB": {"selector.extra_floor_analyst": "tsfm", "selector.extra_floor_percentile": "0.20",
            "selector.ceiling_analyst": "tsfm", "selector.ceiling_percentile": "0.10"},
+    "TC": {"selector.combo_floor_analyst": "tsfm", "selector.combo_floor_percentile": "0.10"},
 }
-EXCLUSIVE = [{"AQ", "P1B2", "P1B2-B2"}, {"TF", "TB"}]
+EXCLUSIVE = [{"AQ", "P1B2", "P1B2-B2"}, {"TF", "TB", "TC"}]
 
 
 def changes(parts: list[str]) -> dict[str, str]:
     unknown = [p for p in parts if p not in COMPONENTS]
     if unknown:
-        raise SystemExit(f"모르는 구성 요소 {unknown} — 있는 것: {sorted(COMPONENTS)} (TC 는 실전 코드가 없다 — 하루 작업)")
+        raise SystemExit(f"모르는 구성 요소 {unknown} — 있는 것: {sorted(COMPONENTS)}")
     for group in EXCLUSIVE:
         hit = group & set(parts)
         if len(hit) > 1:
@@ -101,7 +102,7 @@ def pin_shadows(keys: list[str], *, apply: bool) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--components", required=True, help="쉼표 구분 — BE2·AQ·P1B2·P1B2-B2·TF·TB (금고 통과분만)")
+    ap.add_argument("--components", required=True, help="쉼표 구분 — BE2·AQ·P1B2·P1B2-B2·TF·TB·TC (금고 통과분만)")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args(argv)
     now = datetime.now(ZoneInfo("Asia/Seoul"))  # invariant-allow: wallclock — 장 중 거부 판단

@@ -87,6 +87,10 @@ class ConstraintParams:
     #: 10/13 전환 후보 TB(TTM 예측 최상위 10% 는 떨어지는 칼날 — docs/diag/winners-2026-10-09.md).
     ceiling_analyst: str = ""
     ceiling_percentile: float = 0.0
+    #: **결합 하한**(`selector.combo_floor_analyst`·`selector.combo_floor_percentile`, 기본 ''·0 = 끔) — (합성 점수 백분위 + 이 Analyst 백분위)/2
+    #: 하위 비율을 뺀다. 10/13 전환 후보 TC(금고 판정부 `vault_judge.tf_exclusions("TC")` 와 같은 규칙, 합성 점수가 C0 자리).
+    combo_floor_analyst: str = ""
+    combo_floor_percentile: float = 0.0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> ConstraintParams:
@@ -104,6 +108,8 @@ class ConstraintParams:
             extra_floor_percentile=float(opt("selector.extra_floor_percentile", 0.0) or 0.0),
             ceiling_analyst=str(opt("selector.ceiling_analyst", "") or ""),
             ceiling_percentile=float(opt("selector.ceiling_percentile", 0.0) or 0.0),
+            combo_floor_analyst=str(opt("selector.combo_floor_analyst", "") or ""),
+            combo_floor_percentile=float(opt("selector.combo_floor_percentile", 0.0) or 0.0),
         )
 
 
@@ -219,4 +225,32 @@ def apply_ceiling(
         trace.note(f"상한({analyst}) 상위 {percentile:.0%} 컷 — {len(cut)}종목 제외(관측 {len(observed)}종목)")
         for entity in cut.index:
             trace.drop(str(entity), f"{analyst} 상위 {percentile:.0%} ({cut[entity]:+.4f})")
+    return scores[~scores.index.isin(cut.index)]
+
+
+def apply_combo_floor(
+    scores: pd.Series,
+    *,
+    signals: pd.DataFrame,
+    analyst: str,
+    percentile: float,
+    trace: SelectionTrace | None = None,
+) -> pd.Series:
+    """(합성 점수 백분위 + ``analyst`` 백분위)/2 하위 ``percentile`` 을 뺀다. ``analyst`` 점수가 없는 종목은 빼지 않는다.
+
+    백분위는 둘 다 점수가 있는 종목 안에서 매기고, 개수(⌊n×q⌋)로 고른다 — 금고 판정부 TC 와 같은 규칙.
+    """
+    if scores.empty or not analyst or percentile <= 0.0:
+        return scores
+    other = constraint_scores(signals, analyst).reindex(scores.index).dropna()
+    if other.empty:
+        if trace is not None:
+            trace.note(f"결합 하한({analyst})을 적용하지 못했다 — 신호 0건. **통과된 것이지 안전이 확인된 것이 아니다**")
+        return scores
+    both = ((scores.reindex(other.index).rank(pct=True) + other.rank(pct=True)) / 2.0).dropna()
+    cut = both.nsmallest(int(len(both) * percentile))
+    if trace is not None:
+        trace.note(f"결합 하한(합성+{analyst}) 하위 {percentile:.0%} 컷 — {len(cut)}종목 제외(관측 {len(both)}종목)")
+        for entity in cut.index:
+            trace.drop(str(entity), f"합성+{analyst} 하위 {percentile:.0%} ({cut[entity]:.3f})")
     return scores[~scores.index.isin(cut.index)]

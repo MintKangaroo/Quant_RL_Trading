@@ -241,6 +241,9 @@ selector:
   # 상한(칼날 빼기, 기본 끔). 10/13 전환 후보 TB: ceiling_analyst: tsfm · ceiling_percentile: 0.10.
   ceiling_analyst: ''
   ceiling_percentile: 0.0
+  # 결합 하한(기본 끔) — (합성 점수 백분위 + 이 Analyst 백분위)/2 하위를 뺀다. 10/13 전환 후보 TC: combo_floor_analyst: tsfm · combo_floor_percentile: 0.10.
+  combo_floor_analyst: ''
+  combo_floor_percentile: 0.0
   corr_threshold: 0.7
   corr_penalty: 0.3
   sector_cap: 0.35

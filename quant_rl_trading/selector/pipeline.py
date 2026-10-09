@@ -170,6 +170,12 @@ def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Scre
             percentile=floor_params.ceiling_percentile, trace=trace,
         )
         trace.stage("ceiling", len(scores))
+    if floor_params.combo_floor_analyst and floor_params.combo_floor_percentile > 0 and not scores.empty:
+        scores = constraints_module.apply_combo_floor(
+            scores, signals=signals, analyst=floor_params.combo_floor_analyst,
+            percentile=floor_params.combo_floor_percentile, trace=trace,
+        )
+        trace.stage("combo_floor", len(scores))
     if scores.empty:
         return Screen(as_of, market, params, weights, trace, scored=scored, risk=risk, scores=scores)
 

@@ -48,4 +48,6 @@ def test_exclusive_and_unknown() -> None:
     with pytest.raises(SystemExit):
         sw.changes(["TF", "TB"])
     with pytest.raises(SystemExit):
-        sw.changes(["TC"])
+        sw.changes(["TF", "TC"])
+    with pytest.raises(SystemExit):
+        sw.changes(["TD"])
