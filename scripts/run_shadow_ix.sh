@@ -5,6 +5,12 @@
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 LOG="logs/shadow-ix-$(date +%Y%m).log"
+# 등록(docs/protocols/ix-index-minus-losers-2026-10.md): 첫 세션은 2026-10-12 — 그 세션을 도는 첫 크론은 10/13 00:25 다.
+# 그 전 크론(10/10 토 00:25)은 마지막 거래일 10/8 로 장부를 시작해 버린다. 그래서 그 전에는 아무것도 안 한다.
+if [[ "$(date +%F)" < "2026-10-13" ]]; then
+    echo "$(date '+%F %T') 등록 첫 세션(10/12) 전 — 건너뛴다" >> "${LOG}"
+    exit 0
+fi
 for _ in $(seq 1 60); do
     pgrep -f "bin/python[^ ]* tools/run_session.py --market KR" > /dev/null || break
     sleep 30
