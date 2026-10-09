@@ -20,13 +20,13 @@
 #   3 미장원피처 — diagnose_ic cache-extra --market US (10/1 실측 37분).
 #   4 굽기2  — vault_judge --bake 가 rc 0(선행 작업 없음)이어야 한다.
 #   5 점검   — tools/vault_coverage.py: 국장 62 · 미장 64 세션을 캐시가 다 덮는지(세션 열만 센다). 빠지면 판정하지 않는다.
-#   6 판정   — vault_judge --judge --window early --trials AQ,AR,AS,BD,BE2  (**--save 없이** — 창고에 아무것도 안 적는다)
+#   6 판정   — vault_judge --judge --window early --trials AQ,AR,AS,BD,BE2,TF,TB,TC,P1B2  (**--save 없이** — 창고에 아무것도 안 적는다)
 #              표는 logs/vault-early-judge-result.txt 에도 남긴다.
 #
 # 판정 뒤 절차 (러너는 여기서 멈춘다 — 기록은 사람이 한다):
 #   1) 리드가 logs/vault-early-judge-result.txt 의 시행별 표·판정을 사용자에게 보고한다(다섯 시행 각자 제 기준으로만 —
 #      성적이 제일 좋은 것을 골라 올리지 않는다, 등록 문서 '다중검정').
-#   2) 사용자가 확인하면 그때 기록: .venv/bin/python tools/vault_judge.py --judge --window early --trials AQ,AR,AS,BD,BE2 --save
+#   2) 사용자가 확인하면 그때 기록: .venv/bin/python tools/vault_judge.py --judge --window early --trials AQ,AR,AS,BD,BE2,TF,TB,TC,P1B2 --save
 #      (research_trials 5행 · holdout_access 1행 — 금고 소진. 같은 창을 두 번 기록하지 않는다)
 #   3) 기록 직후 research.holdout.start → 2026-10-01 정정본은 **사용자 결정**(등록 문서 실행 순서 7).
 #   4) 결과를 docs/trials-postmortem.md · memory 에. 이 크론 두 줄 삭제.
@@ -164,13 +164,13 @@ fi
 # 6 판정 — --save 없이. 표를 결과 파일에도 남긴다.
 if ! have 6; then
   wait_turn
-  say "[6] 시작 — vault_judge --judge --window early --trials AQ,AR,AS,BD,BE2 (--save 없음)"
+  say "[6] 시작 — vault_judge --judge --window early --trials AQ,AR,AS,BD,BE2,TF,TB,TC,P1B2 (--save 없음)"
   {
     echo "# 금고 early 판정 — $(date '+%F %T') · --save 없음(창고에 안 적었다, 시행 미소진)"
-    echo "# 기록은 사용자 확인 뒤: .venv/bin/python tools/vault_judge.py --judge --window early --trials AQ,AR,AS,BD,BE2 --save"
+    echo "# 기록은 사용자 확인 뒤: .venv/bin/python tools/vault_judge.py --judge --window early --trials AQ,AR,AS,BD,BE2,TF,TB,TC,P1B2 --save"
   } > "${RESULT}.part"
   env ${ENVS} nice -n 5 /usr/bin/time -v -o "${STATE}/time-6.txt" ${PY} tools/vault_judge.py --judge --window early \
-      --trials AQ,AR,AS,BD,BE2 2>&1 | tee -a "${RESULT}.part"
+      --trials AQ,AR,AS,BD,BE2,TF,TB,TC,P1B2 2>&1 | tee -a "${RESULT}.part"
   rc=${PIPESTATUS[0]}
   grep -E "Maximum resident|Elapsed \(wall" "${STATE}/time-6.txt" | sed 's/^/# /' >> "${RESULT}.part"
   say "[6] rc=${rc}"

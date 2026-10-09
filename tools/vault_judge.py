@@ -139,7 +139,7 @@ P1B_PROTOCOL_HASH: str | None = "12f053518c05ae3c"   # 2026-10-08 고정(e483c7f
 #: 금고 early 추가 시행(docs/protocols/vault-early-additions-2026-10.md, 사용자 10/9) — TF·TB·TC(TTM 패자 하한 계열)·P1B2(P1-b′ 를 early 에서).
 #: **해시가 고정됐을 때만 early 창에 붙는다** — 미고정 문서가 붙으면 `extra_problems` 가 early 창 전체(BE2 등 기존 다섯)를 거부한다.
 ADD_PROTOCOL = Path("docs/protocols/vault-early-additions-2026-10.md")
-ADD_PROTOCOL_HASH: str | None = None
+ADD_PROTOCOL_HASH: str | None = "175dadac51431be0"  # 2026-10-09 사용자 설문 고정
 ADD_TRIALS = ("TF", "TB", "TC", "P1B2")
 EXTRA_TRIALS: dict[str, tuple[str, ...]] = {"second": ("DF2", "P1B"), **({"early": ADD_TRIALS} if ADD_PROTOCOL_HASH else {})}
 EXTRA_PROTOCOLS: dict[str, tuple[Path, str | None]] = {"DF2": (DF2_PROTOCOL, DF2_PROTOCOL_HASH),
@@ -1585,7 +1585,13 @@ def bake(store: Store, win: Window | None = None) -> int:
     if win is not None and {"BE2", "DF2", "P1B", *ADD_TRIALS} & set(trials_of(win)):
         # BE2·DF2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
         from quant_rl_trading.analysts import fa_features
-        first = be2_module.time_axis(VAULT_START)[-be2_module.WINDOW:][0]   # 첫 채점일의 60칸 창 첫날
+        # 첫 채점일의 60칸 창 첫날. P1B·TF 계열은 창 앞 P1B_WARM 세션을 데우므로 **그 첫 세션**의 창까지 본다
+        # (10/9 리허설: 6월 데움 세션에 3월 FA 가 없어 10/13 판정이 멈출 뻔했다).
+        warm_from = VAULT_START
+        if {"P1B", *ADD_TRIALS} & set(trials_of(win)):
+            from datetime import timedelta
+            warm_from = list(trading_days(Market.KR, VAULT_START - timedelta(days=60), VAULT_START - timedelta(days=1)))[-P1B_WARM]
+        first = be2_module.time_axis(warm_from)[-be2_module.WINDOW:][0]
         need = list(trading_days(Market.KR, first, VAULT_END))
         lack = [d for d in need if not store.ingest_run_recorded(fa_features.TABLE, fa_features.run_id("KR", d))]
         if lack:
