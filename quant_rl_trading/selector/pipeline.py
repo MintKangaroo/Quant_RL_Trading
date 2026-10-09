@@ -144,13 +144,26 @@ def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Scre
     #      거부(3번)보다 먼저다. 거부는 LLM 판정이라 비싸고 상한이 걸려 있는데,
     #      여기서 잘릴 종목까지 판정 정원을 쓸 이유가 없다.
     risk = constraints_module.constraint_scores(signals, constraints_module.RISK_ANALYST).reindex(scores.index).dropna()
+    floor_params = constraints_module.ConstraintParams.from_store(store, as_of=as_of)
     scores = constraints_module.apply_risk_floor(
         scores,
         signals=signals,
-        params=constraints_module.ConstraintParams.from_store(store, as_of=as_of),
+        params=floor_params,
         trace=trace,
     )
     trace.stage("risk_floor", len(scores))
+    # 두 번째 하한(기본 끔) — 첫 하한이 남긴 후보에서 다른 Analyst 하위를 한 번 더 자른다.
+    if floor_params.extra_floor_analyst and floor_params.extra_floor_percentile > 0 and not scores.empty:
+        scores = constraints_module.apply_risk_floor(
+            scores,
+            signals=signals,
+            params=constraints_module.ConstraintParams(
+                risk_floor_percentile=floor_params.extra_floor_percentile,
+                floor_analyst=floor_params.extra_floor_analyst,
+            ),
+            trace=trace,
+        )
+        trace.stage("extra_floor", len(scores))
     if scores.empty:
         return Screen(as_of, market, params, weights, trace, scored=scored, risk=risk, scores=scores)
 

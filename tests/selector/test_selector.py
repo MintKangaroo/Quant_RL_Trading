@@ -254,6 +254,19 @@ def test_하한_기준_Analyst_를_바꿀_수_있다() -> None:
     assert ConstraintParams(risk_floor_percentile=0.2).floor_analyst == "risk"
 
 
+def test_두번째_하한은_첫_하한_뒤에_한번_더_자른다() -> None:
+    """TF 전환 후보 — risk 20% 를 자른 뒤 남은 후보에서 tsfm 하위 20% 를 또 자른다. 기본은 끔."""
+    frame = signals([(f"KR:{i:03d}", "risk", float(i), 1.0) for i in range(10)]
+                    + [(f"KR:{i:03d}", "tsfm", float(-i), 0.0) for i in range(10)])
+    scores = pd.Series({f"KR:{i:03d}": 1.0 for i in range(10)})
+    p = ConstraintParams(risk_floor_percentile=0.2)
+    assert (p.extra_floor_analyst, p.extra_floor_percentile) == ("", 0.0)
+    first = apply_risk_floor(scores, signals=frame, params=p)                      # risk 하위 000·001 제외 → 8종목
+    second = apply_risk_floor(first, signals=frame, params=ConstraintParams(risk_floor_percentile=0.25, floor_analyst="tsfm"))
+    assert set(first.index) == {f"KR:{i:03d}" for i in range(2, 10)}
+    assert {"KR:009", "KR:008"} & set(second.index) == set()                         # 남은 8 중 tsfm 최하 둘
+
+
 # -- 완충 구간 (selector.md §5, 2026-08-27) -----------------------------------------
 
 

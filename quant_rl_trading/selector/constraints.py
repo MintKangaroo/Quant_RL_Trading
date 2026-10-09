@@ -79,18 +79,25 @@ class ConstraintParams:
     #: 하한을 재는 신호의 Analyst 이름(`selector.floor_analyst`). 기본 `risk` — 실전은 그대로다.
     #: 시행 IX-T 샌드박스만 `tsfm`(TTM 제로샷 예측)으로 덮어쓴다. 키가 없는 창고(옛 시점)는 `risk`.
     floor_analyst: str = RISK_ANALYST
+    #: **두 번째 하한**(`selector.extra_floor_analyst`·`selector.extra_floor_percentile`, 기본 ''·0 = 끔). 첫 하한 **뒤에** 남은
+    #: 후보에서 이 Analyst 하위 비율을 한 번 더 자른다 — 10/13 전환 후보 TF(risk 20% + tsfm)용. 키가 없으면 끔.
+    extra_floor_analyst: str = ""
+    extra_floor_percentile: float = 0.0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> ConstraintParams:
-        try:
-            analyst = str(store.config("selector.floor_analyst", as_of=as_of)) or RISK_ANALYST
-        except ConfigNotFound:
-            analyst = RISK_ANALYST
+        def opt(key: str, default):  # type: ignore[no-untyped-def]
+            try:
+                return store.config(key, as_of=as_of)
+            except ConfigNotFound:
+                return default
         return cls(
             risk_floor_percentile=float(
                 store.config("selector.risk_floor_percentile", as_of=as_of)
             ),
-            floor_analyst=analyst,
+            floor_analyst=str(opt("selector.floor_analyst", RISK_ANALYST) or RISK_ANALYST),
+            extra_floor_analyst=str(opt("selector.extra_floor_analyst", "") or ""),
+            extra_floor_percentile=float(opt("selector.extra_floor_percentile", 0.0) or 0.0),
         )
 
 

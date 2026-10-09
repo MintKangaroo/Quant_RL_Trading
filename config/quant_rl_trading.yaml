@@ -235,6 +235,9 @@ selector:
   risk_floor_percentile: 0.20
   # 하한을 재는 신호의 Analyst. 실전은 risk 그대로. 시행 IX-T 샌드박스만 tsfm(TTM 제로샷 5일 예측)으로 덮어쓴다(2026-10-09).
   floor_analyst: risk
+  # 두 번째 하한(기본 끔). 10/13 전환 후보 TF: extra_floor_analyst: tsfm · extra_floor_percentile: 0.20 — 금고 통과·사용자 확인 뒤에만 켠다.
+  extra_floor_analyst: ''
+  extra_floor_percentile: 0.0
   corr_threshold: 0.7
   corr_penalty: 0.3
   sector_cap: 0.35

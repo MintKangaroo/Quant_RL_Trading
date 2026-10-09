@@ -5,7 +5,7 @@
 밤마다 마지막 국장 종가까지로 돈다. `valid_from = observed_at = 계산 시각` 이라 **그날 밤 세션이 아니라 다음 세션**의 결정에만
 보인다(하루 늦춤 — 진단 `logs/tsfm-ix-lag-20261009.log` 에서 늦춰도 남는 것을 확인했다). `tsfm` 은 제약 Analyst 다
 (`selector.constraints.CONSTRAINT_ANALYSTS`) — 가중치가 붙어도 알파 합성에 들어가지 않고, 신뢰도는 0 으로 적는다.
-대상: 그날 원 거래대금 20일 평균 상위 300 ∪ KOSPI200 구성종목(국장 보통주). 입력·예측 규칙은 제로샷 진단(`diag_tsfm_zeroshot`)과 같다.
+대상: 그날 종가가 있는 국장 보통주 전체(이력 240일 이상, 2026-10-09 넓힘 — 이전엔 거래대금 상위 300 ∪ K200). 입력·예측 규칙은 제로샷 진단(`diag_tsfm_zeroshot`)과 같다.
 rc: 0 적재 · 3 이미 적재(같은 세션) · 4 입력 없음 · 5 추론 실패.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ from quant_rl_trading.store import Store  # noqa: E402
 from quant_rl_trading.store.prices import wide_close_and_turnover  # noqa: E402
 from tools import diag_tsfm_zeroshot as z  # noqa: E402
 
-VERSION = "ttm-r2-zeroshot-L256-v1"
+VERSION = "ttm-r2-zeroshot-L256-v2"   # v2(2026-10-09): 대상 전 종목 — v1 은 거래대금 300 ∪ K200. 순위 보존이라 K200 안 하한(IX-T)은 같다
 WORK = Path("data/_diag/tsfm-live")
 BENCH_PY = Path(".venv-bench/bin/python")
 SOURCE = "tsfm_signal"
@@ -44,12 +44,9 @@ def build_inputs(store: Store, now) -> tuple[pd.Timestamp, list[str], np.ndarray
         return None
     i = len(close) - 1
     session = close.index[i]
-    top = list(dv.iloc[i].dropna().sort_values(ascending=False).index[: z.UNIVERSE])
-    im = store.get("index_members", as_of=now, lookback=14, market="KR")
-    if not im.empty:
-        im = im[im["index_id"].astype(str).str.contains("KOSPI200")]
-        last = pd.to_datetime(im["valid_from"]).max()
-        top += [e for e in im[pd.to_datetime(im["valid_from"]) == last]["entity_id"] if e in close.columns and e not in top]
+    # 대상 = 그날 종가가 있는 국장 보통주 전체(이력 240일 이상) — 모의계좌가 전 종목에서 고르므로(10/13 전환 후보 TF, 2026-10-09).
+    # 금고 판정 굽기(`tools/vault_tsfm_bake.py`)와 같은 대상이다. 백분위 점수도 이 전체 안에서 매긴다.
+    top = list(close.iloc[i].dropna().index)
     price, _sq, keep = z._context(close, i, top)
     return session, keep, price
 
