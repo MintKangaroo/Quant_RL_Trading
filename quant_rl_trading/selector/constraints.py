@@ -46,6 +46,8 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
+from quant_rl_trading.store.errors import ConfigNotFound
+
 if TYPE_CHECKING:
     from quant_rl_trading.selector.candidates import SelectionTrace
     from quant_rl_trading.store import Store
@@ -60,7 +62,9 @@ RISK_ANALYST = "risk"
 #: IC 가 오르면 저절로 들어온다. 여기 있는 것은 **IC 가 아무리 높아도 알파가
 #: 아니다** — `low_volatility` 의 IC +0.0894 는 "저변동 종목이 5일 뒤 덜
 #: 움직인다" 는 정의에 가까운 사실이지 예측이 아니다.
-CONSTRAINT_ANALYSTS = frozenset({RISK_ANALYST})
+#: TTM 제로샷 5일 예측(`tools/tsfm_signal.py`, 2026-10-09) — 시행 IX-T 의 하한 기준으로만 쓴다. 알파에 넣지 않는다.
+TSFM_ANALYST = "tsfm"
+CONSTRAINT_ANALYSTS = frozenset({RISK_ANALYST, TSFM_ANALYST})
 
 #: ``SelectionTrace.measures`` 의 키 — 그날 위험 하한 임계(이 값 **미만**이면 탈락).
 RISK_FLOOR_THRESHOLD = "risk_floor_threshold"
@@ -72,13 +76,21 @@ class ConstraintParams:
 
     #: 위험 점수 하위 이 비율을 자른다. 0 이면 제약을 끈다.
     risk_floor_percentile: float
+    #: 하한을 재는 신호의 Analyst 이름(`selector.floor_analyst`). 기본 `risk` — 실전은 그대로다.
+    #: 시행 IX-T 샌드박스만 `tsfm`(TTM 제로샷 예측)으로 덮어쓴다. 키가 없는 창고(옛 시점)는 `risk`.
+    floor_analyst: str = RISK_ANALYST
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> ConstraintParams:
+        try:
+            analyst = str(store.config("selector.floor_analyst", as_of=as_of)) or RISK_ANALYST
+        except ConfigNotFound:
+            analyst = RISK_ANALYST
         return cls(
             risk_floor_percentile=float(
                 store.config("selector.risk_floor_percentile", as_of=as_of)
-            )
+            ),
+            floor_analyst=analyst,
         )
 
 
@@ -142,12 +154,13 @@ def apply_risk_floor(
             trace.note("위험 하한을 적용하지 않았다 (selector.risk_floor_percentile = 0)")
         return scores
 
-    risk = constraint_scores(signals, RISK_ANALYST).reindex(scores.index)
+    analyst = params.floor_analyst
+    risk = constraint_scores(signals, analyst).reindex(scores.index)
     observed = risk.dropna()
     if observed.empty:
         if trace is not None:
             trace.note(
-                f"위험 하한을 적용하지 못했다 — {RISK_ANALYST} 신호가 "
+                f"위험 하한을 적용하지 못했다 — {analyst} 신호가 "
                 f"후보 {len(scores)}종목 중 0건이다. **제약이 통과된 것이지 "
                 "안전이 확인된 것이 아니다**"
             )
@@ -159,11 +172,11 @@ def apply_risk_floor(
         trace.measure(RISK_FLOOR_THRESHOLD, threshold)
         missing = int(len(scores) - len(observed))
         trace.note(
-            f"위험 하한 하위 {floor:.0%} 컷 — {len(cut)}종목 제외 "
+            f"위험 하한({analyst}) 하위 {floor:.0%} 컷 — {len(cut)}종목 제외 "
             f"(임계 {threshold:+.4f}, 관측 {len(observed)}종목"
             + (f", 위험 점수 없음 {missing}종목은 통과)" if missing else ")")
         )
         for entity in cut.index:
-            trace.drop(str(entity), f"위험 하위 {floor:.0%} (risk {cut[entity]:+.4f})")
+            trace.drop(str(entity), f"위험 하위 {floor:.0%} ({analyst} {cut[entity]:+.4f})")
     return scores[~scores.index.isin(cut.index)]
 

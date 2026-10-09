@@ -233,6 +233,8 @@ selector:
   # 다시 알파처럼 굴기 시작한다 — 자르는 비율이 커질수록 "안 위험한 것"
   # 안에서의 줄세우기에 가까워진다.
   risk_floor_percentile: 0.20
+  # 하한을 재는 신호의 Analyst. 실전은 risk 그대로. 시행 IX-T 샌드박스만 tsfm(TTM 제로샷 5일 예측)으로 덮어쓴다(2026-10-09).
+  floor_analyst: risk
   corr_threshold: 0.7
   corr_penalty: 0.3
   sector_cap: 0.35

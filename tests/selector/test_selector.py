@@ -241,6 +241,19 @@ def test_하한_0은_제약을_끈다() -> None:
     assert any("적용하지 않았다" in note for note in trace.notes)
 
 
+def test_하한_기준_Analyst_를_바꿀_수_있다() -> None:
+    """IX-T 샌드박스는 tsfm(TTM 예측)으로 하위를 자른다. 기본은 risk 그대로다."""
+    frame = signals([(f"KR:{i:03d}", "risk", float(i), 1.0) for i in range(10)]
+                    + [(f"KR:{i:03d}", "tsfm", float(-i), 0.0) for i in range(10)])
+    scores = pd.Series({f"KR:{i:03d}": 1.0 for i in range(10)})
+    by_risk = apply_risk_floor(scores, signals=frame, params=ConstraintParams(risk_floor_percentile=0.2))
+    by_tsfm = apply_risk_floor(scores, signals=frame,
+                               params=ConstraintParams(risk_floor_percentile=0.2, floor_analyst="tsfm"))
+    assert {"KR:000", "KR:001"} & set(by_risk.index) == set()
+    assert {"KR:008", "KR:009"} & set(by_tsfm.index) == set()        # tsfm 점수가 가장 낮은 둘
+    assert ConstraintParams(risk_floor_percentile=0.2).floor_analyst == "risk"
+
+
 # -- 완충 구간 (selector.md §5, 2026-08-27) -----------------------------------------
 
 
