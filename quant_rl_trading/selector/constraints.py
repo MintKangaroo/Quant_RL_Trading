@@ -83,6 +83,10 @@ class ConstraintParams:
     #: 후보에서 이 Analyst 하위 비율을 한 번 더 자른다 — 10/13 전환 후보 TF(risk 20% + tsfm)용. 키가 없으면 끔.
     extra_floor_analyst: str = ""
     extra_floor_percentile: float = 0.0
+    #: **상한(칼날 빼기)**(`selector.ceiling_analyst`·`selector.ceiling_percentile`, 기본 ''·0 = 끔) — 이 Analyst 점수 **상위** 비율을 뺀다.
+    #: 10/13 전환 후보 TB(TTM 예측 최상위 10% 는 떨어지는 칼날 — docs/diag/winners-2026-10-09.md).
+    ceiling_analyst: str = ""
+    ceiling_percentile: float = 0.0
 
     @classmethod
     def from_store(cls, store: Store, *, as_of: datetime) -> ConstraintParams:
@@ -98,6 +102,8 @@ class ConstraintParams:
             floor_analyst=str(opt("selector.floor_analyst", RISK_ANALYST) or RISK_ANALYST),
             extra_floor_analyst=str(opt("selector.extra_floor_analyst", "") or ""),
             extra_floor_percentile=float(opt("selector.extra_floor_percentile", 0.0) or 0.0),
+            ceiling_analyst=str(opt("selector.ceiling_analyst", "") or ""),
+            ceiling_percentile=float(opt("selector.ceiling_percentile", 0.0) or 0.0),
         )
 
 
@@ -187,3 +193,30 @@ def apply_risk_floor(
             trace.drop(str(entity), f"위험 하위 {floor:.0%} ({analyst} {cut[entity]:+.4f})")
     return scores[~scores.index.isin(cut.index)]
 
+
+
+def apply_ceiling(
+    scores: pd.Series,
+    *,
+    signals: pd.DataFrame,
+    analyst: str,
+    percentile: float,
+    trace: SelectionTrace | None = None,
+) -> pd.Series:
+    """``analyst`` 점수 **상위** ``percentile`` 을 후보에서 뺀다(칼날 빼기). 점수가 없는 종목은 빼지 않는다.
+
+    개수(⌊n×q⌋)로 고른다 — 동점이 많으면 분위 비교가 엉뚱하게 많이 뺀다(금고 판정부와 같은 규칙, 2026-10-09).
+    """
+    if scores.empty or not analyst or percentile <= 0.0:
+        return scores
+    observed = constraint_scores(signals, analyst).reindex(scores.index).dropna()
+    if observed.empty:
+        if trace is not None:
+            trace.note(f"상한({analyst})을 적용하지 못했다 — 신호 0건. **통과된 것이지 안전이 확인된 것이 아니다**")
+        return scores
+    cut = observed.nlargest(int(len(observed) * percentile))
+    if trace is not None:
+        trace.note(f"상한({analyst}) 상위 {percentile:.0%} 컷 — {len(cut)}종목 제외(관측 {len(observed)}종목)")
+        for entity in cut.index:
+            trace.drop(str(entity), f"{analyst} 상위 {percentile:.0%} ({cut[entity]:+.4f})")
+    return scores[~scores.index.isin(cut.index)]

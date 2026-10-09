@@ -164,6 +164,12 @@ def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Scre
             trace=trace,
         )
         trace.stage("extra_floor", len(scores))
+    if floor_params.ceiling_analyst and floor_params.ceiling_percentile > 0 and not scores.empty:
+        scores = constraints_module.apply_ceiling(
+            scores, signals=signals, analyst=floor_params.ceiling_analyst,
+            percentile=floor_params.ceiling_percentile, trace=trace,
+        )
+        trace.stage("ceiling", len(scores))
     if scores.empty:
         return Screen(as_of, market, params, weights, trace, scored=scored, risk=risk, scores=scores)
 

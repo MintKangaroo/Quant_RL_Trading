@@ -267,6 +267,18 @@ def test_두번째_하한은_첫_하한_뒤에_한번_더_자른다() -> None:
     assert {"KR:009", "KR:008"} & set(second.index) == set()                         # 남은 8 중 tsfm 최하 둘
 
 
+def test_상한은_점수_상위를_개수로_뺀다() -> None:
+    """TB 전환 후보 — tsfm 상위(칼날)를 뺀다. 점수 없는 종목은 통과, 기본은 끔."""
+    from quant_rl_trading.selector.constraints import apply_ceiling
+
+    frame = signals([(f"KR:{i:03d}", "tsfm", float(i), 0.0) for i in range(10)])
+    scores = pd.Series({f"KR:{i:03d}": 1.0 for i in range(11)})            # KR:010 은 점수 없음
+    kept = apply_ceiling(scores, signals=frame, analyst="tsfm", percentile=0.1)
+    assert "KR:009" not in kept.index and "KR:010" in kept.index and len(kept) == 10
+    assert apply_ceiling(scores, signals=frame, analyst="", percentile=0.1).equals(scores)
+    assert ConstraintParams(risk_floor_percentile=0.2).ceiling_percentile == 0.0
+
+
 # -- 완충 구간 (selector.md §5, 2026-08-27) -----------------------------------------
 
 

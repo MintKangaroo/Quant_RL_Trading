@@ -181,6 +181,8 @@ selector:
   floor_analyst: risk          # 위험 하한(risk_floor_percentile)을 재는 Analyst. 실전 risk, 시행 IX-T 샌드박스만 tsfm(2026-10-09). 키가 없으면 risk.
   extra_floor_analyst: ''       # 두 번째 하한 Analyst(기본 끔) — 첫 하한 뒤 남은 후보에서 한 번 더 자른다. TF 전환 후보는 tsfm.
   extra_floor_percentile: 0.0  # 두 번째 하한 비율(0 = 끔).
+  ceiling_analyst: ''           # 상한(칼날 빼기) Analyst — 점수 상위 비율을 뺀다(기본 끔). TB 전환 후보는 tsfm.
+  ceiling_percentile: 0.0      # 상한 비율(0 = 끔). 개수 ⌊n×q⌋ 로 고른다.
                                # 0 = 끔(옛 동작). 샌드박스 전용 — P1-b′ shadow(data/_p1b_shadow)가 1.0. selector.md §5 6번 (2026-10-08)
   hold_fill_min_weight: 0.002  # 보유일 잔여 채움 하한 — 직전 재조정 목표 주식 수와 보유의 차가 자본의 이 비율 이상인 종목만 (selector.md §5 7번, 2026-10-04)
   weights_override: {}         # 샌드박스 전용 {analyst: weight} — 비면 측정표(analyst_weights). BE2 shadow 가
