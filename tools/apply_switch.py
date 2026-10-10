@@ -77,11 +77,20 @@ def current(key: str) -> str:
     return yaml_line(key)[1].group(2).strip()
 
 
+#: **실전을 따라가는** 장부 — 고정하지 않는다. TG(docs/protocols/ta-floor-2026-10.md, 사용자 10/10 "제안대로"): 전환 후 실전 규칙 + TA 하한,
+#: 대조 = data/_shadow(실전 그림자). 고정하면 "옛 규칙 + TA" 를 재게 된다.
+FOLLOW_LIVE = frozenset({"tg"})
+
+
 def pin_targets() -> list[Path]:
     """고정할 덮어쓰기 파일 — 실험 샌드박스 전부(파일이 없으면 만든다: N24 처럼 실전을 그대로 따르던 대조군) +
-    아직 안 생긴 샌드박스가 첫 실행에 복사해 갈 `config/shadow/*.config-overrides.yaml` 원본(IX·IX0·IX-T, 10/12 첫 실행)."""
-    boxes = [b / "config-overrides.yaml" for b in sorted(DATA.glob("_*_shadow")) if b.is_dir()]
-    return boxes + sorted((REPO_ROOT / "config" / "shadow").glob("*.config-overrides.yaml"))
+    아직 안 생긴 샌드박스가 첫 실행에 복사해 갈 `config/shadow/*.config-overrides.yaml` 원본(IX·IX0·IX-T, 10/12 첫 실행).
+    FOLLOW_LIVE 장부는 뺀다."""
+    boxes = [b / "config-overrides.yaml" for b in sorted(DATA.glob("_*_shadow"))
+             if b.is_dir() and b.name.removeprefix("_").removesuffix("_shadow") not in FOLLOW_LIVE]
+    templates = [f for f in sorted((REPO_ROOT / "config" / "shadow").glob("*.config-overrides.yaml"))
+                 if f.name.removesuffix(".config-overrides.yaml") not in FOLLOW_LIVE]
+    return boxes + templates
 
 
 def pin_shadows(keys: list[str], *, apply: bool) -> list[str]:

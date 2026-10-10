@@ -26,6 +26,8 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "data" / "_w72_shadow").mkdir(parents=True)
     (tmp_path / "data" / "_w72_shadow" / "config-overrides.yaml").write_text("selector.n_candidates: 72\n")
     (tmp_path / "data" / "_shadow").mkdir()
+    (tmp_path / "data" / "_tg_shadow").mkdir()
+    (tmp_path / "config" / "shadow" / "tg.config-overrides.yaml").write_text("selector.extra_floor_analyst: ta\n")
     monkeypatch.setattr(sw, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(sw, "YAML", tmp_path / "config" / "quant_rl_trading.yaml")
     monkeypatch.setattr(sw, "DATA", tmp_path / "data")
@@ -40,6 +42,8 @@ def test_pin_then_switch(repo: Path) -> None:
     assert "selector.extra_floor_analyst: ''" in n24 and "selector.extra_floor_percentile: 0.0" in n24
     assert "selector.extra_floor_analyst: ''" in (repo / "config" / "shadow" / "ix0.config-overrides.yaml").read_text()
     assert not (repo / "data" / "_shadow" / "config-overrides.yaml").exists()      # 실전의 그림자는 실전을 따른다
+    assert not (repo / "data" / "_tg_shadow" / "config-overrides.yaml").exists()   # TG 는 실전을 따라간다(FOLLOW_LIVE)
+    assert (repo / "config" / "shadow" / "tg.config-overrides.yaml").read_text() == "selector.extra_floor_analyst: ta\n"
     i, m = sw.yaml_line("selector.extra_floor_analyst")
     assert m.group(3).strip() == "# 두 번째 하한"
 
