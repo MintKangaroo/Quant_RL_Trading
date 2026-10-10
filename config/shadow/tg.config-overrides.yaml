@@ -1,5 +1,5 @@
 # 시행 TG 전방 장부(docs/protocols/ta-floor-2026-10.md) — **전환 후 실전 규칙을 따라간다**(tools/apply_switch.FOLLOW_LIVE, 사용자 10/10 "제안대로").
 # 실전과 다른 키는 아래 둘뿐 — 두 번째 하한 자리를 ta 로. 실전이 이 자리에 tsfm(TF·TB)을 쓰면 TG 는 "TTM 대신 TA" 를, 비어 있으면 "TA 더하기" 를 잰다.
-# 대조 = data/_shadow(실전 그림자, 같은 모의 체결).
+# 대조 = data/_livekr_shadow(실전 그림자·국장 전용, 같은 모의 체결 — data/_shadow 는 미장이 섞인다).
 selector.extra_floor_analyst: ta
 selector.extra_floor_percentile: 0.20

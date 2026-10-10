@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TG 트랙 shadow — 국장, 모의 체결(docs/protocols/ta-floor-2026-10.md). 장부 data/_tg_shadow(처리, 대조는 data/_n24_shadow).
+# TG 트랙 shadow — 국장, 모의 체결(docs/protocols/ta-floor-2026-10.md). 장부 data/_tg_shadow(처리) · data/_livekr_shadow(대조 — 전환 후 실전 그대로, 국장 전용).
 # 설정은 config/shadow/tg.config-overrides.yaml 을 첫 실행에 샌드박스로 복사한다. 신호는 scripts/run_ta_signal.sh(00:05).
 # KR shadow 세션이 도는 중이면 끝날 때까지 기다린다(run_shadow_z2.sh 와 같은 대기 패턴).
 set -u
@@ -16,7 +16,7 @@ for _ in $(seq 1 60); do
     sleep 30
 done
 RC=0
-for book in tg; do
+for book in tg livekr; do   # livekr = 실전 그림자(국장 전용, 덮어쓰기 없음) — TG 의 대조
     box="data/_${book}_shadow"
     first=""
     if [ ! -f "${box}/config-overrides.yaml" ]; then

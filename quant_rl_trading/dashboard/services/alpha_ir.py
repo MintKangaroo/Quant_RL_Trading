@@ -44,9 +44,23 @@ BOOKS: list[dict[str, str]] = [
     {"key": "ix", "name": "IX 지수−패자", "ledger": "_ix_shadow", "market": "KR"},
     {"key": "ix0", "name": "IX0 지수 복제", "ledger": "_ix0_shadow", "market": "KR"},
     {"key": "ixt", "name": "IX-T TTM패자", "ledger": "_ixt_shadow", "market": "KR"},
+    {"key": "tg", "name": "TG 기술적 하한", "ledger": "_tg_shadow", "market": "KR"},
+    {"key": "livekr", "name": "실전 그림자(국장)", "ledger": "_livekr_shadow", "market": "KR"},
     {"key": "shadow", "name": "shadow (국장+미장)", "ledger": "_shadow", "market": "MIXED"},
     {"key": "g1us", "name": "G1 미장", "ledger": "_g1us_shadow", "market": "US"},
 ]
+
+#: 순차 검정 짝(처리, 대조) — 등록 문서의 대조 그대로(self-improvement.md §10 ④). 일 초과수익 = 처리 − 대조 NAV 일수익(겹치는 날만).
+PAIRS: list[tuple[str, str, str]] = [
+    ("tg", "livekr", "TG − 실전 그림자"),
+    ("ixt", "ix0", "IX-T − IX0"),
+    ("ix", "ix0", "IX − IX0"),
+    ("w72", "n24", "W72 − N24"),
+    ("p1b", "n24", "P1-b′ − N24"),
+    ("be2", "n24", "BE2 − N24"),
+]
+SEQ_ALPHA_KEY = "dashboard.seq_alpha"
+SEQ_TSTAR_KEY = "dashboard.seq_t_star"
 
 NOT_APPLICABLE = {
     "US": "미장 장부 — KODEX200 대비는 뜻이 없다(관문은 국장만)",
@@ -174,6 +188,7 @@ def alpha_ir(root: Path, *, config: Store, source: Store, as_of: datetime) -> di
     return {
         "available": True,
         "note": None,
+        "sequential": _sequential(indexes, config, as_of),
         "benchmark": BENCHMARK_ETF,
         "benchmark_ew": relative.EQUAL_WEIGHT_LABEL if ew is not None and not ew.empty else None,
         "annual_yield": annual,
@@ -185,3 +200,27 @@ def alpha_ir(root: Path, *, config: Store, source: Store, as_of: datetime) -> di
         "columns": columns,
         "books": rows,
     }
+
+
+def _sequential(indexes: dict[str, Any], config: Store, as_of: datetime) -> dict[str, Any]:
+    """짝마다 언제 봐도 유효한 신뢰구간(연환산). 설정이 없으면 지어내지 않는다."""
+    from quant_rl_trading.modelops.sequential import confidence_sequence
+
+    try:
+        alpha = float(config.config(SEQ_ALPHA_KEY, as_of=as_of))
+        t_star = int(config.config(SEQ_TSTAR_KEY, as_of=as_of))
+    except (ConfigNotFound, LookupError, ValueError, TypeError):
+        return {"available": False, "note": f"설정 {SEQ_ALPHA_KEY}·{SEQ_TSTAR_KEY} 가 창고에 없다", "pairs": []}
+    pairs = []
+    for treat, ctrl, label in PAIRS:
+        a, b = indexes.get(treat), indexes.get(ctrl)
+        if a is None or b is None or a.empty or b.empty:
+            pairs.append({"label": label, "status": "장부 아직 없음", "n": 0})
+            continue
+        ra, rb = a.pct_change().dropna(), b.pct_change().dropna()
+        common = ra.index.intersection(rb.index)
+        seq = confidence_sequence((ra.loc[common] - rb.loc[common]).to_numpy(), alpha=alpha, t_star=t_star)
+        mean, lo, hi = (v if v == v else None for v in seq.annual)      # NaN → None(브라우저 JSON 은 NaN 을 못 읽는다)
+        pairs.append({"label": label, "status": seq.status, "n": seq.n, "since": _iso(common[0]) if len(common) else None,
+                      "annual": mean, "lower": lo, "upper": hi})
+    return {"available": True, "alpha": alpha, "t_star": t_star, "pairs": pairs}

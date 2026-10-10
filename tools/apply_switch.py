@@ -79,7 +79,7 @@ def current(key: str) -> str:
 
 #: **실전을 따라가는** 장부 — 고정하지 않는다. TG(docs/protocols/ta-floor-2026-10.md, 사용자 10/10 "제안대로"): 전환 후 실전 규칙 + TA 하한,
 #: 대조 = data/_shadow(실전 그림자). 고정하면 "옛 규칙 + TA" 를 재게 된다.
-FOLLOW_LIVE = frozenset({"tg"})
+FOLLOW_LIVE = frozenset({"tg", "livekr"})   # livekr = TG 의 대조(실전 그림자, 국장 전용)
 
 
 def pin_targets() -> list[Path]:

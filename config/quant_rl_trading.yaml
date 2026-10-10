@@ -807,6 +807,9 @@ dashboard:
   ir_min_sessions: 20
   # 모의계좌 측정 리셋일(실자금 투입 관문 측정 창 시작, docs/protocols/live-capital-entry-2026-11.md). 이날부터의 창을 따로 싣는다.
   ir_reset_date: "2026-11-26"
+  # 순차 검정(self-improvement.md §10 ④) — 장부 짝의 언제 봐도 유효한 신뢰구간. 유의수준 · 폭을 가장 좁게 맞출 세션 수.
+  seq_alpha: 0.05
+  seq_t_star: 60
 
 # 랭커 ModelOps (docs/design/modelops-ranker.md ①) — 감쇠 경보의 기준. 화면이 이 값을 읽는다(불변식 10).
 modelops:

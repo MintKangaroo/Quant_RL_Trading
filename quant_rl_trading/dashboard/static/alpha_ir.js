@@ -124,10 +124,31 @@ function renderAlphaIr(target, stamp, data) {
       </tr></thead>
       <tbody>${(data.books || []).map((b) => airRow(b, columns, data)).join("")}</tbody>
     </table>
-    <ul class="air-cards">${(data.books || []).map((b) => airCard(b, data)).join("")}</ul>`;
+    <ul class="air-cards">${(data.books || []).map((b) => airCard(b, data)).join("")}</ul>
+    ${airSeq(data.sequential)}`;
   for (const book of data.books || []) if (book.status === "ok") airSpark(book);
 }
 
+
+/* 장부 짝 순차 검정(self-improvement.md §10 ④) — 처리 − 대조 일 초과의 '언제 봐도 유효한' 신뢰구간, 연환산.
+ * 하한 > 0 이면 우세 확정, 상한 < 0 이면 열위 확정, 그 사이는 모름. 매일 봐도 오류율이 늘지 않는다 — 62세션에서 끊지 않는다. */
+function airSeq(seq) {
+  if (!seq) return "";
+  if (!seq.available) return `<p class="empty">${airEsc(seq.note || "순차 검정을 잴 수 없다.")}</p>`;
+  const tone = (s) => (s === "우세 확정" ? "up" : s === "열위 확정" ? "down" : "");
+  const rows = (seq.pairs || []).map((p) => {
+    if (!p.n) return `<tr><td>${airEsc(p.label)}</td><td class="num">0</td><td colspan="3" class="dim">${airEsc(p.status)}</td></tr>`;
+    const band = p.status === "표본 부족" ? "—" : `${airPct(p.lower)} ~ ${airPct(p.upper)}`;
+    return `<tr><td>${airEsc(p.label)}</td><td class="num">${p.n}</td><td class="num ${airTone(p.annual)}">${airPct(p.annual)}</td>
+      <td class="num">${band}</td><td class="${tone(p.status)}">${airEsc(p.status)}</td></tr>`;
+  }).join("");
+  return `<p class="air-def">장부 짝 순차 검정 — 처리 − 대조 일 초과(연환산)의 <strong>언제 봐도 유효한 ${Math.round((1 - seq.alpha) * 100)}% 구간</strong>.
+      하한이 0 위면 우세 확정, 상한이 0 아래면 열위 확정. 매일 봐도 판정 오류가 늘지 않는다.</p>
+    <table class="air-table air-seq">
+      <thead><tr><th>짝</th><th class="num">세션</th><th class="num">연 초과</th><th class="num">구간</th><th>판정</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
 
 /* 폰(≤760px)에서는 표 대신 장부마다 두 줄짜리 카드 — 표는 칸이 많아 좁은 화면에서 잘린다(10/6 폰 화면 두 번). */
 function airCard(book, data) {

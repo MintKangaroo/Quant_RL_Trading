@@ -230,6 +230,8 @@ dashboard:                     # 학습 탭 "마지막 모델 회차" 카드의 
   ir_windows_sessions: [20, 60]  # 장부별 지수 대비 IR 패널(dashboard.md §4)의 롤링 창 — 장부 세션 N개. '전체'·'리셋 뒤' 는 항상 붙는다
   ir_min_sessions: 20          # 창의 세션이 이보다 적으면 IR·β·α·추적오차 대신 '표본 부족'
   ir_reset_date: "2026-11-26"  # 모의계좌 측정 리셋일(실자금 관문 측정 창 시작). 이날부터의 창을 따로 싣는다 — 전에는 빈 칸.
+  seq_alpha: 0.05              # 순차 검정 유의수준(장부 짝, 언제 봐도 유효한 신뢰구간 — self-improvement.md §10 ④)
+  seq_t_star: 60               # 순차 검정 구간 폭을 가장 좁게 맞출 세션 수
                                # 새 키(2026-10-05) — seed_config --apply. 창고에 없으면 패널은 숫자 없이 이유를 적는다
 
 allocator:                     # 유동시총 가중(float_cap — Z2·미장 G1 트랙). portfolio-construction.md "Z2 트랙"

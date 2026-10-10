@@ -33,7 +33,7 @@ TTM 제로샷의 예측력을 거의 다 설명했다(TA 통제 시 TTM 편 IC +
 ## shadow — 전방 장부(사다리 규율 18)
 
 - 장부 `data/_tg_shadow`: **10/13 전환 후 실전 규칙을 따라간다**(사용자 10/10 "제안대로" — `tools/apply_switch.FOLLOW_LIVE`, 전환 때 고정하지 않는다) + 두 번째 하한 자리 `selector.extra_floor_analyst: ta` · `extra_floor_percentile: 0.20`.
-  대조 = `data/_shadow`(실전 그림자 — 같은 모의 체결). 실전이 두 번째 하한에 tsfm(TF·TB)을 넣으면 이 장부는 **"TTM 대신 TA"**, 비어 있으면 **"TA 더하기"** 를 잰다 — 10/13 결과에 따라 어느 쪽인지 장부 첫 줄에 적는다.
+  대조 = `data/_livekr_shadow`(실전 그림자 · **국장 전용**, 같은 모의 체결 — `data/_shadow` 는 미장 슬리브가 섞여 대조가 못 된다, 10/11 정정). 실전이 두 번째 하한에 tsfm(TF·TB)을 넣으면 이 장부는 **"TTM 대신 TA"**, 비어 있으면 **"TA 더하기"** 를 잰다 — 10/13 결과에 따라 어느 쪽인지 장부 첫 줄에 적는다.
 - 신호: `tools/ta_signal.py`(`scripts/run_ta_signal.sh`, 화~토 00:05) 가 마지막 국장 종가까지로 `signals`(analyst `ta`, 제약 전용 · 신뢰도 0)에 적는다. `valid_from = observed_at = 계산 시각` → 다음 결정 세션에만 보인다.
 - 장부 크론 `scripts/run_shadow_tg.sh` 화~토 00:45(10/15 전엔 날짜 가드로 건너뜀). 첫 세션 10/14 결정. 기록만 — 판정은 금고. 금고 통과 시 이 장부의 **20세션 운영 확인**(신호 제때 적재 95% 이상 · 세션 rc 0)이 실전 후보로 올리는 조건이다.
 
