@@ -72,7 +72,7 @@ blocked() {
 late() { [ $((10#$(date +%H%M))) -ge $((10#${DEADLINE})) ]; }
 heavy() {
   # 대괄호로 자기 매칭을 피한다. 이 러너가 부른 자식은 이 러너가 끝날 때까지 기다리므로 여기서 걸리지 않는다.
-  pgrep -f "tools/(freeze_be[2]|trial_[a-z0-9_]+|vault_judg[e]|backfill_ic_histor[y]|diagnose_i[c]|train_ranke[r]|score_be[2])\.py|scripts/freeze_bf[1]\.sh|scripts/vault_early_bake_queu[e]\.sh" > /dev/null
+  pgrep -f "tools/(freeze_be[2]|trial_[a-z0-9_]+|vault_judg[e]|backfill_ic_histor[y]|diagnose_i[c]|train_ranke[r]|score_be[2])\.py|scripts/freeze_bf[1]\.sh|scripts/vault_early_bake_queu[e]\.sh|tools/past_vault_(bak[e]|judg[e])\.py" > /dev/null
 }
 wait_turn() {
   # 시작해도 되는 때까지 기다린다. 마감을 넘기면 rc 4(다음 날 재시도 크론이 이어 받는다).
@@ -175,9 +175,10 @@ if ! have 6; then
   grep -E "Maximum resident|Elapsed \(wall" "${STATE}/time-6.txt" | sed 's/^/# /' >> "${RESULT}.part"
   say "[6] rc=${rc}"
   if [ "${rc}" != 0 ] || ! grep -q "=== 요약 ===" "${RESULT}.part"; then
+    cp "${RESULT}.part" "${RESULT}.failed-$(date +%H%M)"     # 멈춘 시행이 있어도 나머지 판정 표는 남긴다(리드가 읽는다)
     failed 6
   fi
-  for t in AQ AR AS BD BE2; do
+  for t in AQ AR AS BD BE2 TF TB TC P1B2; do
     grep -q "^${t}: " "${RESULT}.part" || { say "[6] 요약에 ${t} 줄이 없다"; failed 6; }
   done
   mv "${RESULT}.part" "${RESULT}"

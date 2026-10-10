@@ -36,7 +36,7 @@ FIRST_DECISION = date(2011, 1, 3)
 def bake_ta(store: Store) -> pd.DataFrame:
     from tools.ta_composite import composite_panel
     end = datetime.combine(END, time(16, 0), tzinfo=UTC)
-    a, _ = composite_panel(store, end=end, start=date(2009, 12, 1))
+    a, _ = composite_panel(store, end=datetime.combine(date(2017, 12, 31), time(16, 0), tzinfo=UTC), start=date(2009, 12, 1))   # 첫 조각은 2017 끝까지만 읽는다
     a = a.loc[[d for d in a.index if d < date(2018, 1, 1)]]
     b, _ = composite_panel(store, end=end, start=date(2013, 11, 1))
     b = b.loc[[d for d in b.index if d >= date(2018, 1, 1)]]

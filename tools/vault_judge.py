@@ -1311,8 +1311,18 @@ def run_p1b(store: Store) -> tuple[list[str], str]:
 # --------------------------------------------------------------------------- 금고 early 추가: TF·TB·TC(TTM 패자 하한) · P1B2
 
 
+_C0_CACHE: dict[tuple[date, date], tuple] = {}
+
+
 def _c0_inputs(store: Store) -> tuple[dict[int, pd.DataFrame], list[date], pd.DataFrame, pd.Series, dict[date, set[str]]]:
-    """얼린 C0 시드별 원점수(데운 세션 포함) · 창 세션 · market_data — P1-b′ 판정과 같은 경로."""
+    """얼린 C0 시드별 원점수(데운 세션 포함) · 창 세션 · market_data — P1-b′ 판정과 같은 경로. 창마다 한 번만 계산한다(TF·TB·TC·P1B2 공유)."""
+    key = (VAULT_START, VAULT_END)
+    if key not in _C0_CACHE:
+        _C0_CACHE[key] = _c0_inputs_uncached(store)
+    return _C0_CACHE[key]
+
+
+def _c0_inputs_uncached(store: Store) -> tuple[dict[int, pd.DataFrame], list[date], pd.DataFrame, pd.Series, dict[date, set[str]]]:
     from datetime import timedelta
 
     from quant_rl_trading.collectors.market_hours import Market, trading_days
@@ -1670,6 +1680,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.bake:
         return bake(store, win)
     results: list[tuple[str, str, list[str]]] = []
+    failed: list[str] = []
     for trial in trials:
         if win.name in SECOND_NEEDS and trial in SECOND_NEEDS[win.name]:
             prior = prior_verdict(store, trial)
@@ -1680,15 +1691,23 @@ def main(argv: list[str] | None = None) -> int:
         digest = hashlib.sha256(protocol_path(trial).read_bytes()).hexdigest()[:16]
         print(f"\n=== 시행 {trial} — {protocol_path(trial)} (해시 {digest}) · 금고 {win.name} {VAULT_START}~{VAULT_END} ===",
               flush=True)
-        if trial == "BE2":
-            lines, verdict = run_be2(store, confirm=win.name == "second")
-        else:
-            lines, verdict = RUNNERS[trial](store)
+        # 시행마다 격리한다(독립 검토 10/10) — 하나가 멈춰도 앞뒤 시행의 판정은 요약에 남는다. 멈춘 시행은 '판정 불가' 이고 rc 1.
+        try:
+            if trial == "BE2":
+                lines, verdict = run_be2(store, confirm=win.name == "second")
+            else:
+                lines, verdict = RUNNERS[trial](store)
+        except (Exception, SystemExit) as error:  # noqa: BLE001 — 사유를 요약에 남기고 rc 로 알린다
+            failed.append(trial)
+            lines, verdict = [f"{trial}: 멈춤 — {type(error).__name__}: {str(error)[:400]}"], "판정 불가"
         print("\n" + "\n".join(lines) + f"\n판정: {verdict}", flush=True)
         results.append((trial, verdict, [*lines, f"판정: {verdict}"]))
     print("\n=== 요약 ===", flush=True)
     for trial, verdict, _ in results:
         print(f"{trial}: {verdict}", flush=True)
+    if failed:
+        print(f"\n판정 불가 {failed} — 기록하지 않는다(--save 무시). 사유를 고친 뒤 그 시행만 다시: --trials {','.join(failed)}", flush=True)
+        return 1
     record_verdicts(store, results, save=args.save, win=win)
     return 0
 

@@ -129,6 +129,13 @@ def main(argv: list[str] | None = None) -> int:
     if not args.apply:
         print("\n미리보기 — --apply 로 적용", flush=True)
         return 0
+    # 바꿀 키가 창고에 아직 없으면 거부한다 — 없는 키는 seed_config 가 '신규' 로 보고 바뀐 값을 2000-01-01 로 소급해 심는다
+    # (과거 as_of 재현이 새 규칙을 보고, 그날 세션은 옛 키·새 키가 섞인다 — 독립 검토 10/10). 먼저 지금 yaml 로 seed 를 돌려 중립값을 심을 것.
+    pre = subprocess.run([sys.executable, "tools/seed_config.py", "--store", "data"], cwd=REPO_ROOT, capture_output=True, text=True)
+    fresh = [k for k in want if f"신규  {k}:" in pre.stdout]
+    if fresh:
+        print(f"창고에 없는 키 {fresh} — 먼저 `tools/seed_config.py --store data --apply`(지금 yaml, 중립값)를 돌린 뒤 다시", flush=True)
+        return 3
     lines = YAML.read_text().splitlines()
     for k, v in want.items():
         i, m = yaml_line(k)

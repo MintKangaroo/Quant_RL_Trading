@@ -179,9 +179,9 @@ selector:
   exit_rank: 48                # 완충 구간 — 보유 종목은 이 순위 안이면 남긴다 (진입 24). selector.md §5
   swap_min_z: 0.0              # 비용 인지 교체 문턱(단면 z) — 완충 밖으로 떨어진 보유도 z 차이 ≥ 이 값인 진입이 있을 때만 판다.
   floor_analyst: risk          # 위험 하한(risk_floor_percentile)을 재는 Analyst. 실전 risk, 시행 IX-T 샌드박스만 tsfm(2026-10-09). 키가 없으면 risk.
-  extra_floor_analyst: ''       # 두 번째 하한 Analyst(기본 끔) — 첫 하한 뒤 남은 후보에서 한 번 더 자른다. TF 전환 후보는 tsfm.
+  extra_floor_analyst: ''       # 두 번째 하한 Analyst(기본 끔) — 그 Analyst 의 **전체 대상 기준** 하위(점수 ≤ 2q−1)를 후보에서 뺀다(금고 판정과 같은 종목). TF 전환 후보는 tsfm.
   extra_floor_percentile: 0.0  # 두 번째 하한 비율(0 = 끔).
-  ceiling_analyst: ''           # 상한(칼날 빼기) Analyst — 점수 상위 비율을 뺀다(기본 끔). TB 전환 후보는 tsfm.
+  ceiling_analyst: ''           # 상한(칼날 빼기) Analyst — **전체 대상 기준** 상위(점수 > 1−2h)를 뺀다(기본 끔). TB 전환 후보는 tsfm.
   ceiling_percentile: 0.0      # 상한 비율(0 = 끔). 개수 ⌊n×q⌋ 로 고른다.
   combo_floor_analyst: ''       # 결합 하한 Analyst — (합성 점수 백분위 + 이 Analyst 백분위)/2 하위를 뺀다(기본 끔). TC 전환 후보는 tsfm.
   combo_floor_percentile: 0.0  # 결합 하한 비율(0 = 끔). 개수 ⌊n×q⌋.

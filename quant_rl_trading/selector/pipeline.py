@@ -154,14 +154,9 @@ def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Scre
     trace.stage("risk_floor", len(scores))
     # 두 번째 하한(기본 끔) — 첫 하한이 남긴 후보에서 다른 Analyst 하위를 한 번 더 자른다.
     if floor_params.extra_floor_analyst and floor_params.extra_floor_percentile > 0 and not scores.empty:
-        scores = constraints_module.apply_risk_floor(
-            scores,
-            signals=signals,
-            params=constraints_module.ConstraintParams(
-                risk_floor_percentile=floor_params.extra_floor_percentile,
-                floor_analyst=floor_params.extra_floor_analyst,
-            ),
-            trace=trace,
+        scores = constraints_module.apply_global_floor(
+            scores, signals=signals, analyst=floor_params.extra_floor_analyst,
+            percentile=floor_params.extra_floor_percentile, trace=trace,
         )
         trace.stage("extra_floor", len(scores))
     if floor_params.ceiling_analyst and floor_params.ceiling_percentile > 0 and not scores.empty:

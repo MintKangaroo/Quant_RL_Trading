@@ -203,6 +203,43 @@ def apply_risk_floor(
 
 
 
+def global_cut(signals: pd.DataFrame, analyst: str, percentile: float, *, top: bool) -> pd.Series:
+    """**전체 대상 기준** 하위(또는 상위) ``percentile`` 종목과 점수. 후보 안 분위가 아니다.
+
+    tsfm·ta 점수는 신호를 만들 때 그날 전체 대상 안 백분위를 [−1, 1] 로 바꾼 값이다(`tools/tsfm_signal.py`·`tools/ta_signal.py`).
+    그래서 하위 q ⇔ 점수 ≤ 2q − 1, 상위 h ⇔ 점수 > 1 − 2h. 금고 판정(`vault_judge.tf_exclusions`: 전체 대상 중 ⌊qn⌋개)과 같은 종목을 뺀다
+    — 후보 안 분위로 자르면 위험 하한 뒤 남은 후보에서 다시 20% 를 잘라 검증한 것보다 많이 뺀다(독립 검토 10/10).
+    """
+    observed = constraint_scores(signals, analyst).dropna()
+    if top:
+        return observed[observed > 1.0 - 2.0 * percentile + 1e-9]
+    return observed[observed <= 2.0 * percentile - 1.0 + 1e-9]
+
+
+def apply_global_floor(
+    scores: pd.Series,
+    *,
+    signals: pd.DataFrame,
+    analyst: str,
+    percentile: float,
+    trace: SelectionTrace | None = None,
+) -> pd.Series:
+    """두 번째 하한(`selector.extra_floor_*`) — ``analyst`` 의 전체 대상 기준 하위 ``percentile`` 을 후보에서 뺀다. 점수 없는 종목은 통과."""
+    if scores.empty or not analyst or percentile <= 0.0:
+        return scores
+    cut = global_cut(signals, analyst, percentile, top=False)
+    cut = cut[cut.index.isin(scores.index)]
+    if constraint_scores(signals, analyst).empty:
+        if trace is not None:
+            trace.note(f"두 번째 하한({analyst})을 적용하지 못했다 — 신호 0건. **통과된 것이지 안전이 확인된 것이 아니다**")
+        return scores
+    if trace is not None:
+        trace.note(f"두 번째 하한({analyst}) 전체 대상 하위 {percentile:.0%}(점수 ≤ {2 * percentile - 1:+.2f}) — 후보 {len(cut)}종목 제외")
+        for entity in cut.index:
+            trace.drop(str(entity), f"{analyst} 전체 하위 {percentile:.0%} ({cut[entity]:+.4f})")
+    return scores[~scores.index.isin(cut.index)]
+
+
 def apply_ceiling(
     scores: pd.Series,
     *,
@@ -211,22 +248,19 @@ def apply_ceiling(
     percentile: float,
     trace: SelectionTrace | None = None,
 ) -> pd.Series:
-    """``analyst`` 점수 **상위** ``percentile`` 을 후보에서 뺀다(칼날 빼기). 점수가 없는 종목은 빼지 않는다.
-
-    개수(⌊n×q⌋)로 고른다 — 동점이 많으면 분위 비교가 엉뚱하게 많이 뺀다(금고 판정부와 같은 규칙, 2026-10-09).
-    """
+    """``analyst`` 의 **전체 대상 기준** 상위 ``percentile`` 을 후보에서 뺀다(칼날 빼기). 점수가 없는 종목은 빼지 않는다."""
     if scores.empty or not analyst or percentile <= 0.0:
         return scores
-    observed = constraint_scores(signals, analyst).reindex(scores.index).dropna()
-    if observed.empty:
+    if constraint_scores(signals, analyst).empty:
         if trace is not None:
             trace.note(f"상한({analyst})을 적용하지 못했다 — 신호 0건. **통과된 것이지 안전이 확인된 것이 아니다**")
         return scores
-    cut = observed.nlargest(int(len(observed) * percentile))
+    cut = global_cut(signals, analyst, percentile, top=True)
+    cut = cut[cut.index.isin(scores.index)]
     if trace is not None:
-        trace.note(f"상한({analyst}) 상위 {percentile:.0%} 컷 — {len(cut)}종목 제외(관측 {len(observed)}종목)")
+        trace.note(f"상한({analyst}) 전체 대상 상위 {percentile:.0%}(점수 > {1 - 2 * percentile:+.2f}) — 후보 {len(cut)}종목 제외")
         for entity in cut.index:
-            trace.drop(str(entity), f"{analyst} 상위 {percentile:.0%} ({cut[entity]:+.4f})")
+            trace.drop(str(entity), f"{analyst} 전체 상위 {percentile:.0%} ({cut[entity]:+.4f})")
     return scores[~scores.index.isin(cut.index)]
 
 
