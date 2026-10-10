@@ -64,7 +64,9 @@ RISK_ANALYST = "risk"
 #: 움직인다" 는 정의에 가까운 사실이지 예측이 아니다.
 #: TTM 제로샷 5일 예측(`tools/tsfm_signal.py`, 2026-10-09) — 시행 IX-T 의 하한 기준으로만 쓴다. 알파에 넣지 않는다.
 TSFM_ANALYST = "tsfm"
-CONSTRAINT_ANALYSTS = frozenset({RISK_ANALYST, TSFM_ANALYST})
+#: 기술적 합성 점수(`tools/ta_signal.py`, 2026-10-10) — 시행 TG 의 하한 기준으로만 쓴다. 알파에 넣지 않는다.
+TA_ANALYST = "ta"
+CONSTRAINT_ANALYSTS = frozenset({RISK_ANALYST, TSFM_ANALYST, TA_ANALYST})
 
 #: ``SelectionTrace.measures`` 의 키 — 그날 위험 하한 임계(이 값 **미만**이면 탈락).
 RISK_FLOOR_THRESHOLD = "risk_floor_threshold"

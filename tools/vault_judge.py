@@ -157,6 +157,17 @@ TF_GATE_T, TF_GATE_SHARE, TF_GATE_HALF, TF_GATE_TURN, TF_GATE_MDD = -2.0, 4, -0.
 #: 처리별 제외 규칙 — (TTM 하위 비율, TTM 상위 비율, C0·TTM 결합 하위 비율).
 TF_RULES: dict[str, tuple[float, float, float]] = {"TF": (0.20, 0.0, 0.0), "TB": (0.20, 0.10, 0.0), "TC": (0.0, 0.0, 0.10)}
 TSFM_VAULT = Path("data/_diag/vault-early/tsfm-KR.pkl")  # invariant-allow: data-access — 금고 작업 캐시(tools/vault_tsfm_bake.py)
+#: 시행 TG(docs/protocols/ta-floor-2026-10.md) — 기술적 합성 하위 20%, second 창. 판정 틀은 TF 그대로(run_tf), 점수 파일만 다르다.
+TG_PROTOCOL = Path("docs/protocols/ta-floor-2026-10.md")
+TG_PROTOCOL_HASH: str | None = None
+TA_VAULT = Path("data/_diag/vault-second/ta-KR.pkl")
+TF_RULES["TG"] = (0.20, 0.0, 0.0)
+#: TG 점수 파일(세션·종목·r_hat 열 = 합성 점수). 고정 전엔 second 창에 붙지 않는다(ADD 와 같은 규칙).
+if TG_PROTOCOL_HASH:
+    EXTRA_TRIALS["second"] = (*EXTRA_TRIALS["second"], "TG")
+EXTRA_PROTOCOLS["TG"] = (TG_PROTOCOL, TG_PROTOCOL_HASH)
+FAMILY["TG"] = "selection"
+ENTITY["TG"] = "ta-floor-2026-10:TG"
 #: P1-b″ 기준 — ① 회전 ≤ B0×0.6 ② 연 ≥ B0 ③ 시드 3/5 ④ MDD 2%p.
 P1B2_GATE_TURN, P1B2_GATE_SHARE, P1B2_GATE_MDD = 0.6, 3, 0.02
 #: P1-b′ 변형 — 등록 표 그대로 (N, 재조정 R, 완충 배수, 비용 인지 θ). B0 = 대조(현행).
@@ -1394,10 +1405,11 @@ def run_tf(store: Store, kind: str) -> tuple[list[str], str]:
     prior = prior_verdict(store, kind)
     if prior is not None:
         raise SystemExit(f"{kind} 는 이미 판정됐다({prior!r}) — 1회 시행")
-    if not TSFM_VAULT.exists():
-        raise SystemExit(f"{TSFM_VAULT} 가 없다 — tools/vault_tsfm_bake.py 가 먼저다")
+    score_file = TA_VAULT if kind == "TG" else TSFM_VAULT
+    if not score_file.exists():
+        raise SystemExit(f"{score_file} 가 없다 — {'tools/vault_ta_bake.py' if kind == 'TG' else 'tools/vault_tsfm_bake.py'} 가 먼저다")
     preds, sessions, ret, bench, trad = _c0_inputs(store)
-    lagged = tsfm_lagged(pd.read_pickle(TSFM_VAULT), sessions)  # invariant-allow: data-access — 금고 작업 캐시
+    lagged = tsfm_lagged(pd.read_pickle(score_file), sessions)  # invariant-allow: data-access — 금고 작업 캐시
     treat, ctrl, mechs = [], [], []
     for seed in sorted(preds):
         pred = preds[seed]
@@ -1413,7 +1425,7 @@ def run_tf(store: Store, kind: str) -> tuple[list[str], str]:
     first = preds[sorted(preds)[0]]
     n_cut = np.mean([len(v) for v in tf_exclusions(kind, lagged, first if kind == "TC" else None).values()])
     lines.append(f"기록(기준 아님) 창 세션 {len(sessions)} · 원리 시험 세션 {len(mech)} · 제외 평균 {n_cut:.0f}종목/세션"
-                 f"{'(첫 시드)' if kind == 'TC' else ''} · 점수 = 얼린 C0 · TTM = 금고 굽기 tsfm-KR.pkl(하루 늦춤)")
+                 f"{'(첫 시드)' if kind == 'TC' else ''} · 점수 = 얼린 C0 · 제외 점수 = {score_file.name}(하루 늦춤)")
     return lines, verdict
 
 
@@ -1456,7 +1468,7 @@ def run_p1b2(store: Store) -> tuple[list[str], str]:
 
 RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b,
            "TF": lambda st: run_tf(st, "TF"), "TB": lambda st: run_tf(st, "TB"), "TC": lambda st: run_tf(st, "TC"),
-           "P1B2": run_p1b2}
+           "P1B2": run_p1b2, "TG": lambda st: run_tf(st, "TG")}
 
 
 # --------------------------------------------------------------------------- 기록
@@ -1512,6 +1524,9 @@ def bake_plan(win: Window | None = None) -> list[tuple[str, Path, str]]:
              BE2_MODELS / f"{C0_STEM}.json",
              "setsid nohup .venv/bin/python -u tools/freeze_be2.py --arm C0 --verify >> logs/freeze-c0.log 2>&1 &"),
         ]
+    if "TG" in trials:
+        extra.append(("⑨ 금고 창 기술적 합성 점수(TG, 가격만 읽음)", TA_VAULT,
+                      ".venv/bin/python tools/vault_ta_bake.py   # second 창 끝(11/13) 뒤"))
     if set(ADD_TRIALS) & set(trials):
         extra.append(("⑧ 금고 창 TTM 예측(TF·TB·TC, 가격만 읽음)", TSFM_VAULT,
                       ".venv/bin/python tools/vault_tsfm_bake.py   # 10/9 20:3x 구움 — 있으면 건너뛴다"))

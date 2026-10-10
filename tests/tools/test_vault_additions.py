@@ -25,7 +25,7 @@ def test_unpinned_document_does_not_attach_to_early() -> None:
         assert not set(vj.ADD_TRIALS) & set(vj.trials_of(vj.windows()["early"]))
         assert vj.registration_problems(vj.windows()["early"]) == []    # 기존 다섯은 그대로 열린다
     assert all(vj.protocol_path(t) == vj.ADD_PROTOCOL for t in vj.ADD_TRIALS)
-    assert vj.TF_RULES == {"TF": (0.20, 0.0, 0.0), "TB": (0.20, 0.10, 0.0), "TC": (0.0, 0.0, 0.10)}
+    assert {k: vj.TF_RULES[k] for k in ("TF", "TB", "TC")} == {"TF": (0.20, 0.0, 0.0), "TB": (0.20, 0.10, 0.0), "TC": (0.0, 0.0, 0.10)}
     assert (vj.TF_GATE_T, vj.TF_GATE_SHARE, vj.TF_GATE_HALF, vj.TF_GATE_TURN, vj.TF_GATE_MDD) == (-2.0, 4, -0.01, 1.3, 0.02)
     assert (vj.P1B2_GATE_TURN, vj.P1B2_GATE_SHARE, vj.P1B2_GATE_MDD) == (0.6, 3, 0.02)
 
@@ -84,3 +84,11 @@ def test_judge_p1b2() -> None:
     assert verdict.startswith("채택 후보 B1′")                       # B2′ 는 회전비 0.75 로 ① 미달
     res["B1′"] = [row(0.09, 5.0)] * 5
     assert vj.judge_p1b2(res)[1] == "기각"
+
+
+def test_tg_wiring() -> None:
+    """TG — TF 규칙(하위 20%)을 합성 점수 파일에. 고정 전엔 second 창에 붙지 않는다."""
+    assert vj.TF_RULES["TG"] == (0.20, 0.0, 0.0)
+    assert vj.EXTRA_PROTOCOLS["TG"][0] == vj.TG_PROTOCOL and "TG" in vj.RUNNERS
+    if vj.TG_PROTOCOL_HASH is None:
+        assert "TG" not in vj.EXTRA_TRIALS["second"]

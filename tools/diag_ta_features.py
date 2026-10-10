@@ -28,8 +28,9 @@ REGIMES = (("하락", date(2022, 9, 1), date(2022, 12, 31)), ("박스", date(202
            ("급등", date(2025, 1, 1), date(2026, 6, 30)))
 
 
-def load(store: Store) -> dict[str, pd.DataFrame]:
-    p = read_prices(store, as_of=END, until=END, lookback=(END.date() - date(2020, 9, 1)).days,
+def load(store: Store, end: datetime = END, start: date = date(2020, 9, 1)) -> dict[str, pd.DataFrame]:
+    """보정 OHLC·원 거래대금 넓은 표. 진단은 END(6/30) 고정, 실전 신호(`tools/ta_composite.py`)는 지금 시각을 준다."""
+    p = read_prices(store, as_of=end, until=end, lookback=(end.date() - start).days,
                     columns=["open", "high", "low", "close", "value"], adjusted=True, market="KR")
     p = p[p["entity_id"].str.match(r"^KR:\d{6}$")]
     p["day"] = pd.to_datetime(p["valid_from"]).dt.date
