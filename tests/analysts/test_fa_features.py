@@ -41,7 +41,7 @@ def test_fa_features_equal_kit_feature_names(monkeypatch: pytest.MonkeyPatch) ->
         "KR": [c for c in fa.RAW_COLUMNS if not c.startswith("raw_flow_us_")],
         "US": [c for c in fa.RAW_COLUMNS if not c.startswith("raw_flow_kr_")],
     }
-    monkeypatch.setattr(kit, "_raw_cols", lambda market: list(by_market[market]))
+    monkeypatch.setattr(kit, "_raw_cols", lambda market, raw_dirs=None: list(by_market[market]))   # 10/4 raw_dirs 인자 추가(f708cf6)에 맞춤
     assert kit.feature_names(kit.blocks_of(("KR", "US"))) == list(fa.FA_FEATURES)
 
 
