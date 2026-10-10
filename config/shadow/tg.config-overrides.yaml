@@ -1,0 +1,4 @@
+# 시행 TG 전방 장부(docs/protocols/ta-floor-2026-10.md) — 10/13 전환 전 실전 규칙 + 두 번째 하한 ta 하위 20%. 대조 = data/_n24_shadow.
+# 실전과 다른 키는 아래 둘뿐이다. 10/13 tools/apply_switch.py 가 바뀌는 실전 키를 이 파일에 지금 값으로 고정한다(N24 와 같은 값).
+selector.extra_floor_analyst: ta
+selector.extra_floor_percentile: 0.20

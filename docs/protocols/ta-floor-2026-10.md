@@ -14,7 +14,8 @@ TTM 제로샷의 예측력을 거의 다 설명했다(TA 통제 시 TTM 편 IC +
 
 - **합성 TA 점수** = 아홉의 횡단면 백분위를 원 부호로 맞춘 **동일 가중 평균**(가중을 맞추지 않는다):
   꼬리 비대칭(−) · pv_corr_20(−) · skew_60(−) · mom_12_1(+) · fip(+) · trend_factor(+) · vol_cv_60(−) · hs_season(+) · log_price(+).
-  정의는 `tools/diag_ta_features.features` · `tools/diag_ta_round2.signals` 그대로(보정 OHLC·원 거래대금만). 백분위는 그날 점수가 있는 종목 안에서.
+  정의는 `tools/diag_ta_features.features` · `tools/diag_ta_round2.signals` 그대로(보정 OHLC·원 거래대금만), 계산은 `tools/ta_composite.composite_panel` 하나 — 실전 신호와 금고 굽기가 같은 함수다.
+  **점수 대상** = 그날 20일 평균 거래대금 ≥ 10억원 · 이력 252세션(진단 우주와 같다). 백분위는 그 대상 안에서.
 - **하루 늦춤**: 결정 세션 d 의 제외 목록 = d 바로 앞 세션 종가까지로 만든 점수(실전에서 밤에 계산해 다음 세션에 쓰는 것과 같다 — TF 와 같은 규칙).
 - **제외** = 그날 점수가 있는 종목 n 중 하위 ⌊0.2n⌋개(개수로). 점수가 없는 종목은 빼지 않는다.
 
@@ -32,8 +33,8 @@ TTM 제로샷의 예측력을 거의 다 설명했다(TA 통제 시 TTM 편 IC +
 ## shadow — 전방 장부(사다리 규율 18)
 
 - 장부 `data/_tg_shadow`: **10/13 전환 전 실전 규칙(고정값)** + 두 번째 하한 `selector.extra_floor_analyst: ta` · `extra_floor_percentile: 0.20`. 대조 = `data/_n24_shadow`(같은 고정값, 하한 없음).
-- 신호: `tools/ta_signal.py` 가 밤마다(화~토 07:20) 마지막 국장 종가까지로 `signals`(analyst `ta`, 제약 전용 · 신뢰도 0)에 적는다. `valid_from = observed_at = 계산 시각` → 다음 결정 세션에만 보인다.
-- 첫 세션 10/14 결정(10/15 주문). 기록만 — 판정은 금고. 금고 통과 시 이 장부의 **20세션 운영 확인**(신호 제때 적재 95% 이상 · 세션 rc 0)이 실전 후보로 올리는 조건이다.
+- 신호: `tools/ta_signal.py`(`scripts/run_ta_signal.sh`, 화~토 00:05) 가 마지막 국장 종가까지로 `signals`(analyst `ta`, 제약 전용 · 신뢰도 0)에 적는다. `valid_from = observed_at = 계산 시각` → 다음 결정 세션에만 보인다.
+- 장부 크론 `scripts/run_shadow_tg.sh` 화~토 00:45(10/15 전엔 날짜 가드로 건너뜀). 첫 세션 10/14 결정. 기록만 — 판정은 금고. 금고 통과 시 이 장부의 **20세션 운영 확인**(신호 제때 적재 95% 이상 · 세션 rc 0)이 실전 후보로 올리는 조건이다.
 
 ## 쓰임
 
