@@ -13,7 +13,7 @@ TTM 제로샷의 예측력을 거의 다 설명했다(TA 통제 시 TTM 편 IC +
 ## 신호 — 고정
 
 - **합성 TA 점수** = 아홉의 횡단면 백분위를 원 부호로 맞춘 **동일 가중 평균**(가중을 맞추지 않는다):
-  꼬리 비대칭(−) · pv_corr_20(−) · skew_60(−) · mom_12_1(+) · fip(+) · trend_factor(+) · vol_cv_60(−) · hs_season(+) · log_price(+).
+  꼬리 비대칭(−) · pv_corr_20(−) · skew_60(−) · mom_12_1(+) · fip(+) · trend_factor(+) · vol_cv_60(−) · hs_season(+) · log_price(+, **그날 원주가** — 보정 종가는 미래 분할을 본다, 10/10 정정).
   정의는 `tools/diag_ta_features.features` · `tools/diag_ta_round2.signals` 그대로(보정 OHLC·원 거래대금만), 계산은 `tools/ta_composite.composite_panel` 하나 — 실전 신호와 금고 굽기가 같은 함수다.
   **점수 대상** = 그날 20일 평균 거래대금 ≥ 10억원 · 이력 252세션(진단 우주와 같다). 백분위는 그 대상 안에서.
 - **하루 늦춤**: 결정 세션 d 의 제외 목록 = d 바로 앞 세션 종가까지로 만든 점수(실전에서 밤에 계산해 다음 세션에 쓰는 것과 같다 — TF 와 같은 규칙).

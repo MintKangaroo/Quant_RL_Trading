@@ -161,7 +161,7 @@ def signals(store: Store, d: dict[str, pd.DataFrame], uni: pd.DataFrame, label_f
     for k in (1, 2, 3, 4):
         hs.append(c.shift(252 * k - 21) / c.shift(252 * k) - 1.0)
     f["hs_season"] = pd.concat(hs).groupby(level=0).mean().reindex(c.index)
-    f["log_price"] = np.log(c)
+    f["log_price"] = np.log(d["close_raw"]) if "close_raw" in d else np.log(c)   # 원주가 — 정정 2026-10-10(보정 종가는 미래 분할을 본다)
     f["limit_hits_60"] = (r.abs() >= 0.29).astype(float).where(r.notna()).rolling(60, min_periods=60).sum()
     amihud = rm(r.abs() / (v / 1e8), 20)
     f["rev_illiq"] = (c / c.shift(5) - 1.0) * amihud.rank(axis=1, pct=True)

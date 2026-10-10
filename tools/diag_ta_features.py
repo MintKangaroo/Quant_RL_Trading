@@ -35,6 +35,12 @@ def load(store: Store, end: datetime = END, start: date = date(2020, 9, 1)) -> d
     p = p[p["entity_id"].str.match(r"^KR:\d{6}$")]
     p["day"] = pd.to_datetime(p["valid_from"]).dt.date
     out = {c: p.pivot_table(index="day", columns="entity_id", values=c, aggfunc="last").sort_index() for c in ("open", "high", "low", "close", "value")}
+    # 원주가(그날 실제 가격) — 수준 지표(log_price)용. 보정 종가는 ``end`` 까지의 미래 분할을 과거에 소급하므로 수준으로 쓰면 미래를 본다
+    # (독립 검토 10/10). 비율 지표(수익·이평비·꼬리)는 같은 계수가 분자·분모에 곱해져 영향이 없다.
+    r = read_prices(store, as_of=end, until=end, lookback=(end.date() - start).days, columns=["close"], adjusted=False, market="KR")
+    r = r[r["entity_id"].str.match(r"^KR:\d{6}$")]
+    r["day"] = pd.to_datetime(r["valid_from"]).dt.date
+    out["close_raw"] = r.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
     idx, cols = out["close"].index, out["close"].columns
     return {k: v.reindex(index=idx, columns=cols) for k, v in out.items()}
 

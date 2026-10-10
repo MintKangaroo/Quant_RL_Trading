@@ -27,7 +27,7 @@ from tools import diag_ta_possibility as P
 from tools import vault_judge as vj
 
 PROTOCOL = Path("docs/protocols/past-vault-2026-10.md")
-PROTOCOL_HASH = "3f1d10dbc30d2ee8"
+PROTOCOL_HASH = "cc75721dcd8ca74f"   # 2026-10-10 개봉 전 정정(log_price 원주가) — 첫 고정 3f1d10dbc30d2ee8 폐기
 OPEN_AT = datetime(2026, 10, 13, 16, 45, tzinfo=ZoneInfo("Asia/Seoul"))
 ROOT = Path("data/_past_vault")
 BAKE = ROOT / "_bake"
