@@ -18,6 +18,12 @@ case "${MODE}" in
     if pgrep -f "tools/backfill_past_vault.py" > /dev/null || [ "${N:-0}" -lt 2800 ]; then
         echo "백필이 덜 됐다 — 굽지 않는다"; echo "끝 rc=4"; exit 4
     fi
+    # 메모리가 모자라면 기다린다(10/11 아침 다른 프로젝트 solve.py 5.2GB 와 겹쳐 시스템이 굽기를 죽였다). 최대 8시간.
+    for _ in $(seq 1 96); do
+        AVAIL=$(awk '/MemAvailable/ {print int($2/1048576)}' /proc/meminfo)
+        [ "${AVAIL}" -ge 6 ] && break
+        echo "$(date '+%T') 가용 메모리 ${AVAIL}GB < 6GB — 5분 기다림"; sleep 300
+    done
     env "${ENVS[@]}" nice -n 10 .venv/bin/python -u tools/past_vault_bake.py --what ta; RC=$?
     [ "${RC}" -eq 0 ] && { env "${ENVS[@]}" nice -n 10 .venv/bin/python -u tools/past_vault_bake.py --what ttm; RC=$?; }
     ;;
