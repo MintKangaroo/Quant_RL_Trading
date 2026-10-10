@@ -62,8 +62,13 @@ def bake_ttm(store: Store) -> pd.DataFrame:
         keys, prices = [], []
         for i in pos:
             p, _s, keep = z._context(close, i, list(close.iloc[i].dropna().index))
+            if len(keep) == 0 or p.ndim != 2 or p.shape[0] == 0:
+                continue          # 256일 이력을 가진 종목이 없는 세션(봉인 창고 첫 해 2011-01 초) — 그날은 TTM 이 없다(제외 목록 없음)
             keys.append(pd.DataFrame({"session": idx[i], "entity_id": keep}))
             prices.append(p)
+        if not prices:
+            print(f"  {year}: TTM 입력 세션 0 — 건너뜀", flush=True)
+            continue
         work = OUT / f"ttm-{year}"
         work.mkdir(parents=True, exist_ok=True)
         np.savez(work / "ctx.npz", price=np.concatenate(prices))
