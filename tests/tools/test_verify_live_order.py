@@ -106,6 +106,7 @@ class FakeStore:
         "accounting.fee_kr": 0.00015,
         "accounting.fee_us": 0.0,
         "accounting.transaction_tax_kr": 0.0018,
+        "accounting.transaction_tax_kr_etf": 0.0,   # 10/4 59f0787 이 추가한 키(ETF 거래세 면제) — 전체 점검 10/10
         "accounting.dividend_tax_kr": 0.0,
         "accounting.dividend_tax_us": 0.0,
         "accounting.capital_gains_us": 0.0,

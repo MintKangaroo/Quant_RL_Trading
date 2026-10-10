@@ -538,15 +538,17 @@ def test_초안이면_판정을_거부한다(tmp_path: Path) -> None:
         require_registered(argparse.Namespace(i_registered=False), "판정", fixed)
 
 
-def test_v1_등록은_해시_고정_그대로이고_v2_등록은_지금_초안이다() -> None:
-    """v1 은 2026-09-29 15:47 해시 고정(24a52320cdcfc2c2) — rc 7 로 판정 전 멈췄고 **고치지 않는다**. v2 는 새 문서(초안)."""
+def test_v1_v2_등록은_해시_고정_그대로다() -> None:
+    """v1 은 2026-09-29 15:47 고정(24a52320cdcfc2c2) — rc 7 로 판정 전 멈췄고 **고치지 않는다**. v2 는 9/29 23:51 고정(403ca3543280fc0f),
+    9/30 판정 기각·기록 끝. (이 테스트는 v2 가 초안이던 때 쓰였다 — 고정 뒤 10/10 전체 점검에서 갱신.)"""
     import hashlib
 
     from tools.trial_final_dfl import PROTOCOL, PROTOCOL_V2
 
     assert hashlib.sha256(PROTOCOL.read_bytes()).hexdigest()[:16] == "24a52320cdcfc2c2", "v1 등록 문서가 바뀌었다"
-    assert not any(line.startswith("> **초안") for line in PROTOCOL.read_text().splitlines()[:5])
-    assert any(line.startswith("> **초안") for line in PROTOCOL_V2.read_text().splitlines()[:5])
+    assert hashlib.sha256(PROTOCOL_V2.read_bytes()).hexdigest()[:16] == "403ca3543280fc0f", "v2 등록 문서가 바뀌었다"
+    for doc in (PROTOCOL, PROTOCOL_V2):
+        assert not any(line.startswith("> **초안") for line in doc.read_text().splitlines()[:5])
 
 
 def test_관문_순서() -> None:
@@ -826,12 +828,13 @@ def test_v2_명령은_v2_등록_뒤에만_돌고_v2_파일을_쓴다() -> None:
     assert v2.protocol == PROTOCOL_V2 and v2.margin_path == SEED_CACHE / "shuffle-margin-v2.json"
     assert v2.entity == "decision-focused-v2-2026-10" and v2.cache_tag == "v2-"
     assert _cache_path("C1", "D1a", 0, "judge", v2.cache_tag).name == "v2-C1-D1a-seed0-judge.parquet"
+    # --i-registered 없이는 늘 거부한다. **--i-registered 를 준 명령은 여기서 부르지 않는다** — v2 가 9/29 고정된 뒤로는 그것이 실자료 계산을
+    # 실제로 돌리고 판정 산출물(shuffle-margin-v2.json)을 덮어쓴다(10/10 전체 점검에서 그렇게 덮어썼다 — 같은 시드라 값은 같았다).
     for cmd in (["shuffle", "--track", "v2"], ["canary", "--track", "v2"], ["judge", "--track", "v2"],
-                ["shuffle", "--synthetic", "--track", "v2"],
-                ["shuffle", "--track", "v2", "--i-registered"], ["judge", "--track", "v2", "--i-registered"]):
+                ["shuffle", "--synthetic", "--track", "v2"]):
         with pytest.raises(SystemExit) as info:
             main(cmd)
-        assert info.value.code != 0, f"{cmd} 은 v2 등록(해시 고정) 전에 돌면 안 된다"
+        assert info.value.code != 0, f"{cmd} 은 --i-registered 없이 돌면 안 된다"
 
 
 def test_v2_러너는_네_단계를_v2_벌로_돈다() -> None:
