@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from quant_rl_trading.store.errors import ConfigNotFound, SchemaViolation
@@ -176,3 +178,17 @@ def test_scheduled_change_waits_for_its_effective_date(seeded, ts) -> None:  # t
 
     assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 8, 15)) == 0.03
     assert seeded.config("analyst.ic_threshold", as_of=ts(2026, 9, 2)) == 0.07
+
+
+def test_dict_valued_override_is_one_key(tmp_path):
+    """`selector.weights_override` 는 펴지 않는다 — 펴면 읽는 쪽이 키를 못 찾고 측정 가중치로 조용히 돈다(2026-10-11)."""
+    from quant_rl_trading.store.config import flatten
+
+    path = tmp_path / "c.yaml"
+    path.write_text("selector:\n  weights_override: {be2: 1.0, risk: 1.0}\n  other: {a: 1}\n", encoding="utf-8")
+    flat = flatten(path)
+    assert json.loads(flat["selector.weights_override"]) == {"be2": 1.0, "risk": 1.0}
+    assert "selector.weights_override.be2" not in flat
+    assert flat["selector.other.a"] == "1"          # 다른 dict 는 그대로 편다
+    path.write_text("selector:\n  weights_override: {}\n", encoding="utf-8")
+    assert flatten(path)["selector.weights_override"] == "{}"   # 빈 값(끔)도 심긴다

@@ -28,6 +28,12 @@ DEFAULTS_SOURCE = "config-defaults"
 VERSION_KEY = "config_version"
 
 
+#: 값 자체가 dict 인 키 — 펴지 않고 통째로 한 값으로 둔다. 펴면 `{be2: 1.0, risk: 1.0}` 이
+#: `selector.weights_override.be2` · `.risk` 두 키가 되어 읽는 쪽(`selector.weights.weights_override`)이 원래 키를 못 찾고
+#: **조용히 측정 가중치로 돈다**, 빈 `{}` 는 아예 안 심긴다(2026-10-11 발견 — 10/13 BE2 전환이 적용되지 않을 뻔했다).
+LEAF_DICTS: frozenset[str] = frozenset({"selector.weights_override", "selector.weights_override_us"})
+
+
 def flatten(path: Path) -> dict[str, str]:
     """YAML 을 ``section.key -> value_json`` 으로 편다.
 
@@ -41,7 +47,7 @@ def flatten(path: Path) -> dict[str, str]:
     def walk(prefix: str, node: dict[str, Any]) -> None:
         for key, value in node.items():
             name = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
+            if isinstance(value, dict) and name not in LEAF_DICTS:
                 walk(name, value)
             else:
                 # 리스트(exclude_flags 등)는 통째로 한 값이다.
