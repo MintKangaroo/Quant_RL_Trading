@@ -309,6 +309,27 @@ LS OpenAPI 이용 범위다. 화면·메일로 **밖에 재배포하지 않는�
 | LS 지수 7종 vs FRED | 76~77/종 | 0.00bp · 일수익 상관 1.00000 | |
 | LS 지수 7종 vs Yahoo(남은 행) | 3~4/종 | 0.00bp | 대부분 FRED 정정본에 가려 있다 |
 
+### 4-3. KRX 개별주식선물 — `stock_futures` (2026-10-11, 사용자 승인 N3)
+
+배경: docs/diag/source-scan-2026-10-10.md N3 · n2-n3-feasibility-2026-10-11.md §2. 공매도 금지기(2023-11-06~2025-03-30)에
+숏 수요가 주식선물로 옮겨 갔다는 보도를 직접 재는 무료 계량. 진단(탐색 IC)용으로 먼저 쌓는다 — **실전 수집 일정(크론)에는 안 건다.**
+
+- **소스**: KRX Open API 파생 카테고리 `/drv/eqsfu_stk_bydd_trd`(유가, 2010-01-04~) · `/drv/eqkfu_ksq_bydd_trd`(코스닥, 2015-08-03~).
+  `basDd` 하루 1콜 × 시장 2. 클라이언트는 `collectors/krx_openapi.KrxOpenApi.stock_futures_on`(레포에서 KRX Open API 를 부르는 유일한 곳).
+- **표**: `stock_futures`. entity_id = `KR:FUT:{ISU_CD}`(선물 월물 코드), 자연키 (entity_id, valid_from) — 월물 하나가 하루 한 행.
+  원 15필드를 이름만 바꿔 전부 보존(정산가 `settle_price` · 현물가 `spot_price` · 미결제 `open_interest` · OHLC · 거래량·대금 · `MKT_NM`).
+  **월물(`F`)만** 둔다: 스프레드(`SP`)와 ETF 선물(`PROD_NM` 이 `ETF` 로 시작)은 거른다 — 원본 응답은 RawArchive 에 전부 남는다.
+- **이중시간**: valid_from = 거래일(UTC 자정, 다른 KRX 패널과 같음). observed_at = **기존 KRX Open API 패널 백필과 같은 규칙**
+  (`PanelBackfiller` + `publication_policy` — 세션 마감 + `backfill.kr_publication_lag_seconds`). §5-0 의 "알려진 표기 부정확"
+  (실제 도착은 d+1 아침)이 그대로 적용된다 — 진단·피처는 결정일 t 에 t−1 까지의 값만 쓴다(하루 늦춤).
+  append-only, 재실행은 run id `bf-stock-futures-KR-YYYYMMDD` 매니페스트로 건너뛴다(정정은 revision 을 올린 새 행).
+- **기초자산 매핑**: 응답에 기초자산 종목코드가 **없다**. `PROD_NM`("삼성전자 선물")에서 " 선물" 을 떼 창고 `universe`(KR) 종목명 이력과
+  맞춘다(공백·(주) 무시). `PROD_NM` 은 **지금의 상품명이 과거 행에도 붙어 온다**(2015-08-03 응답에 "HD현대인프라코어"·"iM금융지주").
+  그래서 그 날짜에 그 이름을 쓰던 종목 → 없으면 시간상 가장 가까운 종목. 줄임말("NC"·"한국가스"·"케이티앤지")은 코드의 `ALIASES`,
+  그다음 유일한 접두 일치. 실패하면 `underlying_id` null · `map_method='none'` 으로 행은 남기고 실패 목록을 백필 로그에 적는다.
+  universe 가 2021-08 부터라 그 앞은 뒤에 관측된 이름으로 매핑된다(식별자일 뿐 예측 정보 아님). 검산은 같은 날 `spot_price` == 원주가 종가.
+- **백필 도구**: `tools/backfill_stock_futures.py` — 오류·한도 응답이면 그 자리에서 멈추고 rc≠0.
+
 
 ---
 

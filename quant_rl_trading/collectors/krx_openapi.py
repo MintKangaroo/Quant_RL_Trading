@@ -48,6 +48,15 @@ BOARDS = {
 
 INDEX_PATH = "/idx/krx_dd_trd"
 
+#: 개별주식선물 일별매매(파생 카테고리). 유가 2010-01-04~, 코스닥 2015-08-03~ (공식 문서).
+#: 응답 필드는 두 경로가 같다(15개) — docs/diag/n2-n3-feasibility-2026-10-11.md §2.3.
+#: 기초자산 **종목코드는 주지 않는다**. ``PROD_NM``("삼성전자 선물") 의 이름으로 매핑한다
+#: (collectors/krx_stock_futures.py).
+STOCK_FUTURES_PATHS = {
+    "KOSPI": "/drv/eqsfu_stk_bydd_trd",
+    "KOSDAQ": "/drv/eqkfu_ksq_bydd_trd",
+}
+
 #: 시장 대표지수 경로. ``INDEX_PATH``(KRX 계열 40개)에는 **코스피·코스닥이
 #: 없다** — KRX 300·KRX 100 같은 통합지수만 들어 있다. 대표지수는 시장별
 #: 경로에 따로 있다 (실측 2026-08-15: kospi 51개 / kosdaq 40개).
@@ -220,6 +229,18 @@ class KrxOpenApi:
                 mapped["index_class"] = board
                 rows.append(mapped)
         return sorted(rows, key=lambda item: str(item.get("name") or ""))
+
+    def stock_futures_on(self, day: date) -> list[dict[str, Any]]:
+        """그날 개별주식선물 일별매매(유가·코스닥 한 콜씩). **원 필드 그대로** 돌려준다.
+
+        다른 조회와 달리 이름을 바꾸지 않는다 — 원본 보존(RawArchive)에 KRX 필드명이 그대로 남아야
+        나중에 정규화 버그를 원본에서 다시 풀 수 있다. 소속만 ``_board`` 로 붙인다(경로가 진실이다).
+        """
+        rows: list[dict[str, Any]] = []
+        for board, path in STOCK_FUTURES_PATHS.items():
+            for raw in self._call(path, day):
+                rows.append({**raw, "_board": board})
+        return rows
 
     def close(self) -> None:
         if self._client is not None:

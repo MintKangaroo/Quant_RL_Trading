@@ -392,6 +392,39 @@ _SPECS: dict[str, TableSpec] = {
             "fundamentals 가 460만 행(2.2GB)이 되어 Analyst 가 OOM 으로 죽었다."
         ),
     ),
+    # KRX 개별주식선물 일별매매(N3, 2026-10-11 사용자 승인) — docs/design/data-contract.md §4-3.
+    "stock_futures": TableSpec(
+        name="stock_futures",
+        columns={
+            "market": pa.string(),
+            "board": pa.string(),            # KOSPI | KOSDAQ (호출 경로)
+            "mkt_nm": pa.string(),           # MKT_NM 원값("정규")
+            "prod_nm": pa.string(),          # PROD_NM 원값("삼성전자 선물") — 지금의 상품명이 과거 행에도 붙어 온다
+            "product_code": pa.string(),     # ISU_CD[1:4] — 월물이 바뀌어도 같은 상품(기초자산) 코드
+            "isu_cd": pa.string(),           # 선물 종목코드(현물 코드 아님)
+            "isu_nm": pa.string(),           # "… F 202403"
+            "contract_month": pa.string(),   # YYYYMM
+            "underlying_id": pa.string(),    # 기초자산 KR:XXXXXX — 매핑 실패면 null
+            "map_method": pa.string(),       # exact | alias | prefix | none
+            "close": pa.float64(),
+            "change": pa.float64(),
+            "open": pa.float64(),
+            "high": pa.float64(),
+            "low": pa.float64(),
+            "spot_price": pa.float64(),      # SPOT_PRC 기초자산 현물가
+            "settle_price": pa.float64(),    # SETL_PRC 정산가
+            "volume": pa.float64(),          # 계약 수
+            "value": pa.float64(),           # 거래대금(원)
+            "open_interest": pa.float64(),   # ACC_OPNINT_QTY 미결제약정(계약)
+        },
+        # entity_id = KR:FUT:{ISU_CD} — 월물 하나가 하루 한 행. 기초자산으로 읽을 땐 underlying_id 로 거른다.
+        observation_lag_days=3,
+        doc=(
+            "KRX 개별주식선물 월물 일별매매(유가 2010-01~·코스닥 2015-08~). 스프레드·ETF 선물은 거른다(원본은 RawArchive). "
+            "observed_at 은 KRX Open API 패널 백필 규칙(세션 마감 + 공표 지연, §5-0 의 '표기 부정확' 그대로 — 실제 도착은 d+1 아침). "
+            "기초자산 매핑은 이름으로만 된다 — collectors/krx_stock_futures.py."
+        ),
+    ),
     "names_ko": TableSpec(
         name="names_ko",
         columns={
