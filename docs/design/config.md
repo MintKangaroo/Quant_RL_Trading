@@ -123,7 +123,7 @@ capital:
   step_multiplier: 2.5
 
 llm:
-  monthly_budget_usd: 50
+  monthly_budget_usd: 90   # 2026-10-11 Max 5x 월 API 크레딧 $100 안(이전 10/5 $50)
   news_screen_model: haiku
   news_deep_model: sonnet
   review_model: sonnet

@@ -551,7 +551,8 @@ thirteen_f:
   min_mapped_value: 0.8
 
 llm:
-  monthly_budget_usd: 50    # 2026-10-05 사용자 "클로드 api는 월에 50불까지만 허용" — 100 → 50 (전 사용처 합계, L1 $20 포함)
+  monthly_budget_usd: 90    # 2026-10-11 사용자: Max 5x 월 API 크레딧 $100 연결 → 크레딧 안으로 50 → 90 (전 사용처 합계, L1 $20 포함). 크레딧은 이월 없음·소진 시 호출 정지(과금 없음)
+                            # 이전: 2026-10-05 "클로드 api는 월에 50불까지만 허용" 100 → 50
   news_screen_model: haiku
   news_deep_model: sonnet
   review_model: sonnet
