@@ -89,6 +89,39 @@ PIPELINE_STAGES: list[dict[str, Any]] = [
         "settings": [],
     },
     {
+        "key": "screen",
+        "title": "살 수 있는 종목 걸러내기",
+        "plain": "거래대금이 너무 적거나 상장한 지 얼마 안 됐거나 관리종목·불성실공시처럼 부실한 종목은 점수와 상관없이 먼저 뺀다.",
+        "detail": "자본 규모에 맞춰 하루 거래대금 하한을 둔다 — 우리 주문이 시세를 움직일 만큼 작은 종목은 사고팔 때 비용이 알파를 먹는다. 빠진 종목과 사유는 선정 흔적에 한 줄씩 남는다.",
+        "adopted": [],
+        "settings": [],
+    },
+    {
+        "key": "floors",
+        "title": "하한 · 상한 — 나쁜 종목 빼기",
+        "plain": "점수가 높아도 위험 점수가 아래쪽인 종목은 뺀다. 설정이 켜지면 시계열 예측(TTM)이나 기술적 지표(TA) 하위·상위도 한 번 더 뺀다.",
+        "detail": "국장에서 일관되게 통한 것은 '오를 종목 고르기' 보다 '나쁜 종목 피하기' 였다. 하한은 점수가 아니라 제약이라 합성 점수에는 안 들어간다. 두 번째 하한·상한·결합 하한은 비율이 0 이거나 Analyst 가 비어 있으면 꺼져 있다.",
+        "adopted": [],
+        "settings": [
+            ("selector.risk_floor_percentile", "위험 하위 잘라내는 비율", None),
+            ("selector.floor_analyst", "첫 하한을 재는 Analyst", None),
+            ("selector.extra_floor_analyst", "두 번째 하한 Analyst(비면 꺼짐)", None),
+            ("selector.extra_floor_percentile", "두 번째 하한 비율", None),
+            ("selector.ceiling_analyst", "상한 Analyst(비면 꺼짐)", None),
+            ("selector.ceiling_percentile", "상한 비율(위쪽에서 빼는 몫)", None),
+            ("selector.combo_floor_analyst", "결합 하한 Analyst(비면 꺼짐)", None),
+            ("selector.combo_floor_percentile", "결합 하한 비율", None),
+        ],
+    },
+    {
+        "key": "verdicts",
+        "title": "뉴스 매수 금지",
+        "plain": "악재 뉴스가 걸린 종목은 며칠 동안 새로 사지 않는다. 이미 가진 것을 팔게 하지는 않는다 — 매수만 막는다.",
+        "detail": "1단계는 키워드 규칙이 걸러내고, 2단계에서 LLM(Claude)이 그 기사를 읽고 오탐이면 풀어 준다. LLM 은 막은 것을 풀어 주기만 하고 새로 막지 않는다. 이 판정은 보상이나 점수에 들어가지 않는다(불변식 8).",
+        "adopted": [],
+        "settings": [],
+    },
+    {
         "key": "select",
         "title": "평활 · 완충 · 상위 선정",
         "plain": "랭커 점수를 며칠 치 평균처럼 부드럽게(평활) 한 뒤 상위 종목을 산다. 이미 가진 종목은 순위가 조금 밀려도(완충 구간 안이면) 팔지 않는다.",
@@ -105,7 +138,7 @@ PIPELINE_STAGES: list[dict[str, Any]] = [
             ("ranker.smoothing_span_us", "평활(최근 N세션)", "US"),
             ("selector.exit_rank", "완충 — 이 순위 안이면 보유 유지", "KR"),
             ("selector.exit_rank_us", "완충 — 이 순위 안이면 보유 유지", "US"),
-            ("selector.risk_floor_percentile", "위험 하위 잘라내는 비율", None),
+            ("selector.swap_min_z", "교체 문턱(z 차이, 0 = 끔)", None),
         ],
     },
     {
@@ -194,6 +227,14 @@ PIPELINE_STAGES: list[dict[str, Any]] = [
             ("allocator.rl.checkpoint", "RL 정책(비어 있으면 꺼짐)", None),
         ],
     },
+    {
+        "key": "commentary",
+        "title": "LLM 해설 — 매매 밖",
+        "plain": "매일 Claude 가 결과를 읽고 해설을 쓴다. 해설일 뿐 매매에 들어가지 않는다 — 점수·비중·주문 어디에도 쓰이지 않는다.",
+        "detail": "LLM 출력은 보상 함수에 들어가지 않는다(불변식 8). Claude 는 심판이 아니라 해설자다. 숫자는 코드가 내고, 말은 Claude 가 붙인다.",
+        "adopted": [],
+        "settings": [],
+    },
 ]
 
 #: 돈이 오가지 않는 병행 장부. 무엇을 비교하려는지 한 줄씩. 출처: 시행 문서의 shadow 절·README 운영표.
@@ -228,6 +269,94 @@ SHADOW_TRACKS: list[dict[str, str]] = [
      "compares": "회전 줄이기 — 100종목·20세션 재조정·확실히 나을 때만 교체(θ1.0), 나머지는 지금 규칙 그대로. 지금 방식 24종목(N24)과 "
                  "같은 창 수익·회전을 나란히 본다. 기록만 — 판정은 11/23 금고 창이다.",
      "doc": "docs/protocols/p1b-prime-2026-10.md", "compare_ledger": "data/_n24_shadow", "compare_name": "N24"},
+]
+
+
+#: **후보 → 흐름 단계** — 매매 과정 탭의 '후보' 칩(dashboard.md §7-2). 그 단계를 바꾸려고 등록·대기 중인 시행 하나에 한 줄.
+#: 새 후보가 생기면 **여기에 한 줄만 더한다**(다른 곳은 고치지 않는다). 칸:
+#:   ``stage``  — 흐름도 단계 키(`pipeline_view.FLOW_KEYS`)  · ``change`` — 무엇을 바꾸나 한 줄
+#:   ``doc``    — 등록 문서(해시는 화면이 파일에서 잰다 — 머리가 '고정' 일 때만)
+#:   ``judge``  — 판정 일정 [{"label", "date"(YYYY-MM-DD 또는 None)}] — date > as_of 이고 대장 행이 없으면 "판정 전 — 결과 없음"
+#:   ``ledger`` — 시행 대장 `research_trials` 의 entity_id(판정 도구가 적는 이름) · ``catalog`` — docs/trials-catalog.yaml id
+#:   ``pair``   — shadow 장부 짝 순차 검정 라벨(`alpha_ir.PAIRS`) · ``switch`` — `tools/apply_switch.COMPONENTS` 구성 요소 이름
+#: 결과는 옮기기만 한다 — 판정을 여기서 새로 내리지 않는다.
+STAGE_CANDIDATES: list[dict[str, Any]] = [
+    {"id": "BE2", "stage": "model", "title": "BE2 점수 모델",
+     "change": "점수 모델을 랭커(LightGBM) → BE2(세트 트랜스포머 + GBM 순위 평균, FA 76열)로 바꾼다.",
+     "doc": "docs/protocols/final-model-round-2026-10.md",
+     "judge": [{"label": "금고 early(7/1~9/30)", "date": "2026-10-13"}, {"label": "금고 second 확인", "date": "2026-11-23"}],
+     "ledger": ["final-model-round-2026-10:BE", "final-model-round-2026-10:BE2"], "catalog": "BE",
+     "pair": "BE2 − N24", "switch": "BE2"},
+    {"id": "TK", "stage": "model", "title": "TK — 기술적 지표 여섯을 랭커 입력에",
+     "change": "점수 모델 입력에 꼬리 비대칭·pv_corr·왜도·FIP·12-1 모멘텀·거래대금 변동계수를 더한다.",
+     "doc": "docs/protocols/ta-ranker-features-2026-10.md",
+     "judge": [{"label": "금고 second(10/1~11/13)", "date": "2026-11-23"}],
+     "ledger": ["ta-ranker-features-2026-10:TK"], "catalog": None, "pair": None, "switch": None},
+    {"id": "TR", "stage": "model", "title": "TR — TTM 예측을 랭커 입력에",
+     "change": "점수 모델 입력에 TTM 예측 백분위(하루 늦춤) 하나를 더한다.",
+     "doc": "docs/protocols/tsfm-ranker-and-finetune-2026-10.md",
+     "judge": [{"label": "패널 판정 뒤 금고 second", "date": "2026-11-23"}],
+     "ledger": ["tsfm-ranker-and-finetune-2026-10:TR"], "catalog": None, "pair": None, "switch": None},
+    {"id": "TF", "stage": "extra_floor", "title": "TF — TTM 패자 하한",
+     "change": "위험 하한 뒤에 TTM 예측 하위 20% 를 한 번 더 뺀다.",
+     "doc": "docs/protocols/vault-early-additions-2026-10.md",
+     "judge": [{"label": "금고 early · 과거 금고", "date": "2026-10-13"}],
+     "ledger": ["vault-early-additions-2026-10:TF"], "catalog": None, "pair": None, "switch": "TF"},
+    {"id": "TB", "stage": "ceiling", "title": "TB — TTM 하한 + 칼날 상한",
+     "change": "TTM 예측 하위 20% 와 상위 10%(떨어지는 칼날)를 함께 뺀다.",
+     "doc": "docs/protocols/vault-early-additions-2026-10.md",
+     "judge": [{"label": "금고 early · 과거 금고", "date": "2026-10-13"}],
+     "ledger": ["vault-early-additions-2026-10:TB"], "catalog": None, "pair": None, "switch": "TB"},
+    {"id": "TC", "stage": "combo_floor", "title": "TC — 점수·TTM 결합 하한",
+     "change": "(합성 점수 백분위 + TTM 백분위)/2 하위 10% 를 뺀다.",
+     "doc": "docs/protocols/vault-early-additions-2026-10.md",
+     "judge": [{"label": "금고 early", "date": "2026-10-13"}],
+     "ledger": ["vault-early-additions-2026-10:TC"], "catalog": None, "pair": None, "switch": "TC"},
+    {"id": "TG", "stage": "extra_floor", "title": "TG — 기술적 합성(TA) 하한",
+     "change": "두 번째 하한 자리를 TA 합성 점수 하위 20% 로(실전이 TTM 이면 'TTM 대신 TA', 비면 'TA 더하기').",
+     "doc": "docs/protocols/ta-floor-2026-10.md",
+     "judge": [{"label": "과거 금고", "date": "2026-10-13"}, {"label": "금고 second", "date": "2026-11-23"}],
+     "ledger": ["ta-floor-2026-10:TG"], "catalog": None, "pair": "TG − 실전 그림자", "switch": None},
+    {"id": "TT", "stage": "extra_floor", "title": "TT — TTM 국장 미세조정",
+     "change": "TTM 을 국장 종가로 조금 더 가르쳐(머리만) 패자 판별을 낫게 한다.",
+     "doc": "docs/protocols/tsfm-ranker-and-finetune-2026-10.md",
+     "judge": [{"label": "패널 판정 뒤 금고 second", "date": "2026-11-23"}],
+     "ledger": ["tsfm-ranker-and-finetune-2026-10:TT"], "catalog": None, "pair": None, "switch": None},
+    {"id": "IX-T", "stage": "risk_floor", "title": "IX-T — 지수 − TTM 패자",
+     "change": "코스피200 을 유동시총으로 들되 TTM 예측 하위 10% 만 뺀다(전방 장부).",
+     "doc": "docs/protocols/ixt-tsfm-losers-2026-10.md",
+     "judge": [{"label": "전방 약 250세션", "date": None}],
+     "ledger": ["ixt-tsfm-losers-2026-10:IX-T"], "catalog": None, "pair": "IX-T − IX0", "switch": None},
+    {"id": "IX", "stage": "risk_floor", "title": "IX — 지수 − 랭커 패자",
+     "change": "코스피200 을 유동시총으로 들되 랭커 하위 10% 만 뺀다(전방 장부).",
+     "doc": "docs/protocols/ix-index-minus-losers-2026-10.md",
+     "judge": [{"label": "전방 약 250세션", "date": None}],
+     "ledger": ["ix-index-minus-losers-2026-10:IX"], "catalog": None, "pair": "IX − IX0", "switch": None},
+    {"id": "AQ", "stage": "select", "title": "AQ — 72종목",
+     "change": "상위 24 → 72종목(완충 216)으로 넓혀 운에 덜 흔들리게 한다.",
+     "doc": "docs/protocols/breadth72-forward-2026-09.md",
+     "judge": [{"label": "금고 early", "date": "2026-10-13"}],
+     "ledger": ["breadth72-forward-2026-09:AQ"], "catalog": None, "pair": "W72 − N24", "switch": "AQ"},
+    {"id": "P1B2", "stage": "cadence", "title": "P1-b″ — 회전 줄이기",
+     "change": "100종목 · 완충 500 · 20세션 재조정 · 확실히 나을 때만 교체(θ 1.0).",
+     "doc": "docs/protocols/vault-early-additions-2026-10.md",
+     "judge": [{"label": "금고 early", "date": "2026-10-13"}],
+     "ledger": ["vault-early-additions-2026-10:P1B2"], "catalog": None, "pair": None, "switch": "P1B2"},
+    {"id": "P1B", "stage": "cadence", "title": "P1-b′ — 회전 줄이기(전방)",
+     "change": "P1-b″ 와 같은 구성을 금고 second 창에서 한 번 더(전방 shadow 장부 기록).",
+     "doc": "docs/protocols/p1b-prime-2026-10.md",
+     "judge": [{"label": "금고 second", "date": "2026-11-23"}],
+     "ledger": ["p1b-prime-2026-10:P1B"], "catalog": None, "pair": "P1-b′ − N24", "switch": None},
+    {"id": "BB", "stage": "exposure", "title": "HMM 국면 확률 노출",
+     "change": "노출 배수를 규칙 국면(V6) 대신 HMM 이 추정한 국면 확률로 정한다(코스피200 장부 둘로 비교).",
+     "doc": "docs/protocols/v2-hmm-exposure-2026-10.md",
+     "judge": [{"label": "K200 HMM vs V6 장부 20세션 비교", "date": "2026-10-27"}],
+     "ledger": ["v2-hmm-exposure-2026-10:BB"], "catalog": "BB", "pair": None, "switch": None},
+    {"id": "R0", "stage": "exposure", "title": "R0 — 밴딧 노출",
+     "change": "맥락적 밴딧이 노출 배수를 고른다(v2 첫 학습 노출).",
+     "doc": "docs/protocols/v2-bandit-exposure-2026-10.md",
+     "judge": [{"label": "사용자 승인 뒤", "date": None}],
+     "ledger": ["v2-bandit-exposure-2026-10:R0"], "catalog": None, "pair": None, "switch": None},
 ]
 
 
@@ -277,7 +406,7 @@ def _display(value: Any) -> str:
     if value is None:
         return "—"
     if isinstance(value, dict):
-        return " · ".join(f"{k} {_display(v)}" for k, v in value.items())
+        return " · ".join(f"{k} {_display(v)}" for k, v in value.items()) if value else "(없음)"
     if isinstance(value, (list, tuple)):
         return ", ".join(_display(v) for v in value) if value else "(없음)"
     if isinstance(value, str):

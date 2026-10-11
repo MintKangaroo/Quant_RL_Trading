@@ -347,6 +347,67 @@ KR:005930   매수 2026-08-07 09:31
 - RL 자리는 한 줄: "RL(강화학습) 꺼짐 — 비중은 규칙이 정한다". 켜졌는지는 `allocate` 의 actor(`rl`)가 말한다.
 - 값이 없으면 "모름". 세션 기록이 없는 시점으로 되감으면 ②~④가 "모름" 이 된다.
 
+### 7-2. '매매 과정' 탭 — 흐름도 + AI 속 들여다보기 (2026-10-11, 사용자 요청)
+
+사용자: "매매가 어떻게 이뤄지는지, 어떤 과정으로 매매가 결정되는지 시각화해서 보고 싶다. AI 를 쓰면 AI 도".
+고른 안: **흐름도 + AI 속 들여다보기, 새 탭** (`/pipeline`, 탭 줄 '분석' 갈래 — 모델 검증 앞).
+
+**화면은 매매를 다시 하지 않는다** (불변식 5). 숫자의 출처는 셋뿐이다.
+
+- **세션 기록** — 장부 창고 `events` 의 그 세션(`session-{시장}-{날짜}`) `observe·select·allocate·exposure·execute` 행.
+  as_of 에 보이는 마지막 세션을 고른다(`services/why.session_record` 그대로).
+- **세션이 쓴 선정 함수** — `selector.pipeline.screen` 을 그 세션 as_of·그 세션 자본으로 다시 불러 `SelectionTrace` 의
+  단계 수·탈락 사유를 쓴다. '왜 샀나' 패널과 **같은 캐시**(`why._screen_summary`)를 쓴다 — 두 화면이 같은 세션에 다른 수를 말할 수 없다.
+- **설정** — 단계 켜짐/꺼짐·값은 전부 그 세션 as_of 의 `store.config`. 하드코딩한 켜짐 목록이 없다. 그래서 10/13 대격변
+  (`tools/apply_switch.py` 의 구성 요소 — BE2 점수 모델 · AQ/P1B2 선정 · TF/TB/TC TTM 하한·상한 · TG TA 하한)이 설정 정정본으로
+  들어오면 손대지 않아도 그 세션부터 단계가 켜지고, 10/7 로 되감으면 옛 방식이 그대로 나온다.
+
+**① 흐름도** (ECharts graph — 다른 차트 라이브러리 금지). 단계마다 들어온 수 → 나간 수.
+
+```
+재료 → Analyst 점수 → 점수 모델 → 유니버스 → 부실 제외 → 점수 있음 → 위험 하한
+     → [두 번째 하한] → [상한] → [결합 하한] → 뉴스 매수 금지 → 평활·완충·주기·상위 N
+     → 비중(리스크 패리티) → 노출(V6) → 집행(조각) → 체결          · LLM 해설(매매 밖)
+```
+
+- **색 셋 + 꺼짐**: AI(학습 모델 — 랭커 LightGBM · BE2 · TTM 파운데이션 모델(tsfm) · RL · 밴딧/HMM 노출) · 규칙 · LLM.
+  LLM 은 두 자리다 — 뉴스 매수 금지의 2단계 확인(막은 것을 풀어 주기만, 매도 권한 없음)과 일일 해설("해설만 — 매매에 안
+  들어감", 불변식 8, 흐름 밖에 점선으로). 어느 Analyst 가 AI 인지는 서비스 상수 한 곳(`pipeline_view.AI_ANALYSTS`)이다.
+  TA 합성(`ta`)·risk 는 규칙이다. 꺼진 단계(설정 비율 0 · 분석가 '')는 흐리게 '꺼짐'.
+- **점수 모델 칸**은 그 세션 `select` 기록의 가중치(`weights`)가 말한다 — `ranker` 면 랭커(LightGBM, `models/ranker` 의
+  `usable_from ≤ 세션` 최신 한 벌), `be2` 면 BE2(`models/be2` 얼린 모델). 모델 이름·버전·학습 종료일은 그 사이드카에서 읽는다.
+- **단계 클릭 → 옆 패널**: 들어온 수·나간 수, 설정 키·값(config), 걸러진 종목 예시와 사유(`SelectionTrace.dropped` 원문),
+  쉬운 설명. **설명 문구는 `services/model_story.PIPELINE_STAGES` 하나**(학습 탭 ② 와 같은 문구 — 두 곳에 두지 않는다).
+- **세션 고르기**: 최근 세션 목록(그 세션 다음 세션 직전 시각으로 되감는 링크). 상태는 URL(`?as_of=`·`?stage=`·`?entity=`)뿐.
+
+**후보 칩** (사용자 요청 2026-10-11) — 단계마다 그 단계를 바꾸려고 등록·대기 중인 시행을 점선 칩으로(실전과 다른 색).
+칩을 누르면: 무엇을 바꾸나 한 줄 · 등록 문서 경로 · 해시(문서 sha256 앞 16자, 파일 머리가 '고정' 일 때만 — 초안은 '미고정') ·
+상태 · 판정일 · **테스트 결과**. 결과는 옮기기만 한다(판정을 새로 내리지 않는다).
+
+- 원천: 시행 대장 `research_trials`(관측 시각 ≤ as_of 인 행의 `detail` 원문) · `docs/trials-catalog.yaml`(판정 날짜 ≤ as_of) ·
+  shadow 장부 짝 순차 검정(`services/alpha_ir._sequential` 그대로, 짝 = `alpha_ir.PAIRS`).
+- 판정일이 as_of 뒤이고 대장 행이 없으면 **"판정 전 — 결과 없음"**. 금고 결과를 미리 계산하거나 보여 주지 않는다.
+  판정일이 지났는데 대장에 행이 없으면 "판정 기록 없음". 상태 '실전 적용'은 그 세션 as_of 설정이 그 구성 요소의 값
+  (`tools/apply_switch.COMPONENTS`)과 같을 때만 — 판정이 아니라 설정 사실이다.
+- **후보 추가 방법** — `services/model_story.STAGE_CANDIDATES` 에 한 줄을 더한다:
+  `{"id", "stage"(흐름 단계 키), "title", "change"(한 줄), "doc"(등록 문서), "judge"([{"label", "date"}]),
+  "ledger"([research_trials entity_id]), "catalog"(카탈로그 id 또는 None), "pair"(alpha_ir.PAIRS 라벨 또는 None),
+  "switch"(apply_switch 구성 요소 이름 또는 None)}`. 다른 곳은 고치지 않는다. 테스트가 단계 키·문서 경로·짝 라벨이
+  실제로 있는지 본다(`tests/dashboard/test_pipeline_view.py`).
+
+**② AI 속 들여다보기** — 종목 하나(선정 명단·검색, `?entity=`).
+
+- **점수 모델 입력 기여**: 그 세션이 쓴 모델로 `predict(..., pred_contrib=True)`. 랭커는 `RankerAnalyst.input_features`(실전이
+  쓰는 입력 조립 그대로)와 `usable_model`, BE2 는 그 세션 `fa_features` 행과 얼린 C1 GBM 시드 평균(트랜스포머 절반은
+  기여를 분해하지 않는다 — 그렇게 적는다). 막대 +/−, 모델 원점수와 순위, 창고에 저장된 실전 점수(평활 뒤).
+  계산은 세션·시장마다 한 벌 캐시(입력 표 하나 + 원점수 — 작다).
+- **TTM**: `signals` 의 `tsfm` 행(그 종목, as_of 까지 관측) — 저장된 것은 그날 계산 대상 안 **백분위 점수 [−1, 1]** 뿐이다.
+  r̂ 원값·예측 경로는 창고에 없다 — 짐작하지 않고 그렇게 적는다. 실제 가격선(보정 종가)을 같은 축 아래 함께.
+- **'왜 샀나' 다섯 단계**: `services/why` 의 걸러짐·선정 규칙·비중 단계를 그대로 부르고, 트레이딩 탭 패널로 가는 링크를 단다.
+
+API (`as_of` 필수 규약 그대로): `GET /api/pipeline?as_of=…&market=KR` · `GET /api/pipeline/inside?as_of=…&entity=KR:005930`
+(entity 없으면 명단 첫 종목). 장부는 기존 관례 — 주 장부(모의계좌 `data/_paper`), `?ledger=shadow` 면 shadow.
+
 ---
 
 ## 8. 밀도 규칙

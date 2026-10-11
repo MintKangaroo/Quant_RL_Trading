@@ -1,0 +1,80 @@
+/* 매매 과정 탭 — 흐름도 + AI 속 (dashboard.md §7-2). 색·서체는 app.css :root 토큰만 쓴다.
+   종류 색: AI = --s2(보라) · LLM = --s5(오커) · 후보 = --s4(하늘, 점선) · 규칙 = --muted. 손익(--up/--down)·선택(--accent) 색은 빌리지 않는다. */
+.pipeline-desk { min-width: 0; }
+.pipeline-desk .desk-heading .ledger-switch { margin: 0; }
+.ledger-switch a { color: var(--muted); text-decoration: none; padding: 4px 10px; border: 1px solid transparent; font-size: 11px; }
+.ledger-switch a.on { color: var(--text); border-color: var(--rule); }
+
+.pl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 8px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--border); }
+.pl-session { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+.pl-session select { background: var(--bg); color: var(--text); border: 1px solid var(--rule); border-radius: 2px; padding: 3px 6px; font: 12px "IBM Plex Mono", monospace; }
+.pl-stamp { font-size: 11px; color: var(--muted); }
+.pl-stamp .num { color: var(--text); }
+.pl-legend { margin-left: auto; display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); }
+.pl-legend .lg::before { content: ""; display: inline-block; width: 10px; height: 8px; margin-right: 5px; border: 1px solid var(--muted); vertical-align: -1px; }
+.pl-legend .lg-ai::before { border-color: var(--s2); }
+.pl-legend .lg-llm::before { border-color: var(--s5); }
+.pl-legend .lg-cand::before { border: 1px dashed var(--s4); }
+.pl-legend .lg-off::before { border-color: var(--faint); }
+
+.pl-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); column-gap: 28px; }
+.pl-flow-panel, .pl-side { min-width: 0; }
+.pl-flow { width: 100%; min-height: 240px; }
+.pl-side h3, .pl-inside h3 { margin: 12px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.pl-side h3 .sub, .pl-inside h3 .sub { font-weight: 400; color: var(--dim); }
+.pl-counts { margin: 6px 0; font-size: 13px; }
+.pl-counts .num { font: 500 15px "IBM Plex Mono", monospace; }
+.pl-line { margin: 4px 0; font-size: 12px; color: var(--text); }
+.pl-plain { margin: 4px 0; font-size: 12px; line-height: 1.55; color: var(--text); }
+.pl-kind { font: 10px "IBM Plex Mono", monospace; padding: 1px 5px; border: 1px solid var(--muted); border-radius: 2px; color: var(--muted); }
+.pl-kind.k-ai { border-color: var(--s2); color: var(--s2); }
+.pl-kind.k-llm { border-color: var(--s5); color: var(--s5); }
+.pl-kind.k-cand { border-style: dashed; border-color: var(--s4); color: var(--s4); }
+.pl-dot { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border: 1px solid var(--muted); vertical-align: 1px; }
+.pl-dot.k-ai { border-color: var(--s2); background: var(--s2); }
+.pl-dot.k-llm { border-color: var(--s5); background: var(--s5); }
+.pl-kv th { width: 44%; text-align: left; font-weight: 400; color: var(--muted); font-size: 11px; vertical-align: top; }
+.pl-kv td { overflow-wrap: anywhere; }
+.pl-kv td.dim { color: var(--dim); }
+.pl-reasons { list-style: none; margin: 0; padding: 0; }
+.pl-reasons li { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.pl-reasons li:last-child { border-bottom: 0; }
+.pl-notes { margin: 4px 0; padding-left: 16px; font-size: 12px; color: var(--text); }
+.pl-ex td { font-size: 12px; vertical-align: top; }
+.pl-ex .code, .pl-an .code, .pl-result .code, .pl-inside .code { margin-left: 6px; font: 10px "IBM Plex Mono", monospace; color: var(--dim); }
+.pl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pl-chip { background: transparent; color: var(--s4); border: 1px dashed var(--s4); border-radius: 2px; padding: 3px 8px; font: 11px "IBM Plex Mono", monospace; cursor: pointer; }
+.pl-chip span { color: var(--muted); font-family: "Pretendard", sans-serif; margin-left: 4px; }
+.pl-status { font-size: 12px; padding: 2px 8px; border: 1px dashed var(--s4); color: var(--text); }
+.pl-result { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.pl-result:last-of-type { border-bottom: 0; }
+.pl-result-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 11px; color: var(--muted); }
+.pl-result p { margin: 4px 0 0; font-size: 11.5px; line-height: 1.55; color: var(--text); overflow-wrap: anywhere; }
+.pl-back { margin: 12px 0 4px; font-size: 12px; }
+.pipeline-desk .linky { background: none; border: 0; padding: 0; color: var(--text); text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; cursor: pointer; font: inherit; }
+.pl-side .fold summary { font-size: 11px; color: var(--muted); cursor: pointer; }
+
+.pl-pick { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-start; padding: 6px 0 10px; border-bottom: 1px solid var(--border); }
+.pl-picks { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 520px; min-width: 0; }
+.pl-picks-label { font-size: 10.5px; color: var(--dim); align-self: center; margin-right: 4px; }
+.pl-pick-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 2px; padding: 3px 7px; font-size: 11px; cursor: pointer; }
+.pl-pick-btn.on { color: var(--text); border-color: var(--accent); }
+.pl-search { display: flex; gap: 6px; }
+.pl-search input { width: 160px; background: var(--bg); color: var(--text); border: 1px solid var(--rule); border-radius: 2px; padding: 4px 6px; font: 12px "IBM Plex Mono", monospace; }
+.pl-search button { white-space: nowrap; background: transparent; color: var(--text); border: 1px solid var(--rule); border-radius: 2px; padding: 4px 10px; font-size: 11px; cursor: pointer; }
+.pl-inside-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 28px; }
+.pl-block { min-width: 0; }
+.pl-chart { width: 100%; height: 220px; }
+.pl-foot { margin: 4px 0; font-size: 11px; color: var(--dim); line-height: 1.5; }
+
+@media (max-width: 1100px) {
+  .pl-grid { grid-template-columns: minmax(0, 1fr); }
+  .pl-inside-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 768px) {
+  .pl-legend { margin-left: 0; flex-wrap: wrap; }
+  .pl-search input { width: 100%; }
+  .pl-search { flex: 1 1 100%; }
+  .pl-session select, .pl-search input, .pl-search button { min-height: 36px; }
+  .pl-pick-btn { padding: 6px 8px; }
+}

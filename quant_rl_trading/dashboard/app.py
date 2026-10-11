@@ -23,6 +23,7 @@ from quant_rl_trading.dashboard.api import (
     headlines,
     learning,
     market,
+    pipeline,
     system,
     thirteen_f,
     trading,
@@ -172,6 +173,7 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     app.register_blueprint(thirteen_f.bp)
     app.register_blueprint(system.bp)
     app.register_blueprint(learning.bp)
+    app.register_blueprint(pipeline.bp)
     app.register_blueprint(ai_review.bp)
 
     # 첫 화면은 트레이딩이다(사용자 요청 2026-09-19). 루트가 데이터 품질에 붙어
@@ -222,6 +224,11 @@ def create_app(store: Store | None = None, clock: Clock | None = None) -> Flask:
     @app.get("/learning")
     def learning_page() -> str:
         return render_template("learning.html")
+
+    # 매매 과정 — 흐름도 + AI 속 들여다보기 (dashboard.md §7-2)
+    @app.get("/pipeline")
+    def pipeline_page() -> str:
+        return render_template("pipeline.html")
 
     @app.get("/ai-review")
     def ai_review_page() -> str:
