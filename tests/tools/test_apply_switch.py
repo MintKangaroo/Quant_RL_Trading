@@ -55,3 +55,32 @@ def test_exclusive_and_unknown() -> None:
         sw.changes(["TF", "TC"])
     with pytest.raises(SystemExit):
         sw.changes(["TD"])
+
+
+def test_be2_is_kr_only(repo: Path) -> None:
+    """BE2 는 국장 공통 키만 바꾸고 미장 키는 {} 로 못 박는다 — 미장이 공통 키로 물러서 be2 없이 동결되지 않게(10/11 점검)."""
+    text = (repo / "config" / "quant_rl_trading.yaml").read_text()
+    (repo / "config" / "quant_rl_trading.yaml").write_text(text.replace(
+        "  weights_override: {}\n", "  weights_override: {}\n  weights_override_us: {}\n"))
+    want = sw.changes(["BE2"])
+    assert want["selector.weights_override"] == "{be2: 1.0, risk: 1.0}"
+    assert want["selector.weights_override_us"] == "{}"
+    lines = (repo / "config" / "quant_rl_trading.yaml").read_text().splitlines()
+    for k, v in want.items():
+        i, m = sw.yaml_line(k)
+        lines[i] = f"{m.group(1)}{k.split('.', 1)[1]}: {v}{m.group(3) or ''}"
+    import yaml
+
+    after = yaml.safe_load("\n".join(lines))
+    assert after["selector"]["weights_override"] == {"be2": 1.0, "risk": 1.0}
+    assert after["selector"]["weights_override_us"] == {}
+
+
+def test_unchanged_keys_are_not_pinned(repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """BE2 의 미장 키는 지금 값({})을 못 박을 뿐이라 실험 장부에 고정 줄을 늘리지 않는다(be2 템플릿은 키 하나 그대로)."""
+    text = (repo / "config" / "quant_rl_trading.yaml").read_text()
+    (repo / "config" / "quant_rl_trading.yaml").write_text(text.replace(
+        "  weights_override: {}\n", "  weights_override: {}\n  weights_override_us: {}\n"))
+    assert sw.main(["--components", "BE2"]) == 0
+    out = capsys.readouterr().out
+    assert "selector.weights_override_us" not in out.split("== 실험 shadow 고정")[1]

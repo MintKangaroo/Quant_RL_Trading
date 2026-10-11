@@ -4,7 +4,10 @@
 # 설정은 data/_be2_shadow/config-overrides.yaml (없으면 config/shadow/be2.config-overrides.yaml 을 복사한다).
 #
 # 순서: ① tools/score_be2.py — 그 세션 FA 76열을 실전 창고 fa_features 에, be2 점수를 signals 에(관찰 모드, 운영 가중치 0)
-#       ② tools/run_session.py --sandbox data/_be2_shadow — ①이 rc 0 일 때만. be2 점수 없이 돌면 후보가 비어 보유를 판다.
+#       ② tools/run_session.py --sandbox data/_be2_shadow — ①이 rc 0 일 때만. be2 점수 없이 돌면 합성 점수가 0건이라 후보 0 —
+#          주문 없이 전날 보유를 그대로 든다(동결, 파는 것이 아니다). 2026-10-11 부터는 선정이 fault alpha_stale(rc 3)로 알린다.
+# ①은 2026-10-11 부터 scripts/run_score_be2.sh(크론 22:56, 일일 실행기 직후)가 먼저 한다 — 여기서는 '이미 있다' 로 통과하고,
+#   그게 실패했던 날만 여기서 다시 시도한다(같은 잠금 data/_locks/score-be2.lock 을 기다린다).
 # 다른 KR shadow 세션(23:05 KR · 23:25 Z2 · 23:45 forward · 23:55 HMM/V6)이 도는 중이면 끝날 때까지 기다린다(머신을 나누지 않는다).
 # 첫 실행만 자본 5.03억(.funded). 크론 줄은 리드가 건다(제안: `10 0 * * 2-6` — 월~금 세션을 다음날 00:10 에).
 set -u
@@ -28,10 +31,14 @@ RC=0
         echo "경고: ${BOOK}/config-overrides.yaml 이 템플릿과 다르다 — 손대지 않고 그대로 쓴다"
     fi
     ulimit -v 16777216
+    mkdir -p data/_locks
+    exec 9>data/_locks/score-be2.lock
+    flock -w 3600 9 || echo "BE2 채점 잠금 1시간 초과 — 그대로 시도한다(score_be2 는 같은 세션을 두 번 안 쓴다)"
     # ① 피처·점수 — 실전 창고에 쓴다(fa_features·signals). 스레드는 둘 — 추론 한 번이라 충분하고 머신을 안 뺏는다.
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 OMP_NUM_THREADS=2 MALLOC_ARENA_MAX=2 \
         .venv/bin/python tools/score_be2.py --market KR
     RC=$?
+    flock -u 9; exec 9>&-
     echo "score rc=${RC}"
     if [ "${RC}" -ne 0 ]; then
         echo "be2 점수가 없다(rc ${RC}) — 오늘 shadow 세션을 돌리지 않는다. 사유는 위 줄. 고친 뒤 이 스크립트를 다시 돌리면 이어 간다."

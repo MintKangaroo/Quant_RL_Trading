@@ -189,6 +189,10 @@ selector:
   hold_fill_min_weight: 0.002  # 보유일 잔여 채움 하한 — 직전 재조정 목표 주식 수와 보유의 차가 자본의 이 비율 이상인 종목만 (selector.md §5 7번, 2026-10-04)
   weights_override: {}         # 샌드박스 전용 {analyst: weight} — 비면 측정표(analyst_weights). BE2 shadow 가
                                # {be2: 1.0, risk: 1.0} 로 켠다(be2-shadow.md). 실전 창고는 덮어쓰기 파일을 거부한다
+                               # (10/13 BE2 전환은 apply_switch 가 yaml 국장 키만 바꾼다). 덮어쓰기 알파는 그 세션 신호여야 한다 —
+                               # 묵은 신호면 fault alpha_stale (selector.md §5 "0번")
+  weights_override_us: {}      # 미장 전용 — **비어 있어야 미장이 측정표를 쓴다.** 이 키가 없으면 market_config 가 공통 키로
+                               # 물러서 국장 BE2 전환이 미장에 샌다(be2 신호 없는 미장 후보 0 동결, 2026-10-11 점검). BE2 는 국장 전용
   fixed_basket: []             # 샌드박스 전용 — 선정을 건너뛰고 이 종목들을 같은 점수로. 지수+V6 shadow 가
                                # [KR:ETF:069500] 로 켠다(portfolio-construction.md "지수+V6 트랙")
 

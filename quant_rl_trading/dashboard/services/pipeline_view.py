@@ -70,6 +70,7 @@ STAGE_SETTINGS: dict[str, list[tuple[str, str]]] = {
     "combo_floor": [("selector.combo_floor_analyst", "Analyst(비면 꺼짐)"),
                     ("selector.combo_floor_percentile", "결합 하위 비율")],
     "model": [("selector.weights_override", "점수 가중치 덮어쓰기(비면 측정값)"),
+              ("selector.weights_override_us", "미장 점수 가중치 덮어쓰기(비면 측정값 — BE2 는 국장 전용)"),
               ("ranker.smoothing_span", "평활(최근 N세션 EMA)")],
     "cadence": [("selector.rebalance_every", "몇 세션마다 교체"),
                 ("selector.rebalance_anchor", "주기를 세는 기준일")],

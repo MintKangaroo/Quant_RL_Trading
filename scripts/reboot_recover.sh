@@ -143,6 +143,9 @@ if need session; then
     else
         bash scripts/run_daily.sh KR
         echo "  세션 rc=$?"
+        # BE2 채점은 일일 실행기 직후·실전 그림자 전 (2026-10-11, scripts/run_score_be2.sh) — 10/13 전환 뒤 실전 알파다.
+        bash scripts/run_score_be2.sh once
+        echo "  be2 채점 rc=$?"
 
         G=$(gate session); RC=$?
         echo "  ${G}"
@@ -153,6 +156,13 @@ if need session; then
             echo "  shadow rc=$?"
         fi
     fi
+fi
+
+# BE2 채점 따라잡기 — 세션은 이미 돌았는데 채점(22:56)이 재부팅에 끊긴 경우. 이미 있으면 '이미 있다' rc 0 으로 끝나고,
+# 일일 실행기 신호가 아직 없으면 rc 3 으로 끝난다(기다리지 않는다 — 정규 크론이 가져간다). 위 세션 경로에서 이미 돌았으면 헛돈다.
+if ! need session; then
+    bash scripts/run_score_be2.sh once
+    echo "  be2 채점 따라잡기 rc=$?"
 fi
 
 # 지난번에 미룬 세션이 그 뒤에 채워졌는지 **같은 관문으로** 다시 묻는다.

@@ -30,7 +30,10 @@ RESET_DATE = "2026-10-15"
 
 #: 구성 요소 → {키: 새 값(yaml 리터럴)}. 등록 문서·shadow 설정과 같은 값.
 COMPONENTS: dict[str, dict[str, str]] = {
-    "BE2": {"selector.weights_override": "{be2: 1.0, risk: 1.0}"},
+    # BE2 는 **국장 전용**이다 — 미장 키를 {} 로 못 박는다. 미장 키가 창고에 없으면 market_config 가 공통 키로 물러서 미장도
+    # {be2, risk} 가 되고, be2 신호가 없는 미장 장부(data/_shadow US)가 후보 0 으로 동결된다(2026-10-11 점검). 명시해 두면
+    # 아래 '창고에 없는 키' 관문이 seed 전 적용을 거부한다.
+    "BE2": {"selector.weights_override": "{be2: 1.0, risk: 1.0}", "selector.weights_override_us": "{}"},
     "AQ": {"selector.n_candidates": "72", "selector.exit_rank": "216", "risk.max_positions": "220"},
     "P1B2": {"selector.n_candidates": "100", "selector.exit_rank": "500", "selector.rebalance_every": "20",
              "selector.swap_min_z": "1.0", "selector.rebalance_anchor": '"2026-10-14"', "risk.max_positions": "110"},
@@ -124,7 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     for k, v in want.items():
         print(f"  {k}: {current(k)} → {v}", flush=True)
     print("== 실험 shadow 고정(지금 값)", flush=True)
-    for n in pin_shadows(list(want), apply=args.apply) or ["(고정할 것 없음)"]:
+    # 값이 안 바뀌는 키(BE2 의 weights_override_us: {} 처럼 지금 값을 못 박는 것)는 고정할 것이 없다 — 장부 설정을 늘리지 않는다.
+    moving = [k for k, v in want.items() if v.strip() != current(k)]
+    for n in pin_shadows(moving, apply=args.apply) or ["(고정할 것 없음)"]:
         print(f"  {n}", flush=True)
     if not args.apply:
         print("\n미리보기 — --apply 로 적용", flush=True)

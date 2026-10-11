@@ -27,7 +27,9 @@ def test_be2_gets_no_operational_weight() -> None:
 def test_checked_in_override_is_off() -> None:
     config = yaml.safe_load((REPO / "config" / "quant_rl_trading.yaml").read_text(encoding="utf-8"))
     assert config["selector"].get("weights_override") in ({}, None, "")
-    assert "weights_override_us" not in config["selector"] and "weights_override_kr" not in config["selector"]
+    # 미장 키는 **있어야 하고 비어 있어야 한다**(2026-10-11) — 없으면 미장이 공통 키로 물러서 국장 BE2 전환이 미장에 샌다.
+    assert config["selector"].get("weights_override_us") == {}
+    assert "weights_override_kr" not in config["selector"]
 
 
 def test_runner_writes_only_to_a_shadow_sandbox() -> None:

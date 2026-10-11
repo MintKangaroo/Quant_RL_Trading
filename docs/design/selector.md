@@ -283,6 +283,37 @@ KSIC 세세분류는 KR 2,761종목이 535개로 갈려 그대로는 상한이 �
 `tools/run_session.py` 가 **rc=3** 으로 내보낸다. `blocked_by`(rc=2, 안전장치가
 일한 것)와 다른 코드다 — 셋 다 rc=0 이던 동안 미장이 몇 주를 조용히 멈춰 있었다.
 
+#### 신호가 그 세션 것인가 — `alpha_stale` · `constraint_stale` (2026-10-11)
+
+선정은 최근 5일 신호에서 (종목, Analyst) 마다 가장 늦은 행을 쓴다. 그래서 Analyst 가 오늘 점수를 안 내면 1~4일 묵은
+점수로 **조용히 고르거나**, 5일이 넘으면 그 Analyst 가 통째로 빠져 단독 알파면 **후보 0 동결**(주문 없음·전날 보유
+유지, rc 0)이 된다. 켜진 하한(`apply_global_floor` 등)은 신호가 0건이면 "통과" 로 읽는다. 2026-10-11 점검에서
+재현했다. 그래서 `selector/freshness.py` 가 **합성 전**에 본다 (`pipeline._freshness_fault`):
+
+| 사유 코드 | 언제 보나 | 신선의 정의 (S = as_of 에 마감이 지난 마지막 거래일) |
+|---|---|---|
+| `alpha_stale` | 알파가 `selector.weights_override` 에서 왔을 때만 | 일일 규약 — `valid_from ≥ S 정규장 마감` (일일 실행기·`score_be2` 는 `valid_from = observed_at = S 공표 시각`) |
+| `constraint_stale` | `extra_floor_*`·`ceiling_*`·`combo_floor_*` 가 켜졌을 때만, 그 Analyst(tsfm·ta) | 다음세션 규약 — `valid_from ≥ S 직전 거래일 마감` (밤에 계산, 다음 결정에만 보인다 — 전날 밤 계산분이 정상) |
+| `alpha_no_confidence` | **항상**(측정표 경로 포함) | 알파 Analyst 의 종목별 최신 신호가 있고 confidence 가 전원 0 |
+
+`observed_at` 이 아니라 `valid_from` 을 보는 이유: 지난 세션 정정본(rev1)은 오늘 적혀 `observed_at` 은 늦지만 그 세션의 값이다.
+fault 면 후보 없음 → 세션은 주문 없이 전날 보유를 유지하고 `tools/run_session.py` 가 rc 3 으로 알린다.
+
+**측정표 알파(현행 ranker)에는 신선도를 걸지 않는다.** 측정표 알파는 일일 실행기(`session/signals.produce`)가 같은 실행에서
+다 같이 내고, 죽으면 `analyst_failures` 에 남아 재부팅 복구 관문(`plan_recovery --gate session`)이 세션을 미룬다 — 별도
+크론이 실패해 세션이 모르는 길이 없다. 또 측정표에는 IC 관문을 통과한 여러 알파가 있을 수 있어, 하나가 하루 빠져도 나머지로
+고르는 것이 지금 동작이다(분모에서 빠짐, §1). 이걸 바꾸는 것은 실전 동작 변경이라 별도 결정으로 둔다. 덮어쓰기 알파(BE2)는
+반대로 별도 크론(`scripts/run_score_be2.sh`)이 쓰고 단독이라, 빠지면 전부 빠진다.
+
+**confidence 전원 0 은 측정표 경로에서도 알린다.** `analysts/ic.py rolling_confidence` 는 롤링 60일 IC ≤ 0 이면 0 을 준다 —
+현행 실전도 알파가 ranker 하나라 이 경우 합성 점수 0건 → 후보 0 동결이다. 매매 결과는 예전과 같고(어차피 후보 0) 바뀌는 것은
+rc(0 → 3)와 사유뿐이다 — 2026-08-12 세션이 이 상태로 rc 0 을 내 원인 찾는 데 시간이 들었다. confidence 계산 자체는 안 바꾼다
+(음수 IC 를 뒤집어 쓰지 않는 규칙, agents.md §1). 문턱은 `combined_scores` 가 행을 버리는 `EPSILON` 과 같아, fault 가
+나는 날은 반드시 후보 0 이던 날이다.
+
+미장 키 `selector.weights_override_us: {}` 를 yaml·창고에 둔다 — 없으면 `market_config` 가 공통 키로 물러서 국장 BE2 전환이
+미장(be2 신호 없음)에 새어 미장 장부가 `alpha_stale` 로 멈춘다. `tools/apply_switch.py` BE2 는 이 키를 `{}` 로 명시한다.
+
 ---
 
 ### 7번 — 재조정 주기: 10세션마다 고른다 (시행 AO, 2026-09-24 채택)

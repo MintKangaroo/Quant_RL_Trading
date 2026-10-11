@@ -8,7 +8,9 @@
     0  정상 (후보 0개도 정상일 수 있다 — 살 게 없는 날이 있다)
     1  세션이 돌지 않았다 (거래일이 아니거나 창고가 비었다)
     2  안전장치가 주문을 차단했다 (`blocked_by`) — 사고가 아니라 일한 것이다
-    3  알파 Analyst 가 0종이라 선정이 시작조차 못 했다 (`fault`)
+    3  선정이 고장으로 멈췄다 (`fault`) — 알파 Analyst 0종(no_measurement·none_passed·constraint_only),
+       덮어쓰기 알파·켜진 하한의 신호가 그 세션 것이 아님(alpha_stale·constraint_stale),
+       알파 confidence 전원 0(alpha_no_confidence), 포트폴리오 제약 미충족. 후보 없음 · 주문 없음 · 전날 보유 유지
 
 ## 백테스트 루프를 그대로 쓴다
 
@@ -89,6 +91,17 @@ def last_settled_day(store: Store, market: Market, now: datetime) -> date | None
 #: 계획했는데 안 보낸 조각이 있다(runbook §7.1 rc 표).
 UNSENT_RC = 5
 
+#: fault 코드 → 사람이 읽을 머리말(rc 3). 모르는 코드는 '선정 고장'.
+FAULT_TEXT = {
+    "no_measurement": "알파 Analyst 가 0종이다 — IC 측정이 없다",
+    "none_passed": "알파 Analyst 가 0종이다 — 통과 0종",
+    "constraint_only": "알파 Analyst 가 0종이다 — 통과가 전부 제약 Analyst",
+    "alpha_stale": "덮어쓰기 알파의 신호가 이 세션 것이 아니다",
+    "constraint_stale": "켜진 하한·상한 Analyst 의 신호가 이 세션에 쓸 것이 아니다",
+    "alpha_no_confidence": "알파 Analyst 의 confidence 가 전원 0 이다",
+    "portfolio_constraints": "포트폴리오 위험 제약 미충족",
+}
+
 
 def exit_code(entry: loop.DayResult) -> int:
     """하루 결과를 종료코드로. **조용한 실패를 rc 로 내보내는 자리다.**
@@ -112,8 +125,8 @@ def exit_code(entry: loop.DayResult) -> int:
         return 2
     if entry.fault:
         print(
-            f"알파 Analyst 가 0종이다 ({entry.fault}). 후보가 빈 것이 아니라 "
-            "선정이 못 돈 것이다.",
+            f"{FAULT_TEXT.get(entry.fault, '선정 고장')} ({entry.fault}). 후보가 빈 것이 아니라 "
+            "선정이 못 돈 것이다 — 주문 없이 전날 보유를 유지했다. 사유는 위 노트.",
             file=sys.stderr,
         )
         return 3

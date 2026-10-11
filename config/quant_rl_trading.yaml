@@ -274,8 +274,12 @@ selector:
   missing_as_zero_us: [fundamental]
   # 샌드박스 전용 가중치 고정 {analyst: weight} (docs/design/be2-shadow.md). 비어 있으면 끔 = 측정표(analyst_weights).
   # BE2 shadow(data/_be2_shadow/config-overrides.yaml)가 {be2: 1.0, risk: 1.0} 으로 현행 {ranker, risk} 자리에 BE2 를 끼운다.
-  # 실전 창고는 덮어쓰기 파일을 거부하므로 여기 값은 늘 비어 있어야 한다.
+  # 실전 창고는 덮어쓰기 파일을 거부하므로 여기 값은 늘 비어 있어야 한다 — 10/13 BE2 전환(tools/apply_switch.py)만 예외로 국장 키를 바꾼다.
   weights_override: {}
+  # 미장 전용(시장 접미사 우선, selector.candidates.market_config). **비어 있어야 미장이 측정표를 쓴다** — 이 키가 없으면 미장도
+  # 공통 키로 물러서, 국장 BE2 전환 {be2, risk} 가 미장에 새어 be2 신호가 없는 미장 장부(data/_shadow US)가 후보 0 으로 동결된다
+  # (2026-10-11 점검). BE2 는 국장 전용이다.
+  weights_override_us: {}
   # 고정 바구니 — 선정을 건너뛰고 이 종목들을 같은 점수로 낸다(selector/pipeline.py). 비어 있으면 끔 = 선정. 샌드박스 전용:
   # 지수+V6 shadow(data/_idxv6_shadow/config-overrides.yaml)가 [KR:ETF:069500] 으로 KODEX200 하나를 든다. 실전은 늘 비어 있다.
   fixed_basket: []

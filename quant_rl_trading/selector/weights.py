@@ -142,6 +142,11 @@ def _weight_rows(store: Store, *, as_of: datetime, market: str, lookback: int) -
     override = weights_override(store, as_of=as_of, market=market)
     if override is not None:
         return override
+    return _measured_rows(store, as_of=as_of, market=market, lookback=lookback)
+
+
+def _measured_rows(store: Store, *, as_of: datetime, market: str, lookback: int) -> dict[str, float] | None:
+    """측정표(`analyst_weights`)의 {analyst: weight} 원본. 측정이 없으면 None."""
     frame = store.get(ANALYST_WEIGHTS, as_of=as_of, lookback=lookback)
     if frame.empty:
         return None
@@ -209,6 +214,9 @@ class WeightCensus:
     #: **여기서만 0 을 그대로 들고 있는다.** 밖으로 나갈 때는 `alpha_map` 을
     #: 거쳐 통과·알파만 남는다.
     values: dict[str, float] = field(default_factory=dict)
+    #: 가중치가 측정표가 아니라 `selector.weights_override` 에서 왔나. 덮어쓰기 알파는 측정·IC 관문을 거치지 않고
+    #: 사람이 끼운 것이라, 그 Analyst 의 신호가 그 세션 것인지 선정이 따로 확인한다(`selector.freshness`, selector.md §5 0번).
+    overridden: bool = False
 
     @property
     def alpha_map(self) -> dict[str, float]:
@@ -267,9 +275,10 @@ def weight_census(
     함수만 보면 **"측정이 없다" 와 "측정은 있는데 다 떨어졌다" 가 같은 빈
     dict** 이다. 여기서는 지우기 전 원본을 세므로 둘이 갈린다.
     """
-    rows = _weight_rows(store, as_of=as_of, market=market, lookback=lookback)
+    override = weights_override(store, as_of=as_of, market=market)
+    rows = override if override is not None else _measured_rows(store, as_of=as_of, market=market, lookback=lookback)
     if not rows:
-        return WeightCensus((), (), (), (), {})
+        return WeightCensus((), (), (), (), {}, overridden=override is not None)
     passed = tuple(sorted(name for name, value in rows.items() if value > 0.0))
     alpha = tuple(sorted(alpha_weights({name: rows[name] for name in passed})))
     return WeightCensus(
@@ -278,4 +287,5 @@ def weight_census(
         constrained=tuple(name for name in passed if name not in alpha),
         alpha=alpha,
         values=rows,
+        overridden=override is not None,
     )

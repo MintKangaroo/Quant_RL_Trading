@@ -24,6 +24,16 @@ RC=0
         echo "rc=${RC}"
         exit "${RC}"
     fi
+    # **국장은 BE2 채점(scripts/run_score_be2.sh, 22:56)이 끝난 뒤에 돈다** (2026-10-11). 10/13 BE2 전환 뒤 실전 알파가 be2 라
+    # 채점 중에 돌면 그날 be2 없이 fault alpha_stale 로 멈춘다. 잠금을 잡았다 바로 놓는다 — 최대 20분, 넘으면 그대로 돈다
+    # (be2 가 끝내 없으면 선정이 rc 3 으로 알린다).
+    if [ "${MARKET}" = "KR" ]; then
+        mkdir -p data/_locks
+        exec 9>data/_locks/score-be2.lock
+        flock -w 1200 9 || echo "  $(date '+%T') BE2 채점 잠금 20분 초과 — 기다리지 않고 돈다"
+        flock -u 9
+        exec 9>&-
+    fi
     ulimit -v 16777216
     QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 \
         .venv/bin/python tools/run_session.py --market "${MARKET}" --capital "${CAPITAL}"

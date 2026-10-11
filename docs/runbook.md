@@ -176,6 +176,8 @@ systemd timer 또는 cron. **워커 프로세스는 상시 실행**하고
 | 1 | **핵심 단계** 실패 | 사람이 본다. 시세·지수가 없으면 그 뒤 파이프라인을 돌리지 않는다 |
 | 2 | 입력·사용법 오류 (모르는 단계 이름, 과거 `--day` 거부 등) | 명령을 고친다 |
 | 3 | **판정 실패** — 거래일인지 아닌지를 모른다 | 주문을 내지 않았다. 원인을 고친 뒤 손으로 다시 돌린다 |
+| 3 (`run_session`·`run_paper.sh session`·`run_shadow*.sh`) | **선정 고장(fault)** — 알파 0종·덮어쓰기 알파(BE2) 신호가 그 세션 것이 아님(`alpha_stale`)·켜진 하한 신호 묵음(`constraint_stale`)·알파 confidence 전원 0(`alpha_no_confidence`) (selector.md §5 0번, 2026-10-11) | 주문 없이 전날 보유를 유지했다. 로그 노트의 Analyst·마지막 신호 날짜를 보고 그 신호 크론(`logs/score-be2-*.log`·`tsfm-signal-*`·`ta-signal-*`)을 고친다. 신호를 채운 뒤 세션을 다시 돌릴지는 사람이 정한다 — 모의계좌(`run_paper.sh session`)는 다시 돌리면 주문이 나간다 |
+| 3 (`run_score_be2.sh`) | 일일 실행기 신호가 마감(23:50)까지 없어 be2 FA 를 못 만들었다 | 일일 실행기(`logs/daily-*.log`)를 먼저 본다. 고친 뒤 `scripts/run_score_be2.sh once` |
 | 4 | 주문 대사는 맞는데 **정산금액 대조**가 틀렸다 | 원인 조사는 사람 몫. 주문 대사 rc 를 덮지 않되 묻히지도 않는다 |
 | 5 | **계획했는데 안 보낸 조각**이 있다 (`run_session`·`run_paper.sh session`) — 같은 세션의 이전 시도가 거부·위험차단·철회로 끝나 중복 가드(`submit-<order_id>`)가 건너뛰었다 | 로그의 `계획했는데 안 보낸 조각` 줄에서 order_id 를 보고, 그 조각의 `orders.reason` 으로 원인을 가린다. 휴장일 거부(`rsp_cd=01410`)는 여기 오지 않는다 — 첫 거래일에 재전송되거나, 낡았으면 "낡은 휴장 거부" 로 로그에만 남는다 |
 | 6 | **입력 미완으로 미룸** — 마감(13:30)까지 미장 시세가 부분 수집(`plan_recovery` 커버리지 미달)이거나 판정이 죽었다 (`wait_us_prices` → `run_daily.sh US`·`run_shadow.sh US`·`run_shadow_g1us.sh`, 2026-10-07) | 세션을 돌리지 않았다(반쪽 시세의 신호·주문을 append-only 창고에 박지 않는다). **손으로 다시 돌리지 않는다** — 13:30 뒤에 받은 봉은 받은 시각으로 찍혀(data-contract §5-0b) 그 세션 as_of 에서 안 보인다. 그 세션은 놓친 세션으로 남고 다음 세션·보유일 잔여 채움이 따라잡는다. 수집 결손 원인(재부팅 등)만 본다 |

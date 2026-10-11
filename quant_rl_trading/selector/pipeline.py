@@ -16,10 +16,11 @@ import pandas as pd
 from quant_rl_trading.selector import candidates as candidates_module
 from quant_rl_trading.selector import constraints as constraints_module
 from quant_rl_trading.selector import filters as filters_module
+from quant_rl_trading.selector import freshness
 from quant_rl_trading.selector import ksic
 from quant_rl_trading.selector.candidates import Candidate, SelectionParams, SelectionTrace
 from quant_rl_trading.selector.combine import combined_scores, missing_as_zero
-from quant_rl_trading.selector.weights import weight_census
+from quant_rl_trading.selector.weights import WeightCensus, weight_census
 from quant_rl_trading.store import ConfigNotFound
 
 if TYPE_CHECKING:
@@ -118,6 +119,28 @@ def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Scre
 
     # 2. 합성 점수
     signals = store.get(SIGNALS, as_of=as_of, entity=kept, lookback=5)
+    # 하한 설정은 여기서 먼저 읽는다(신선도가 켜진 하한을 본다). 위험 하한 키가 없는 옛 창고는 예전처럼 점수가 있을 때만
+    # 아래에서 크게 멈춘다 — 점수 0건인 날까지 새로 죽이지 않는다.
+    try:
+        floor_params = constraints_module.ConstraintParams.from_store(store, as_of=as_of)
+    except ConfigNotFound:
+        floor_params = None
+    # 2-0. 신호 신선도 (selector.md §5 0번, `selector.freshness`). **덮어쓰기 알파와 켜진 하한·상한만 본다** — 둘 다 일일
+    #      실행기 밖의 크론이 쓰는 신호라, 그 크론이 실패하면 세션은 묵은 점수로 조용히 고르거나 후보 0 으로 조용히
+    #      동결된다. 측정표 알파(ranker 등)는 일일 실행기가 같이 내고 죽으면 `analyst_failures` 에 남으므로 여기서 안 본다
+    #      — 지금 실전(덮어쓰기 {} · 하한 끔)의 동작은 이 블록으로 바뀌지 않는다.
+    fault = _freshness_fault(signals, census, floor_params, market=market, as_of=as_of, trace=trace)
+    if fault:
+        return Screen(as_of, market, params, weights, trace, fault=fault)
+    # 2-0b. 알파 confidence 전원 0 — 합성 점수가 0건이 되어 후보 0 동결. "오늘 살 게 없다" 가 아니라 한 Analyst 의 나쁜
+    #       롤링 IC 가 매매를 멈춘 것이라 **측정표 경로에서도** 알린다(rc 3). 매매 결과(주문 없음·보유 유지)는 그대로다.
+    if freshness.zero_confidence(signals, census.alpha):
+        trace.note(
+            f"알파 Analyst {', '.join(census.alpha)} 의 confidence 가 전원 0 이다 — 롤링 IC ≤ 0 (analysts/ic.py "
+            "rolling_confidence). 합성 점수가 0건이라 후보 0 · 주문 없이 전날 보유를 그대로 든다(동결). "
+            "기다려서 풀릴 수도 있지만 그동안 매매가 멈춘다는 것을 알린다"
+        )
+        return Screen(as_of, market, params, weights, trace, fault=freshness.ALPHA_NO_CONFIDENCE)
     scores = combined_scores(signals, weights, missing_as_zero=missing_as_zero(store, as_of=as_of, market=market))
     scored = scores
     trace.stage("scored", len(scores))
@@ -144,7 +167,8 @@ def screen(store: Store, *, as_of: datetime, market: str, equity: float) -> Scre
     #      거부(3번)보다 먼저다. 거부는 LLM 판정이라 비싸고 상한이 걸려 있는데,
     #      여기서 잘릴 종목까지 판정 정원을 쓸 이유가 없다.
     risk = constraints_module.constraint_scores(signals, constraints_module.RISK_ANALYST).reindex(scores.index).dropna()
-    floor_params = constraints_module.ConstraintParams.from_store(store, as_of=as_of)
+    if floor_params is None:
+        floor_params = constraints_module.ConstraintParams.from_store(store, as_of=as_of)
     scores = constraints_module.apply_risk_floor(
         scores,
         signals=signals,
@@ -292,6 +316,49 @@ def fixed_basket(store: Store, *, as_of: datetime, market: str) -> list[str]:
     if isinstance(raw, str):
         raw = [raw] if raw.strip() else []
     return [str(name).strip() for name in (raw or []) if str(name).strip()]
+
+
+def _freshness_fault(
+    signals: pd.DataFrame,
+    census: WeightCensus,
+    floor_params: constraints_module.ConstraintParams | None,
+    *,
+    market: str,
+    as_of: datetime,
+    trace: SelectionTrace,
+) -> str:
+    """덮어쓰기 알파·켜진 하한·상한 Analyst 의 신호가 그 세션 것이 아니면 사유 코드(``freshness``), 아니면 빈 문자열.
+
+    **고장으로 멈춘다** — 후보 없음·주문 없음·전날 보유 유지, `tools/run_session.py` rc 3. 묵은 점수로 고르는 것도,
+    빠진 하한을 "통과" 로 읽는 것(constraints.apply_global_floor 의 "신호 0건 — 통과된 것이지…")도 하지 않는다.
+    """
+    if census.overridden:
+        late = freshness.stale(signals, census.alpha, market=market, as_of=as_of)
+        if late:
+            trace.note(
+                "덮어쓰기 알파(selector.weights_override)의 신호가 이 세션 것이 아니다 — "
+                + ", ".join(item.describe() for item in late)
+                + ". 묵은 점수로 고르지 않는다 — 후보 없이 전날 보유를 유지한다. 채점 크론(scripts/run_score_be2.sh)을 볼 것"
+            )
+            return freshness.ALPHA_STALE
+    if floor_params is None:
+        return ""
+    gates = (
+        ("두 번째 하한", floor_params.extra_floor_analyst, floor_params.extra_floor_percentile),
+        ("상한", floor_params.ceiling_analyst, floor_params.ceiling_percentile),
+        ("결합 하한", floor_params.combo_floor_analyst, floor_params.combo_floor_percentile),
+    )
+    for label, analyst, percentile in gates:
+        if not analyst or percentile <= 0:
+            continue
+        late = freshness.stale(signals, [analyst], market=market, as_of=as_of, next_session=True)
+        if late:
+            trace.note(
+                f"{label}({analyst})의 신호가 이 세션에 쓸 것이 아니다 — {late[0].describe()}. 빠진 하한을 통과로 "
+                f"읽지 않는다 — 후보 없이 전날 보유를 유지한다. 신호 크론(scripts/run_{analyst}_signal.sh)을 볼 것"
+            )
+            return freshness.CONSTRAINT_STALE
+    return ""
 
 
 def _silent_score_reason(signals: pd.DataFrame, weights: Mapping[str, float]) -> str:
