@@ -21,7 +21,7 @@ Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 [![ci](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml/badge.svg)](https://github.com/MintKangaroo/Quant_RL_Trading/actions/workflows/ci.yml)
 [![python](https://img.shields.io/badge/python-3.12-3776ab)](pyproject.toml)
 
-## 지금 — 2026-10-10
+## 지금 — 2026-10-11
 
 ### 한 줄
 
@@ -55,6 +55,7 @@ Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 | AQ · P1-b″ | 종목 72개 · 회전 줄이기 | 62일 금고 | 적용 |
 | TF · TB · TC | TTM 하한(하위 20% / +칼날 상위 10% / 랭커와 결합) | 62일 금고, **TF·TB 는 과거 금고도** | 하한 자리 하나 |
 | TG | 기술적 합성 하위 20% 빼기 | **과거 금고** · 11/23 second | 하한 자리 하나 |
+| **N1** | 순주식발행 상위 10% 빼기(CB 전환·BW·제3자배정 물량) | **과거 금고**(`past-vault-n1-2026-10.md`, 0f4c2d8f722f50ee) | 하한 후보 — 실전 신호 구현 뒤 |
 | AR · AS · BD | 내부자 재료 · 원피처 랭커 · 미장 국면 | 62일 금고 | 재학습 배선 필요 / 미장 |
 
 적용은 `tools/apply_switch.py --components <통과분>`(장 중 거부 · 실험·대조 장부는 지금 값 고정 · 창고에 없는 키면 거부). 실전 두 번째 하한·상한은
@@ -80,6 +81,17 @@ Dashboard ← Auditor / ModelOps ← Accounting ← 실제 Fill / 대사
 - **실전 코드(기본 끔)**: `selector.extra_floor_*`·`ceiling_*`·`combo_floor_*` · 제약 Analyst `tsfm`·`ta` · `tools/ta_signal.py`(크론 00:05).
 - **장부**: IX·IX0·IX-T(지수 − 패자) · TG(전환 후 실전 + TA 하한). **자기개선 ①** 채점지(`tools/scorecard.py`, 07:50).
 - **문서**: 실자금 관문 v2 · 60거래일 조기 종료 기록 · 검정 표준 v2 · TR·TT(고정)·TK·TG(초안) 등록.
+
+### 10/11 에 한 것
+
+- **매매 과정 탭**(대시보드 `/pipeline`): 세션마다 단계별 종목 수 흐름도(AI·규칙·LLM 색 구분) · 후보 칩(등록·판정일·테스트 결과) · AI 속(랭커 입력 기여, TTM 점수). 판단 과정이 바뀌면 이 탭도 같이 고친다.
+- **10/13 전환 결함 둘을 막았다**: `selector.weights_override` 가 시딩에서 두 키로 쪼개져 BE2 를 채택해도 옛 랭커로 돌 뻔했다(고침) ·
+  be2 점수가 빠지면 조용히 묵은 점수로 매매하거나 rc 0 으로 동결됐다 → 신호 신선도 fault(전날 보유 유지·rc 3), be2 채점을 22:56 단독 크론으로.
+  현행 실전 동작은 그대로(10/8 세션 전후 점수 md5 동일, 독립 검토).
+- **새 정보원 셋 진단**(탐색 구간만): N1 순발행(부분 IC t −4.6 → 과거 금고 등록) · N2 정기보고서 위험 문구 변화(cos_risk 약하게 남음, 과거 보고서 수집 3밤) ·
+  N3 개별주식선물 괴리·미결제(수집기·백필, 진단 중). 자금 회전(시소) 진단 진행 중.
+- 공시 원문 백필 완료(DART 자정 점검 rc 3 재시도 추가) · L1 공시 추출 빈 대상 KeyError 수정.
+- **주의**: 랭커 롤링 IC(confidence)가 9/29 0.060 → 10/8 0.028 로 내려간다. 0 이 되면(추정 10/16~21) 알파가 전원 0 이라 매매가 동결된다(이제 rc 3 으로 드러난다).
 
 ---
 

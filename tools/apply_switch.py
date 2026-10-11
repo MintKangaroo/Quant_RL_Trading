@@ -42,8 +42,11 @@ COMPONENTS: dict[str, dict[str, str]] = {
     "TB": {"selector.extra_floor_analyst": "tsfm", "selector.extra_floor_percentile": "0.20",
            "selector.ceiling_analyst": "tsfm", "selector.ceiling_percentile": "0.10"},
     "TC": {"selector.combo_floor_analyst": "tsfm", "selector.combo_floor_percentile": "0.10"},
+    # TG(docs/protocols/ta-floor-2026-10.md) — 과거 금고 통과 시 두 번째 하한 자리를 TA 합성 하위 20% 로. TF·TB·TC 와 한 자리를 다툰다.
+    # N1(past-vault-n1) 은 실전 신호(analyst)가 아직 없어 구성 요소가 없다 — 통과하면 신호 구현 뒤 추가(10/15 적용 불가).
+    "TG": {"selector.extra_floor_analyst": "ta", "selector.extra_floor_percentile": "0.20"},
 }
-EXCLUSIVE = [{"AQ", "P1B2", "P1B2-B2"}, {"TF", "TB", "TC"}]
+EXCLUSIVE = [{"AQ", "P1B2", "P1B2-B2"}, {"TF", "TB", "TC", "TG"}]
 
 
 def changes(parts: list[str]) -> dict[str, str]:

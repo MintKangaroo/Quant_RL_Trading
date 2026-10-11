@@ -55,6 +55,11 @@ def test_exclusive_and_unknown() -> None:
         sw.changes(["TF", "TC"])
     with pytest.raises(SystemExit):
         sw.changes(["TD"])
+    with pytest.raises(SystemExit):
+        sw.changes(["TF", "TG"])                # 두 번째 하한 자리는 하나
+    assert sw.changes(["TG"])["selector.extra_floor_analyst"] == "ta"
+    with pytest.raises(SystemExit):
+        sw.changes(["N1"])                      # 실전 신호가 없어 아직 적용 경로가 없다
 
 
 def test_be2_is_kr_only(repo: Path) -> None:

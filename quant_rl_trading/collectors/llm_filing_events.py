@@ -554,7 +554,10 @@ def targets(frame: pd.DataFrame, *, done: Iterable[str] = ()) -> pd.DataFrame:
     ).tail(1)
     path = latest["raw_path"].fillna("").astype(str)
     latest = latest[(path.str.len() > 1) & (path != "None")]
-    keep = [is_target(t, n) for t, n in zip(latest["doc_type"], latest["title"], strict=True)]
+    # 불리언 Series 로 거른다 — 빈 list 면 `latest[[]]` 가 **열 선택**이 되어 열이 다 사라지고 아래에서 KeyError 'doc_id'
+    # (주말·휴장 다음 03:07 처럼 원문 있는 행이 0건인 날, 2026-10-11 점검).
+    keep = pd.Series([is_target(t, n) for t, n in zip(latest["doc_type"], latest["title"], strict=True)],
+                     index=latest.index, dtype=bool)
     latest = latest[keep]
     skip = set(map(str, done))
     if skip:
