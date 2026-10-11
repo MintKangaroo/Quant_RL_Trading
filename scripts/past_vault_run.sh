@@ -13,6 +13,9 @@ echo "=== $(date '+%F %T') 과거 금고 ${MODE} ==="
 ENVS=(QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB QUANT_RL_DUCKDB_THREADS=2 OMP_NUM_THREADS=2 MALLOC_ARENA_MAX=2)
 case "${MODE}" in
   bake)
+    exec 8>data/_locks/past-vault-bake.lock
+    flock -n 8 || { echo "이미 굽는 중(다른 실행이 대기·진행 중) — rc 0"; exit 0; }
+    if [ -f data/_past_vault/_bake/ta.pkl ] && [ -f data/_past_vault/_bake/ttm.pkl ]; then echo "둘 다 있다 — 할 일 없음"; echo "끝 rc=0"; exit 0; fi
     N=$(.venv/bin/python tools/backfill_past_vault.py --check | sed -n 's/.*적재 \([0-9]*\).*/\1/p')
     echo "백필 적재 세션 ${N:-?}"
     if pgrep -f "tools/backfill_past_vault.py" > /dev/null || [ "${N:-0}" -lt 2800 ]; then
