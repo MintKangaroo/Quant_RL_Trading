@@ -1,11 +1,12 @@
 """10/13 대격변 보고표 — 두 판정 결과 파일을 읽어 후보별 × 기준별 O/X 표와 '10/13 쓰임 규칙 적용 결과' 를 만든다(사용자 10/10 지시).
 
-    .venv/bin/python tools/switch_report.py                         # logs/vault-early-judge-result.txt + logs/past-vault-judge-result.txt
-    .venv/bin/python tools/switch_report.py --early A --past B      # 다른 파일
+    .venv/bin/python tools/switch_report.py                         # logs/vault-early-judge-result.txt + logs/past-vault-judge-result.txt (+ logs/past-vault-n1-result.txt)
+    .venv/bin/python tools/switch_report.py --early A --past B --past-n1 C   # 다른 파일
 
 판정을 다시 하지 않는다 — 판정 도구가 찍은 ○/× 와 판정 줄만 옮긴다. 쓰임 규칙은 등록 문서 그대로:
 - `vault-early-additions-2026-10.md`: TF·TB·TC 둘 이상 통과면 원리 t 가 가장 강한 하나.
 - `past-vault-2026-10.md`: TF·TB = early 통과 **또는** (과거 통과 + early 원리 평균 < 0 + early 포트 ≥ 대조 − 1%p) · TG = 과거 통과 · 하한 자리 하나(과거 원리 t 최강).
+- `past-vault-n1-2026-10.md`: N1 = 과거 통과(early 확인 없음) · 같은 하한 자리 경쟁. N1 은 10%, 나머지는 20% 를 빼 원리 t 를 그대로 견줄 수 없다 → N1 이 걸리면 사용자 확인.
 - `vault-early-usage-2026-10.md`: BE2 채택 → 10/15 모의계좌.
 """
 from __future__ import annotations
@@ -18,9 +19,11 @@ from pathlib import Path
 
 EARLY = Path("logs/vault-early-judge-result.txt")
 PAST = Path("logs/past-vault-judge-result.txt")
+PAST_N1 = Path("logs/past-vault-n1-result.txt")
 MARK = re.compile(r"([①②③④⑤⑥])(.*?)(○|×)")
 NUMS = "①②③④⑤⑥"
-FLOORS = ("TF", "TB", "TC", "TG")
+FLOORS = ("TF", "TB", "TC", "TG", "N1")
+PAST_KINDS = "TF|TB|TG|N1"
 
 
 @dataclass
@@ -63,10 +66,15 @@ def parse_past(text: str) -> dict[str, Trial]:
     out: dict[str, Trial] = {}
     cur: Trial | None = None
     for line in text.splitlines():
-        m = re.match(r"(TF|TB|TG): ①", line)
+        m = re.match(rf"({PAST_KINDS}): ①", line)
         if m:
             cur = out.setdefault(m.group(1), Trial(m.group(1)))
-        v = re.match(r"\s+→ (TF|TB|TG): (.+)", line)
+        r = re.match(r"N1 거부: (.+)", line)
+        if r:
+            out.setdefault("N1", Trial("N1")).verdict = f"(거부: {r.group(1).strip()})"
+            cur = None
+            continue
+        v = re.match(rf"\s+→ ({PAST_KINDS}): (.+)", line)
         if v:
             out.setdefault(v.group(1), Trial(v.group(1))).verdict = v.group(2).strip()
             cur = None
@@ -137,6 +145,8 @@ def decide(early: dict[str, Trial], past: dict[str, Trial]) -> list[str]:
         floor.append(("TC", mech_t(early.get("TC")), "early 통과(과거 금고 없음)"))
     if passed(past.get("TG")):
         floor.append(("TG", mech_t(past.get("TG")), "과거 통과"))
+    if passed(past.get("N1")):
+        floor.append(("N1", mech_t(past.get("N1")), "과거 통과(상위 10% 빼기)"))
     if floor:
         lines.append("- 하한 후보: " + " · ".join(f"{k}({why}, 원리 t {t:+.2f})" if t is not None else f"{k}({why})" for k, t, why in floor))
         with_t = [f for f in floor if f[1] is not None]
@@ -144,6 +154,9 @@ def decide(early: dict[str, Trial], past: dict[str, Trial]) -> list[str]:
         mixed = len({why.startswith("early 통과(과거") for _, _, why in floor}) > 1
         lines.append(f"  - 하한 자리는 하나 → **{best[0]}**(원리 t 가 가장 강함)"
                      + (" — 단 TC 는 과거 금고 t 가 없어 t 를 직접 견줄 수 없다: 사용자 확인" if mixed else ""))
+        if best[0] == "N1" or (any(k == "N1" for k, _, _ in floor) and len(floor) > 1):
+            lines.append("  - N1 이 걸렸다(10% 빼기 · 나머지는 20%, 원리 t 는 집합 크기에 따라 달라 그대로 견줄 수 없다 · 실전 신호 구현 전): 사용자 확인"
+                         " (합집합은 새 등록, `past-vault-n1-2026-10.md`)")
     else:
         lines.append("- 하한 후보 없음 — TTM·TA 하한은 넣지 않는다(IX-T·TG 장부는 계속).")
     for k in ("AR", "AS"):
@@ -158,16 +171,19 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--early", type=Path, default=EARLY)
     ap.add_argument("--past", type=Path, default=PAST)
+    ap.add_argument("--past-n1", type=Path, default=PAST_N1)
     args = ap.parse_args(argv)
     early = parse_early(args.early.read_text()) if args.early.exists() else {}
     past = parse_past(args.past.read_text()) if args.past.exists() else {}
+    if args.past_n1.exists():
+        past.update({k: v for k, v in parse_past(args.past_n1.read_text()).items() if k == "N1"})
     if not early and not past:
         print("판정 결과 파일이 없다", file=sys.stderr)
         return 2
     print("### 표 1 · 62일 금고(7/1~9/30)\n")
     print("\n".join(table(early, ["BE2", "AQ", "P1B2", "TF", "TB", "TC", "AR", "AS", "BD"])) if early else "(결과 없음)")
     print("\n### 표 2 · 과거 금고(2011~2021-07) — ①원리 ②넓은 포트 ③대형주\n")
-    print("\n".join(table(past, ["TF", "TB", "TG"])) if past else "(결과 없음)")
+    print("\n".join(table(past, ["TF", "TB", "TG", "N1"])) if past else "(결과 없음)")
     print("\n### 10/13 쓰임 규칙 적용 결과(등록 문서 그대로 — 실제 반영은 사용자 설문)\n")
     print("\n".join(decide(early, past)))
     return 0

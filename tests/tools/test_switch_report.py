@@ -53,3 +53,45 @@ def test_usage_rules() -> None:
     assert "BE2** 채택" in out
     assert "TF(과거 통과 + early 안 뒤집힘, 원리 t -5.10)" in out and "**TF**" in out
     assert "TG" not in out.split("하한 후보:")[1].split("\n")[0]   # TG 는 과거 ③ 실패
+
+
+PAST_N1 = """
+N1: ①원리 뺀 종목 5세션 초과 -0.30%(NW t -6.50, 2600세션) · 구간 A -0.3% / B -0.3% / C -0.3% ○
+    ②넓은 포트 연 +2.0%p · IR +0.80 · 구간 A +2% / B +2% / C +2% · 회전 3.0 ○
+    ③대형주 200 시총가중 연 +0.1%p · IR +0.10 · 구간 A +0% / B +0% / C +0% ○
+  → N1: 과거 금고 통과(원리 t -6.50)
+"""
+
+
+def test_n1_joins_floor_candidates() -> None:
+    """N1(과거 금고 N1 등록) — 통과하면 하한 후보에 들고, 10%·20% 집합 크기가 달라 t 비교는 사용자 확인으로 표시된다."""
+    e, p = sr.parse_early(EARLY), sr.parse_past(PAST)
+    p.update(sr.parse_past(PAST_N1))
+    assert p["N1"].rows["N1"] == {"①": True, "②": True, "③": True} and sr.passed(p["N1"])
+    assert sr.mech_t(p["N1"]) == -6.5
+    out = "\n".join(sr.decide(e, p))
+    head = out.split("하한 후보:")[1].split("\n")[0]
+    assert "N1(과거 통과(상위 10% 빼기), 원리 t -6.50)" in head and "TF(" in head
+    assert "**N1**" in out and "N1 이 걸렸다" in out
+    t = "\n".join(sr.table(p, ["TF", "TB", "TG", "N1"]))
+    assert "| N1 | O | O | O | 과거 금고 통과(원리 t -6.50) |" in t and "| TB |" in t and "(결과 없음)" in t
+
+
+def test_n1_absent_or_failed_changes_nothing() -> None:
+    e, p = sr.parse_early(EARLY), sr.parse_past(PAST)
+    base = sr.decide(e, p)
+    p.update(sr.parse_past(PAST_N1.replace("과거 금고 통과(원리 t -6.50)", "기각")))
+    assert sr.decide(e, p) == base
+
+
+def test_n1_alone_best_always_asks_user() -> None:
+    p = sr.parse_past(PAST_N1)
+    out = "\n".join(sr.decide({}, p))
+    assert "**N1**" in out and "N1 이 걸렸다" in out and "사용자 확인" in out
+
+
+def test_n1_refusal_shows_reason() -> None:
+    p = sr.parse_past("N1 거부: 등록 문서 미고정(PROTOCOL_HASH 없음)\n")
+    assert p["N1"].verdict == "(거부: 등록 문서 미고정(PROTOCOL_HASH 없음))" and not sr.passed(p["N1"])
+    t = "\n".join(sr.table(p, ["TF", "N1"]))
+    assert "(거부: 등록 문서 미고정" in t
