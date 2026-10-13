@@ -90,6 +90,38 @@ def test_아직_접수_시각이_안_된_행은_싣지_않는다() -> None:
     assert rows == [] and stats["not_yet"] == 1
 
 
+def test_옛_분기는_10b5_1_열이_없어도_읽고_결측으로_둔다() -> None:
+    """2006q1 벌크엔 AFF10B5ONE 열이 없다(2023-04 서식 개정 전). 읽기는 되고 표지는 결측(모름)이어야 한다."""
+    old = [c for c in SUBMISSION if c != "AFF10B5ONE"]
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("SUBMISSION.tsv", tsv(old, [
+            {"ACCESSION_NUMBER": "B1", "FILING_DATE": "02-FEB-2006", "DOCUMENT_TYPE": "4",
+             "ISSUERCIK": "320193", "ISSUERTRADINGSYMBOL": "AAPL"}]))
+        archive.writestr("NONDERIV_TRANS.tsv", tsv(TRANS, [
+            {"ACCESSION_NUMBER": "B1", "NONDERIV_TRANS_SK": "1", "TRANS_DATE": "31-JAN-2006", "TRANS_CODE": "P",
+             "TRANS_SHARES": "10", "TRANS_PRICEPERSHARE": "70", "TRANS_ACQUIRED_DISP_CD": "A",
+             "SHRS_OWND_FOLWNG_TRANS": "10", "DIRECT_INDIRECT_OWNERSHIP": "D"}]))
+        archive.writestr("REPORTINGOWNER.tsv", tsv(OWNER, [
+            {"ACCESSION_NUMBER": "B1", "RPTOWNERCIK": "0001", "RPTOWNERNAME": "X", "RPTOWNER_RELATIONSHIP": "Director"}]))
+    policy = EdgarPolicy(clock=ReplayClock(datetime(2026, 9, 19, tzinfo=UTC)))
+    rows, stats = form4.to_rows(form4.parse(buffer.getvalue()), tickers={}, policy=policy)
+    assert stats["rows"] == 1
+    assert rows[0]["plan_10b5_1"] is None, "옛 분기의 계획 표지는 모름이다 — 0(계획 아님)으로 읽으면 안 된다"
+
+
+def test_필수_열이_빠지면_조용히_넘기지_않는다() -> None:
+    import pytest
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("SUBMISSION.tsv", tsv([c for c in SUBMISSION if c != "ISSUERCIK"], []))
+        archive.writestr("NONDERIV_TRANS.tsv", tsv(TRANS, []))
+        archive.writestr("REPORTINGOWNER.tsv", tsv(OWNER, []))
+    with pytest.raises(ValueError, match="ISSUERCIK"):
+        form4.parse(buffer.getvalue())
+
+
 def test_분기_목록() -> None:
     assert form4.quarters("2024q3", "2025q2") == [(2024, 3), (2024, 4), (2025, 1), (2025, 2)]
 
