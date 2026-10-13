@@ -80,6 +80,13 @@
   <section class="panel">
     <h2>LLM 비용 <span class="sub" id="cost-since"></span></h2>
     <div class="kpis" id="cost-kpis"></div>
+    {# 그림(dashboard.md §8-5) — 일별 호출·비용 | 에이전트·모델별 비용. 토큰 네 갈래는 한 줄 쌓은 막대. #}
+    <div class="viz-pair">
+      <div><div id="air-daily-cap"></div><div id="air-daily-chart" class="chart" role="img" aria-label="일별 LLM 호출과 비용"></div></div>
+      <div><div id="air-cost-cap"></div><div id="air-cost-bar" class="viz" role="img" aria-label="에이전트·모델별 비용"></div></div>
+    </div>
+    <div id="air-token-cap"></div>
+    <div id="air-token-bar" class="viz" style="height:30px;min-height:30px" role="img" aria-label="토큰 네 갈래 구성"></div>
     <div id="cost-by-agent" class="mcard"></div>
     <p class="note">
       단가는 <code>config/quant_rl_trading.yaml</code>의 <code>llm.pricing</code>
@@ -106,6 +113,9 @@
     <div class="panel">
       <h2>News · SNS 거부 성적표</h2>
       <div id="verdict-scorecard"></div>
+      <div id="air-verdict-cap"></div>
+      <div id="air-verdict-daily" class="viz" role="img" aria-label="일별 거부 건수"></div>
+      <div id="air-verdict-cat" class="viz" role="img" aria-label="거부 사유별 건수"></div>
       <p class="note">
         거부는 점수가 아니라 판정이라 IC 로 검증할 수 없다. 차단한 종목의
         <strong>이후 수익률</strong>을 추적하는 것이 유일한 검증 수단이다.
@@ -133,5 +143,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='ai_review.js') }}"></script>
+<script src="{{ url_for('static', filename='ai_review.js', v='20261013v') }}"></script>
 {% endblock %}

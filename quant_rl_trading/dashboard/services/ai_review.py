@@ -23,12 +23,21 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from quant_rl_trading.dashboard.services.agent_health import scorecard_of
 from quant_rl_trading.store import ConfigNotFound, Store
 from quant_rl_trading.store.memo import derived
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+def _kst_days(stamps: pd.Series) -> pd.Series:
+    """시각 → 한국 날짜 문자열. 화면 그림의 날짜 축(§8-5)은 KST 하루다."""
+    moments = pd.to_datetime(stamps, utc=True)
+    return moments.dt.tz_convert(KST).dt.strftime("%Y-%m-%d")
 
 CACHE = "agent_cache"
 VERDICTS = "verdicts"
@@ -176,7 +185,7 @@ def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[st
     if frame.empty:
         return {
             "total": 0, "blocked": 0, "by_analyst": [], "by_market": [],
-            "recent": [], "scorecard": card,
+            "by_category": [], "daily": [], "recent": [], "scorecard": card,
         }
 
     counts = _verdict_counts(frame)
@@ -188,6 +197,15 @@ def verdict_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[st
             {"analyst": str(name), "count": int(count)}
             for name, count in blocked["analyst"].value_counts().items()
         ],
+        # 그림(§8-5)용 묶음 — 거부의 사유별 건수와 KST 날짜별 건수. 세기만 한다.
+        "by_category": [
+            {"category": str(name), "count": int(count)}
+            for name, count in blocked["category"].fillna("—").astype(str).value_counts().items()
+        ],
+        "daily": [
+            {"day": str(day), "count": int(count)}
+            for day, count in sorted(_kst_days(blocked["valid_from"]).value_counts().items())
+        ] if not blocked.empty else [],
         "recent": [
             {
                 "entity_id": str(row["entity_id"]),
@@ -326,6 +344,7 @@ def cost_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
             "unpriced_models": [],
             "tokens": {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0},
             "by_agent": [],
+            "daily": [],
         }
 
     pricing = _pricing_table(store, as_of=as_of)
@@ -383,7 +402,23 @@ def cost_activity(store: Store, *, as_of: datetime, lookback: int) -> dict[str, 
         "unpriced_models": sorted(unpriced["model"].astype(str).unique().tolist()),
         "tokens": tokens,
         "by_agent": by_agent,
+        # 일별(KST) 호출·비용 — 그림(§8-5)용 묶음. 비용은 단가 아는 호출만 더하고, 단가 모르는 호출 수를 따로 둔다.
+        "daily": _daily_costs(frame),
     }
+
+
+def _daily_costs(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    days = _kst_days(frame["computed_at"])
+    out: list[dict[str, Any]] = []
+    for day, group in frame.groupby(days):
+        priced = group["cost_usd"].notna()
+        out.append({
+            "day": str(day),
+            "calls": int(len(group)),
+            "cost_usd": round(float(group.loc[priced, "cost_usd"].sum()), 6),
+            "unpriced_calls": int((~priced).sum()),
+        })
+    return sorted(out, key=lambda row: row["day"])
 
 
 def _merge_markets(

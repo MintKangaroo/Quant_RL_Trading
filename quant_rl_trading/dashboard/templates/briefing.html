@@ -19,6 +19,8 @@
   <section class="grid2">
     <div class="panel">
       <h2>거시지표 — 발표 완료</h2>
+      <div id="brief-change-cap"></div>
+      <div id="brief-change-chart" class="viz" role="img" aria-label="지표별 직전 대비 변화율"></div>
       <div id="released" class="scroll mcard"></div>
       <p class="note">
         <strong>발표 시각은 <code>scheduled_at</code> 이고 <code>valid_from</code> 은
@@ -28,6 +30,8 @@
     </div>
     <div class="panel">
       <h2>거시지표 — 예정</h2>
+      <div id="brief-timeline-cap"></div>
+      <div id="brief-timeline" class="viz" role="img" aria-label="예정 발표 타임라인(KST)"></div>
       <div id="upcoming" class="scroll mcard"></div>
       <p class="note">
         예정 건의 <code>actual</code> 은 비어 있다. 0 으로 채우지 않는다 —
@@ -38,6 +42,8 @@
 
   <section class="panel">
     <h2>발표 해석 — 서프라이즈 · 시장 반응</h2>
+    <div id="brief-scatter-cap"></div>
+    <div id="brief-scatter" class="viz" role="img" aria-label="직전 대비 서프라이즈와 시장 반응"></div>
     <div id="explain" class="scroll mcard"></div>
     <p class="note">
       <strong>"예상치" 는 직전값이다 — 블룸버그 컨센서스가 아니다.</strong>
@@ -61,5 +67,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='briefing.js', v='20261013c') }}"></script>
+<script src="{{ url_for('static', filename='briefing.js', v='20261013w') }}"></script>
 {% endblock %}

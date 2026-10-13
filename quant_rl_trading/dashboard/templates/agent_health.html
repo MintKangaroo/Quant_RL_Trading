@@ -26,7 +26,9 @@
   <section class="grid2">
     <div class="panel">
       <h2>IC 추이 — 알파 감쇠 감시</h2>
-      <div class="chart" id="chart-ic"></div>
+      {# 시장마다 작은 그림 하나 · 주 단위 · 굵은 선 = 실전(가중치 > 0) — 모델 검증 탭과 같은 그림(scope.js icTrendChart, §8-5). #}
+      <div class="chart" id="chart-ic-kr" style="height:230px" role="img" aria-label="국장 Analyst 주간 IC 추이"></div>
+      <div class="chart" id="chart-ic-us" style="height:230px" role="img" aria-label="미장 Analyst 주간 IC 추이"></div>
       <p class="note">
         재측정이 쌓이면 IC 가 내려가는 것이 여기서 먼저 보인다.
         점이 하나뿐이면 아직 추이가 아니다.
@@ -51,5 +53,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='agent_health.js') }}"></script>
+<script src="{{ url_for('static', filename='agent_health.js', v='20261013v') }}"></script>
 {% endblock %}

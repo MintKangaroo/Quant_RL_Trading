@@ -16213,5 +16213,299 @@
       "max_lookback_days": 400,
       "missing_warn": 0.01
     }
+  },
+  "learning/candidates": {
+    "as_of": "2026-10-13T13:46:30+00:00",
+    "data": {
+      "candidates": [
+        {
+          "applied": false,
+          "change": "점수 모델을 랭커(LightGBM) → BE2(세트 트랜스포머 + GBM 순위 평균, FA 76열)로 바꾼다.",
+          "doc": "docs/protocols/final-model-round-2026-10.md",
+          "doc_fixed": true,
+          "id": "BE2",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early(7/1~9/30)"
+            }
+          ],
+          "stage": "model",
+          "status": "기각",
+          "title": "BE2 점수 모델"
+        },
+        {
+          "applied": null,
+          "change": "랭커 입력에 내부자 거래(국장 DART 임원·주요주주 G4 · 미장 Form 4 G7)를 더한다. 금고 통과 뒤 재학습 · shadow 를 거쳐 실전은 재승인.",
+          "doc": "docs/protocols/insider-forward-2026-09.md",
+          "doc_fixed": false,
+          "id": "AR",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early(7/1~9/30)"
+            }
+          ],
+          "stage": "model",
+          "status": "채택",
+          "title": "AR — 내부자 거래 재료를 랭커 입력에"
+        },
+        {
+          "applied": null,
+          "change": "점수 모델 입력에 꼬리 비대칭·pv_corr·왜도·FIP·12-1 모멘텀·거래대금 변동계수를 더한다.",
+          "doc": "docs/protocols/ta-ranker-features-2026-10.md",
+          "doc_fixed": false,
+          "id": "TK",
+          "judge": [
+            {
+              "date": "2026-11-23",
+              "label": "금고 second(10/1~11/13)"
+            }
+          ],
+          "stage": "model",
+          "status": "판정 전 — 결과 없음",
+          "title": "TK — 기술적 지표 여섯을 랭커 입력에"
+        },
+        {
+          "applied": null,
+          "change": "점수 모델 입력에 TTM 예측 백분위(하루 늦춤) 하나를 더한다.",
+          "doc": "docs/protocols/tsfm-ranker-and-finetune-2026-10.md",
+          "doc_fixed": true,
+          "id": "TR",
+          "judge": [
+            {
+              "date": "2026-11-23",
+              "label": "패널 판정 뒤 금고 second"
+            }
+          ],
+          "stage": "model",
+          "status": "판정 전 — 결과 없음",
+          "title": "TR — TTM 예측을 랭커 입력에"
+        },
+        {
+          "applied": false,
+          "change": "위험 하한 뒤에 TTM 예측 하위 20% 를 한 번 더 뺀다.",
+          "doc": "docs/protocols/vault-early-additions-2026-10.md",
+          "doc_fixed": true,
+          "id": "TF",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early · 과거 금고"
+            }
+          ],
+          "stage": "extra_floor",
+          "status": "기각",
+          "title": "TF — TTM 패자 하한"
+        },
+        {
+          "applied": false,
+          "change": "TTM 예측 하위 20% 와 상위 10%(떨어지는 칼날)를 함께 뺀다.",
+          "doc": "docs/protocols/vault-early-additions-2026-10.md",
+          "doc_fixed": true,
+          "id": "TB",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early · 과거 금고"
+            }
+          ],
+          "stage": "ceiling",
+          "status": "기각",
+          "title": "TB — TTM 하한 + 칼날 상한"
+        },
+        {
+          "applied": false,
+          "change": "(합성 점수 백분위 + TTM 백분위)/2 하위 10% 를 뺀다.",
+          "doc": "docs/protocols/vault-early-additions-2026-10.md",
+          "doc_fixed": true,
+          "id": "TC",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early"
+            }
+          ],
+          "stage": "combo_floor",
+          "status": "기각",
+          "title": "TC — 점수·TTM 결합 하한"
+        },
+        {
+          "applied": null,
+          "change": "두 번째 하한 자리를 TA 합성 점수 하위 20% 로(실전이 TTM 이면 'TTM 대신 TA', 비면 'TA 더하기').",
+          "doc": "docs/protocols/ta-floor-2026-10.md",
+          "doc_fixed": false,
+          "id": "TG",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "과거 금고"
+            },
+            {
+              "date": "2026-11-23",
+              "label": "금고 second"
+            }
+          ],
+          "stage": "extra_floor",
+          "status": "기각 · 다음 판정 2026-11-23",
+          "title": "TG — 기술적 합성(TA) 하한"
+        },
+        {
+          "applied": null,
+          "change": "최근 12개월 상장주식수를 가장 많이 늘린(CB 전환·BW 행사·제3자배정) 상위 10% 를 산 종목에서 뺀다. 통과 뒤 실전 신호 구현.",
+          "doc": "docs/protocols/past-vault-n1-2026-10.md",
+          "doc_fixed": true,
+          "id": "N1",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "과거 금고"
+            }
+          ],
+          "stage": "extra_floor",
+          "status": "기각",
+          "title": "N1 — 순주식발행 상위 10% 빼기"
+        },
+        {
+          "applied": null,
+          "change": "TTM 을 국장 종가로 조금 더 가르쳐(머리만) 패자 판별을 낫게 한다.",
+          "doc": "docs/protocols/tsfm-ranker-and-finetune-2026-10.md",
+          "doc_fixed": true,
+          "id": "TT",
+          "judge": [
+            {
+              "date": "2026-11-23",
+              "label": "패널 판정 뒤 금고 second"
+            }
+          ],
+          "stage": "extra_floor",
+          "status": "판정 전 — 결과 없음",
+          "title": "TT — TTM 국장 미세조정"
+        },
+        {
+          "applied": null,
+          "change": "코스피200 을 유동시총으로 들되 TTM 예측 하위 10% 만 뺀다(전방 장부).",
+          "doc": "docs/protocols/ixt-tsfm-losers-2026-10.md",
+          "doc_fixed": true,
+          "id": "IX-T",
+          "judge": [
+            {
+              "date": null,
+              "label": "전방 약 250세션"
+            }
+          ],
+          "stage": "risk_floor",
+          "status": "등록 — 판정일 미정",
+          "title": "IX-T — 지수 − TTM 패자"
+        },
+        {
+          "applied": null,
+          "change": "코스피200 을 유동시총으로 들되 랭커 하위 10% 만 뺀다(전방 장부).",
+          "doc": "docs/protocols/ix-index-minus-losers-2026-10.md",
+          "doc_fixed": true,
+          "id": "IX",
+          "judge": [
+            {
+              "date": null,
+              "label": "전방 약 250세션"
+            }
+          ],
+          "stage": "risk_floor",
+          "status": "등록 — 판정일 미정",
+          "title": "IX — 지수 − 랭커 패자"
+        },
+        {
+          "applied": false,
+          "change": "상위 24 → 72종목(완충 216)으로 넓혀 운에 덜 흔들리게 한다.",
+          "doc": "docs/protocols/breadth72-forward-2026-09.md",
+          "doc_fixed": false,
+          "id": "AQ",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early"
+            }
+          ],
+          "stage": "select",
+          "status": "기각",
+          "title": "AQ — 72종목"
+        },
+        {
+          "applied": false,
+          "change": "100종목 · 완충 500 · 20세션 재조정 · 확실히 나을 때만 교체(θ 1.0).",
+          "doc": "docs/protocols/vault-early-additions-2026-10.md",
+          "doc_fixed": true,
+          "id": "P1B2",
+          "judge": [
+            {
+              "date": "2026-10-13",
+              "label": "금고 early"
+            }
+          ],
+          "stage": "cadence",
+          "status": "기각",
+          "title": "P1-b″ — 회전 줄이기"
+        },
+        {
+          "applied": null,
+          "change": "P1-b″ 와 같은 구성을 금고 second 창에서 한 번 더(전방 shadow 장부 기록).",
+          "doc": "docs/protocols/p1b-prime-2026-10.md",
+          "doc_fixed": true,
+          "id": "P1B",
+          "judge": [
+            {
+              "date": "2026-11-23",
+              "label": "금고 second"
+            }
+          ],
+          "stage": "cadence",
+          "status": "판정 전 — 결과 없음",
+          "title": "P1-b′ — 회전 줄이기(전방)"
+        },
+        {
+          "applied": null,
+          "change": "노출 배수를 규칙 국면(V6) 대신 HMM 이 추정한 국면 확률로 정한다(코스피200 장부 둘로 비교).",
+          "doc": "docs/protocols/v2-hmm-exposure-2026-10.md",
+          "doc_fixed": false,
+          "id": "BB",
+          "judge": [
+            {
+              "date": "2026-10-27",
+              "label": "K200 HMM vs V6 장부 20세션 비교"
+            }
+          ],
+          "stage": "exposure",
+          "status": "기각 · 다음 판정 2026-10-27",
+          "title": "HMM 국면 확률 노출"
+        },
+        {
+          "applied": null,
+          "change": "맥락적 밴딧이 노출 배수를 고른다(v2 첫 학습 노출).",
+          "doc": "docs/protocols/v2-bandit-exposure-2026-10.md",
+          "doc_fixed": false,
+          "id": "R0",
+          "judge": [
+            {
+              "date": null,
+              "label": "사용자 승인 뒤"
+            }
+          ],
+          "stage": "exposure",
+          "status": "등록 — 판정일 미정",
+          "title": "R0 — 밴딧 노출"
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "ic_threshold": 0.03,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
   }
 }

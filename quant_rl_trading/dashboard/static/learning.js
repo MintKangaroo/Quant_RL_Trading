@@ -71,11 +71,10 @@ async function renderKpis() {
 
   const safe = (value) => String(value ?? "미측정").replace(/[&<>"']/g,
     (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-  document.getElementById("champion-evidence").innerHTML = `<dl class="model-evidence">
-    <div><dt>Ranker IC · ${safe(market)}</dt><dd>${ic}</dd></div>
-    <div><dt>합성 가중치</dt><dd>${ranker ? dec(ranker.weight, 2) : '미측정'}</dd></div>
-    <div><dt>측정 세션 수</dt><dd>${ranker?.sample_days != null ? num(ranker.sample_days) : '미측정'}</dd></div></dl>
-    <p class="cost-detail">버전 ${safe(ranker?.version)} · 측정 ${safe(ranker?.measured_at)}<br>재학습 시각 · feature drift: 미측정</p>`;
+  // IC·가중치 숫자는 위 KPI 줄과 랭커 칸이 이미 말한다(교통 정리 10/13 — 같은 숫자를 세 번 적지 않는다). 여기는 출처 한 줄.
+  document.getElementById("champion-evidence").innerHTML =
+    `<p class="cost-detail">게이트 기준 ranker ${safe(market)} · 버전 ${safe(ranker?.version)} · 측정 ${ranker?.measured_at ? kstStamp(ranker.measured_at, true) : "미측정"}
+     · 표본 ${ranker?.sample_days != null ? num(ranker.sample_days) + "일" : "미측정"} · 합성 가중치 ${ranker ? dec(ranker.weight, 2) : "미측정"} · 재학습 시각·feature drift 미측정</p>`;
   document.getElementById("model-comparison").innerHTML = `<table><thead><tr>
     <th>구분</th><th>현재 증거</th><th class="num">IC</th><th class="num">Marginal IC</th>
     <th class="num">순IR</th><th class="num">회전율</th><th class="num">총비용</th><th class="num">Seed 분산</th>
@@ -110,105 +109,92 @@ async function renderExposureEffect() {
 }
 
 async function renderIcHistory() {
-  let data;
-  try { ({ data } = await fetchJson("learning/ic-history")); } catch (error) {
-    charts["chart-ic"]?.clear();
-    throw error;
-  }
-  const instance = chart("chart-ic");
+  // 시장마다 작은 그림 하나(사용자 10/13 밤 "이게 뭐야" — 범례 쪽넘김·불규칙 시각 범주·흩뿌린 점을 다시 그렸다, §8-5).
+  // 실전 여부(가중치 > 0)는 그 시장 게이트의 가중치 — 화면이 정하지 않는다.
+  const [kr, us, gateKr, gateUs] = await Promise.all([
+    fetchJson("learning/ic-history?market=KR"), fetchJson("learning/ic-history?market=US"),
+    fetchJson("learning/gate?market=KR").catch(() => null), fetchJson("learning/gate?market=US").catch(() => null),
+  ]);
+  const weights = (g) => new Map(((g && g.data && g.data.roster) || []).map((r) => [r.analyst, r.weight]));
+  const wKr = weights(gateKr), wUs = weights(gateUs);
+  icTrendChart("chart-ic-kr", kr.data.series, { threshold: kr.data.threshold, weightOf: (a) => wKr.get(a) ?? null,
+    title: "국장 KR", empty: "국장 IC 이력 없음" });
+  icTrendChart("chart-ic-us", us.data.series, { threshold: us.data.threshold, weightOf: (a) => wUs.get(a) ?? null,
+    title: "미장 US", empty: "미장 IC 이력 없음" });
+}
 
-  if (!data.series.length) {
-    instance.clear();
-    instance.setOption({
-      ...BASE,
-      title: {
-        text: "해당 시장의 저장된 IC 이력 없음",
-        left: "center", top: "middle",
-        textStyle: { color: COLOR.dim, fontSize: 12, fontWeight: "normal" },
-      },
+/* ② 시험 중 후보 — 판정 일정 타임라인(KST 날짜). 점 = 판정일, 채움 = 지났다 · 테두리만 = 앞으로. 세로선 = 오늘(as_of).
+ * 결과는 매매 과정 탭 후보 칩과 같은 함수가 옮긴 것(판정을 새로 내리지 않는다). */
+const LS_STAGE = { risk_floor: "③ 거르기", extra_floor: "③ 거르기", ceiling: "③ 거르기", combo_floor: "③ 거르기",
+  score: "② 점수", filter: "③ 거르기", pick: "④ 고르기", weigh: "⑤ 비중", exposure: "⑥ 노출", order: "⑦ 주문",
+  model: "② 점수", verdicts: "③ 거르기", select: "④ 고르기", cadence: "④ 고르기", weights: "⑤ 비중", execute: "⑦ 주문" };
+async function renderCandidates() {
+  const el = document.getElementById("ls-cand-chart");
+  if (!el) return;
+  const body = await fetchJson("learning/candidates");
+  const all = body.data.candidates || [];
+  // '시험 중' 만 — 판정이 끝나 기각된 후보(다음 판정이 없는 것)는 한 줄로 접는다. 기록은 ④ 와 매매 과정 탭 후보 칩.
+  const done = (c) => c.status.startsWith("기각") && !c.status.includes("다음 판정");
+  const cands = all.filter((c) => !done(c));
+  const rejected = all.filter(done);
+  const today = kstDate(body.as_of);
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
+  const pts = cands.flatMap((c) => (c.judge || []).filter((j) => j.date).map((j) => ({ c, j, ms: Date.parse(`${j.date}T00:00:00Z`) })));
+  const cap = document.getElementById("ls-cand-cap");
+  const list = document.getElementById("ls-cand-list");
+  if (!pts.length) {
+    el.style.display = "none";
+    if (cap) cap.innerHTML = "";
+  } else {
+    el.style.display = "";
+    const rows = [...new Set(cands.map((c) => c.id))];
+    el.style.height = `${rows.length * (vizPhone() ? 20 : 22) + 34}px`;
+    if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "지난 판정일"], [COLOR.accent, "다가오는 판정일"], [COLOR.ok, "실전 적용"]], `세로선 = 오늘 ${today}(KST)`);
+    const fmt = (ms) => { const d = new Date(ms); return `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`; };
+    chart("ls-cand-chart").setOption({
+      ...BASE, legend: { show: false },
+      tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const { c, j } = pts[p.dataIndex];
+        return `${frEsc(c.id)} · ${frEsc(c.title)}<br>${frEsc(j.label || "판정")} ${frEsc(j.date)}<br>${frEsc(c.status)}`; } },
+      grid: { left: 8, right: 16, top: 6, bottom: 20, containLabel: true },
+      xAxis: { type: "time", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: fmt, hideOverlap: true } },
+      yAxis: { type: "category", data: rows, inverse: true, ...AXIS, axisTick: { show: false },
+               splitLine: { show: true, lineStyle: { color: COLOR.border, opacity: 0.4 } } },
+      series: [{ type: "scatter", symbolSize: 9,
+        data: pts.map(({ c, ms }) => {
+          const color = c.applied ? COLOR.ok : ms > todayMs ? COLOR.accent : COLOR.muted;
+          return { value: [ms, c.id], itemStyle: ms > todayMs && !c.applied
+            ? { color: "transparent", borderColor: color, borderWidth: 1.5 } : { color } };
+        }),
+        markLine: { silent: true, symbol: "none", data: [{ xAxis: todayMs }], lineStyle: { color: COLOR.accent, type: "dashed" }, label: { show: false } } }],
     }, true);
-    return;
   }
+  if (list) {
+    list.innerHTML = cands.length ? `<table class="dense ls-cand-table"><thead><tr><th>후보</th><th>단계</th><th>무엇을 바꾸나</th><th>판정일</th><th>상태</th></tr></thead><tbody>${
+      cands.map((c) => `<tr><td><strong>${frEsc(c.id)}</strong></td><td class="sub">${frEsc(LS_STAGE[c.stage] || c.stage)}</td>
+        <td>${frEsc(c.change || c.title)}</td><td class="num">${(c.judge || []).map((j) => frEsc(j.date || "미정")).join(" · ") || "미정"}</td>
+        <td class="${c.applied ? "good" : ""}">${frEsc(c.status)}</td></tr>`).join("")}</tbody></table>`
+      : `<p class="empty">시험 중인 후보가 없다.</p>`;
+    if (rejected.length) list.innerHTML += `<p class="ls-hint">판정이 끝나 기각된 후보 ${rejected.length}개 — ${rejected.map((c) => frEsc(c.id)).join(" · ")}</p>`;
+  }
+}
 
-  const stamps = [...new Set(data.series.flatMap((s) => s.points.map((p) => p.at)))].sort();
-
-  // **애널리스트마다 다른 색.** 예전에는 색 넷을 `% 4` 로 돌려써서 여섯 중
-  // 둘씩 같은 색이었다(chart↔regime 빨강, event↔risk 초록) — 범례를 짚어
-  // 가며 봐야 어느 선인지 알 수 있었다. 색은 구분하라고 있는 것이다.
-  //
-  // 손익 색(up/down)은 **쓰지 않는다.** 이 차트에서 초록·빨강은 "올랐다/
-  // 내렸다" 가 아니라 그냥 계열 구분인데, 같은 화면의 다른 패널에서는 손익을
-  // 뜻해서 한 색이 두 가지를 말하게 된다.
-  // 팔레트는 scope.js COLOR.series (:root --s1~--s6) — 여기 다시 적으면
-  // 토큰을 고친 날 이 파일만 옛 색으로 남는다.
-  const colorOf = (index) => COLOR.series[index % COLOR.series.length];
-
-  // **최신값을 범례에 넣는다.** 선 끝에 라벨을 달았더니 값이 가까운 계열끼리
-  // 겹쳐서 `0.074`·`0.072` 가 한 덩어리로 뭉갰다(2026-08-19 아이폰 실측).
-  // ECharts 는 endLabel 겹침을 피해 주지 않는다 — 자리를 옮기는 대신 값을
-  // 겹칠 수 없는 곳으로 옮긴다.
-  //
-  // 통과(✓)·관찰(·)도 같이 붙인다. 점선 위아래를 눈으로 재지 않아도 지금
-  // 무엇이 매매에 쓰이는지 범례만 보면 안다.
-  const label = (series) => {
-    const last = series.points.length
-      ? series.points[series.points.length - 1].ic : null;
-    if (last === null || last === undefined) return series.analyst;
-    const mark = last >= data.threshold ? "✓" : "·";
-    return `${series.analyst} ${last.toFixed(3)} ${mark}`;
-  };
-
-  const line = (series, index) => ({
-    name: label(series),
-    type: "line",
-    // 점이 하나면 선이 안 보인다. 심볼을 항상 그린다.
-    showSymbol: true,
-    symbolSize: 6,
-    // 측정이 드문드문이라 점 사이가 비는 날이 많다. 이어 그리지 않으면
-    // 선이 조각나 어느 계열인지 못 쫓아간다.
-    connectNulls: true,
-    data: stamps.map((at) => {
-      const hit = series.points.find((p) => p.at === at);
-      return hit ? hit.ic : null;
-    }),
-    lineStyle: { width: 1.8, color: colorOf(index) },
-    itemStyle: { color: colorOf(index) },
-  });
-
-  instance.setOption({
-    ...BASE,
-    // 범례를 **아래로** 내린다. 위에 두면 계열 여섯이 두 줄을 먹어 차트가
-    // 그만큼 납작해진다(모바일에서 특히).
-    legend: {
-      ...BASE.legend,
-      data: data.series.map(label),
-      top: "auto", bottom: 0, itemGap: 8, itemWidth: 12,
-      // 이름+값이라 항목이 길다. 줄바꿈을 허용하고 그만큼 아래를 비워 둔다 —
-      // 안 그러면 범례가 x축 라벨 위에 얹힌다.
-      type: "scroll", width: "96%",
-      textStyle: { ...(BASE.legend && BASE.legend.textStyle), fontSize: 10 },
-    },
-    // 오른쪽 여백을 줄였다(끝 라벨을 없앴으므로). 아래는 범례 두 줄 + x축.
-    grid: { left: 46, right: 16, top: 14, bottom: 74 },
-    xAxis: { type: "category", data: stamps.map((at) => at.slice(0, 16).replace("T", " ")), ...AXIS },
-    yAxis: { type: "value", scale: true, ...AXIS },
-    series: [
-      ...data.series.map(line),
-      {
-        // 합격선을 배경에 깐다. store.config 에서 읽은 값이지 코드에 적은
-        // 숫자가 아니다 (services/learning.py 가 매 요청 다시 읽는다).
-        name: `합격선(${data.threshold})`, type: "line",
-        data: stamps.map(() => data.threshold),
-        showSymbol: false, lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
-        // **합격선 위를 옅게 칠한다.** 선 하나보다 면이 먼저 읽힌다 — 어느
-        // 계열이 "쓰이는 쪽" 에 있는지가 한눈에 들어온다.
-        markArea: {
-          silent: true,
-          itemStyle: { color: COLOR.ok, opacity: 0.06 },
-          data: [[{ yAxis: data.threshold }, { yAxis: "max" }]],
-        },
-      },
-    ],
+/* ④ 기록 — 월별 시행 판정 쌓은 막대(채택·기각·보류). 카탈로그·대장이 적은 판정을 세기만 한다. */
+function drawHistoryChart(trials) {
+  const el = document.getElementById("ls-hist-chart");
+  const cap = document.getElementById("ls-hist-cap");
+  if (!el) return;
+  const months = [...new Set(trials.map((t) => String(t.date || "").slice(0, 7)).filter((m) => m.length === 7))].sort();
+  if (!months.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  const kinds = [["채택", COLOR.ok], ["보류", COLOR.warn], ["기각", COLOR.dim]];
+  if (cap) cap.innerHTML = vizCaption(kinds.map(([k, c]) => [c, k]), "월별 시행 판정 건수 · 아래 '펼쳐 보기' 에 한 줄씩");
+  chart("ls-hist-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" } },
+    grid: { left: 30, right: 6, top: 6, bottom: 20 },
+    xAxis: { type: "category", data: months, ...AXIS, axisTick: { show: false } },
+    yAxis: { type: "value", ...AXIS, minInterval: 1 },
+    series: kinds.map(([k, c]) => ({ name: k, type: "bar", stack: "r", barMaxWidth: 22, itemStyle: { color: c },
+      data: months.map((m) => trials.filter((t) => String(t.date || "").startsWith(m) && t.result === k).length || null) })),
   }, true);
 }
 
@@ -870,6 +856,7 @@ async function renderTrialHistory() {
   const body = await fetchJson("learning/trial-history");
   const data = body.data;
   lsHistory = data;
+  drawHistoryChart(data.trials || []);
   const r = data.summary.by_result;
   const fold = document.getElementById("history-fold-count");
   if (fold) {
@@ -888,4 +875,4 @@ async function renderTrialHistory() {
   lsDrawHistory();
 }
 
-runAll([renderFinalRound, renderLiveModels, renderTrialHistory, renderKpis, renderGate, renderIcHistory, renderExposureEffect, renderResearchLedger]);
+runAll([renderKpis, renderLiveModels, renderCandidates, renderFinalRound, renderIcHistory, renderGate, renderExposureEffect, renderTrialHistory, renderResearchLedger]);

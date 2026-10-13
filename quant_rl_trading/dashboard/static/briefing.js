@@ -163,9 +163,93 @@ function explainRows(items) {
     + `<th class="num">시장 반응</th><th>해석</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
+/* -- 그림 (dashboard.md §8-5) ---------------------------------------------------
+ * 거시지표의 변화는 손익이 아니다 — 실업률 상승과 GDP 상승은 같은 부호지만 반대 뜻(§8-2). 그래서 막대는 무채색,
+ * 방향은 부호로만. 시각 축은 **한국 시간** — ECharts 의 시간 축은 보는 기기 시간대로 찍으므로 KST 로 옮긴 값을
+ * UTC 로 읽어 적는다(kstStamp 와 같은 결과). */
+const KST_MS = 9 * 3600 * 1000;
+const kstAxis = (ms) => { const d = new Date(ms); const p2 = (n) => String(n).padStart(2, "0");
+  return `${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`; };
+
+/** 예정 발표 타임라인 — 국장·미장 두 줄, 점 = 발표, 세로선 = 지금(as_of). */
+function drawTimeline(items, asOf) {
+  const el = document.getElementById("brief-timeline");
+  const cap = document.getElementById("brief-timeline-cap");
+  if (!el) return;
+  if (!items.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  el.style.height = "150px";
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "발표 예정"], [COLOR.accent, "지금(as_of)"]], "시각 KST · 점을 누르면 지표");
+  const rows = ["한국", "미국"];
+  const now = Date.parse(asOf) + KST_MS;
+  const phone = vizPhone();
+  chart("brief-timeline").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const it = items[p.dataIndex]; return `${esc(it.indicator)} · ${esc(market(it.market))}<br>${kstStamp(it.scheduled_at, true)}<br>${esc(it.release_name)}`; } },
+    grid: { left: 8, right: 16, top: 10, bottom: 22, containLabel: true },
+    xAxis: { type: "time", ...AXIS, min: now, axisLabel: { ...AXIS.axisLabel, formatter: (v) => kstAxis(v), hideOverlap: true } },
+    yAxis: { type: "category", data: rows, ...AXIS, axisTick: { show: false }, splitLine: { show: true, lineStyle: { color: COLOR.border, opacity: 0.4 } } },
+    series: [{
+      type: "scatter", symbolSize: 9,
+      labelLayout: { hideOverlap: true },   // 같은 날 몰린 발표는 이름이 겹친다 — 겹치면 숨기고 툴팁이 말한다
+      data: items.map((it, i) => ({ value: [Date.parse(it.scheduled_at) + KST_MS, it.market === "KR" ? "한국" : "미국"],
+        label: { show: !phone || i < 6, position: i % 2 ? "bottom" : "top", formatter: it.indicator, color: COLOR.muted, fontSize: 9.5, fontFamily: "IBM Plex Mono" } })),
+      itemStyle: { color: COLOR.muted },
+      markLine: { silent: true, symbol: "none", data: [{ xAxis: now }], lineStyle: { color: COLOR.accent, type: "dashed" }, label: { show: false } },
+    }],
+  }, true);
+}
+
+/** 발표 완료 — 지표별 직전 대비 변화율(%) 가로 막대(0 기준 좌우). 직전값이 0·없음이면 뺀다(비율이 없다). */
+function drawChange(items) {
+  const el = document.getElementById("brief-change-chart");
+  const cap = document.getElementById("brief-change-cap");
+  if (!el) return;
+  const rows = items.filter((it) => it.actual !== null && it.previous !== null && it.previous !== 0)
+    .map((it) => ({ name: `${it.indicator} · ${market(it.market)}`, value: (it.actual - it.previous) / Math.abs(it.previous) * 100, it }))
+    .slice(0, vizPhone() ? 10 : 16).reverse();
+  if (!rows.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  el.style.height = `${rows.length * (vizPhone() ? 20 : 22) + 30}px`;
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "직전 대비 변화율"]], "무채색 — 오르내림의 좋고 나쁨은 지표마다 다르다");
+  chart("brief-change-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const r = rows[p.dataIndex]; return `${esc(r.name)}<br>${num(r.it.previous)} → ${num(r.it.actual)} (${r.value > 0 ? "+" : ""}${r.value.toFixed(2)}%)<br>${kstStamp(r.it.scheduled_at, true)}`; } },
+    grid: { left: 8, right: 40, top: 4, bottom: 18, containLabel: true },
+    xAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${v}%` } },
+    yAxis: { type: "category", data: rows.map((r) => vizTrunc(r.name, vizPhone() ? 16 : 26)), ...AXIS, axisTick: { show: false } },
+    series: [{ type: "bar", barMaxWidth: 12, data: rows.map((r) => r.value), itemStyle: { color: COLOR.muted },
+      label: { show: true, position: "right", color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono",
+               formatter: (p) => `${p.value > 0 ? "+" : ""}${p.value.toFixed(1)}%` } }],
+  }, true);
+}
+
+/** 발표 해석 — x = 직전 대비 서프라이즈(%), y = 시장 반응(지수 %). 둘 다 있는 발표만. */
+function drawScatter(items) {
+  const el = document.getElementById("brief-scatter");
+  const cap = document.getElementById("brief-scatter-cap");
+  if (!el) return;
+  const pts = items.filter((i) => i.brief && i.surprise && i.surprise.pct !== null && i.reaction && i.reaction.change_pct !== null);
+  if (!pts.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  el.style.height = "220px";
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "발표 하나"]], "x 직전 대비 서프라이즈 % · y 그날 지수 반응 %");
+  chart("brief-scatter").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const i = pts[p.dataIndex]; return `${esc(i.indicator)} · ${esc(market(i.market))}<br>서프라이즈 ${i.surprise.pct}% · ${esc(i.reaction.index)} ${i.reaction.change_pct.toFixed(2)}%`; } },
+    grid: { left: 44, right: 16, top: 10, bottom: 24 },
+    xAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${v}%` } },
+    yAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${v}%` } },
+    series: [{ type: "scatter", symbolSize: 8, itemStyle: { color: COLOR.muted },
+      data: pts.map((i) => [Number(i.surprise.pct), i.reaction.change_pct]),
+      label: { show: true, position: "right", formatter: (p) => pts[p.dataIndex].indicator, color: COLOR.dim, fontSize: 9.5 } }],
+  }, true);
+}
+
 async function renderExplain() {
   const body = await fetchJson("briefing/explain");
   document.getElementById("explain").innerHTML = explainRows(body.data.releases);
+  drawScatter(body.data.releases || []);
 }
 
 async function render() {
@@ -183,6 +267,8 @@ async function render() {
 
   document.getElementById("released").innerHTML = releaseRows(d.released, { withActual: true });
   document.getElementById("upcoming").innerHTML = releaseRows(d.upcoming, { withActual: false });
+  drawChange(d.released);
+  drawTimeline(d.upcoming, body.as_of);
   document.getElementById("news").innerHTML = newsRows(d.news);
 
   const warnings = [];

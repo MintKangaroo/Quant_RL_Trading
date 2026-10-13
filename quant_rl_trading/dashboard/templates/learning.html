@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}모델 검증 · Quant_RL_Trading{% endblock %}
 {% block styles %}
-<link rel="stylesheet" href="{{ url_for('static', filename='control.css', v='20261013b') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='control.css', v='20261013v') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'learning' %}{% include "_scope.html" %}{% endwith %}
@@ -11,20 +11,45 @@
     <a class="control-link" href="/trading">운용 관제로 돌아가기</a>
   </div>
   <section class="alerts" id="alerts" aria-live="polite"></section>
-  <nav class="ls-jump" aria-label="학습 탭 구역">
-    <a href="#zone-now"><span class="section-index">01</span>지금 도는 학습</a>
-    <a href="#zone-live"><span class="section-index">02</span>지금 매매에 쓰이는 모델</a>
-    <a href="#zone-history"><span class="section-index">03</span>과거 학습 내역</a>
-    <a href="#zone-detail"><span class="section-index">04</span>검증 세부</a>
+  {# 2026-10-13 밤 사용자 "교통 정리가 필요할 거 같아" — 질문 순서로 다시 묶었다(dashboard.md §5 '교통 정리').
+     ① 지금 매매 모델은 건강한가 ② 무엇이 시험 중이고 언제 판정되나 ③ 신호 진단 ④ 기록(접힘). #}
+  <nav class="ls-jump" aria-label="모델 검증 탭 구역">
+    <a href="#zone-live"><span class="section-index">01</span>지금 모델은 건강한가</a>
+    <a href="#zone-now"><span class="section-index">02</span>시험 중 · 판정 일정</a>
+    <a href="#zone-detail"><span class="section-index">03</span>신호 진단</a>
+    <a href="#zone-history"><span class="section-index">04</span>기록</a>
   </nav>
+
+  <section class="ls-zone" id="zone-live" aria-labelledby="zone-live-title">
+    <header class="ls-zone-head">
+      <h2 id="zone-live-title"><span class="section-index">01</span>지금 매매 모델은 건강한가</h2>
+      <span class="sub">랭커 적중도·모델 파일 · 병행 트랙 성과</span>
+    </header>
+    <p class="ls-lede">매매가 어떤 단계로 정해지는지(단계·설정 값·걸러진 종목)는 <a href="/pipeline">매매 과정</a> 탭,
+      장부별 지수 대비 IR 표는 <a href="/trading">트레이딩</a> 탭에 있다 — 여기서는 되풀이하지 않는다.</p>
+    <section class="kpis" id="kpis" aria-label="모델 관측 지표"></section>
+    <div class="ls-live-grid">
+      <section class="ls-block" aria-labelledby="live-ranker-title">
+        <h3 id="live-ranker-title">랭커 — 지금 상태 <span class="sub">주간 적중도 측정 · 모델 파일</span></h3>
+        <div id="live-ranker"></div>
+        <div id="champion-evidence" class="ls-champion"><p class="empty">해당 시점의 모델 관측을 확인하고 있다.</p></div>
+      </section>
+      <section class="ls-block" aria-labelledby="live-tracks-title">
+        <h3 id="live-tracks-title">병행 트랙 <span class="sub">돈이 오가지 않는 비교 장부 · 지금 성과</span></h3>
+        <div id="live-tracks"></div>
+      </section>
+    </div>
+  </section>
 
   <section class="ls-zone" id="zone-now" aria-labelledby="zone-now-title">
     <header class="ls-zone-head">
-      <h2 id="zone-now-title"><span class="section-index">01</span>지금 도는 학습</h2>
-      <span class="sub">마지막 모델 회차 · 지금 도는 것 → 대기 → 끝난 것</span>
+      <h2 id="zone-now-title"><span class="section-index">02</span>무엇이 시험 중이고 언제 판정되나</h2>
+      <span class="sub">후보 판정 일정 · 마지막 모델 회차 · Champion / Challenger</span>
     </header>
-    <p class="ls-lede">지금은 <strong>마지막 모델 회차</strong>를 돌린다 — 지금 매매에 쓰는 랭커(GBM)보다 나은 점수 모델이
-      있는지 마지막으로 확인하는 학습이다. 트랜스포머(BE) → LambdaRank(BF) → 잔차 RL(BG) 순서로 밤마다 하나씩 돈다.</p>
+    <div id="ls-cand-cap"></div>
+    <div id="ls-cand-chart" class="viz" role="img" aria-label="시험 중 후보의 판정 일정"></div>
+    <div id="ls-cand-list" class="mcard"></div>
+    <h3 class="ls-subhead">마지막 모델 회차 <span class="sub">트랜스포머(BE) → LambdaRank(BF) → 잔차 RL(BG)</span></h3>
     <details class="fold ls-why">
       <summary>이 회차는 왜 돌리나 · 어떤 규칙으로 판정하나</summary>
       <ul class="ls-points">
@@ -46,80 +71,23 @@
     <p class="note">그래프의 검증 선은 <strong>학습 자료 안에서 떼어 둔 내부 검증</strong>이고 높을수록 좋게 그렸다.
       최종 판정 구간의 수익·IC 는 학습이 끝난 뒤 시행 대장에만 적힌다 — 사전등록이 학습 중에 그 구간을
       보지 않기로 정했기 때문이다. 상태 배지의 기준(멈춤 배수·추세 창)은 설정 파일에서 온다.</p>
-  </section>
-
-  <section class="ls-zone" id="zone-live" aria-labelledby="zone-live-title">
-    <header class="ls-zone-head">
-      <h2 id="zone-live-title"><span class="section-index">02</span>랭커 상태 · 병행 트랙</h2>
-      <span class="sub">점수 모델이 잘 맞히고 있나 · 비교 장부</span>
-    </header>
-    <p class="ls-lede">매매가 어떤 순서로 정해지는지(단계·설정 값·걸러진 종목)는 <a href="/pipeline">매매 과정</a> 탭,
-      장부별 지수 대비 IR 은 <a href="/trading">트레이딩</a> 탭에 있다.</p>
-    <div class="ls-live-grid">
-      <section class="ls-block" aria-labelledby="live-ranker-title">
-        <h3 id="live-ranker-title">랭커 — 지금 상태 <span class="sub">주간 적중도 측정 · 모델 파일</span></h3>
-        <div id="live-ranker"></div>
-      </section>
-      <section class="ls-block" aria-labelledby="live-tracks-title">
-        <h3 id="live-tracks-title">병행 트랙 <span class="sub">돈이 오가지 않는 비교 장부</span></h3>
-        <div id="live-tracks"></div>
-      </section>
-    </div>
-  </section>
-
-  <section class="ls-zone" id="zone-history" aria-labelledby="zone-history-title">
-    <header class="ls-zone-head">
-      <h2 id="zone-history-title"><span class="section-index">03</span>과거 학습 내역</h2>
-      <span class="sub">무엇을 해봤고 왜 안 됐나 · 최신이 위</span>
-    </header>
-    {# 접고 펼친다(사용자 2026-10-13). 기본은 접힘 — 펼침 상태는 이 페이지가 떠 있는 동안만(브라우저 저장소 금지). #}
-    <details class="ls-fold" id="history-fold">
-      <summary><span>펼쳐 보기</span> <span class="sub" id="history-fold-count"></span></summary>
-      <div id="history-summary"></div>
-      <div id="history-lessons"></div>
-      <div id="history-filter" class="ls-filter" role="group" aria-label="분류로 거르기"></div>
-      <div id="history-list"></div>
-    </details>
+    <section class="panel">
+      <h2>Champion / Challenger <span class="right sub">없는 증거는 미측정 · 단계 Training → Validation → OOS → Shadow → Paper → Live</span></h2>
+      <div class="model-comparison mcard" id="model-comparison"></div>
+    </section>
   </section>
 
   <section class="ls-zone" id="zone-detail" aria-labelledby="zone-detail-title">
     <header class="ls-zone-head">
-      <h2 id="zone-detail-title"><span class="section-index">04</span>검증 세부</h2>
-      <span class="sub">Analyst 적중도 · 비교 증거 · 연구 예산</span>
+      <h2 id="zone-detail-title"><span class="section-index">03</span>신호 진단</h2>
+      <span class="sub">Analyst 적중도(IC) 추이 · 합성에 참여하는 신호</span>
     </header>
-  </section>
-  <section class="kpis" id="kpis" aria-label="모델 관측 지표"></section>
-  <section class="model-intro">
     <section class="panel">
-      <h2>Champion 기준</h2>
-      <div class="model-identity">
-        <span class="model-role">SUPERVISED RANKING + RULES</span>
-        <strong>Ranker + 규칙 기반 운용</strong>
-        <p>종목 선정은 순위 신호, 배분·위험·주문은 결정론적 규칙.</p>
-        <div id="champion-evidence"><p class="empty">해당 시점의 모델 관측을 확인하고 있다.</p></div>
+      <h2>신호 IC 추이 — 알파 감쇠 감시 <span class="right sub">주 단위 · 굵은 선 = 실전(가중치 &gt; 0) · 점선 = 합격선(설정)</span></h2>
+      <div class="viz-pair">
+        <div class="chart" id="chart-ic-kr" style="height:260px" role="img" aria-label="국장 Analyst 주간 IC 추이"></div>
+        <div class="chart" id="chart-ic-us" style="height:260px" role="img" aria-label="미장 Analyst 주간 IC 추이"></div>
       </div>
-    </section>
-    <section class="panel">
-      <h2>Challenger 검증</h2>
-      <div class="model-identity">
-        <span class="model-role">EVIDENCE BEFORE PROMOTION</span>
-        <strong>승격 근거 미측정</strong>
-        <p>현재 비교 증거가 없어 승격 판정을 표시할 수 없다.</p>
-        <div class="model-stage" aria-label="검증 단계 목록 · 각 단계의 통과 증거 미측정">
-          <span>Training</span><span>Validation</span><span>OOS</span><span>Shadow</span><span>Paper</span><span>Live</span>
-        </div>
-        <p>단계 목록은 통과 상태가 아니다. 비용 후 성과와 검증 자료를 함께 확인한다.</p>
-      </div>
-    </section>
-  </section>
-  <section class="panel">
-    <h2>Champion / Challenger <span class="right sub">없는 증거는 미측정</span></h2>
-    <div class="model-comparison mcard" id="model-comparison"></div>
-  </section>
-  <section class="grid2">
-    <section class="panel">
-      <h2>Analyst IC 이력 <span class="right sub">관측값 · 설정 합격선</span></h2>
-      <div class="chart" id="chart-ic"></div>
       {# regime 은 IC 관문 대상이 아니다 — 노출 기여 한 줄(modelops-ranker.md ①). 표시만, 임계치 없음. #}
       <p class="note" id="exposure-effect"></p>
     </section>
@@ -128,16 +96,34 @@
       <div id="gate" class="scroll mcard"></div>
     </section>
   </section>
-  <section class="panel">
-    <h2>연구 예산 · 홀드아웃 기록</h2>
-    <div id="research-ledger"></div>
-    <p class="note">시행 수와 홀드아웃 접근 기록은 평가의 근거다. 기록이 비어 있다는 이유로 통과나 안전을 뜻하지 않는다.</p>
+
+  <section class="ls-zone" id="zone-history" aria-labelledby="zone-history-title">
+    <header class="ls-zone-head">
+      <h2 id="zone-history-title"><span class="section-index">04</span>기록</h2>
+      <span class="sub">과거 학습 내역 · 연구 예산 · 홀드아웃 — 접혀 있다</span>
+    </header>
+    <div id="ls-hist-cap"></div>
+    <div id="ls-hist-chart" class="chart" style="height:150px" role="img" aria-label="월별 시행 판정 — 채택·기각·보류"></div>
+    {# 접고 펼친다(사용자 2026-10-13). 기본은 접힘 — 펼침 상태는 이 페이지가 떠 있는 동안만(브라우저 저장소 금지). #}
+    <details class="ls-fold" id="history-fold">
+      <summary><span>과거 학습 내역 펼쳐 보기</span> <span class="sub" id="history-fold-count"></span></summary>
+      <div id="history-summary"></div>
+      <div id="history-lessons"></div>
+      <div id="history-filter" class="ls-filter" role="group" aria-label="분류로 거르기"></div>
+      <div id="history-list"></div>
+    </details>
+    <details class="ls-fold">
+      <summary><span>연구 예산 · 홀드아웃 기록</span></summary>
+      <div id="research-ledger"></div>
+      <p class="note">시행 수와 홀드아웃 접근 기록은 평가의 근거다. 기록이 비어 있다는 이유로 통과나 안전을 뜻하지 않는다.</p>
+    </details>
   </section>
   {# 과거 RL 진단(RL 실행 기록·가치 추정·커리큘럼·학습 보상·최적화 진단·reward/균등가중 비교·편차)은 화면에서 뺐다
-     (사용자 2026-10-13 밤 — 배분 RL 은 9월 종료, 기록은 docs/rl-postmortem.md·창고). '연구 작업' 은 시스템 탭으로. #}
+     (사용자 2026-10-13 밤 — 배분 RL 은 9월 종료, 기록은 docs/rl-postmortem.md·창고). '연구 작업' 은 시스템 탭으로.
+     Champion 기준·Challenger 검증 소개 카드 둘은 뺐다 — 같은 말을 아래 비교 표와 랭커 칸이 숫자로 한다. #}
 </main>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='learning.js', v='20261013c') }}"></script>
+<script src="{{ url_for('static', filename='learning.js', v='20261013v') }}"></script>
 {% endblock %}

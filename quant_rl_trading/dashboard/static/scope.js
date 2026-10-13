@@ -111,6 +111,197 @@ function chart(id) {
   return charts[id];
 }
 
+/* -- 공통 그림 두 가지 (dashboard.md §8-5 시각 문법) ------------------------------
+ * 탭마다 같은 꼴을 따로 짜면 축·색·높이가 탭마다 갈린다. 순위·비교는 `hbarChart`, '언제 어떤 상태였나' 는
+ * `stripChart`. 둘 다 API 가 준 값을 그리기만 한다 — 계산하지 않는다. 폰(≤640)은 막대 수를 줄이고 가로 스크롤이 없다. */
+function vizPhone() {
+  return typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 640px)").matches : false;
+}
+function vizTrunc(text, max) {
+  const t = String(text ?? "");
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+function vizEsc(value) {
+  return String(value ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+/** 가로 막대 — rows: [{label, value, color?, tip?}] (큰 것부터). opts: {top, phoneTop, format, labelOf(row), log, max, labelMax, min} */
+function hbarChart(id, rows, opts = {}) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  // 그릴 것이 없으면 자리를 접는다 — 빈 격자는 '0' 으로 읽힌다. 없다는 말은 아래 표·빈 상태가 한다.
+  if (el.style) el.style.display = rows.length ? "" : "none";
+  if (!rows.length) return null;
+  const phone = vizPhone();
+  const shown = rows.slice(0, phone ? (opts.phoneTop || 10) : (opts.top || rows.length)).slice().reverse();
+  if (el.style) el.style.height = `${Math.max(opts.min || 110, shown.length * (phone ? 20 : 22) + 18)}px`;
+  const fmt = opts.format || ((v) => num(v));
+  const c = chart(id);
+  c.setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item",
+      formatter: (p) => { const r = shown[p.dataIndex]; return r.tip || `${vizEsc(r.label)}<br>${fmt(r.value)}`; } },
+    grid: { left: 8, right: opts.right || 64, top: 4, bottom: 4, containLabel: true },
+    xAxis: { type: opts.log ? "log" : "value", show: false, max: opts.max },
+    yAxis: { type: "category", data: shown.map((r) => vizTrunc(r.label, phone ? 14 : (opts.labelMax || 26))), ...AXIS, axisTick: { show: false } },
+    series: [{
+      type: "bar", barMaxWidth: 14,
+      data: shown.map((r) => ({ value: r.value, itemStyle: { color: r.color || COLOR.muted } })),
+      label: { show: true, position: "right", color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10,
+               formatter: (p) => (opts.labelOf ? opts.labelOf(shown[p.dataIndex]) : fmt(p.value)) },
+    }],
+  }, true);
+  return c;
+}
+
+/** 칸 띠 — 줄(rows)마다 시점(cols)별 상태 칸. cells: [{row, col, color, tip}] (row·col 은 이름). 빈칸은 '기록 없음'. */
+function stripChart(id, rows, cols, cells, opts = {}) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  if (el.style) el.style.display = rows.length && cols.length && cells.length ? "" : "none";
+  if (!rows.length || !cols.length || !cells.length) return null;
+  const phone = vizPhone();
+  if (el.style) el.style.height = `${Math.max(opts.min || 90, rows.length * (phone ? 20 : 22) + 30)}px`;
+  const ri = new Map(rows.map((r, i) => [r, i]));
+  const ci = new Map(cols.map((c, i) => [c, i]));
+  const data = cells.filter((x) => ri.has(x.row) && ci.has(x.col))
+    .map((x) => ({ value: [ci.get(x.col), ri.get(x.row)], itemStyle: { color: x.color }, tip: x.tip }));
+  const c = chart(id);
+  c.setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => p.data.tip || "" },
+    grid: { left: 8, right: 8, top: 4, bottom: 18, containLabel: true },
+    xAxis: { type: "category", data: cols, ...AXIS, axisTick: { show: false }, splitLine: { show: false },
+             axisLabel: { ...AXIS.axisLabel, hideOverlap: true } },
+    yAxis: { type: "category", data: rows.map((r) => vizTrunc(r, phone ? 12 : (opts.labelMax || 22))), inverse: true, ...AXIS,
+             axisTick: { show: false }, splitLine: { show: false } },
+    series: [{ type: "scatter", symbol: "rect", symbolSize: (v, p) => [Math.max(4, Math.min(14, (el.clientWidth || 600) * 0.7 / Math.max(cols.length, 1))), phone ? 12 : 14],
+               data }],
+  }, true);
+  return c;
+}
+
+/* -- IC 추이 (사용자 10/13 밤 "이게 뭐야" — 범례 12개 쪽넘김·불규칙 시각 범주·점 흩뿌림을 다시 그린다) ----------
+ * - x 는 **시간 축**, 측정은 **주(월요일, KST)** 로 묶어 그 주 마지막 측정 하나 — 같은 주에 두 번 잰 것이 지그재그를 만들지 않게.
+ *   IC 값은 API 그대로다(다시 계산하지 않는다). 묶는 것은 날짜뿐.
+ * - 시장마다 작은 그림 하나(호출하는 쪽이 KR·US 를 따로 부른다).
+ * - **실전 알파(가중치 > 0)는 굵은 색 선**, 나머지는 옅은 회색 — 지금 매매에 쓰는 것이 먼저 읽힌다.
+ * - 범례 대신 **선 끝 이름**(겹치면 위아래로 민다). 합격선은 라벨 붙은 점선(값은 API 가 config 에서 준 것만). */
+const IC_DAY_MS = 86400000;
+function icWeekKey(iso) {
+  const d = kstDate(iso);
+  if (!d) return null;
+  const t = Date.parse(`${d}T00:00:00Z`);
+  const dow = (new Date(t).getUTCDay() + 6) % 7;     // 월 = 0
+  return t - dow * IC_DAY_MS;                          // 그 주 월요일(KST 날짜를 UTC 자정으로)
+}
+function icWeekly(points) {
+  const byWeek = new Map();
+  for (const p of points || []) {
+    if (p.ic === null || p.ic === undefined) continue;
+    const key = icWeekKey(p.at);
+    if (key === null) continue;
+    const prev = byWeek.get(key);
+    if (!prev || p.at > prev.at) byWeek.set(key, p);
+  }
+  return [...byWeek.entries()].sort((a, b) => a[0] - b[0]).map(([week, p]) => ({ week, ...p }));
+}
+function icWeekLabel(ms) {
+  const d = new Date(ms);
+  return `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** series: [{analyst, points:[{at, ic}]}] · opts: {threshold, weightOf(analyst) → 가중치|null, title} */
+function icTrendChart(id, series, opts = {}) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  const lines = series.map((s) => ({ s, pts: icWeekly(s.points) })).filter((x) => x.pts.length);
+  const c = chart(id);
+  if (!lines.length) {
+    c.clear();
+    c.setOption({ ...BASE, title: { text: opts.empty || "저장된 IC 이력 없음", left: "center", top: "middle",
+      textStyle: { color: COLOR.dim, fontSize: 12, fontWeight: "normal" } } }, true);
+    return c;
+  }
+  const weight = (a) => (opts.weightOf ? opts.weightOf(a) : null);
+  // 굵은 선(실전)을 나중에 그려 위에 오게, 색은 실전만 팔레트 순서로.
+  lines.sort((a, b) => (weight(a.s.analyst) > 0) - (weight(b.s.analyst) > 0));
+  let colorIndex = 0;
+  const phone = vizPhone();
+  const seriesOut = lines.map(({ s, pts }) => {
+    const live = weight(s.analyst) > 0;
+    const color = live ? COLOR.series[colorIndex++ % COLOR.series.length] : COLOR.dim;
+    const last = pts[pts.length - 1];
+    return {
+      name: s.analyst, type: "line", showSymbol: pts.length < 3, symbolSize: 4, connectNulls: true,
+      z: live ? 3 : 2,
+      data: pts.map((p) => [p.week, p.ic]),
+      lineStyle: { width: live ? 2.2 : 1, color, opacity: live ? 1 : 0.55 },
+      itemStyle: { color },
+      endLabel: { show: true, color: live ? color : COLOR.dim, fontSize: phone ? 9 : 10, fontFamily: "IBM Plex Mono",
+        fontWeight: live ? 600 : 400,
+        formatter: () => `${s.analyst} ${last.ic >= 0 ? "" : "−"}${Math.abs(last.ic).toFixed(3)}` },
+      // 실전 선 이름은 겹치면 위아래로 밀고, 옅은 선 이름은 겹치면 숨긴다(툴팁이 전부 말한다).
+      labelLayout: live ? { moveOverlap: "shiftY" } : { hideOverlap: true },
+      emphasis: { focus: "series" },
+    };
+  });
+  const ys = lines.flatMap((l) => l.pts.map((p) => p.ic));
+  if (opts.threshold !== null && opts.threshold !== undefined) ys.push(opts.threshold);
+  const lo = Math.min(0, ...ys), hi = Math.max(...ys);
+  const pad = (hi - lo) * 0.08 || 0.01;
+  if (opts.threshold !== null && opts.threshold !== undefined) {
+    const weeks = [...new Set(lines.flatMap((l) => l.pts.map((p) => p.week)))].sort((a, b) => a - b);
+    seriesOut.push({
+      name: "합격선", type: "line", silent: true, symbol: "none", z: 1, tooltip: { show: false },
+      data: [[weeks[0], opts.threshold], [weeks[weeks.length - 1], opts.threshold]],
+      lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
+      endLabel: { show: true, color: COLOR.warn, fontSize: 10, fontFamily: "IBM Plex Mono", formatter: () => `합격선 ${opts.threshold}` },
+      labelLayout: { moveOverlap: "shiftY" },
+    }, {
+      name: "0", type: "line", silent: true, symbol: "none", z: 1, tooltip: { show: false },
+      data: [[weeks[0], 0], [weeks[weeks.length - 1], 0]],
+      lineStyle: { width: 1, color: COLOR.border },
+    });
+  }
+  c.setOption({
+    ...BASE, legend: { show: false },
+    title: opts.title ? { text: opts.title, left: 0, top: 0, textStyle: { color: COLOR.muted, fontSize: 11, fontWeight: 600, fontFamily: "Pretendard Variable, IBM Plex Mono" } } : undefined,
+    tooltip: { ...BASE.tooltip, trigger: "axis",
+      formatter: (ps) => {
+        const rows = ps.filter((p) => p.seriesName !== "합격선" && p.seriesName !== "0")
+          .sort((a, b) => b.value[1] - a.value[1])
+          .map((p) => `${p.marker}${vizEsc(p.seriesName)} ${p.value[1].toFixed(3)}${weight(p.seriesName) > 0 ? " · 실전" : ""}`);
+        return `${icWeekLabel(ps[0].value[0])} 주<br>${rows.join("<br>")}`;
+      } },
+    grid: { left: 40, right: phone ? 84 : 104, top: opts.title ? 26 : 12, bottom: 22 },
+    xAxis: { type: "time", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: icWeekLabel, hideOverlap: true } },
+    yAxis: { type: "value", ...AXIS, min: lo - pad, max: hi + pad,
+             axisLabel: { ...AXIS.axisLabel, formatter: (v) => v.toFixed(2), showMinLabel: false, showMaxLabel: false } },
+    series: seriesOut,
+  }, true);
+  return c;
+}
+
+/** 같은 자료를 Analyst × 주 칸 띠로(비교용) — 칸 색 = 합격선 위(ok)·0~합격선(dim)·0 아래(bad 옅게). */
+function icHeatChart(id, series, opts = {}) {
+  const rows = series.map((s) => ({ s, pts: icWeekly(s.points) })).filter((x) => x.pts.length);
+  const weeks = [...new Set(rows.flatMap((r) => r.pts.map((p) => p.week)))].sort((a, b) => a - b);
+  const th = opts.threshold;
+  const cells = rows.flatMap((r) => r.pts.map((p) => ({
+    row: r.s.analyst, col: icWeekLabel(p.week),
+    color: th != null && p.ic >= th ? COLOR.ok : p.ic >= 0 ? COLOR.faint : COLOR.bad,
+    tip: `${vizEsc(r.s.analyst)} · ${icWeekLabel(p.week)} 주<br>IC ${p.ic.toFixed(3)}`,
+  })));
+  return stripChart(id, rows.map((r) => r.s.analyst), weeks.map(icWeekLabel), cells, { labelMax: 12 });
+}
+
+/** 그림 위 캡션 한 줄 — 색 칸 + 이름(차트 안 범례 대신). items: [[색, 이름], ...], extra: 덧붙일 글(이스케이프된 HTML) */
+function vizCaption(items, extra = "") {
+  return `<div class="chart-cap">${items.map(([color, label]) =>
+    `<span class="cap-key"><i style="background:${color}"></i>${vizEsc(label)}</span>`).join("")}${extra ? `<span>${extra}</span>` : ""}</div>`;
+}
+
 function params() {
   const search = new URLSearchParams(window.location.search);
   const out = new URLSearchParams();

@@ -371,3 +371,44 @@ def test_freshness_는_기대_세션과_창고_최신_세션을_같이_준다(cl
     assert {i["key"] for i in items} >= {"kr_prices", "kr_index", "us_index", "fx"}
     for item in items:
         assert item["status"] in {"ok", "stale", "unknown"}
+
+
+# -- 시스템 탭 그림(dashboard.md §8-5) — 미룸 rc=6 · 램 가드 추이 ---------------------------
+
+
+def test_run_status_separates_deferred_from_failure() -> None:
+    from quant_rl_trading.dashboard.services.system import Run
+
+    assert Run("2026-10-13 16:10:00", "KR", [0, 0]).status == "ok"
+    assert Run("2026-10-13 16:10:00", "US", [0, 6]).status == "deferred"
+    assert Run("2026-10-13 16:10:00", "KR", [0, 1, 6]).status == "fail"
+    assert Run("2026-10-13 16:10:00", "KR", []).status == "unknown"
+
+
+def test_memory_trend_reads_status_lines_until_as_of(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from datetime import UTC, datetime
+
+    from quant_rl_trading.dashboard.services import system as system_service
+
+    (tmp_path / "memory-guard.log").write_text(
+        "2026-10-13 10:00:01 상태 — 가용 5000MB · 스왑 100MB\n"
+        "2026-10-13 10:30:00 가용 500MB < 600MB — research.py 내림\n"
+        "2026-10-13 11:00:01 상태 — 가용 6000MB · 스왑 120MB\n"
+        "2026-10-13 23:00:01 상태 — 가용 7000MB · 스왑 130MB\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(system_service.LOGS_DIR_ENV, str(tmp_path))
+    # 2026-10-13 12:00 KST — 23:00 줄은 그 뒤라 안 나온다(되감기).
+    data = system_service.memory_trend(as_of=datetime(2026, 10, 13, 3, 0, tzinfo=UTC))
+    assert [p["available_mb"] for p in data["points"]] == [5000, 6000]
+    assert len(data["events"]) == 1 and "내림" in data["events"][0]["text"]
+
+
+def test_memory_trend_without_log_is_empty_not_zero(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from datetime import UTC, datetime
+
+    from quant_rl_trading.dashboard.services import system as system_service
+
+    monkeypatch.setenv(system_service.LOGS_DIR_ENV, str(tmp_path))
+    data = system_service.memory_trend(as_of=datetime(2026, 10, 13, 3, 0, tzinfo=UTC))
+    assert data["points"] == [] and data["note"]

@@ -81,7 +81,11 @@ KST = ZoneInfo("Asia/Seoul")
 TABLE_LOOKBACK_DAYS = 4  # 경고선(table_stale_warn_days 3)+1. 10일 창은 35개 표를 훑는 데 17초였다(2026-08-30)
 
 #: 표에 실을 최근 실행 횟수.
-RUN_HISTORY_LIMIT = 8
+#: 작업당 화면에 싣는 최근 실행 수. 표는 첫 줄만 쓰고, 그림(작업 × 시각 타임라인, dashboard.md §8-5)이 나머지를 쓴다.
+RUN_HISTORY_LIMIT = 20
+
+#: ``rc=6`` — 시세 미완으로 세션을 미뤘다(runbook §7.1). 실패가 아니라 '미룸' 이라 그림에서 따로 칠한다.
+RC_DEFERRED = 6
 
 RUN_HEADER = re.compile(r"^=== (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) market=(\S+)", re.M)
 RC_LINE = re.compile(r"\brc=(-?\d+)")
@@ -124,6 +128,16 @@ class Run:
         if not self.steps:
             return None
         return all(rc == 0 for rc in self.steps)
+
+    @property
+    def status(self) -> str:
+        """ok · fail · deferred(0 이 아닌 rc 가 전부 미룸 6) · unknown(rc 를 못 찾음)."""
+        if not self.steps:
+            return "unknown"
+        bad = [rc for rc in self.steps if rc != 0]
+        if not bad:
+            return "ok"
+        return "deferred" if all(rc == RC_DEFERRED for rc in bad) else "fail"
 
 
 def _parse_runs(text: str) -> list[Run]:
@@ -219,6 +233,7 @@ def job_history(store: Store) -> list[dict[str, Any]]:
                         "started_at": _to_utc(run.started_at),
                         "market": run.market,
                         "ok": run.ok,
+                        "status": run.status,
                         "steps": run.steps,
                     }
                     for run in reversed(recent)
@@ -781,3 +796,34 @@ __all__ = [
     "summary",
     "table_freshness",
 ]
+
+
+#: 램 가드 상태 줄(scripts/memory_guard.sh, 매시 정각) — "YYYY-MM-DD HH:MM:SS 상태 — 가용 NMB · 스왑 MMB".
+MEMORY_LOG = "memory-guard.log"
+MEMORY_STATUS = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) 상태 — 가용 (\d+)MB · 스왑 (\d+)MB")
+MEMORY_EVENT = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.+)$")
+
+
+def memory_trend(*, as_of: datetime, days: int = 7) -> dict[str, Any]:
+    """램 가드 로그에서 가용·스왑 추이와 그 사이 사건(작업 내림 등). **운영 로그라 창고가 아니다** — 다만 as_of 를
+    받으면 그 시각까지의 줄만 낸다(되감은 화면이 미래 줄을 보이지 않게). 로그가 없으면 빈 목록 — 0 으로 채우지 않는다."""
+    path = logs_dir() / MEMORY_LOG
+    if not path.is_file():
+        return {"points": [], "events": [], "note": f"{MEMORY_LOG} 없음"}
+    until = as_of.astimezone(KST)
+    since = until - timedelta(days=days)
+    points: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        status = MEMORY_STATUS.match(line)
+        stamp_text = status.group(1) if status else (MEMORY_EVENT.match(line).group(1) if MEMORY_EVENT.match(line) else None)
+        if stamp_text is None:
+            continue
+        moment = datetime.strptime(stamp_text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+        if moment < since or moment > until:
+            continue
+        if status:
+            points.append({"at": moment.isoformat(), "available_mb": int(status.group(2)), "swap_mb": int(status.group(3))})
+        else:
+            events.append({"at": moment.isoformat(), "text": MEMORY_EVENT.match(line).group(2)[:200]})
+    return {"points": points, "events": events[-50:], "note": None}

@@ -135,3 +135,10 @@ def events() -> Any:
     옮겼다(2026-10-13 밤) — 배관이 도는지의 증거라 운영 갈래다. 창고 사실이라 as_of 로 되감긴다."""
     current = scope()
     return envelope(current, headlines_service.events_payload(store(), as_of=current.as_of, lookback=current.lookback))
+
+
+@bp.get("/memory")
+def memory() -> Any:
+    """램 가드 로그의 가용·스왑 추이(매시)와 사건. 운영 로그라 창고가 아니지만 as_of 까지의 줄만 낸다."""
+    current = scope()
+    return envelope(current, service.memory_trend(as_of=current.as_of))

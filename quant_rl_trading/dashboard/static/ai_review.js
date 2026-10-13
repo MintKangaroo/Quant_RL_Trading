@@ -66,6 +66,85 @@ function renderMarketsTable(markets) {
     </tr>`).join("")}</tbody></table>`;
 }
 
+/* -- 그림 (dashboard.md §8-5) — 값은 API 그대로(일별 묶음은 서버가 KST 날짜로 센다). 지출·거부는 손익이 아니라
+ *    손익 색(초록·빨강)을 쓰지 않는다. -- */
+function drawDailyCost(daily) {
+  const el = document.getElementById("air-daily-chart");
+  if (!el) return;
+  const cap = document.getElementById("air-daily-cap");
+  if (!daily || !daily.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "호출(건)"], [COLOR.series[0], "비용(달러, 단가 아는 호출)"]], "날짜 KST");
+  chart("air-daily-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "axis",
+      formatter: (ps) => { const d = daily[ps[0].dataIndex]; return `${d.day}<br>호출 ${num(d.calls)} · ${usd(d.cost_usd)}${d.unpriced_calls ? `<br>단가 모름 ${num(d.unpriced_calls)}건(합계 밖)` : ""}`; } },
+    grid: { left: 40, right: 48, top: 10, bottom: 22 },
+    xAxis: { type: "category", data: daily.map((d) => d.day.slice(5)), ...AXIS, axisTick: { show: false } },
+    yAxis: [
+      { type: "value", ...AXIS, minInterval: 1 },
+      { type: "value", ...AXIS, splitLine: { show: false }, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `$${v}` } },
+    ],
+    series: [
+      { type: "bar", data: daily.map((d) => d.calls), itemStyle: { color: COLOR.muted }, barMaxWidth: 10 },
+      { type: "line", yAxisIndex: 1, data: daily.map((d) => d.cost_usd), showSymbol: false, lineStyle: { width: 1.4, color: COLOR.series[0] } },
+    ],
+  }, true);
+}
+
+function drawCostBar(rows) {
+  const cap = document.getElementById("air-cost-cap");
+  const priced = rows.filter((r) => r.priced).sort((a, b) => b.cost_usd - a.cost_usd);
+  if (cap) cap.innerHTML = priced.length ? vizCaption([[COLOR.muted, "비용(달러)"]], "에이전트 · 모델") : "";
+  hbarChart("air-cost-bar", priced.map((r) => ({
+    label: `${r.agent} · ${r.model.replace(/^claude-/, "")}`, value: r.cost_usd,
+    tip: `${esc(r.agent)} · ${esc(r.model)}<br>${usd(r.cost_usd)} · 호출 ${num(r.calls)}`,
+  })), { top: 10, phoneTop: 8, format: (v) => usd(v), labelMax: 30, min: 80 });
+}
+
+/** 토큰 네 갈래 — 한 줄 쌓은 막대(구성). 캐시 읽기가 싸다는 것을 크기로 보인다. */
+function drawTokenBar(tokens) {
+  const el = document.getElementById("air-token-bar");
+  const cap = document.getElementById("air-token-cap");
+  const parts = [["input", "입력", COLOR.muted], ["output", "출력", COLOR.series[1]],
+                 ["cache_write", "캐시 쓰기", COLOR.series[2]], ["cache_read", "캐시 읽기", COLOR.series[3]]];
+  const total = tokens ? parts.reduce((a, [k]) => a + (tokens[k] || 0), 0) : 0;
+  if (!el) return;
+  if (!total) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  if (cap) cap.innerHTML = vizCaption(parts.map(([k, label, color]) => [color, `${label} ${num(tokens[k])}`]), "토큰 구성");
+  chart("air-token-bar").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => `${p.seriesName} ${num(p.value)} (${pct(p.value / total, 1)})` },
+    grid: { left: 0, right: 0, top: 6, bottom: 6 },
+    xAxis: { type: "value", show: false, max: total },
+    yAxis: { type: "category", show: false, data: ["토큰"] },
+    series: parts.map(([k, label, color]) => ({ name: label, type: "bar", stack: "t", barWidth: 16, data: [tokens[k] || 0], itemStyle: { color } })),
+  }, true);
+}
+
+function drawVerdictCharts(data) {
+  const cap = document.getElementById("air-verdict-cap");
+  const daily = data.daily || [];
+  const el = document.getElementById("air-verdict-daily");
+  if (cap) cap.innerHTML = daily.length ? vizCaption([[COLOR.muted, "거부 건수"]], "위: 날짜별(KST) · 아래: 사유별") : "";
+  if (el) {
+    el.style.display = daily.length ? "" : "none";
+    if (daily.length) {
+      chart("air-verdict-daily").setOption({
+        ...BASE, legend: { show: false },
+        tooltip: { ...BASE.tooltip, trigger: "axis", formatter: (ps) => `${daily[ps[0].dataIndex].day}<br>거부 ${num(ps[0].value)}건` },
+        grid: { left: 36, right: 8, top: 8, bottom: 22 },
+        xAxis: { type: "category", data: daily.map((d) => d.day.slice(5)), ...AXIS, axisTick: { show: false } },
+        yAxis: { type: "value", ...AXIS, minInterval: 1 },
+        series: [{ type: "bar", data: daily.map((d) => d.count), itemStyle: { color: COLOR.muted }, barMaxWidth: 10 }],
+      }, true);
+    }
+  }
+  hbarChart("air-verdict-cat", (data.by_category || []).map((r) => ({ label: r.category, value: r.count })),
+            { top: 10, phoneTop: 8, format: (v) => `${num(v)}건`, min: 70 });
+}
+
 async function renderKpis() {
   const body = await fetchJson("ai-review/summary");
   const d = body.data;
@@ -139,6 +218,9 @@ async function renderCosts() {
     kpi("환율", `₩${num(data.usd_krw_rate)}`, "청구는 달러 — 원화는 참고치다"),
   ].join("");
 
+  drawDailyCost(data.daily);
+  drawCostBar(data.by_agent);
+  drawTokenBar(data.total_calls ? data.tokens : null);
   const target = document.getElementById("cost-by-agent");
   if (!data.by_agent.length) {
     target.innerHTML = `<div class="empty">이 창 안에 llm_usage 기록이 없다.
@@ -203,6 +285,7 @@ async function renderVerdictScorecard() {
   const { data } = await fetchJson("ai-review/verdicts");
   const target = document.getElementById("verdict-scorecard");
   const card = data.scorecard || {};
+  drawVerdictCharts(data);
   if (!data.total) {
     target.innerHTML = `<div class="empty">판정 기록이 없다.
       배관은 완성돼 있다 — 판정할 뉴스·SNS 가 아직 없었다는 뜻이다.</div>`;

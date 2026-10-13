@@ -56,57 +56,25 @@ async function renderRoster() {
 }
 
 async function renderIcHistory() {
-  const { data, thresholds } = await fetchJson("agent-health/ic-history");
-  const instance = chart("chart-ic");
-
-  if (!data.series.length) {
-    instance.clear();
-    instance.setOption({
-      ...BASE,
-      title: {
-        text: "측정 이력 없음 — tools/measure_ic.py --save 로 기록된다",
-        left: "center", top: "middle",
-        textStyle: { color: COLOR.dim, fontSize: 12, fontWeight: "normal" },
-      },
-    }, true);
-    return;
+  // 시장마다 작은 그림 하나·주 단위·실전(가중치 > 0) 굵게 — 모델 검증 탭과 같은 그림(scope.js icTrendChart, 사용자 10/13 밤).
+  // 가중치는 그 시장 게이트(learning/gate)에서 — 화면이 정하지 않는다. 합격선은 API 가 config 에서 준 값만.
+  const [body, gateKr, gateUs] = await Promise.all([
+    fetchJson("agent-health/ic-history"),
+    fetchJson("learning/gate?market=KR").catch(() => null), fetchJson("learning/gate?market=US").catch(() => null),
+  ]);
+  const { data, thresholds } = body;
+  const weights = (g) => new Map(((g && g.data && g.data.roster) || []).map((r) => [r.analyst, r.weight]));
+  const w = { KR: weights(gateKr), US: weights(gateUs) };
+  for (const market of ["KR", "US"]) {
+    // 이 API 의 계열 이름은 "ranker · KR" 꼴 — 작은 그림이 시장을 이미 말하므로 이름만 남긴다.
+    const series = data.series.filter((s) => s.market === market)
+      .map((s) => ({ ...s, analyst: String(s.analyst).split(" · ")[0] }));
+    icTrendChart(`chart-ic-${market.toLowerCase()}`, series, {
+      threshold: thresholds.ic_threshold ?? null, weightOf: (a) => w[market].get(a) ?? null,
+      title: market === "KR" ? "국장 KR" : "미장 US",
+      empty: "측정 이력 없음 — tools/measure_ic.py --save 로 기록된다",
+    });
   }
-
-  const stamps = [...new Set(data.series.flatMap((s) => s.points.map((p) => p.at)))].sort();
-  const line = (series, index) => ({
-    name: series.analyst,
-    type: "line",
-    // 점이 하나면 선이 안 보인다. 심볼을 항상 그린다.
-    showSymbol: true,
-    symbolSize: 7,
-    data: stamps.map((at) => {
-      const hit = series.points.find((p) => p.at === at);
-      return hit ? hit.ic : null;
-    }),
-    // 계열 구분이지 손익·상태가 아니다 — 공용 범주 팔레트를 쓴다.
-    lineStyle: { width: 1.6, color: COLOR.series[index % COLOR.series.length] },
-    itemStyle: { color: COLOR.series[index % COLOR.series.length] },
-  });
-
-  instance.setOption({
-    ...BASE,
-    // 계열이 스무 개(Analyst × 시장)라 기본 범례가 네 줄로 늘어나 그림 위를 덮었다(2026-09-29 점검).
-    // 한 줄 스크롤 범례로 두고 그림은 그 아래에서 시작한다.
-    legend: { ...BASE.legend, type: "scroll", left: 0, right: 0, itemWidth: 14, itemHeight: 8,
-              pageTextStyle: { color: COLOR.muted }, data: data.series.map((s) => s.analyst) },
-    grid: { ...BASE.grid, top: 34 },
-    xAxis: { type: "category", data: stamps.map((at) => at.slice(0, 16).replace("T", " ")), ...AXIS },
-    yAxis: { type: "value", scale: true, ...AXIS },
-    series: [
-      ...data.series.map(line),
-      // 합격선을 배경에 깐다. 숫자를 눈으로 판정할 수 있어야 한다. 값은 서버(store.config)가 준 것만 —
-      // 없으면 선을 긋지 않는다(예전 `?? 0.03` 폴백은 설정과 어긋날 수 있는 하드코딩이었다, 불변식 10).
-      ...(thresholds.ic_threshold == null ? [] : [{
-        name: "합격선", type: "line", data: stamps.map(() => thresholds.ic_threshold),
-        showSymbol: false, lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
-      }]),
-    ],
-  }, true);
 }
 
 async function renderSignals() {
