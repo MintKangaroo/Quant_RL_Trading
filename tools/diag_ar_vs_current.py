@@ -167,6 +167,22 @@ def cmd_style_us(root: str, force: bool) -> int:
 # --------------------------------------------------------------------------- 패널·워크포워드
 
 
+NUM = [*FEATS, *G4, *G7, "is_us", "target"]
+
+
+def compact(frame: pd.DataFrame, market_code: int) -> pd.DataFrame:
+    """행마다 든 문자열·date 객체를 버린다 — 종목은 범주, 세션은 날짜 서수(int32), 숫자는 float32
+    (2026-10-14 03:20 합동 패널 이어 붙이기 MemoryError)."""
+    out = pd.DataFrame({"entity_id": frame["entity_id"].astype("category"),
+                        "ord": (pd.to_datetime(frame["session"]).to_numpy().astype("datetime64[D]").astype(np.int64) + 719163
+                                ).astype(np.int32)
+                        if not np.issubdtype(frame["session"].dtype, np.integer) else frame["session"].astype(np.int32),
+                        "market": np.int8(market_code)})
+    for c in NUM:
+        out[c] = frame[c].to_numpy(np.float32) if c in frame.columns else np.float32(np.nan)
+    return out
+
+
 def kr_panel() -> pd.DataFrame:
     ctx = el.load_context()
     panel, _ = el.score_panel(ctx)
@@ -180,50 +196,62 @@ def kr_panel() -> pd.DataFrame:
     g4 = pd.concat([long, early[["entity_id", "session", *G4]]], ignore_index=True)
     panel = panel.merge(g4, on=["entity_id", "session"], how="left")
     del long, early, g4
+    gc.collect()
     y = ctx.y5()
-    panel = panel.merge(y.rename(columns={"target": "target"}), on=["entity_id", "session"], how="left")
+    panel = panel.merge(y, on=["entity_id", "session"], how="left")
     del ctx, y
     gc.collect()
-    for c in G7:
-        panel[c] = np.float32(np.nan)
-    panel["is_us"] = np.float32(0.0)
-    return panel
+    panel["is_us"] = 0.0
+    out = compact(panel, 0)
+    del panel
+    gc.collect()
+    return out
 
 
 def us_panel() -> pd.DataFrame:
-    p = pd.read_parquet(US_PANEL, columns=["entity_id", "session", *FEATS, "target", *G7])  # invariant-allow: data-access — 진단 패널
-    p["session"] = pd.to_datetime(p["session"]).dt.date
-    p = p[p["session"] <= el.DATE_CAP]
-    el.guard_cap(p["session"].unique(), "미장 패널")
-    p["market"] = "US"
-    for c in G4:
-        p[c] = np.float32(np.nan)
-    p["is_us"] = np.float32(1.0)
-    return p
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 진단 패널
+
+    t = pq.read_table(US_PANEL, columns=["entity_id", "session", *FEATS, "target", *G7],  # invariant-allow: data-access — 진단 패널
+                      read_dictionary=["entity_id"])
+    days = pc.cast(pc.cast(t.column("session"), "date32"), "int32").to_numpy() + 719163   # 1970-01-01 의 서수
+    t = t.drop(["session"])
+    f = t.to_pandas()
+    del t
+    f["session"] = days.astype(np.int32)
+    f = f[f["session"] <= el.DATE_CAP.toordinal()]
+    if len(f) and int(f["session"].max()) > el.DATE_CAP.toordinal():
+        raise el.CapViolation("미장 패널에 봉인선 뒤 세션")
+    f["is_us"] = 1.0
+    out = compact(f, 1)
+    del f
+    gc.collect()
+    return out
 
 
-def build_pooled() -> tuple[pd.DataFrame, list[date]]:
+def build_pooled() -> tuple[pd.DataFrame, list[date], pd.Index]:
     kr = kr_panel()
-    log(f"국장 패널 {len(kr):,}행 {kr['session'].min()}~{kr['session'].max()}")
+    log(f"국장 패널 {len(kr):,}행")
     us = us_panel()
-    log(f"미장 패널 {len(us):,}행 {us['session'].min()}~{us['session'].max()}")
-    cols = ["entity_id", "session", "market", *FEATS, *G4, *G7, "is_us", "target"]
-    panel = pd.concat([kr[cols], us[cols]], ignore_index=True)
+    log(f"미장 패널 {len(us):,}행 {date.fromordinal(int(us['ord'].min()))}~{date.fromordinal(int(us['ord'].max()))}")
+    from pandas.api.types import union_categoricals
+
+    ents = union_categoricals([kr["entity_id"], us["entity_id"]]).categories
+    for f in (kr, us):
+        f["ent"] = pd.Categorical(f["entity_id"], categories=ents).codes.astype(np.int32)
+        f.drop(columns="entity_id", inplace=True)
+    panel = pd.concat([kr, us], ignore_index=True, copy=False)
     del kr, us
     gc.collect()
-    panel["entity_id"] = panel["entity_id"].astype("category")
-    panel["market"] = panel["market"].astype("category")
-    axis = sorted(panel["session"].unique())
-    panel["sidx"] = np.searchsorted(np.array(axis, dtype=object), panel["session"].to_numpy()).astype(np.int32)
-    panel.drop(columns="session", inplace=True)              # 행마다 date 객체 1천만 개를 들지 않는다
-    gc.collect()
-    for c in [*FEATS, *G4, *G7, "target"]:
-        panel[c] = panel[c].astype(np.float32)
+    ords = np.sort(panel["ord"].unique())
+    axis = [date.fromordinal(int(o)) for o in ords]
+    panel["sidx"] = np.searchsorted(ords, panel["ord"].to_numpy()).astype(np.int32)
+    panel.drop(columns="ord", inplace=True)
     have = panel["target"].notna().to_numpy()
     rank_gauss_inplace(panel, [*FEATS, *G4, *G7, "target"], key="sidx")
     panel.loc[~have, "target"] = np.nan
-    log(f"합동 패널 {len(panel):,}행 · 세션 {len(axis)} · 정답 {int(have.sum()):,}")
-    return panel, axis
+    log(f"합동 패널 {len(panel):,}행 · 세션 {len(axis)} · 종목 {len(ents):,} · 정답 {int(have.sum()):,}")
+    return panel, axis, ents
 
 
 def fit(ds: Any, seed: int):  # type: ignore[no-untyped-def]
@@ -234,7 +262,7 @@ def cmd_walk(force: bool, seeds: tuple[int, ...]) -> int:
     el.require_heavy(force)
     import lightgbm as lgb
 
-    panel, axis = build_pooled()
+    panel, axis, ents = build_pooled()
     sidx = panel["sidx"].to_numpy()
     OUT.mkdir(parents=True, exist_ok=True)
     meta: dict[str, Any] = {"folds": []}
@@ -261,13 +289,15 @@ def cmd_walk(force: bool, seeds: tuple[int, ...]) -> int:
             gc.collect()
         del xall, yall
         ax = np.array(axis, dtype=object)
-        for market in ("KR", "US"):
-            mask = (panel["market"] == market).to_numpy()
+        ent_names = np.asarray(ents, dtype=object)
+        for market, code in (("KR", 0), ("US", 1)):
+            mask = (panel["market"] == code).to_numpy()
 
-            def gen(mask: np.ndarray = mask, preds: dict = preds, ax: np.ndarray = ax):  # type: ignore[no-untyped-def]
+            def gen(mask: np.ndarray = mask, preds: dict = preds, ax: np.ndarray = ax,
+                    ent_names: np.ndarray = ent_names):  # type: ignore[no-untyped-def]
                 for s in seeds:
                     ok = mask & ~np.isnan(preds[s])
-                    yield s, pd.DataFrame({"entity_id": panel["entity_id"].to_numpy()[ok].astype(str),
+                    yield s, pd.DataFrame({"entity_id": ent_names[panel["ent"].to_numpy()[ok]],
                                            "session": ax[sidx[ok]], "pred": preds[s][ok].astype(float)})
             el.write_scores(gen(), el.score_path(f"{arm}-{market}", OUT))
             log(f"  {arm}-{market} 저장")
