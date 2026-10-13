@@ -1,4 +1,7 @@
-"""시행 CR — V6 국면 노출의 crisis(·bear) 배수를 실제 포트 위에서. docs/protocols/cr-crisis-exposure-2026-10.md.
+"""시행 CR — V6 국면 노출의 crisis(·bear) 배수. docs/protocols/cr-crisis-exposure-2026-10.md.
+
+**주 시험 = 대용 지수 15년**(2011-01~2026-06-30, 장×전략 진단과 같은 자료 — 이미 방향을 봤으므로 엄격하게) ·
+**실제 포트 4.6년(2021-12-29~2026-09-28) = 해 방지만**(사용자 결정 10/13 밤). 금고 second(11/23)는 확인, 그 뒤 전방 순차 검정.
 
     .venv/bin/python tools/trial_cr_exposure.py --plan                 # 순서만 인쇄(자료를 읽지 않는다)
     .venv/bin/python tools/trial_cr_exposure.py --power                # 등록 전 검정력(진단 대용 지수 ≤ 2026-06-30, 평균은 인쇄 안 함)
@@ -11,7 +14,13 @@
 국면은 실전 순수 함수 `analysts.regime.classify`(실전 첫 대용 지수 KRX 300 · 400일 창 · crisis 하한 = 창고 설정) — 결정 세션 **전날 종가까지**
 (`v2_hmm_exposure.v6_path`·`diag_bear_2022.exposure_scales` 와 같은 지연). 백테스트 전용 분기는 없다(불변식 5): 실전과 다른 것은 배수 표뿐이다.
 
-## 포트 — 실전 선택 규칙 그대로, 노출만 바꾼다
+## 주 시험 — 대용 지수 위, 실전과 같은 매일 조정
+
+자료 = 진단 `data/_diag/regime-strategy-map/regimes.pkl` 의 `level`(시총 상위 200 시총가중·상한 30%, 비용 전 누적 — 진단 §2).
+국면은 그 지수 종가로 `classify` 를 다시 돌린다(결정 d 의 국면 = d−1 종가까지). 결정 d 의 배수 k_d 로 d+1→d+2 수익을 벌고,
+노출 전환 비용 = 편도 0.41% × |Δk|. 매일 조정이 주(실전 V6 는 매일), 5세션 조정판은 기록(진단 표와 맞추는 용도).
+
+## 해 방지 포트 — 실전 선택 규칙 그대로, 노출만 바꾼다
 
 점수 = C0 이음 예측(시드 0~4): 하락장 검진 워크포워드(2021-12-29~2023-02-14, `diag_hedged_sleeve.kr_preds` 의 이음) + 회차 C0 OOS(~2026-06-29)
 + 얼린 C0(`vault_judge._c0_inputs` 와 같은 `p1b_predictions`, 2026-06-30~). EMA5 → 상위 24 · 완충 3N(72) · 10세션 재조정 → 비중
@@ -57,13 +66,11 @@ from tools.v2_sim import simulate  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/cr-crisis-exposure-2026-10.md")
 #: 등록 문서 sha256 앞 16자 — **사용자 확인 뒤 리드가 고정한다.** None 이면 `--run` 을 거부한다(초안).
-PROTOCOL_HASH: str | None = None
+PROTOCOL_HASH: str | None = "fb50cca79ed3499b"   # 2026-10-13 밤 사용자 설문 고정
 
 #: 봉인 — second 금고(10/1~11/13)는 이 도구가 읽지 않는다. 마지막으로 쓸 수 있는 종가.
 LAST_CLOSE = date(2026, 9, 30)
 SEALED_FROM = date(2026, 10, 1)
-#: 대용 지수 진단(15년)의 상한 — 검정력 계산은 이 날짜까지만 읽는다(진단 문서 §1 과 같은 상한).
-POWER_UNTIL = date(2026, 6, 30)
 
 #: 주 시험 창 — 첫 결정 세션(하락장 검진 예측의 첫 블록), 이음 지점 둘.
 MAIN_FIRST = date(2021, 12, 29)
@@ -95,15 +102,37 @@ PHASES: dict[str, tuple[date, date]] = {
     "급등": (date(2024, 12, 30), LAST_CLOSE),
 }
 
-# ---- 주 시험 기준(등록 문서 '주 시험' 표와 같다 — 테스트가 대조한다)
-GATE_T = 3.0             # A1 일 초과 차(시드 평균) 평균 > 0 그리고 NW t(lag 10) ≥ 3
-GATE_SEEDS = 5           # A2 시드별 연 차 > 0 인 시드 수(5 중)
-GATE_YEARS = 4           # A3 달력 연도 블록(2022~2026) 중 연 차 ≥ 0 인 블록 수(5 중), 블록 ≥ 60세션만 센다
-GATE_YEAR_MIN = 60
-GATE_PHASE_UP = ("박스", "급등")   # A4 이 국면들의 연 차 > 0
-GATE_BEAR_RET = -0.02    # A5 하락 구간 누적수익 차(처리 − 대조) ≥ −2%p
-GATE_BEAR_MDD = -0.02    # A5 하락 구간 MDD 차 ≥ −2%p
-GATE_MDD = -0.02         # A6 전 구간 MDD 차 ≥ −2%p
+# ---- 주 시험(대용 지수 15년) 기준 — 등록 문서 §3 표와 같다(테스트가 대조한다)
+INDEX_FIRST = date(2011, 1, 3)       # 첫 결정 세션(진단 결정 세션 시작과 같다)
+INDEX_UNTIL = date(2026, 6, 30)      # 실현 t+2 종가 상한(진단 상한)
+SEGMENTS: dict[str, tuple[date, date]] = {   # 진단 §4-2 의 다섯 구간(결정 세션 날짜로 가른다)
+    "2011~14": (date(2011, 1, 1), date(2014, 12, 31)),
+    "2015~18": (date(2015, 1, 1), date(2018, 12, 31)),
+    "2019~21": (date(2019, 1, 1), date(2021, 12, 31)),
+    "2022~24": (date(2022, 1, 1), date(2024, 12, 31)),
+    "2025~26H1": (date(2025, 1, 1), date(2026, 6, 30)),
+}
+#: 국면 칸 — 변형이 배수를 바꾼 국면. 결정 세션의 국면(d−1 종가까지) 칸에서 연 차가 양이어야 한다.
+CELLS: dict[str, tuple[str, ...]] = {"CR1": ("crisis",), "CR2": ("bear", "crisis"), "CR3": ("bear",)}
+GATE_T = 3.0             # I1 연 차 > 0 그리고 NW t(lag 10) ≥ 3 — 단측 p 0.00135, 변형 넷 Bonferroni 로도 가족 0.54%
+GATE_SEGMENTS = 4        # I2 다섯 구간 중 연 차 > 0 인 구간 수
+GATE_PLACEBO = 0.05 / 3  # I4 위약(국면 열 원형 이동) 단측 p — 처리 셋 Bonferroni
+PLACEBO_DRAWS = 1000
+#: 특수 구간(사용자 10/13 밤 "코로나·작년 급등장은 특이한 케이스") — 결과를 보기 전에 정한 날짜(결정 세션 기준).
+#: 코로나 = 사용자가 준 날짜. 급등장 = 이전 등록들(BB·V·하락장 검진·헤지 슬리브)이 9/26 부터 쓴 "급등 2025-01~" 경계와 주 시험 끝(6/30).
+SPECIAL: dict[str, tuple[date, date]] = {
+    "코로나": (date(2020, 2, 17), date(2020, 6, 30)),
+    "급등장": (date(2025, 1, 2), date(2026, 6, 30)),
+}
+GATE_EX_T = 2.0          # I5 특수 구간을 뺀 표본: 연 차 > 0 ∧ NW t ≥ 2 ∧ 바꾼 국면 칸 > 0
+PLACEBO_MIN_SHIFT = 250
+
+# ---- 해 방지(실제 포트 4.6년) — "이겼다" 를 주장하지 않는다
+GATE_BEAR_RET = -0.02    # H1 하락 구간 누적수익 차(처리 − 대조) ≥ −2%p
+GATE_BEAR_MDD = -0.02    # H1 하락 구간 MDD 차 ≥ −2%p
+GATE_MDD = -0.02         # H2 전 구간 MDD 차 ≥ −2%p
+GATE_BLOCK_T = -1.645    # H3 겹치지 않는 30세션 블록 연 차의 블록 t ≥ −1.645 (크게 음이 아님, 단측 5%)
+HARM_BLOCK = 30
 #: 비중 경로 — 리스크 패리티 물러섬(스코어 비례)이 재조정일의 이 비율을 넘으면 주 비중을 동일가중으로 바꾼다(등록 때 정함).
 RP_FALLBACK_MAX = 0.20
 
@@ -252,65 +281,202 @@ def mdd(r: pd.Series) -> float:
     return float((nav / nav.cummax() - 1.0).min()) if len(nav) else float("nan")
 
 
-def judge_main(daily: dict[str, dict[int, pd.Series]], spans: dict[date, tuple[date, date]]) -> tuple[list[str], str, dict]:
-    """주 시험. ``daily[변형][시드]`` = 비용 후 일수익(결정 세션 인덱스). 처리마다 A1~A6, 통과한 것 중 NW t 가 가장 큰 하나.
+def block_t(diff: pd.Series, length: int = HARM_BLOCK) -> tuple[float, int]:
+    """겹치지 않는 ``length`` 세션 블록의 연 차 평균 / (표준편차 / √블록 수). 블록 < 5 면 nan."""
+    d = diff.dropna().to_numpy(float)
+    vals = np.array([d[a:a + length].mean() * ANN for a in range(0, len(d) - length + 1, length)])
+    if len(vals) < 5 or vals.std(ddof=1) == 0:
+        return float("nan"), len(vals)
+    return float(vals.mean() / (vals.std(ddof=1) / np.sqrt(len(vals)))), len(vals)
 
-    지표가 비거나 nan 이면 멈춘다(조용히 기각하지 않는다).
+
+def judge_harm(daily: dict[str, dict[int, pd.Series]], spans: dict[date, tuple[date, date]],
+               arms: tuple[str, ...] = TREATMENTS) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """해 방지(실제 포트). ``daily[변형][시드]`` = 비용 후 일수익. 처리마다 H1~H3 — 주장은 없고 "해가 없나" 만 본다.
+
+    지표가 비거나 nan, 날·시드가 어긋나면 멈춘다(조용히 통과·기각하지 않는다). 기록: 국면별 연 차·시드별 부호.
     """
-    if CONTROL not in daily or any(t not in daily for t in TREATMENTS):
-        raise ValueError(f"judge_main: 변형이 빠졌다 — {sorted(daily)}")
+    if CONTROL not in daily or any(t not in daily for t in arms):
+        raise ValueError(f"judge_harm: 변형이 빠졌다 — {sorted(daily)}")
     seeds = sorted(daily[CONTROL])
     days = sorted(set().union(*(s.index for s in daily[CONTROL].values())))
     ctrl = pd.DataFrame(daily[CONTROL]).reindex(days)
     if ctrl.isna().any().any():
-        raise ValueError("judge_main: 대조 일수익에 빈칸 — 시드마다 같은 날을 채점해야 한다")
-    lines = ["| 변형 | 연 차(시드 평균) | NW t | 시드 + | 연도 ≥0 | 하락 누적 차 · MDD 차 | 반등 | 박스 | 급등 | 전 구간 MDD 차 | 판정 |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
-    stats: dict[str, dict[str, Any]] = {}
-    passed: list[str] = []
-    for arm in TREATMENTS:
+        raise ValueError("judge_harm: 대조 일수익에 빈칸 — 시드마다 같은 날을 채점해야 한다")
+    lines = ["| 변형 | 하락 누적 차 · MDD 차 (H1) | 전 구간 MDD 차 (H2) | 30세션 블록 t (H3) | 기록: 연 차 · 반등 · 박스 · 급등 · 시드 + | 해 |",
+             "|---|---|---|---|---|---|"]
+    out: dict[str, dict[str, Any]] = {}
+    for arm in arms:
         treat = pd.DataFrame(daily[arm]).reindex(days)
         if treat.isna().any().any() or list(treat.columns) != list(ctrl.columns):
-            raise ValueError(f"judge_main: {arm} 일수익이 대조와 같은 날·같은 시드가 아니다")
+            raise ValueError(f"judge_harm: {arm} 일수익이 대조와 같은 날·같은 시드가 아니다")
         diff = (treat - ctrl).mean(axis=1)
-        ann = float(diff.mean() * ANN)
-        t = float(ic_module.newey_west_t(diff, lag=NW_LAG))
-        seeds_up = int(sum((treat[s] - ctrl[s]).mean() > 0 for s in seeds))
-        years = {}
-        for y, part in diff.groupby(pd.Index([d.year for d in diff.index])):
-            if len(part) >= GATE_YEAR_MIN:
-                years[int(y)] = float(part.mean() * ANN)
-        years_ok = sum(v >= 0 for v in years.values())
         ph: dict[str, dict[str, float]] = {}
         for name, window in PHASES.items():
             sel = phase_days(diff.index, spans, window)
             if not sel:
-                raise ValueError(f"judge_main: 국면 {name} 에 세션이 없다")
+                raise ValueError(f"judge_harm: 국면 {name} 에 세션이 없다")
             tr, cr = treat.loc[sel].mean(axis=1), ctrl.loc[sel].mean(axis=1)
-            ph[name] = {"ann": float(diff.loc[sel].mean() * ANN), "n": len(sel),
-                        "cum": float((1 + tr).prod() - (1 + cr).prod()),
+            ph[name] = {"ann": float(diff.loc[sel].mean() * ANN), "cum": float((1 + tr).prod() - (1 + cr).prod()),
                         "mdd": float(np.mean([mdd(treat.loc[sel, s]) - mdd(ctrl.loc[sel, s]) for s in seeds]))}
         full_mdd = float(np.mean([mdd(treat[s]) - mdd(ctrl[s]) for s in seeds]))
-        values = [ann, t, full_mdd, *(v for p in ph.values() for v in p.values())]
+        bt, nblocks = block_t(diff)
+        ann = float(diff.mean() * ANN)
+        seeds_up = int(sum((treat[s] - ctrl[s]).mean() > 0 for s in seeds))
+        values = [ann, full_mdd, bt, *(v for p in ph.values() for v in p.values())]
         if not all(np.isfinite(v) for v in values):
-            raise ValueError(f"judge_main: {arm} 지표에 nan — 판정 불가")
-        c = {"A1": ann > 0 and t >= GATE_T, "A2": seeds_up >= GATE_SEEDS, "A3": years_ok >= GATE_YEARS and len(years) >= GATE_YEARS,
-             "A4": all(ph[p]["ann"] > 0 for p in GATE_PHASE_UP),
-             "A5": ph["하락"]["cum"] >= GATE_BEAR_RET and ph["하락"]["mdd"] >= GATE_BEAR_MDD,
-             "A6": full_mdd >= GATE_MDD}
+            raise ValueError(f"judge_harm: {arm} 지표에 nan — 판정 불가")
+        c = {"H1": ph["하락"]["cum"] >= GATE_BEAR_RET and ph["하락"]["mdd"] >= GATE_BEAR_MDD,
+             "H2": full_mdd >= GATE_MDD, "H3": bt >= GATE_BLOCK_T}
+        mk = {key: "○" if ok_ else "×" for key, ok_ in c.items()}
+        out[arm] = {"gates": c, "ann": ann, "mdd": full_mdd, "block_t": bt, "blocks": nblocks, "phases": ph, "seeds_up": seeds_up}
+        lines.append(f"| {arm} | {ph['하락']['cum']:+.1%}p · {ph['하락']['mdd']:+.1%}p {mk['H1']} | {full_mdd:+.1%}p {mk['H2']} | "
+                     f"{bt:+.2f} ({nblocks}블록) {mk['H3']} | {ann:+.1%}p · {ph['반등']['ann']:+.1%}p · {ph['박스']['ann']:+.1%}p · "
+                     f"{ph['급등']['ann']:+.1%}p · {seeds_up}/{len(seeds)} | {'없음' if all(c.values()) else '있음'} |")
+    return lines, out
+
+
+# --------------------------------------------------------------------------- 주 시험 (대용 지수 15년, 순수)
+
+
+def index_returns(level: pd.Series) -> pd.Series:
+    """결정 세션 d → d+1 종가 → d+2 종가 수익(실현 구간이 결정 뒤 이틀, 포트와 같은 정렬)."""
+    level = level.sort_index()
+    return level.shift(-2) / level.shift(-1) - 1.0
+
+
+def fast_scales(states: pd.Series, scales: dict[str, float], confirm: int = 2) -> pd.Series:
+    """`scale_path` 와 같은 값을 벡터로 — 위약 천 번용. 최근 ``confirm`` 세션 배수의 최솟값, 바닥 FLOOR(테스트가 대조한다)."""
+    k = states.map(lambda st: float(scales.get(str(st), 1.0))).astype(float)
+    lowest = k.rolling(max(1, confirm), min_periods=1).min()
+    return lowest.clip(lower=FLOOR).where(lowest < 1.0, 1.0)
+
+
+def index_daily(r: pd.Series, k: pd.Series, *, every: int = 1) -> pd.Series:
+    """배수 경로 k 로 지수를 들 때 비용 후 일수익 = k·r − 편도 × |Δk|. ``every`` > 1 이면 k 를 그 주기에만 바꾼다(기록용 5세션판)."""
+    k = k.reindex(r.index).astype(float)
+    if every > 1:
+        pos = np.arange(len(k))
+        k = pd.Series(k.to_numpy()[pos - pos % every], index=k.index)
+    cost = k.diff().abs().fillna(0.0) * ONE_WAY_COST
+    return k * r - cost
+
+
+def placebo_p(r: pd.Series, states: pd.Series, arm: str, observed: float, *, draws: int = PLACEBO_DRAWS,
+              seed: int = 0, confirm: int = 2) -> float:
+    """국면 열을 원형으로 [250, N−250] 이동(에피소드 구조 보존, 수익 그대로) — 처리 − E1 연 차가 관측 이상인 비율(단측, +1 보정)."""
+    rng = np.random.default_rng(seed)
+    vals = states.to_numpy(object)
+    n = len(vals)
+    hits = 0
+    for _ in range(draws):
+        shift = int(rng.integers(PLACEBO_MIN_SHIFT, n - PLACEBO_MIN_SHIFT))
+        st = pd.Series(np.roll(vals, shift), index=states.index)
+        d = index_daily(r, fast_scales(st, VARIANTS[arm], confirm)) - index_daily(r, fast_scales(st, VARIANTS[CONTROL], confirm))
+        hits += float(d.mean() * ANN) >= observed
+    return (hits + 1) / (draws + 1)
+
+
+def special_mask(index: pd.Index) -> np.ndarray:
+    """결정 세션이 특수 구간(SPECIAL) 안이면 True."""
+    days = pd.Index(index)
+    mask = np.zeros(len(days), dtype=bool)
+    for lo, hi in SPECIAL.values():
+        mask |= np.asarray((days >= lo) & (days <= hi))
+    return mask
+
+
+def _ann_t(x: pd.Series) -> tuple[float, float, int]:
+    x = x.dropna()
+    if len(x) < NW_LAG + 3:
+        return float("nan"), float("nan"), len(x)
+    return float(x.mean() * ANN), float(ic_module.newey_west_t(x, lag=NW_LAG)), len(x)
+
+
+def judge_index(daily: dict[str, pd.Series], states: pd.Series,
+                placebo: dict[str, float]) -> tuple[list[str], list[str], dict[str, dict[str, Any]]]:
+    """주 시험. ``daily[변형]`` = 지수 위 비용 후 일수익(결정 세션), ``states`` = 결정 세션 국면, ``placebo[처리]`` = 위약 p.
+
+    I1 연 차 > 0 ∧ NW t ≥ 3 · I2 다섯 구간 중 ≥ 4 양 · I3 바꾼 국면 칸의 연 차 > 0 · I4 위약 p ≤ 0.05/3 ·
+    I5 특수 구간(코로나·급등장)을 뺀 표본에서 연 차 > 0 ∧ NW t ≥ 2 ∧ 바꾼 국면 칸 > 0.
+    반환 (표, 통과 변형, 통계). 표는 변형마다 전체 / 특수 제외 / 특수만 세 줄과, 국면 칸 손익 중 코로나 몫을 같이 낸다. 지표가 nan 이면 멈춘다.
+    """
+    if CONTROL not in daily or any(t not in daily or t not in placebo for t in TREATMENTS):
+        raise ValueError("judge_index: 변형·위약이 빠졌다")
+    lines = ["| 변형 | 연 차 | NW t (I1) | 구간 + (I2) | 국면 칸 (I3) | 위약 p (I4) | 특수 제외 연 차 · t · 칸 (I5) | 판정 |",
+             "|---|---|---|---|---|---|---|---|"]
+    rows3 = ["", "| 변형 | 표본 | 세션 | 연 차 | NW t | 바꾼 국면 칸 연 차 |", "|---|---|---|---|---|---|"]
+    passed: list[str] = []
+    stats: dict[str, dict[str, Any]] = {}
+    for arm in TREATMENTS:
+        diff = (daily[arm] - daily[CONTROL]).dropna()
+        if diff.empty:
+            raise ValueError(f"judge_index: {arm} 차가 비었다")
+        ann, t, _ = _ann_t(diff)
+        seg = {}
+        for name, (lo, hi) in SEGMENTS.items():
+            part = diff[(diff.index >= lo) & (diff.index <= hi)]
+            if part.empty:
+                raise ValueError(f"judge_index: 구간 {name} 이 비었다")
+            seg[name] = float(part.mean() * ANN)
+        st = states.reindex(diff.index)
+        special = special_mask(diff.index)
+        samples = {"전체": np.ones(len(diff), dtype=bool), "특수 제외": ~special, "특수만": special}
+        three: dict[str, dict[str, Any]] = {}
+        for label, m in samples.items():
+            a_, t_, n_ = _ann_t(diff[m])
+            cells_ = {c: float(diff[m & (st == c).to_numpy()].mean() * ANN) if (m & (st == c).to_numpy()).any() else float("nan")
+                      for c in CELLS[arm]}
+            three[label] = {"ann": a_, "t": t_, "n": n_, "cells": cells_}
+        cells = three["전체"]["cells"]
+        covid_lo, covid_hi = SPECIAL["코로나"]
+        covid_share = {}
+        for c in CELLS[arm]:
+            in_cell = (st == c).to_numpy()
+            total = float(diff[in_cell].sum())
+            covid = float(diff[in_cell & np.asarray((diff.index >= covid_lo) & (diff.index <= covid_hi))].sum())
+            covid_share[c] = covid / total if total != 0 else float("nan")
+        p = float(placebo[arm])
+        ex = three["특수 제외"]
+        values = [ann, t, p, *seg.values(), *cells.values(), ex["ann"], ex["t"], *ex["cells"].values()]
+        if not all(np.isfinite(v) for v in values):
+            raise ValueError(f"judge_index: {arm} 지표에 nan — 판정 불가")
+        ups = sum(v > 0 for v in seg.values())
+        c = {"I1": ann > 0 and t >= GATE_T, "I2": ups >= GATE_SEGMENTS,
+             "I3": all(v > 0 for v in cells.values()), "I4": p <= GATE_PLACEBO,
+             "I5": ex["ann"] > 0 and ex["t"] >= GATE_EX_T and all(v > 0 for v in ex["cells"].values())}
+        mk = {key: "○" if ok_ else "×" for key, ok_ in c.items()}
         ok = all(c.values())
         if ok:
             passed.append(arm)
-        stats[arm] = {"ann": ann, "t": t, "seeds_up": seeds_up, "years": years, "phases": ph, "mdd": full_mdd, "gates": c}
-        mk = {key: "○" if ok_ else "×" for key, ok_ in c.items()}
-        lines.append(
-            f"| {arm} | {ann:+.2%}p {mk['A1']} | {t:+.2f} | {seeds_up}/{len(seeds)} {mk['A2']} | {years_ok}/{len(years)} {mk['A3']} | "
-            f"{ph['하락']['cum']:+.1%}p · {ph['하락']['mdd']:+.1%}p {mk['A5']} | {ph['반등']['ann']:+.1%}p | {ph['박스']['ann']:+.1%}p | "
-            f"{ph['급등']['ann']:+.1%}p {mk['A4']} | {full_mdd:+.1%}p {mk['A6']} | {'통과' if ok else '기각'} |")
+        stats[arm] = {"ann": ann, "t": t, "segments": seg, "cells": cells, "placebo": p, "samples": three,
+                      "covid_share": covid_share, "gates": c}
+        cell_txt = " · ".join(f"{k} {v:+.1%}p" for k, v in cells.items())
+        ex_cells = " · ".join(f"{k} {v:+.1%}p" for k, v in ex["cells"].items())
+        seg_txt = " / ".join(f"{v:+.1%}" for v in seg.values())
+        lines.append(f"| {arm} | {ann:+.2%}p | {t:+.2f} {mk['I1']} | {ups}/5 ({seg_txt}) {mk['I2']} | {cell_txt} {mk['I3']} | "
+                     f"{p:.4f} {mk['I4']} | {ex['ann']:+.2%}p · {ex['t']:+.2f} · {ex_cells} {mk['I5']} | {'통과' if ok else '기각'} |")
+        for label, row in three.items():
+            cells_txt = " · ".join(f"{k} {v:+.1%}p" for k, v in row["cells"].items())
+            rows3.append(f"| {arm} | {label} | {row['n']} | {row['ann']:+.2%}p | {row['t']:+.2f} | {cells_txt} |")
+        rows3.append(f"| {arm} | 기록: 바꾼 국면 칸 손익 중 코로나 몫 | | | | "
+                     + " · ".join(f"{k} {v:.0%}" for k, v in covid_share.items()) + " |")
+    return lines + rows3, passed, stats
+
+
+def final_verdict(passed: list[str], index_stats: dict[str, dict[str, Any]],
+                  harm: dict[str, dict[str, Any]] | None) -> tuple[str, str | None]:
+    """주 시험 통과 ∧ 해 방지 통과 중 NW t 가 가장 큰 하나. (판정 문구, 우승 변형 또는 None)."""
     if not passed:
-        return lines, "기각 — 주 시험(긴 과거)에서 통과한 변형 없음, V6 유지", stats
-    best = max(passed, key=lambda a: stats[a]["t"])
-    return lines, f"주 시험 통과 {best} — 금고 second(11/23) 확인 대기, 실전 반영은 사용자 결정", stats
+        return "기각 — 주 시험(지수 15년)에서 통과한 변형 없음, V6 유지", None
+    if harm is None:
+        raise ValueError("final_verdict: 주 시험 통과 변형이 있는데 해 방지 결과가 없다")
+    clean = [a for a in passed if all(harm[a]["gates"].values())]
+    if not clean:
+        bad = ", ".join(f"{a}({'·'.join(k for k, v in harm[a]['gates'].items() if not v)})" for a in passed)
+        return f"기각 — 주 시험 통과 {', '.join(passed)} 이나 실제 포트에서 해 {bad}, V6 유지", None
+    best = max(clean, key=lambda a: index_stats[a]["t"])
+    return f"주 시험 통과 {best} · 해 방지 통과 — 금고 second(11/23) 확인 대기, 실전 반영은 사용자 결정", best
 
 
 def block_margins(treat: pd.Series, ctrl: pd.Series, *, length: int = VAULT_BLOCK, step: int = VAULT_STEP) -> dict[str, float]:
@@ -359,60 +525,63 @@ def nw_se_annual(x: np.ndarray, n: int, lag: int = NW_LAG) -> float:
     return float(np.sqrt(var / n) * ANN)
 
 
-def power_table(diff: np.ndarray, *, length: int, deltas: list[float], thresholds: list[float], step: int = 5) -> pd.DataFrame:
-    """귀무 = 평균을 뺀 계열, 대립 = 거기에 연 δ 를 더한 것. 길이 ``length`` 블록(``step`` 씩)마다 NW t ≥ 문턱의 비율. **평균은 내보내지 않는다.**"""
-    x0 = diff - diff.mean()
-    rows = []
-    for delta in [0.0, *deltas]:
-        ts = np.array([ic_module.newey_west_t(pd.Series(x0[a:a + length] + delta / ANN), lag=NW_LAG)
-                       for a in range(0, len(x0) - length + 1, step)])
-        rows.append({"δ(연)": delta, **{f"t≥{th:g}": float(np.mean(ts >= th)) for th in thresholds}})
-    return pd.DataFrame(rows)
+def index_setup(level: pd.Series, floor: float, base: ExposureParams, *, every: int = 1) -> tuple[pd.Series, pd.Series, dict[str, pd.Series]]:
+    """주 시험의 재료 — (결정 세션 수익 r, 결정 세션 국면, 변형별 비용 후 일수익). 결정 세션 = INDEX_FIRST~, t+2 종가 ≤ INDEX_UNTIL.
 
-
-def proxy_diffs(level: pd.Series, v6: pd.Series, base: ExposureParams) -> dict[str, np.ndarray]:
-    """진단 대용 지수(시총 상위 200) 위의 변형 − E1 일 차. 결정 d 의 배수는 d−1 까지의 국면, 수익은 d+1→d+2 (주 시험과 같은 정렬).
-
-    노출 전환 비용 = 편도 × |Δk|. 검정력 계산 전용 — 평균은 호출부가 인쇄하지 않는다.
+    국면은 `regime_states`(classify, d−1 종가까지), 배수는 `scale_path`(실전 regime_scale) — `fast_scales` 는 위약에만 쓴다.
     """
+    guard("index level", level.index, until=INDEX_UNTIL)
     level = level.sort_index()
-    r = (level.shift(-2) / level.shift(-1) - 1.0)
-    states = v6.shift(1).reindex(level.index).fillna("unknown")
-    keep = r.notna() & (states != "unknown")
-    paths = {v: scale_path(states, variant_params(base, v)) for v in VARIANTS}
-    net = {}
-    for v, k in paths.items():
-        cost = k.diff().abs().fillna(0.0) * ONE_WAY_COST
-        net[v] = (k * r - cost)[keep]
-    return {v: (net[v] - net[CONTROL]).to_numpy(float) for v in TREATMENTS}
+    level.index = pd.to_datetime(pd.Series(level.index)).dt.date.values
+    r = index_returns(level).dropna()
+    r = r[r.index >= INDEX_FIRST]
+    states = regime_states(level, list(r.index), floor)
+    if (states == "unknown").any():
+        raise SystemExit(f"대용 지수 국면 unknown {int((states == 'unknown').sum())}세션 — 멈춘다")
+    daily = {v: index_daily(r, scale_path(states, variant_params(base, v)), every=every) for v in VARIANTS}
+    return r, states, daily
 
 
-def run_power(data: Path, *, length: int, vol_mults: tuple[float, ...] = (1.0, 1.5)) -> int:
-    """진단 `data/_diag/regime-strategy-map/regimes.pkl`(≤ 2026-06-30) 로 등록 전 검정력. 평균 차는 인쇄하지 않는다."""
-    path = data / "_diag/regime-strategy-map/regimes.pkl"
-    reg = pd.read_pickle(path)  # invariant-allow: data-access — 진단 캐시(대용 지수·V6 국면, 이미 본 자료)
-    level, v6 = reg["level"], reg["v6"]
-    guard("regimes.level", level.index, until=POWER_UNTIL)
-    guard("regimes.v6", v6.index, until=POWER_UNTIL)
+def load_level(data: Path) -> pd.Series:
+    reg = pd.read_pickle(data / "_diag/regime-strategy-map/regimes.pkl")  # invariant-allow: data-access — 진단 캐시(대용 지수, 이미 본 자료)
+    level = reg["level"]
+    guard("regimes.level", level.index, until=INDEX_UNTIL)
+    return level
+
+
+def run_power(data: Path, *, vol_mults: tuple[float, ...] = (1.0,)) -> int:
+    """주 시험(대용 지수 15년) 검정력 — 변형 − E1 일 차의 **평균을 빼고** NW 장기분산만 쓴다(평균은 인쇄하지 않는다).
+
+    실제 포트 해 방지(H3)의 참고로 1,159세션 창 표준오차도 같은 계열로 적는다.
+    """
     base = ExposureParams(below_trend=1.0, regime_scale=dict(V6), squeezed=1.0, squeeze_quantile=0.2,
                           regime_confirm_sessions=2, deadband=0.10, deadband_asymmetric=False)
-    diffs = proxy_diffs(level, v6, base)
-    print(f"=== 시행 CR 검정력 — 진단 대용 지수 {level.index[0]}~{level.index[-1]} · 판정 창 길이 {length}세션 · NW lag {NW_LAG} "
-          f"(평균 차는 인쇄하지 않는다 — 귀무는 평균을 뺀 계열) ===", flush=True)
-    for arm, d in diffs.items():
+    r, states, daily = index_setup(load_level(data), -0.03, base)
+    n = len(r)
+    print(f"=== 시행 CR 검정력 — 대용 지수 결정 세션 {r.index[0]}~{r.index[-1]} · {n}세션 · NW lag {NW_LAG} · 매일 조정 "
+          "(평균 차는 인쇄하지 않는다) ===", flush=True)
+    print("국면 분포 " + " · ".join(f"{k} {v}" for k, v in states.value_counts().items()), flush=True)
+    from scipy.stats import norm
+    for arm in TREATMENTS:
+        d = (daily[arm] - daily[CONTROL]).to_numpy(float)
         active = float(np.mean(np.abs(d) > 1e-12))
-        print(f"\n[{arm}] 일 차 표준편차 {d.std():.5f} · 차가 0 아닌 날 {active:.0%} · 관측 {len(d)}", flush=True)
+        print(f"\n[{arm}] 일 차 표준편차 {d.std():.5f} · 차가 0 아닌 날 {active:.0%}", flush=True)
         for vm in vol_mults:
-            x = d * vm
-            se = nw_se_annual(x, length)
-            print(f"  변동성 ×{vm:g}: 연 차의 표준오차(창 {length}) {se:.2%}p → 최소 탐지 효과(80%·t≥3 단측) ≈ {(3.0 + 0.84) * se:.2%}p "
-                  f"· (t≥2) ≈ {(2.0 + 0.84) * se:.2%}p", flush=True)
-            tab = power_table(x, length=length, deltas=[0.005, 0.01, 0.02, 0.03, 0.05], thresholds=[2.0, 2.5, 3.0])
-            print(tab.to_string(index=False, float_format=lambda v: f"{v:.3f}"), flush=True)
+            se = nw_se_annual(d * vm, n)
+            row = " · ".join(f"δ {dl:.1%}p → t≥3 {1 - norm.cdf(GATE_T - dl / se):.0%} (t≥2 {1 - norm.cdf(2.0 - dl / se):.0%})"
+                             for dl in (0.005, 0.01, 0.02, 0.03, 0.04))
+            print(f"  연 차 표준오차(15년) {se:.2%}p · 최소 탐지(80%·t≥3) ≈ {(GATE_T + 0.84) * se:.2%}p · (t≥2) ≈ {2.84 * se:.2%}p", flush=True)
+            print(f"  검정력(정규 근사): {row}", flush=True)
+            print(f"  참고 — 같은 계열 1,159세션 창 표준오차 {nw_se_annual(d * vm, 1159):.2%}p", flush=True)
+            keep = ~special_mask(daily[arm].index)
+            dx = d[keep] * vm
+            se_x = nw_se_annual(dx, len(dx))
+            row_x = " · ".join(f"δ {dl:.1%}p → t≥2 {1 - norm.cdf(GATE_EX_T - dl / se_x):.0%}" for dl in (0.01, 0.02, 0.03, 0.04))
+            print(f"  I5 특수 구간 제외 {len(dx)}세션(특수 {int((~keep).sum())}): 표준오차 {se_x:.2%}p · 검정력 {row_x} "
+                  f"· 특수 구간 안 d≠0 비율 {float(np.mean(np.abs(d[~keep]) > 1e-12)):.0%}", flush=True)
         blocks = [d[a:a + VAULT_BLOCK] for a in range(0, len(d) - VAULT_BLOCK + 1, VAULT_STEP)]
         sd30 = float(np.std([b.mean() * ANN for b in blocks], ddof=1))
-        print(f"  참고 — 30세션 블록 연 차 표준편차(대용 지수, 변동성 ×1) {sd30:.1%}p → 금고 V1 여유 대략 {-VAULT_Z * sd30:+.1%}p "
-              "(실제 여유는 --run 이 실제 포트로 다시 잰다)", flush=True)
+        print(f"  참고 — 30세션 블록 연 차 표준편차(대용 지수) {sd30:.1%}p (금고 여유는 --run 이 실제 포트로 다시 잰다)", flush=True)
     return 0
 
 
@@ -540,64 +709,78 @@ def run_main(data: Path, *, save: bool) -> int:
     if any(abs(live.get(s, 1.0) - VARIANTS[CONTROL][s]) > 1e-12 for s in VARIANTS[CONTROL]):
         raise SystemExit(f"실전 국면 배수 {live} 가 등록 대조 E1 {VARIANTS[CONTROL]} 와 다르다 — 멈춘다(대조가 실전이 아니다)")
     floor = float(store.config(CRISIS_FLOOR_KEY, as_of=as_of))
-    calendar = list(trading_days(Market.KR, PRICE_START, LAST_CLOSE))
-    sessions = [d for d in calendar if d >= MAIN_FIRST]
-    days = usable_days(sessions, calendar)
-    print(f"주 시험 결정 세션 {days[0]}~{days[-1]} · {len(days)}세션 (t+2 ≤ {LAST_CLOSE})", flush=True)
 
-    long_ret, bench, trad = rkit.market_data(store, [PRICE_START, *sessions], cache=data / "_diag-long")
-    early = tradable_from(data / "_diag/vault-early")             # 금고 early(7/1~9/30) — 소진돼 탐색 자료
-    guard("tradable early", list(early))
-    trad = {**{d: s for d, s in trad.items() if d < date(2026, 7, 1)}, **early}
-    guard("ret", long_ret.index)
-    guard("bench", bench.index)
-    ret = long_ret.reindex(days)
-    bench = bench.reindex(days)
+    # ---- ① 주 시험 — 대용 지수 15년, 매일 조정
+    r_idx, st_idx, idx_daily = index_setup(load_level(data), floor, base)
+    print(f"주 시험(대용 지수) 결정 세션 {r_idx.index[0]}~{r_idx.index[-1]} · {len(r_idx)}세션 · 국면 "
+          + " · ".join(f"{k} {v}" for k, v in st_idx.value_counts().items()), flush=True)
+    placebo = {}
+    for arm in TREATMENTS:
+        observed = float((idx_daily[arm] - idx_daily[CONTROL]).mean() * ANN)
+        placebo[arm] = placebo_p(r_idx, st_idx, arm, observed, confirm=int(base.regime_confirm_sessions))
+    idx_lines, passed, idx_stats = judge_index(idx_daily, st_idx, placebo)
+    _, _, five = index_setup(load_level(data), floor, base, every=5)
+    rec5 = " · ".join(f"{a} {float((five[a] - five[CONTROL]).mean() * ANN):+.2%}p" for a in TREATMENTS)
+    print("\n".join(idx_lines) + f"\n기록(기준 아님) 5세션 조정판 연 차: {rec5}", flush=True)
 
-    closes = regime_closes(store, as_of=as_of, start=MAIN_FIRST)
-    guard("regime closes", closes.index)
-    states = regime_states(closes, days, floor)
-    unknown = int((states == "unknown").sum())
-    if unknown:
-        raise SystemExit(f"국면 unknown {unknown}세션 — {REGIME_INDEX} 이력 부족, 변형 차가 묻힌다. 멈춘다")
-    paths = {v: scale_path(states, variant_params(base, v)) for v in VARIANTS}
-    print("국면 분포 " + " · ".join(f"{k} {v}" for k, v in states.value_counts().items()), flush=True)
-
-    # 얼린 C0 조각(6/30~). EMA 는 앞 조각(회차 C0) 점수에서 그대로 이어진다 — 따로 데우는 세션을 넣지 않는다.
-    frozen = frozen_c0_preds(store, [d for d in calendar if d >= FROZEN_FROM])
-    daily: dict[str, dict[str, dict[int, pd.Series]]] = {"RP": {v: {} for v in VARIANTS}, "EW": {v: {} for v in VARIANTS}}
-    rp_log: dict[str, int] = {}
-    for seed in SEEDS:
-        pred = pd.concat([kr_preds_long(data, seed), frozen[seed]], ignore_index=True)
-        guard(f"pred seed{seed}", pred["session"])
-        for wname, weigh in (("RP", rp_weigher(store, rp_log)), ("EW", equal_weigh)):
-            tgt, _ = targets_from_scores(pred, ret, trad, days, weigh)
-            for v, r in books(tgt, ret, bench, paths).items():
-                daily[wname][v][seed] = r
-        print(f"  시드 {seed} 완료 · RP 물러섬 {rp_log.get('fallback', 0)}/{rp_log.get('total', 0)} · 제약 실패 {rp_log.get('error', 0)}",
-              flush=True)
-    share = (rp_log.get("fallback", 0) + rp_log.get("error", 0)) / max(1, rp_log.get("total", 0) + rp_log.get("error", 0))
-    primary = "RP" if share <= RP_FALLBACK_MAX else "EW"
-    print(f"주 비중 = {primary} (리스크 패리티 물러섬 비율 {share:.0%}, 문턱 {RP_FALLBACK_MAX:.0%})", flush=True)
-    spans = realized(days, calendar)
-    lines, verdict, _ = judge_main(daily[primary], spans)
-    other = "EW" if primary == "RP" else "RP"
-    rec_lines, rec_verdict, _ = judge_main(daily[other], spans)
-    print("\n".join(lines) + f"\n판정: {verdict}\n\n기록(기준 아님) {other} 비중:\n" + "\n".join(rec_lines)
-          + f"\n({other} 이었다면: {rec_verdict})", flush=True)
-    result: dict[str, Any] = {"protocol_hash": PROTOCOL_HASH, "verdict": verdict, "primary": primary, "rp_fallback_share": share,
-                              "first": str(days[0]), "last": str(days[-1]), "sessions": len(days)}
-    if verdict.startswith("주 시험 통과"):
-        arm = verdict.split()[3]
-        ctrl = pd.DataFrame(daily[primary][CONTROL]).mean(axis=1)
-        treat = pd.DataFrame(daily[primary][arm]).mean(axis=1)
-        result |= {"winner": arm, "margins": block_margins(treat, ctrl)}
-        print(f"금고 확인 여유(30세션 블록) {result['margins']}", flush=True)
+    # ---- ② 해 방지 — 실제 포트 4.6년 (주 시험 통과 변형이 있을 때만 무거운 계산을 한다)
+    harm = None
+    harm_lines: list[str] = []
+    result: dict[str, Any] = {"protocol_hash": PROTOCOL_HASH, "index": {a: {k: v for k, v in s.items() if k != "gates"}
+                                                                       for a, s in idx_stats.items()}, "passed": passed}
+    if passed:
+        calendar = list(trading_days(Market.KR, PRICE_START, LAST_CLOSE))
+        sessions = [d for d in calendar if d >= MAIN_FIRST]
+        days = usable_days(sessions, calendar)
+        print(f"해 방지(실제 포트) 결정 세션 {days[0]}~{days[-1]} · {len(days)}세션 (t+2 ≤ {LAST_CLOSE})", flush=True)
+        long_ret, bench, trad = rkit.market_data(store, [PRICE_START, *sessions], cache=data / "_diag-long")
+        early = tradable_from(data / "_diag/vault-early")             # 금고 early(7/1~9/30) — 소진돼 탐색 자료
+        guard("tradable early", list(early))
+        trad = {**{d: s for d, s in trad.items() if d < date(2026, 7, 1)}, **early}
+        guard("ret", long_ret.index)
+        guard("bench", bench.index)
+        ret, bench = long_ret.reindex(days), bench.reindex(days)
+        closes = regime_closes(store, as_of=as_of, start=MAIN_FIRST)
+        guard("regime closes", closes.index)
+        states = regime_states(closes, days, floor)
+        if (states == "unknown").any():
+            raise SystemExit(f"국면 unknown {int((states == 'unknown').sum())}세션 — {REGIME_INDEX} 이력 부족. 멈춘다")
+        paths = {v: scale_path(states, variant_params(base, v)) for v in VARIANTS}
+        frozen = frozen_c0_preds(store, [d for d in calendar if d >= FROZEN_FROM])   # EMA 는 앞 조각에서 이어진다
+        daily: dict[str, dict[str, dict[int, pd.Series]]] = {"RP": {v: {} for v in VARIANTS}, "EW": {v: {} for v in VARIANTS}}
+        rp_log: dict[str, int] = {}
+        for seed in SEEDS:
+            pred = pd.concat([kr_preds_long(data, seed), frozen[seed]], ignore_index=True)
+            guard(f"pred seed{seed}", pred["session"])
+            for wname, weigh in (("RP", rp_weigher(store, rp_log)), ("EW", equal_weigh)):
+                tgt, _ = targets_from_scores(pred, ret, trad, days, weigh)
+                for v, rr in books(tgt, ret, bench, paths).items():
+                    daily[wname][v][seed] = rr
+            print(f"  시드 {seed} 완료 · RP 물러섬 {rp_log.get('fallback', 0)}/{rp_log.get('total', 0)} · 제약 실패 {rp_log.get('error', 0)}",
+                  flush=True)
+        share = (rp_log.get("fallback", 0) + rp_log.get("error", 0)) / max(1, rp_log.get("total", 0) + rp_log.get("error", 0))
+        primary = "RP" if share <= RP_FALLBACK_MAX else "EW"
+        spans = realized(days, calendar)
+        harm_lines, harm = judge_harm(daily[primary], spans)
+        other = "EW" if primary == "RP" else "RP"
+        rec_lines, _ = judge_harm(daily[other], spans)
+        print(f"주 비중 = {primary} (리스크 패리티 물러섬 비율 {share:.0%}, 문턱 {RP_FALLBACK_MAX:.0%})\n" + "\n".join(harm_lines)
+              + f"\n기록(기준 아님) {other} 비중:\n" + "\n".join(rec_lines), flush=True)
+        result |= {"primary": primary, "rp_fallback_share": share, "first": str(days[0]), "last": str(days[-1]), "sessions": len(days),
+                   "harm": {a: {k: v for k, v in h.items() if k != "gates"} for a, h in harm.items()}}
+    verdict, winner = final_verdict(passed, idx_stats, harm)
+    print(f"판정: {verdict}", flush=True)
+    result["verdict"] = verdict
+    if winner is not None:
+        ctrl = pd.DataFrame(daily[result["primary"]][CONTROL]).mean(axis=1)
+        treat = pd.DataFrame(daily[result["primary"]][winner]).mean(axis=1)
+        result |= {"winner": winner, "margins": block_margins(treat, ctrl)}
+        print(f"금고 확인 여유(실제 포트 30세션 블록) {result['margins']}", flush=True)
     if save:
         (data / "_diag/cr-exposure").mkdir(parents=True, exist_ok=True)
         (data / "_diag/cr-exposure/main.json").write_text(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         rkit.record(store, entity=ENTITY, source="trial_cr_exposure", family="selection", digest=str(PROTOCOL_HASH),
-                    verdict=verdict, lines=[f"주 비중 {primary}", *lines[-4:]])
+                    verdict=verdict, lines=["처리 3 · 우승 하나 · 주 시험 = 대용 지수 15년", *idx_lines[2:], *harm_lines[2:]])
         print(f"기록 완료 — research_trials 1행 · {data / '_diag/cr-exposure/main.json'}", flush=True)
     else:
         print("\n--save 가 없다 — 창고에 아무것도 적지 않았다(시행 미소진).", flush=True)
@@ -657,11 +840,12 @@ def vault_run(store: Any, data: Path) -> tuple[list[str], str]:
 PLAN = f"""시행 CR — 순서 (자료를 읽지 않는다)
 0. 등록 문서 {PROTOCOL} 해시 고정(사용자 확인 뒤 리드) → 이 파일 PROTOCOL_HASH · vault_judge.CR_PROTOCOL_HASH 에 같은 값
 1. 검정력(등록 전, 이미 함): .venv/bin/python tools/trial_cr_exposure.py --power
-2. 주 시험(긴 과거 {MAIN_FIRST}~, 종가 ≤ {LAST_CLOSE}): nice -n 10 env QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB MALLOC_ARENA_MAX=2 OMP_NUM_THREADS=2 \\
+2. 주 시험(대용 지수 {INDEX_FIRST}~, 종가 ≤ {INDEX_UNTIL}, 매일 조정·위약 {PLACEBO_DRAWS}회) → 통과 변형이 있으면
+   해 방지(실제 포트 {MAIN_FIRST}~, 종가 ≤ {LAST_CLOSE}): nice -n 10 env QUANT_RL_DUCKDB_MEMORY_LIMIT=1GB MALLOC_ARENA_MAX=2 OMP_NUM_THREADS=2 \\
      .venv/bin/python tools/trial_cr_exposure.py --run --save      # 가용 ≥ {MIN_AVAILABLE_GB:g}GB · 22:20~00:45 밖
    → research_trials 1행(entity {ENTITY}) · data/_diag/cr-exposure/main.json(우승 변형·금고 여유)
 3. 통과면 11/23 금고 second 확인: .venv/bin/python tools/vault_judge.py --judge --window second --trials …,CR --save
-   (주 시험 미통과면 판정부가 CR 을 건너뛴다)
+   (주 시험·해 방지 미통과면 판정부가 CR 을 건너뛴다)
 4. 확인이면 실전 반영은 사용자 결정 — 반영하면 대조 장부(V6 그대로)를 두고 전방 순차 검정(modelops/sequential.py)으로 감시
 """
 
@@ -674,7 +858,6 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--run", action="store_true")
     parser.add_argument("--save", action="store_true")
     parser.add_argument("--data", default="data", help="창고 루트(기본 data)")
-    parser.add_argument("--length", type=int, default=1180, help="--power 의 판정 창 길이(세션)")
     args = parser.parse_args(argv)
     if args.save and not args.run:
         parser.error("--save 는 --run 과 함께만")
@@ -682,7 +865,7 @@ def main(argv: list[str] | None = None) -> int:
         print(PLAN, flush=True)
         return 0
     if args.power:
-        return run_power(Path(args.data), length=args.length)
+        return run_power(Path(args.data))
     problem = protocol_problem()
     if problem:
         print(f"--run 거부 — {problem}", flush=True)
