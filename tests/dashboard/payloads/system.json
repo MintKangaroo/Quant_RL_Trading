@@ -54,64 +54,39 @@
     }
   },
   "system/jobs": {
-    "as_of": "2026-08-30T03:31:15.150931+00:00",
+    "as_of": "2026-10-13T13:40:30+00:00",
     "data": [
       {
         "key": "collect_daily",
         "label": "일일 수집 (시세·유니버스·수급·거시)",
-        "last_run_ok": false,
-        "last_success_at": "2026-08-28T08:40:07+09:00",
-        "run_count": 34,
+        "last_run_ok": null,
+        "last_success_at": "2026-10-13T15:55:01+09:00",
+        "run_count": 87,
         "runs": [
           {
-            "market": "US",
-            "ok": false,
-            "started_at": "2026-08-29T08:40:09+09:00",
-            "steps": [
-              1,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ]
+            "market": "KR",
+            "ok": null,
+            "started_at": "2026-10-13T22:40:01+09:00",
+            "status": "unknown",
+            "steps": []
           },
           {
             "market": "KR",
-            "ok": false,
-            "started_at": "2026-08-28T22:40:08+09:00",
-            "steps": [
-              0,
-              1,
-              0,
-              0,
-              0,
-              0,
-              1,
-              1,
-              0,
-              0,
-              0,
-              0
-            ]
-          },
-          {
-            "market": "KR",
-            "ok": false,
-            "started_at": "2026-08-28T15:55:04+09:00",
+            "ok": true,
+            "started_at": "2026-10-13T15:55:01+09:00",
+            "status": "ok",
             "steps": [
               0,
               0,
               0,
               0,
-              1,
-              1,
               0,
               0,
-              1,
+              0,
+              0,
+              0,
+              0,
+              0,
               0,
               0
             ]
@@ -119,8 +94,15 @@
           {
             "market": "US",
             "ok": true,
-            "started_at": "2026-08-28T08:40:07+09:00",
+            "started_at": "2026-10-13T08:40:01+09:00",
+            "status": "ok",
             "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
               0,
               0,
               0,
@@ -132,17 +114,20 @@
           },
           {
             "market": "KR",
-            "ok": false,
-            "started_at": "2026-08-27T22:40:07+09:00",
+            "ok": true,
+            "started_at": "2026-10-12T22:40:01+09:00",
+            "status": "ok",
             "steps": [
               0,
-              1,
               0,
               0,
               0,
               0,
-              1,
-              1,
+              0,
+              0,
+              0,
+              0,
+              0,
               0,
               0,
               0
@@ -150,8 +135,9 @@
           },
           {
             "market": "KR",
-            "ok": false,
-            "started_at": "2026-08-27T15:55:04+09:00",
+            "ok": true,
+            "started_at": "2026-10-12T15:55:01+09:00",
+            "status": "ok",
             "steps": [
               0,
               0,
@@ -159,33 +145,105 @@
               0,
               0,
               0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": false,
+            "started_at": "2026-10-10T08:40:01+09:00",
+            "status": "fail",
+            "steps": [
+              0,
+              0,
+              0,
               1,
               1,
+              1,
+              0,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-09T22:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
               0,
               0
             ]
           },
           {
             "market": "KR",
-            "ok": false,
-            "started_at": "2026-08-26T22:40:01+09:00",
+            "ok": true,
+            "started_at": "2026-10-09T15:55:01+09:00",
+            "status": "ok",
             "steps": [
               0,
-              1,
               0,
               0,
               0,
               0,
-              1,
-              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-09T08:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
               0,
               0
             ]
           },
           {
             "market": "KR",
-            "ok": false,
-            "started_at": "2026-08-26T15:55:01+09:00",
+            "ok": true,
+            "started_at": "2026-10-08T22:40:08+09:00",
+            "status": "ok",
             "steps": [
               0,
               0,
@@ -193,8 +251,221 @@
               0,
               0,
               0,
-              1,
-              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-08T18:27:54+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-08T08:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-07T22:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-07T15:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-07T08:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-06T22:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-06T15:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-06T08:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-05T22:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-05T15:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
               0,
               0
             ]
@@ -206,13 +477,14 @@
         "key": "run_daily",
         "label": "일일 실행 (Analyst 점수·News/SNS 판정)",
         "last_run_ok": true,
-        "last_success_at": "2026-08-29T12:00:04+09:00",
-        "run_count": 23,
+        "last_success_at": "2026-10-13T12:00:01+09:00",
+        "run_count": 59,
         "runs": [
           {
             "market": "US",
             "ok": true,
-            "started_at": "2026-08-29T12:00:04+09:00",
+            "started_at": "2026-10-13T12:00:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -220,7 +492,27 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-28T22:55:04+09:00",
+            "started_at": "2026-10-12T22:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": false,
+            "started_at": "2026-10-10T12:00:01+09:00",
+            "status": "deferred",
+            "steps": [
+              6,
+              6
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-09T22:55:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -228,7 +520,8 @@
           {
             "market": "US",
             "ok": true,
-            "started_at": "2026-08-28T12:00:04+09:00",
+            "started_at": "2026-10-09T12:00:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -236,7 +529,17 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-27T22:55:07+09:00",
+            "started_at": "2026-10-08T22:55:04+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-08T18:36:45+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -244,7 +547,8 @@
           {
             "market": "US",
             "ok": true,
-            "started_at": "2026-08-27T12:00:04+09:00",
+            "started_at": "2026-10-08T12:00:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -252,7 +556,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-26T22:55:01+09:00",
+            "started_at": "2026-10-07T22:55:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -260,7 +565,8 @@
           {
             "market": "US",
             "ok": true,
-            "started_at": "2026-08-26T12:00:01+09:00",
+            "started_at": "2026-10-07T12:00:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -268,7 +574,89 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-25T22:55:01+09:00",
+            "started_at": "2026-10-06T22:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-06T12:00:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-05T22:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-03T12:00:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-02T22:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-02T12:00:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-01T22:55:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-01T12:00:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-09-30T12:00:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-09-29T22:55:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -279,22 +667,24 @@
       {
         "key": "run_shadow",
         "label": "shadow 운용",
-        "last_run_ok": false,
-        "last_success_at": "2026-08-28T23:05:04+09:00",
-        "run_count": 26,
+        "last_run_ok": true,
+        "last_success_at": "2026-10-13T12:20:01+09:00",
+        "run_count": 64,
         "runs": [
           {
             "market": "US",
-            "ok": false,
-            "started_at": "2026-08-29T12:20:05+09:00",
+            "ok": true,
+            "started_at": "2026-10-13T12:20:01+09:00",
+            "status": "ok",
             "steps": [
-              3
+              0
             ]
           },
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-28T23:05:04+09:00",
+            "started_at": "2026-10-12T23:05:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -302,47 +692,162 @@
           {
             "market": "US",
             "ok": false,
-            "started_at": "2026-08-28T12:20:08+09:00",
+            "started_at": "2026-10-10T12:20:01+09:00",
+            "status": "deferred",
             "steps": [
-              3
+              6,
+              6
             ]
           },
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-27T23:05:08+09:00",
+            "started_at": "2026-10-09T23:05:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
           },
           {
             "market": "US",
-            "ok": false,
-            "started_at": "2026-08-27T12:20:06+09:00",
+            "ok": true,
+            "started_at": "2026-10-09T12:20:01+09:00",
+            "status": "ok",
             "steps": [
-              3
+              0
             ]
           },
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-26T23:05:01+09:00",
+            "started_at": "2026-10-08T23:05:08+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
           },
           {
             "market": "US",
-            "ok": false,
-            "started_at": "2026-08-26T12:20:01+09:00",
+            "ok": true,
+            "started_at": "2026-10-08T12:20:01+09:00",
+            "status": "ok",
             "steps": [
-              3
+              0
             ]
           },
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-25T23:05:01+09:00",
+            "started_at": "2026-10-07T23:05:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-07T12:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-06T23:05:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-06T12:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-05T23:05:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-03T12:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-02T23:05:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-02T12:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-01T23:05:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-10-01T12:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-09-30T12:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-09-29T23:05:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "US",
+            "ok": true,
+            "started_at": "2026-09-29T12:20:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -354,13 +859,14 @@
         "key": "collect_news",
         "label": "뉴스 수집",
         "last_run_ok": true,
-        "last_success_at": "2026-08-28T15:40:05+09:00",
-        "run_count": 21,
+        "last_success_at": "2026-10-13T15:40:01+09:00",
+        "run_count": 53,
         "runs": [
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-28T15:40:05+09:00",
+            "started_at": "2026-10-13T15:40:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -368,7 +874,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-28T08:20:04+09:00",
+            "started_at": "2026-10-13T08:20:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -376,7 +883,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-27T15:40:07+09:00",
+            "started_at": "2026-10-12T15:40:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -384,7 +892,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-26T15:40:01+09:00",
+            "started_at": "2026-10-12T08:20:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -392,7 +901,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-26T08:20:01+09:00",
+            "started_at": "2026-10-09T15:40:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -400,7 +910,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-25T15:40:01+09:00",
+            "started_at": "2026-10-09T08:20:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -408,7 +919,8 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-25T08:20:01+09:00",
+            "started_at": "2026-10-08T08:20:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -416,7 +928,116 @@
           {
             "market": "KR",
             "ok": true,
-            "started_at": "2026-08-24T15:40:01+09:00",
+            "started_at": "2026-10-07T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-07T08:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-06T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-06T08:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-05T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-05T08:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-02T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-02T08:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-10-01T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-09-30T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-09-30T08:20:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-09-29T15:40:01+09:00",
+            "status": "ok",
+            "steps": [
+              0
+            ]
+          },
+          {
+            "market": "KR",
+            "ok": true,
+            "started_at": "2026-09-29T08:20:01+09:00",
+            "status": "ok",
             "steps": [
               0
             ]
@@ -431,6 +1052,7 @@
       "coverage_warn": 0.98,
       "default_lookback_days": 90,
       "failure_rows": 50,
+      "ic_threshold": 0.03,
       "latency_p90_warn_ms": 300000,
       "max_lookback_days": 400,
       "missing_warn": 0.01
@@ -1395,6 +2017,945 @@
           "ts_wall": "2026-01-01T09:00:00+09:00"
         }
       ]
+    }
+  },
+  "system/memory": {
+    "as_of": "2026-10-13T13:40:30+00:00",
+    "data": {
+      "events": [],
+      "note": null,
+      "points": [
+        {
+          "at": "2026-10-06T23:00:01+09:00",
+          "available_mb": 8037,
+          "swap_mb": 880
+        },
+        {
+          "at": "2026-10-07T00:00:01+09:00",
+          "available_mb": 8032,
+          "swap_mb": 880
+        },
+        {
+          "at": "2026-10-07T01:00:01+09:00",
+          "available_mb": 7401,
+          "swap_mb": 844
+        },
+        {
+          "at": "2026-10-07T02:00:01+09:00",
+          "available_mb": 7415,
+          "swap_mb": 844
+        },
+        {
+          "at": "2026-10-07T03:00:01+09:00",
+          "available_mb": 7852,
+          "swap_mb": 844
+        },
+        {
+          "at": "2026-10-07T04:00:01+09:00",
+          "available_mb": 7804,
+          "swap_mb": 843
+        },
+        {
+          "at": "2026-10-07T05:00:02+09:00",
+          "available_mb": 7825,
+          "swap_mb": 843
+        },
+        {
+          "at": "2026-10-07T06:00:01+09:00",
+          "available_mb": 7946,
+          "swap_mb": 842
+        },
+        {
+          "at": "2026-10-07T07:00:01+09:00",
+          "available_mb": 7946,
+          "swap_mb": 843
+        },
+        {
+          "at": "2026-10-07T08:00:01+09:00",
+          "available_mb": 7960,
+          "swap_mb": 845
+        },
+        {
+          "at": "2026-10-07T09:00:01+09:00",
+          "available_mb": 7783,
+          "swap_mb": 846
+        },
+        {
+          "at": "2026-10-07T10:00:01+09:00",
+          "available_mb": 7578,
+          "swap_mb": 848
+        },
+        {
+          "at": "2026-10-07T11:00:01+09:00",
+          "available_mb": 7521,
+          "swap_mb": 848
+        },
+        {
+          "at": "2026-10-07T12:00:01+09:00",
+          "available_mb": 7758,
+          "swap_mb": 847
+        },
+        {
+          "at": "2026-10-07T13:00:01+09:00",
+          "available_mb": 7751,
+          "swap_mb": 877
+        },
+        {
+          "at": "2026-10-07T14:00:01+09:00",
+          "available_mb": 7641,
+          "swap_mb": 847
+        },
+        {
+          "at": "2026-10-07T15:00:01+09:00",
+          "available_mb": 7823,
+          "swap_mb": 988
+        },
+        {
+          "at": "2026-10-07T16:00:02+09:00",
+          "available_mb": 8001,
+          "swap_mb": 876
+        },
+        {
+          "at": "2026-10-07T17:00:01+09:00",
+          "available_mb": 7994,
+          "swap_mb": 875
+        },
+        {
+          "at": "2026-10-07T18:00:01+09:00",
+          "available_mb": 7953,
+          "swap_mb": 878
+        },
+        {
+          "at": "2026-10-07T19:00:01+09:00",
+          "available_mb": 8090,
+          "swap_mb": 888
+        },
+        {
+          "at": "2026-10-07T20:00:01+09:00",
+          "available_mb": 8048,
+          "swap_mb": 887
+        },
+        {
+          "at": "2026-10-07T21:00:01+09:00",
+          "available_mb": 8025,
+          "swap_mb": 886
+        },
+        {
+          "at": "2026-10-07T22:00:01+09:00",
+          "available_mb": 8115,
+          "swap_mb": 903
+        },
+        {
+          "at": "2026-10-07T23:00:01+09:00",
+          "available_mb": 8138,
+          "swap_mb": 926
+        },
+        {
+          "at": "2026-10-08T00:00:01+09:00",
+          "available_mb": 8147,
+          "swap_mb": 926
+        },
+        {
+          "at": "2026-10-08T01:00:01+09:00",
+          "available_mb": 7552,
+          "swap_mb": 913
+        },
+        {
+          "at": "2026-10-08T02:00:01+09:00",
+          "available_mb": 8136,
+          "swap_mb": 913
+        },
+        {
+          "at": "2026-10-08T03:00:01+09:00",
+          "available_mb": 8130,
+          "swap_mb": 913
+        },
+        {
+          "at": "2026-10-08T04:00:01+09:00",
+          "available_mb": 8131,
+          "swap_mb": 913
+        },
+        {
+          "at": "2026-10-08T05:00:01+09:00",
+          "available_mb": 8128,
+          "swap_mb": 913
+        },
+        {
+          "at": "2026-10-08T06:00:01+09:00",
+          "available_mb": 8129,
+          "swap_mb": 912
+        },
+        {
+          "at": "2026-10-08T07:00:01+09:00",
+          "available_mb": 8147,
+          "swap_mb": 910
+        },
+        {
+          "at": "2026-10-08T08:00:01+09:00",
+          "available_mb": 8147,
+          "swap_mb": 910
+        },
+        {
+          "at": "2026-10-08T09:00:01+09:00",
+          "available_mb": 7957,
+          "swap_mb": 933
+        },
+        {
+          "at": "2026-10-08T10:00:01+09:00",
+          "available_mb": 7837,
+          "swap_mb": 1005
+        },
+        {
+          "at": "2026-10-08T11:00:01+09:00",
+          "available_mb": 7819,
+          "swap_mb": 1005
+        },
+        {
+          "at": "2026-10-08T12:00:01+09:00",
+          "available_mb": 7969,
+          "swap_mb": 969
+        },
+        {
+          "at": "2026-10-08T13:00:01+09:00",
+          "available_mb": 8017,
+          "swap_mb": 1023
+        },
+        {
+          "at": "2026-10-08T14:00:01+09:00",
+          "available_mb": 8029,
+          "swap_mb": 1020
+        },
+        {
+          "at": "2026-10-08T15:00:01+09:00",
+          "available_mb": 7984,
+          "swap_mb": 1020
+        },
+        {
+          "at": "2026-10-08T19:00:07+09:00",
+          "available_mb": 6156,
+          "swap_mb": 6
+        },
+        {
+          "at": "2026-10-08T20:00:07+09:00",
+          "available_mb": 5760,
+          "swap_mb": 8
+        },
+        {
+          "at": "2026-10-08T21:00:08+09:00",
+          "available_mb": 6763,
+          "swap_mb": 213
+        },
+        {
+          "at": "2026-10-08T22:00:08+09:00",
+          "available_mb": 8398,
+          "swap_mb": 229
+        },
+        {
+          "at": "2026-10-08T23:00:08+09:00",
+          "available_mb": 8493,
+          "swap_mb": 229
+        },
+        {
+          "at": "2026-10-09T00:00:07+09:00",
+          "available_mb": 8394,
+          "swap_mb": 207
+        },
+        {
+          "at": "2026-10-09T01:00:04+09:00",
+          "available_mb": 8370,
+          "swap_mb": 238
+        },
+        {
+          "at": "2026-10-09T02:00:04+09:00",
+          "available_mb": 8390,
+          "swap_mb": 238
+        },
+        {
+          "at": "2026-10-09T03:00:07+09:00",
+          "available_mb": 8348,
+          "swap_mb": 236
+        },
+        {
+          "at": "2026-10-09T04:00:01+09:00",
+          "available_mb": 8347,
+          "swap_mb": 231
+        },
+        {
+          "at": "2026-10-09T05:00:01+09:00",
+          "available_mb": 8314,
+          "swap_mb": 230
+        },
+        {
+          "at": "2026-10-09T06:00:01+09:00",
+          "available_mb": 8334,
+          "swap_mb": 230
+        },
+        {
+          "at": "2026-10-09T07:00:01+09:00",
+          "available_mb": 8343,
+          "swap_mb": 230
+        },
+        {
+          "at": "2026-10-09T08:00:01+09:00",
+          "available_mb": 8337,
+          "swap_mb": 230
+        },
+        {
+          "at": "2026-10-09T09:00:01+09:00",
+          "available_mb": 8121,
+          "swap_mb": 230
+        },
+        {
+          "at": "2026-10-09T10:00:01+09:00",
+          "available_mb": 7928,
+          "swap_mb": 253
+        },
+        {
+          "at": "2026-10-09T11:00:01+09:00",
+          "available_mb": 4315,
+          "swap_mb": 2182
+        },
+        {
+          "at": "2026-10-09T12:00:01+09:00",
+          "available_mb": 6799,
+          "swap_mb": 3056
+        },
+        {
+          "at": "2026-10-09T13:00:01+09:00",
+          "available_mb": 6003,
+          "swap_mb": 3293
+        },
+        {
+          "at": "2026-10-09T14:00:01+09:00",
+          "available_mb": 6282,
+          "swap_mb": 3283
+        },
+        {
+          "at": "2026-10-09T15:00:01+09:00",
+          "available_mb": 9438,
+          "swap_mb": 1177
+        },
+        {
+          "at": "2026-10-09T16:00:01+09:00",
+          "available_mb": 7942,
+          "swap_mb": 1174
+        },
+        {
+          "at": "2026-10-09T17:00:01+09:00",
+          "available_mb": 8977,
+          "swap_mb": 1172
+        },
+        {
+          "at": "2026-10-09T18:00:01+09:00",
+          "available_mb": 9561,
+          "swap_mb": 768
+        },
+        {
+          "at": "2026-10-09T19:00:01+09:00",
+          "available_mb": 9533,
+          "swap_mb": 767
+        },
+        {
+          "at": "2026-10-09T20:00:01+09:00",
+          "available_mb": 9493,
+          "swap_mb": 766
+        },
+        {
+          "at": "2026-10-09T21:00:01+09:00",
+          "available_mb": 5708,
+          "swap_mb": 778
+        },
+        {
+          "at": "2026-10-09T22:00:01+09:00",
+          "available_mb": 9356,
+          "swap_mb": 777
+        },
+        {
+          "at": "2026-10-09T23:00:01+09:00",
+          "available_mb": 9367,
+          "swap_mb": 776
+        },
+        {
+          "at": "2026-10-10T00:00:01+09:00",
+          "available_mb": 9364,
+          "swap_mb": 776
+        },
+        {
+          "at": "2026-10-10T01:00:01+09:00",
+          "available_mb": 9207,
+          "swap_mb": 702
+        },
+        {
+          "at": "2026-10-10T02:00:01+09:00",
+          "available_mb": 9233,
+          "swap_mb": 702
+        },
+        {
+          "at": "2026-10-10T03:00:01+09:00",
+          "available_mb": 9137,
+          "swap_mb": 702
+        },
+        {
+          "at": "2026-10-10T04:00:01+09:00",
+          "available_mb": 9081,
+          "swap_mb": 702
+        },
+        {
+          "at": "2026-10-10T05:00:01+09:00",
+          "available_mb": 9138,
+          "swap_mb": 701
+        },
+        {
+          "at": "2026-10-10T06:00:01+09:00",
+          "available_mb": 9076,
+          "swap_mb": 701
+        },
+        {
+          "at": "2026-10-10T07:00:01+09:00",
+          "available_mb": 9076,
+          "swap_mb": 701
+        },
+        {
+          "at": "2026-10-10T08:00:01+09:00",
+          "available_mb": 9150,
+          "swap_mb": 701
+        },
+        {
+          "at": "2026-10-10T09:00:01+09:00",
+          "available_mb": 8063,
+          "swap_mb": 701
+        },
+        {
+          "at": "2026-10-10T10:00:01+09:00",
+          "available_mb": 7457,
+          "swap_mb": 736
+        },
+        {
+          "at": "2026-10-10T11:00:01+09:00",
+          "available_mb": 7440,
+          "swap_mb": 736
+        },
+        {
+          "at": "2026-10-10T12:00:01+09:00",
+          "available_mb": 4932,
+          "swap_mb": 737
+        },
+        {
+          "at": "2026-10-10T13:00:01+09:00",
+          "available_mb": 7403,
+          "swap_mb": 738
+        },
+        {
+          "at": "2026-10-10T14:00:01+09:00",
+          "available_mb": 6050,
+          "swap_mb": 739
+        },
+        {
+          "at": "2026-10-10T15:00:01+09:00",
+          "available_mb": 6124,
+          "swap_mb": 1367
+        },
+        {
+          "at": "2026-10-10T16:00:02+09:00",
+          "available_mb": 2748,
+          "swap_mb": 5927
+        },
+        {
+          "at": "2026-10-10T17:00:01+09:00",
+          "available_mb": 5927,
+          "swap_mb": 3141
+        },
+        {
+          "at": "2026-10-10T18:00:01+09:00",
+          "available_mb": 5634,
+          "swap_mb": 3049
+        },
+        {
+          "at": "2026-10-10T19:00:01+09:00",
+          "available_mb": 4634,
+          "swap_mb": 1876
+        },
+        {
+          "at": "2026-10-10T20:00:01+09:00",
+          "available_mb": 4639,
+          "swap_mb": 1882
+        },
+        {
+          "at": "2026-10-10T21:00:01+09:00",
+          "available_mb": 4652,
+          "swap_mb": 1804
+        },
+        {
+          "at": "2026-10-10T22:00:01+09:00",
+          "available_mb": 2459,
+          "swap_mb": 4084
+        },
+        {
+          "at": "2026-10-10T23:00:01+09:00",
+          "available_mb": 2795,
+          "swap_mb": 5087
+        },
+        {
+          "at": "2026-10-11T00:00:02+09:00",
+          "available_mb": 2112,
+          "swap_mb": 5661
+        },
+        {
+          "at": "2026-10-11T01:00:01+09:00",
+          "available_mb": 2598,
+          "swap_mb": 4718
+        },
+        {
+          "at": "2026-10-11T02:00:01+09:00",
+          "available_mb": 3517,
+          "swap_mb": 4777
+        },
+        {
+          "at": "2026-10-11T03:00:01+09:00",
+          "available_mb": 2831,
+          "swap_mb": 4668
+        },
+        {
+          "at": "2026-10-11T04:00:01+09:00",
+          "available_mb": 2173,
+          "swap_mb": 4623
+        },
+        {
+          "at": "2026-10-11T05:00:01+09:00",
+          "available_mb": 4099,
+          "swap_mb": 3293
+        },
+        {
+          "at": "2026-10-11T06:00:01+09:00",
+          "available_mb": 4054,
+          "swap_mb": 3288
+        },
+        {
+          "at": "2026-10-11T07:00:01+09:00",
+          "available_mb": 3868,
+          "swap_mb": 3283
+        },
+        {
+          "at": "2026-10-11T08:00:01+09:00",
+          "available_mb": 6102,
+          "swap_mb": 1902
+        },
+        {
+          "at": "2026-10-11T09:00:01+09:00",
+          "available_mb": 7167,
+          "swap_mb": 1571
+        },
+        {
+          "at": "2026-10-11T10:00:01+09:00",
+          "available_mb": 7169,
+          "swap_mb": 1568
+        },
+        {
+          "at": "2026-10-11T11:00:01+09:00",
+          "available_mb": 8745,
+          "swap_mb": 1565
+        },
+        {
+          "at": "2026-10-11T12:00:01+09:00",
+          "available_mb": 8811,
+          "swap_mb": 1562
+        },
+        {
+          "at": "2026-10-11T13:00:01+09:00",
+          "available_mb": 8783,
+          "swap_mb": 1562
+        },
+        {
+          "at": "2026-10-11T14:00:01+09:00",
+          "available_mb": 8791,
+          "swap_mb": 1562
+        },
+        {
+          "at": "2026-10-11T15:00:01+09:00",
+          "available_mb": 8673,
+          "swap_mb": 1561
+        },
+        {
+          "at": "2026-10-11T16:00:01+09:00",
+          "available_mb": 8804,
+          "swap_mb": 1826
+        },
+        {
+          "at": "2026-10-11T17:00:01+09:00",
+          "available_mb": 7868,
+          "swap_mb": 1955
+        },
+        {
+          "at": "2026-10-11T18:00:01+09:00",
+          "available_mb": 8467,
+          "swap_mb": 2743
+        },
+        {
+          "at": "2026-10-11T19:00:01+09:00",
+          "available_mb": 8885,
+          "swap_mb": 2533
+        },
+        {
+          "at": "2026-10-11T20:00:01+09:00",
+          "available_mb": 8808,
+          "swap_mb": 1649
+        },
+        {
+          "at": "2026-10-11T21:00:01+09:00",
+          "available_mb": 8709,
+          "swap_mb": 1621
+        },
+        {
+          "at": "2026-10-11T22:00:01+09:00",
+          "available_mb": 8599,
+          "swap_mb": 1616
+        },
+        {
+          "at": "2026-10-11T23:00:01+09:00",
+          "available_mb": 8614,
+          "swap_mb": 1611
+        },
+        {
+          "at": "2026-10-12T00:00:01+09:00",
+          "available_mb": 8577,
+          "swap_mb": 1611
+        },
+        {
+          "at": "2026-10-12T01:00:01+09:00",
+          "available_mb": 8283,
+          "swap_mb": 1535
+        },
+        {
+          "at": "2026-10-12T02:00:01+09:00",
+          "available_mb": 8295,
+          "swap_mb": 1535
+        },
+        {
+          "at": "2026-10-12T03:00:01+09:00",
+          "available_mb": 8452,
+          "swap_mb": 1534
+        },
+        {
+          "at": "2026-10-12T04:00:01+09:00",
+          "available_mb": 8457,
+          "swap_mb": 1535
+        },
+        {
+          "at": "2026-10-12T05:00:01+09:00",
+          "available_mb": 8470,
+          "swap_mb": 1534
+        },
+        {
+          "at": "2026-10-12T06:00:01+09:00",
+          "available_mb": 8468,
+          "swap_mb": 1534
+        },
+        {
+          "at": "2026-10-12T07:00:01+09:00",
+          "available_mb": 8426,
+          "swap_mb": 1534
+        },
+        {
+          "at": "2026-10-12T08:00:01+09:00",
+          "available_mb": 8384,
+          "swap_mb": 1532
+        },
+        {
+          "at": "2026-10-12T09:00:01+09:00",
+          "available_mb": 8418,
+          "swap_mb": 1526
+        },
+        {
+          "at": "2026-10-12T10:00:01+09:00",
+          "available_mb": 8239,
+          "swap_mb": 1520
+        },
+        {
+          "at": "2026-10-12T11:00:01+09:00",
+          "available_mb": 7897,
+          "swap_mb": 1518
+        },
+        {
+          "at": "2026-10-12T12:00:01+09:00",
+          "available_mb": 7958,
+          "swap_mb": 1517
+        },
+        {
+          "at": "2026-10-12T13:00:01+09:00",
+          "available_mb": 7594,
+          "swap_mb": 1539
+        },
+        {
+          "at": "2026-10-12T14:00:01+09:00",
+          "available_mb": 8104,
+          "swap_mb": 1539
+        },
+        {
+          "at": "2026-10-12T15:00:01+09:00",
+          "available_mb": 8071,
+          "swap_mb": 1539
+        },
+        {
+          "at": "2026-10-12T16:00:01+09:00",
+          "available_mb": 7982,
+          "swap_mb": 1539
+        },
+        {
+          "at": "2026-10-12T17:00:01+09:00",
+          "available_mb": 8196,
+          "swap_mb": 1539
+        },
+        {
+          "at": "2026-10-12T18:00:01+09:00",
+          "available_mb": 8247,
+          "swap_mb": 1582
+        },
+        {
+          "at": "2026-10-12T19:00:01+09:00",
+          "available_mb": 6428,
+          "swap_mb": 1667
+        },
+        {
+          "at": "2026-10-12T20:00:01+09:00",
+          "available_mb": 8509,
+          "swap_mb": 1814
+        },
+        {
+          "at": "2026-10-12T21:00:01+09:00",
+          "available_mb": 8510,
+          "swap_mb": 1800
+        },
+        {
+          "at": "2026-10-12T22:00:01+09:00",
+          "available_mb": 8549,
+          "swap_mb": 1796
+        },
+        {
+          "at": "2026-10-12T23:00:01+09:00",
+          "available_mb": 8537,
+          "swap_mb": 1807
+        },
+        {
+          "at": "2026-10-13T00:00:01+09:00",
+          "available_mb": 8497,
+          "swap_mb": 1806
+        },
+        {
+          "at": "2026-10-13T01:00:01+09:00",
+          "available_mb": 8234,
+          "swap_mb": 1773
+        },
+        {
+          "at": "2026-10-13T02:00:01+09:00",
+          "available_mb": 8283,
+          "swap_mb": 1773
+        },
+        {
+          "at": "2026-10-13T03:00:01+09:00",
+          "available_mb": 8419,
+          "swap_mb": 1773
+        },
+        {
+          "at": "2026-10-13T04:00:01+09:00",
+          "available_mb": 8495,
+          "swap_mb": 1772
+        },
+        {
+          "at": "2026-10-13T05:00:01+09:00",
+          "available_mb": 8481,
+          "swap_mb": 1771
+        },
+        {
+          "at": "2026-10-13T06:00:01+09:00",
+          "available_mb": 8462,
+          "swap_mb": 1771
+        },
+        {
+          "at": "2026-10-13T07:00:01+09:00",
+          "available_mb": 8465,
+          "swap_mb": 1771
+        },
+        {
+          "at": "2026-10-13T08:00:01+09:00",
+          "available_mb": 8408,
+          "swap_mb": 1769
+        },
+        {
+          "at": "2026-10-13T09:00:01+09:00",
+          "available_mb": 7964,
+          "swap_mb": 1766
+        },
+        {
+          "at": "2026-10-13T10:00:01+09:00",
+          "available_mb": 5538,
+          "swap_mb": 2068
+        },
+        {
+          "at": "2026-10-13T11:00:01+09:00",
+          "available_mb": 7893,
+          "swap_mb": 2108
+        },
+        {
+          "at": "2026-10-13T12:00:01+09:00",
+          "available_mb": 7881,
+          "swap_mb": 2008
+        },
+        {
+          "at": "2026-10-13T13:00:01+09:00",
+          "available_mb": 7342,
+          "swap_mb": 2103
+        },
+        {
+          "at": "2026-10-13T14:00:01+09:00",
+          "available_mb": 7045,
+          "swap_mb": 2075
+        },
+        {
+          "at": "2026-10-13T15:00:01+09:00",
+          "available_mb": 6899,
+          "swap_mb": 2135
+        },
+        {
+          "at": "2026-10-13T16:00:01+09:00",
+          "available_mb": 6393,
+          "swap_mb": 2122
+        },
+        {
+          "at": "2026-10-13T17:00:01+09:00",
+          "available_mb": 6088,
+          "swap_mb": 1695
+        },
+        {
+          "at": "2026-10-13T18:00:01+09:00",
+          "available_mb": 5649,
+          "swap_mb": 2035
+        },
+        {
+          "at": "2026-10-13T19:00:01+09:00",
+          "available_mb": 8827,
+          "swap_mb": 1862
+        },
+        {
+          "at": "2026-10-13T20:00:01+09:00",
+          "available_mb": 8792,
+          "swap_mb": 1861
+        },
+        {
+          "at": "2026-10-13T21:00:01+09:00",
+          "available_mb": 4866,
+          "swap_mb": 2188
+        },
+        {
+          "at": "2026-10-13T22:00:01+09:00",
+          "available_mb": 4988,
+          "swap_mb": 2621
+        }
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "ic_threshold": 0.03,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    }
+  },
+  "system/freshness": {
+    "as_of": "2026-10-13T13:40:30+00:00",
+    "data": {
+      "as_of": "2026-10-13T13:40:30+00:00",
+      "items": [
+        {
+          "expected": "2026-10-13",
+          "key": "kr_prices",
+          "label": "국장 시세",
+          "lag_sessions": 0,
+          "observed": "2026-10-13",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-13",
+          "key": "kr_index",
+          "label": "국장 지수",
+          "lag_sessions": 0,
+          "observed": "2026-10-13",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-12",
+          "key": "us_index",
+          "label": "미장 지수",
+          "lag_sessions": 0,
+          "observed": "2026-10-12",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-12",
+          "key": "us_prices",
+          "label": "미장 시세",
+          "lag_sessions": 0,
+          "observed": "2026-10-12",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-12",
+          "key": "fx",
+          "label": "환율",
+          "lag_sessions": 0,
+          "observed": "2026-10-12",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-12",
+          "key": "us_short",
+          "label": "미장 공매도",
+          "lag_sessions": 0,
+          "observed": "2026-10-12",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-12",
+          "key": "us_filings",
+          "label": "미장 공시",
+          "lag_sessions": 1,
+          "observed": "2026-10-09",
+          "status": "stale"
+        },
+        {
+          "expected": "2026-10-13",
+          "key": "kr_benchmark",
+          "label": "판정 벤치마크",
+          "lag_sessions": 0,
+          "observed": "2026-10-13",
+          "status": "ok"
+        },
+        {
+          "expected": "2026-10-12",
+          "key": "us_session",
+          "label": "미장 세션",
+          "lag_sessions": 0,
+          "observed": "2026-10-12",
+          "status": "ok"
+        }
+      ],
+      "stale": [
+        "us_filings"
+      ]
+    },
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "ic_threshold": 0.03,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
     }
   }
 }

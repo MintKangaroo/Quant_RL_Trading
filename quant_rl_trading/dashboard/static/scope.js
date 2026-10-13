@@ -125,7 +125,7 @@ function vizEsc(value) {
   return String(value ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
 
-/** 가로 막대 — rows: [{label, value, color?, tip?}] (큰 것부터). opts: {top, phoneTop, format, max, labelMax, min} */
+/** 가로 막대 — rows: [{label, value, color?, tip?}] (큰 것부터). opts: {top, phoneTop, format, labelOf(row), log, max, labelMax, min} */
 function hbarChart(id, rows, opts = {}) {
   const el = document.getElementById(id);
   if (!el) return null;
@@ -148,7 +148,7 @@ function hbarChart(id, rows, opts = {}) {
       type: "bar", barMaxWidth: 14,
       data: shown.map((r) => ({ value: r.value, itemStyle: { color: r.color || COLOR.muted } })),
       label: { show: true, position: "right", color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10,
-               formatter: (p) => fmt(p.value) },
+               formatter: (p) => (opts.labelOf ? opts.labelOf(shown[p.dataIndex]) : fmt(p.value)) },
     }],
   }, true);
   return c;

@@ -284,36 +284,116 @@ async function renderEvents() {
 /* -- 그림 (dashboard.md §8-5) — 표 위에 핵심 하나. 값은 API 그대로, 상태색은 ok/bad(손익색 아님). -- */
 const kstDay = (iso) => { const d = kstDate(iso); return d ? d.slice(5) : "—"; };
 
-/** 크론 작업 — 작업 × 날짜 칸 띠. 같은 날 여러 번 돌았으면 나쁜 쪽(실패 > 미확인 > 성공)을 칠한다. */
+/* 시각 축은 한국 시간 — ECharts 시간 축은 보는 기기 시간대로 찍으므로, KST 로 옮긴 값을 UTC 로 읽어 적는다. */
+const SYS_KST_MS = 9 * 3600 * 1000;
+const sysKstMs = (iso) => Date.parse(iso) + SYS_KST_MS;
+const sysAxisLabel = (v) => { const d = new Date(v); const p2 = (n) => String(n).padStart(2, "0");
+  return `${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`; };
+const SYS_RUN = {
+  ok: ["성공", () => COLOR.ok], fail: ["실패", () => COLOR.bad],
+  deferred: ["미룸(rc=6)", () => COLOR.warn], unknown: ["미확인(rc 못 찾음)", () => COLOR.dim],
+};
+const runStatus = (run) => run.status || (run.ok === false ? "fail" : run.ok === null ? "unknown" : "ok");
+
+/** 크론 작업 — 작업 × 시각 타임라인(KST). 점 하나 = 한 번 실행, 색 = 결과(성공·실패·미룸·미확인). */
 function drawJobsStrip(jobs) {
-  const rank = (ok) => (ok === false ? 2 : ok === null ? 1 : 0);
-  const cells = new Map();
-  const cols = new Set();
-  for (const job of jobs) {
-    for (const run of job.runs || []) {
-      const col = kstDay(run.started_at);
-      cols.add(kstDate(run.started_at) || "");
-      const key = `${job.label}|${col}`;
-      const prev = cells.get(key);
-      if (!prev || rank(run.ok) > rank(prev.ok)) {
-        cells.set(key, { row: job.label, col, ok: run.ok, at: run.started_at, market: run.market });
-      }
-    }
-  }
-  const days = [...cols].filter(Boolean).sort().map((d) => d.slice(5));
+  const el = document.getElementById("sys-jobs-strip");
   const cap = document.getElementById("sys-jobs-cap");
-  if (!days.length) {
-    if (cap) cap.innerHTML = "";
-    const el = document.getElementById("sys-jobs-strip");
-    if (el) el.style.display = "none";
+  if (!el) return;
+  const pts = [];
+  jobs.forEach((job) => (job.runs || []).forEach((run) => pts.push({ job, run })));
+  if (!pts.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  const phone = vizPhone();
+  el.style.height = `${jobs.length * (phone ? 26 : 30) + 34}px`;
+  if (cap) cap.innerHTML = vizCaption(Object.values(SYS_RUN).map(([label, color]) => [color(), label]), "점 = 실행 한 번 · 시각 KST");
+  chart("sys-jobs-strip").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const { job, run } = pts[p.dataIndex];
+      return `${esc(job.label)}<br>${kstStamp(run.started_at, true)}${run.market ? ` · ${esc(run.market)}` : ""}<br>${SYS_RUN[runStatus(run)][0]}${run.steps && run.steps.length ? ` · rc ${run.steps.join(",")}` : ""}`; } },
+    grid: { left: 8, right: 14, top: 6, bottom: 20, containLabel: true },
+    xAxis: { type: "time", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: sysAxisLabel, hideOverlap: true } },
+    yAxis: { type: "category", data: jobs.map((j) => vizTrunc(j.label, phone ? 10 : 22)), inverse: true, ...AXIS, axisTick: { show: false },
+             splitLine: { show: true, lineStyle: { color: COLOR.border, opacity: 0.5 } } },
+    series: [{ type: "scatter", symbolSize: phone ? 7 : 9,
+      data: pts.map(({ job, run }) => ({ value: [sysKstMs(run.started_at), vizTrunc(job.label, phone ? 10 : 22)],
+        itemStyle: { color: SYS_RUN[runStatus(run)][1]() } })) }],
+  }, true);
+}
+
+/** 데이터 신선도 — 기준일 띠(services/freshness)의 항목별 늦은 세션 수. 0 은 '최신' 이라 적고, 색 = 상태. */
+const SYS_FRESH = { ok: () => COLOR.ok, stale: () => COLOR.bad, pending: () => COLOR.warn };
+async function renderFreshChart() {
+  const target = document.getElementById("sys-fresh-bar");
+  if (!target) return;
+  const body = await fetchJson("system/freshness");
+  const items = (body.data && body.data.items) || [];
+  const cap = document.getElementById("sys-fresh-cap");
+  if (cap) cap.innerHTML = vizCaption([[COLOR.ok, "최신"], [COLOR.warn, "수집 대기"], [COLOR.bad, "지연"], [COLOR.dim, "모름"]], "막대 = 늦은 세션 수");
+  const label = (it) => (it.status === "ok" ? "최신" : it.status === "pending" ? "대기" : it.status === "stale" ? `${it.lag_sessions}세션 늦음` : "모름");
+  hbarChart("sys-fresh-bar", items.map((it) => ({
+    label: it.label, value: Math.max(it.lag_sessions || 0, 0.15),   // 0 은 막대가 안 보여 얇은 자리만 — 값 글자는 '최신'
+    color: (SYS_FRESH[it.status] || (() => COLOR.dim))(), text: label(it),
+    tip: `${esc(it.label)}<br>${label(it)} · 기대 ${it.expected ? it.expected.slice(0, 10) : "—"} · 관측 ${it.observed ? it.observed.slice(0, 10) : "—"}`,
+  })), { labelOf: (r) => r.text, min: 90, labelMax: 18, right: 90 });   // 막대 끝 글자는 값이 아니라 상태 말
+}
+
+/** 메모리·스왑 추이 — 램 가드 로그 매시 상태 줄(MB). 사건(작업 내림 등)은 세로 점선. 경고선은 긋지 않는다 — 기준이 config 에 없다. */
+async function renderMemory() {
+  const el = document.getElementById("sys-mem-chart");
+  if (!el) return;
+  const { data } = await fetchJson("system/memory");
+  const cap = document.getElementById("sys-mem-cap");
+  const pts = data.points || [];
+  if (!pts.length) { el.innerHTML = `<p class="empty">${esc(data.note || "램 가드 로그가 비어 있다.")}</p>`; if (cap) cap.innerHTML = ""; return; }
+  const events = data.events || [];
+  if (cap) cap.innerHTML = vizCaption([[COLOR.series[0], "가용(GB)"], [COLOR.warn, "스왑 사용(GB)"], [COLOR.bad, "램 가드 사건"]],
+    `시각 KST · 사건 ${events.length}건`);
+  chart("sys-mem-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "axis",
+      formatter: (ps) => `${kstStamp(pts[ps[0].dataIndex].at, true)}<br>${ps.map((p) => `${p.seriesName} ${dec(p.value[1], 1)}GB`).join(" · ")}` },
+    grid: { left: 36, right: 10, top: 10, bottom: 22 },
+    xAxis: { type: "time", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: sysAxisLabel, hideOverlap: true } },
+    yAxis: { type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${v}G` } },
+    series: [
+      { name: "가용", type: "line", showSymbol: false, data: pts.map((p) => [sysKstMs(p.at), p.available_mb / 1024]),
+        lineStyle: { width: 1.4, color: COLOR.series[0] }, areaStyle: { color: COLOR.series[0], opacity: 0.08 },
+        markLine: events.length ? { silent: false, symbol: "none", lineStyle: { color: COLOR.bad, type: "dotted", opacity: 0.7 },
+          label: { show: false }, data: events.map((e) => ({ xAxis: sysKstMs(e.at), name: e.text })),
+          tooltip: { formatter: (p) => esc(p.name) } } : undefined },
+      { name: "스왑", type: "line", showSymbol: false, data: pts.map((p) => [sysKstMs(p.at), p.swap_mb / 1024]),
+        lineStyle: { width: 1.2, color: COLOR.warn, type: "dashed" } },
+    ],
+  }, true);
+}
+
+/** 연구 작업 — 로그별 마지막 기록 시각(점)과 지금 도는 스크립트(굵은 점). 되감기지 않는 '지금'. */
+function drawResearch(d) {
+  const el = document.getElementById("sys-research-chart");
+  const cap = document.getElementById("sys-research-cap");
+  if (!el) return;
+  const logs = (d.logs || []).filter((l) => l.modified);
+  if (!logs.length) {
+    el.style.display = "none";
+    if (cap) cap.innerHTML = `<p class="empty">최근 연구 로그가 없다 · 지금 도는 연구 스크립트 ${(d.running || []).length}개.</p>`;
     return;
   }
-  if (cap) cap.innerHTML = vizCaption([[COLOR.ok, "성공"], [COLOR.bad, "실패"], [COLOR.dim, "미확인(rc 못 찾음)"]], "작업당 최근 실행 · 날짜는 KST");
-  stripChart("sys-jobs-strip", jobs.map((j) => j.label), days, [...cells.values()].map((c) => ({
-    row: c.row, col: c.col,
-    color: c.ok === false ? COLOR.bad : c.ok === null ? COLOR.dim : COLOR.ok,
-    tip: `${esc(c.row)}<br>${kstStamp(c.at, true)}${c.market ? ` · ${esc(c.market)}` : ""}<br>${c.ok === false ? "실패" : c.ok === null ? "미확인" : "성공"}`,
-  })), { labelMax: 26 });
+  el.style.display = "";
+  const phone = vizPhone();
+  el.style.height = `${Math.max(110, logs.length * (phone ? 18 : 20) + 30)}px`;
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "로그 마지막 기록"]], `지금 도는 연구 스크립트 ${(d.running || []).length}개`);
+  // 로그 수정 시각은 서버가 그 기계 시각(KST, 시간대 없음)으로 준다 — 그대로 KST 로 읽는다.
+  const at = (l) => Date.parse(String(l.modified).slice(0, 19) + "Z");
+  chart("sys-research-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const l = logs[p.dataIndex]; return `${esc(l.log)}<br>${esc(String(l.modified).replace("T", " ").slice(0, 16))} KST<br>${esc(String(l.last || "").slice(0, 120))}`; } },
+    grid: { left: 8, right: 14, top: 6, bottom: 20, containLabel: true },
+    xAxis: { type: "time", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: sysAxisLabel, hideOverlap: true } },
+    yAxis: { type: "category", data: logs.map((l) => vizTrunc(String(l.log).replace(/\.log$/, ""), phone ? 14 : 24)), inverse: true, ...AXIS, axisTick: { show: false } },
+    series: [{ type: "scatter", symbolSize: 8, itemStyle: { color: COLOR.muted },
+      data: logs.map((l) => [at(l), vizTrunc(String(l.log).replace(/\.log$/, ""), phone ? 14 : 24)]) }],
+  }, true);
 }
 
 /** 창고 테이블 — 최근 창 행수(로그 축) 가로 막대, 색 = 최신성(표의 배지 tableStaleChip 과 같은 판정 — 기준이 둘이면 안 된다).
@@ -388,6 +468,7 @@ async function renderResearchJobs() {
   let body;
   try { body = await fetchJson("learning/research-jobs"); } catch (e) { target.innerHTML = `<p class="empty">연구 작업 목록을 못 읽었다.</p>`; return; }
   const d = body.data || {};
+  drawResearch(d);
   const running = d.running || []; const logs = d.logs || [];
   const runRows = running.length
     ? running.map((p) => `<tr><td class="mono">${esc(p.pid)}</td><td>${esc(p.script)}</td><td class="num">${esc(p.cpu_pct)}%</td><td class="num">${esc(p.rss_mb)} MB</td><td class="num">${esc(p.uptime_h)} h</td></tr>`).join("")
@@ -406,6 +487,6 @@ function renderClock() {
 
 runAll([
   renderSummary, renderResources, renderProcesses, renderJobs, renderTables,
-  renderLatency, renderSafety, renderCache, renderLlmUsage, renderResearchJobs, renderEvents, renderClock,
+  renderLatency, renderSafety, renderCache, renderLlmUsage, renderResearchJobs, renderEvents, renderFreshChart, renderMemory, renderClock,
 ]);
 setInterval(() => { renderResources(); renderProcesses(); renderClock(); }, 8000);
