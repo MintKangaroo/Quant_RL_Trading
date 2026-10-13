@@ -22,6 +22,33 @@ function plKindColor(kind) {
   return { ai: COLOR.series[1], llm: COLOR.series[4], cand: COLOR.series[3] }[kind] || COLOR.muted;
 }
 const PL_KIND_LABEL = { ai: "AI", rule: "규칙", llm: "LLM" };
+const PL_STEP_AI = { ai: "AI 씀", llm: "LLM 확인", rule: "AI 안 씀" };
+const PL_CIRCLED = ["", "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨"];
+
+/* 최신 방식만 보인다(사용자 2026-10-13 "기각된 거는 보여주지 말고 가장 최신 버전으로만") — 꺼진 단계는 흐름도에서 빼고,
+   판정이 끝나 기각된 후보(다음 판정이 없는 것)는 칩을 숨긴다. 기각 기록은 모델 검증 탭 과거 학습 내역·docs/trials-postmortem.md.
+   꺼진 단계에 걸린 살아 있는 후보는 같은 큰 단계의 마지막 켜진 노드에 붙인다. */
+function plCandAlive(c) {
+  const s = String(c.status || "");
+  return !(s.startsWith("기각") && !s.includes("다음 판정"));
+}
+function plVisible(data) {
+  const nodes = (data.nodes || []).filter((n) => n.active || n.key === "commentary");
+  const shown = new Set(nodes.map((n) => n.key));
+  const anchor = {};
+  (data.steps || []).forEach((st) => {
+    const live = st.nodes.filter((k) => shown.has(k));
+    st.nodes.forEach((k) => { anchor[k] = shown.has(k) ? k : live[live.length - 1]; });
+  });
+  const candidates = (data.candidates || []).filter(plCandAlive)
+    .map((c) => ({ ...c, stage: anchor[c.stage] || c.stage, own_stage: c.stage }))
+    .filter((c) => shown.has(c.stage));
+  return { nodes, candidates };
+}
+function plStepNo(data, key) {
+  const st = (data.steps || []).find((s) => s.nodes.includes(key));
+  return st && st.no ? PL_CIRCLED[st.no] || String(st.no) : "";
+}
 
 function plSetQuery(key, value) {
   const url = new URL(window.location.href);
@@ -41,6 +68,7 @@ async function renderFlow() {
   if (!data.session) warnings.push("이 시점에 보이는 세션 기록이 없다 — 단계 숫자는 모름이다.");
   if (data.screen_error) warnings.push(`선정 함수를 다시 부르지 못했다 — ${plEsc(data.screen_error)}`);
   showAlerts(warnings);
+  renderSteps(data);
   drawFlow(data);
   const wanted = new URLSearchParams(window.location.search).get("stage");
   const first = data.nodes.find((n) => n.key === wanted) || data.nodes.find((n) => n.key === "model") || data.nodes[0];
@@ -50,24 +78,41 @@ async function renderFlow() {
   renderPicks(data);
 }
 
+/* 최신 매매 한 번만 보인다 — 날짜 고르기는 뺐다(사용자 2026-10-13). 되감기는 상단 기준 시각(as_of)으로만. */
 function renderSessionBar(data, body) {
-  const select = document.getElementById("pl-session");
-  const current = data.session ? data.session.run_id : null;
-  const list = data.sessions || [];
-  select.innerHTML = list.length
-    ? list.map((s) => `<option value="${plEsc(s.link_as_of || "")}" ${s.run_id === current ? "selected" : ""}>${plEsc(s.date)}</option>`).join("")
-    : `<option value="">세션 기록 없음</option>`;
-  select.onchange = () => {
-    const url = new URL(window.location.href);
-    if (select.value) url.searchParams.set("as_of", select.value); else url.searchParams.delete("as_of");
-    url.searchParams.delete("entity");
-    window.location.href = url.pathname + url.search;
-  };
   const stamp = document.getElementById("pl-stamp");
   stamp.innerHTML = data.session
-    ? `세션 시각 <span class="num">${plStamp(data.session.as_of)}</span> · 설정 기준 <span class="num">${plStamp(data.config_as_of)}</span>`
+    ? `최신 매매 — <span class="num">${plDay(data.session.as_of)}</span> 장 마감 자료로 정해 다음 거래일 아침에 주문했다`
       + (data.session.nav ? ` · 자본 <span class="num">${plNum(Math.round(data.session.nav))}원</span>` : "")
-    : `세션 기록 없음 · 설정 기준 <span class="num">${plStamp(data.config_as_of)}</span>`;
+    : `이 시점에 보이는 매매 기록이 없다`;
+}
+
+function renderSteps(data) {
+  const host = document.getElementById("pl-steps");
+  const steps = data.steps || [];
+  if (!steps.length) { host.innerHTML = `<p class="empty">단계 정보가 없다.</p>`; return; }
+  const alive = plVisible(data).candidates;
+  const rows = steps.map((st) => {
+    const counts = st.count_text || "";
+    const cands = alive.filter((c) => st.nodes.includes(c.own_stage)).map((c) => plEsc(c.id));
+    const first = st.live_nodes[0] || st.nodes[0];
+    return `<tr class="pl-step${st.no ? "" : " off-path"}" data-stage="${plEsc(first)}" tabindex="0">
+      <td class="num pl-step-no">${st.no ? PL_CIRCLED[st.no] : "·"}</td>
+      <td class="pl-step-title">${plEsc(st.title)}</td>
+      <td class="pl-step-does">${plEsc(st.does)}</td>
+      <td class="pl-step-ai"><span class="pl-kind k-${plEsc(st.ai)}">${plEsc(PL_STEP_AI[st.ai] || st.ai)}</span><span class="pl-step-why">${plEsc(st.why_ai)}</span></td>
+      <td class="num pl-step-n">${counts}</td>
+      <td class="pl-step-cand">${cands.length ? cands.join(" · ") : ""}</td>
+    </tr>`;
+  }).join("");
+  host.innerHTML = `<div class="table-scroll"><table class="dense pl-steps-table">
+    <thead><tr><th></th><th>단계</th><th>하는 일</th><th>AI</th><th class="num">이날 숫자</th><th>시험 중 후보</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+  host.querySelectorAll("tr.pl-step").forEach((tr) => {
+    const go = () => { showStage(tr.dataset.stage); document.getElementById("pl-flow-title").scrollIntoView({ behavior: "smooth", block: "start" }); };
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  });
 }
 
 function plColumns(width) {
@@ -129,7 +174,9 @@ function plLayout(nodes, cands, width) {
   return { pos, height, chain, side, candBy };
 }
 
-function plNodeLabel(n) {
+function plNodeLabel(n, no) {
+  const pre = no ? `${no} ` : "";
+  n = { ...n, title: pre + n.title };
   if (n.key === "exposure" && n.active) return `{t|${n.title}}\n{c|배수 ${n.scale === null || n.scale === undefined ? PL_UNKNOWN : plPct(n.scale, 0)}}`;
   if (n.key === "cadence") return `{t|${n.title}}\n{c|${n.holding_day === true ? "보유일 — 교체 없음" : n.holding_day === false ? "교체일" : PL_UNKNOWN}}`;
   const counts = n.active
@@ -141,14 +188,15 @@ function plNodeLabel(n) {
 function drawFlow(data) {
   const host = document.getElementById("pl-flow");
   const width = host.clientWidth || 900;
-  const cands = data.candidates || [];
-  const lay = plLayout(data.nodes, cands, width);
+  const view = plVisible(data);
+  const cands = view.candidates;
+  const lay = plLayout(view.nodes, cands, width);
   host.style.height = `${Math.round(lay.height)}px`;
   const instance = chart("pl-flow");
   instance.resize();
   const selected = plState.cand ? `cand:${plState.cand}` : plState.stage;
   const items = [];
-  data.nodes.forEach((n) => {
+  view.nodes.forEach((n) => {
     const p = lay.pos[n.key];
     if (!p) return;
     const color = plKindColor(n.kind);
@@ -157,7 +205,7 @@ function drawFlow(data) {
       id: n.key, name: n.title, x: p.x, y: p.y, symbol: "rect", symbolSize: [p.w, p.h], value: n.key,
       itemStyle: { color: COLOR.panel, borderColor: on ? COLOR.accent : color, borderWidth: on ? 2 : 1,
                    borderType: n.key === "commentary" ? "dashed" : "solid", opacity: n.active ? 1 : 0.38 },
-      label: { show: true, position: "inside", formatter: plNodeLabel(n),
+      label: { show: true, position: "inside", formatter: plNodeLabel(n, plStepNo(data, n.key)),
                rich: { t: { color: n.active ? COLOR.text : COLOR.dim, fontSize: 11, fontFamily: "Pretendard", lineHeight: 15,
                             width: p.w - 10, overflow: "truncate" },
                        c: { color: n.active ? color : COLOR.dim, fontSize: 11, fontFamily: "IBM Plex Mono", lineHeight: 15 } } },
@@ -279,7 +327,7 @@ function plStageExtra(n) {
 }
 
 function plCandChips(stageKey) {
-  const list = (plState.flow.candidates || []).filter((c) => c.stage === stageKey);
+  const list = plVisible(plState.flow).candidates.filter((c) => c.stage === stageKey);
   if (!list.length) return "";
   return `<h3>후보 <span class="sub">이 단계를 바꾸려고 등록·대기 중</span></h3><div class="pl-chips">${
     list.map((c) => `<button type="button" class="pl-chip" data-cand="${plEsc(c.id)}">${plEsc(c.id)} <span>${plEsc(c.status)}</span></button>`).join("")}</div>`;
@@ -448,12 +496,27 @@ function drawContrib(d) {
   foot.textContent = [c.part_note, c.value_note, `막대 합 + 기준값(${plSigned(c.bias, 4)}) = 모델 원점수`].filter(Boolean).join(" · ");
 }
 
+/* 버전 문자열(ttm-r2-zeroshot-L256-v2) → 쉬운 이름. 모르는 모양이면 원문 그대로. */
+function plTtmName(version) {
+  const m = /^ttm-(r[\d.]+)-zeroshot-L(\d+)/.exec(String(version || ""));
+  return m ? `IBM TTM ${m[1]} · 추가 학습 없이(제로샷) · 최근 ${m[2]}일 종가로 예측` : (version || "");
+}
+/* 이 세션 설정에서 하한·상한 Analyst 가 tsfm 인 켜진 단계가 있나. */
+function plTsfmUsed(flow) {
+  return ((flow && flow.nodes) || []).some((n) => n.active && ["extra_floor", "ceiling", "combo_floor", "risk_floor"].includes(n.key)
+    && (n.settings || []).some((x) => String(x.value) === "tsfm"));
+}
+
 function drawTtm(d) {
   const t = d.ttm || {};
   const host = document.getElementById("pl-ttm");
   const foot = document.getElementById("pl-ttm-foot");
-  document.getElementById("pl-ttm-sub").textContent = t.version || "";
-  foot.textContent = t.stored_note || "";
+  document.getElementById("pl-ttm-sub").textContent = plTtmName(t.version);
+  const used = plTsfmUsed(plState.flow);
+  const explain = "선은 수정 주가(액면분할·배당을 맞춘 종가), 점은 TTM 예측 순위다 — 그날 계산 대상 종목 안에서 "
+    + "'5일 뒤 수익' 예측의 순위를 −1(가장 떨어질 것으로 예측) ~ +1(가장 오를 것으로 예측)로 적은 값. "
+    + (used ? "이 세션 매매에서 나쁜 종목 빼기에 쓰인다." : "지금 매매에는 쓰지 않는다 — 기록용(IX-T 시험 장부만 쓴다).");
+  foot.textContent = explain;
   if (!(t.prices || []).length && !(t.points || []).length) {
     host.style.display = "none";
     foot.textContent = "가격도 TTM 점수도 없다 — 모름. " + (t.stored_note || "");
@@ -468,18 +531,18 @@ function drawTtm(d) {
   instance.setOption({
     ...BASE,
     grid: { left: 52, right: 40, top: 24, bottom: 26 },
-    legend: { ...BASE.legend, data: ["보정 종가", "TTM 점수"] },
+    legend: { ...BASE.legend, data: ["수정 주가", "TTM 예측 순위"] },
     xAxis: { type: "time" },
     yAxis: [{ type: "value", scale: true, axisLabel: { ...AXIS.axisLabel } },
             { type: "value", min: -1, max: 1, splitLine: { show: false }, axisLabel: { ...AXIS.axisLabel } }],
     series: [
-      { name: "보정 종가", type: "line", data: price, showSymbol: false, lineStyle: { width: 1.2, color: COLOR.text }, itemStyle: { color: COLOR.text } },
-      { name: "TTM 점수", type: "line", yAxisIndex: 1, data: score, showSymbol: true, symbolSize: 4, lineStyle: { width: 1, color: COLOR.series[1] },
+      { name: "수정 주가", type: "line", data: price, showSymbol: false, lineStyle: { width: 1.2, color: COLOR.text }, itemStyle: { color: COLOR.text } },
+      { name: "TTM 예측 순위", type: "line", yAxisIndex: 1, data: score, showSymbol: true, symbolSize: 4, lineStyle: { width: 1, color: COLOR.series[1] },
         itemStyle: { color: COLOR.series[1] },
         markLine: { silent: true, symbol: "none", data: [{ yAxis: 0 }], lineStyle: { color: COLOR.dim, type: "dashed" }, label: { show: false } } },
     ],
   }, true);
-  if (!score.length) foot.textContent = "이 종목은 as_of 까지 TTM 점수가 없다(계산 대상 밖이거나 신호 시작 전). " + (t.stored_note || "");
+  if (!score.length) foot.textContent = "이 종목은 아직 TTM 예측이 없다(계산 대상 밖이거나 신호 시작 전). " + explain;
 }
 
 const PL_VERDICT = {

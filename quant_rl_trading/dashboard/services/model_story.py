@@ -272,6 +272,38 @@ SHADOW_TRACKS: list[dict[str, str]] = [
 ]
 
 
+#: **큰 단계 일곱** — 매매 과정 탭 단계 요약표(dashboard.md §7-2, 사용자 2026-10-13 "명확하게 단계를 — AI 를 쓴다 안 쓴다").
+#: ``nodes`` 는 흐름도 노드 키(`pipeline_view.FLOW_KEYS`) — 이 단계에 속한 노드. AI 여부는 화면이 그 세션 켜진 노드의
+#: ``kind`` 로 정하고(문구가 설정과 어긋나지 않게), ``why_ai`` 는 그 판정 옆에 붙는 이유 한 줄이다.
+PIPELINE_STEPS: list[dict[str, Any]] = [
+    {"no": 1, "key": "gather", "title": "재료 모으기", "nodes": ["collect", "analysts"],
+     "does": "장이 끝나면 시세·수급·재무·공시를 모으고, Analyst 들이 종목마다 재무·수급·위험 같은 기본 점수를 계산한다.",
+     "why_ai": "정해진 공식으로 계산한다 — 학습 모델이 아니다."},
+    {"no": 2, "key": "score", "title": "점수 매기기", "nodes": ["model"],
+     "does": "기본 점수들을 입력으로 받아 '5일 뒤 누가 더 오를까' 순위를 매긴다. 매매 점수의 거의 전부가 여기서 나온다.",
+     "why_ai": "과거 자료로 학습한 기계학습 모델(LightGBM 랭커)이 점수를 낸다."},
+    {"no": 3, "key": "filter", "title": "사면 안 되는 종목 거르기",
+     "nodes": ["universe", "healthy", "scored", "risk_floor", "extra_floor", "ceiling", "combo_floor", "verdicts"],
+     "does": "거래가 적거나 부실한 종목, 위험 점수 하위 종목을 빼고, 악재 뉴스가 걸린 종목은 새로 사지 않는다.",
+     "why_ai": "빼는 기준은 규칙이다. 뉴스 매수 금지만 키워드로 막은 것을 Claude 가 읽고 오탐이면 풀어 준다(새로 막지는 않는다)."},
+    {"no": 4, "key": "pick", "title": "종목 고르기", "nodes": ["cadence", "select"],
+     "does": "정해진 날에만 종목을 바꾸고, 점수를 며칠 치 평균으로 부드럽게 한 뒤 상위 종목을 고른다(종목 수는 설정값). 가진 종목은 조금 밀려도 바로 팔지 않는다.",
+     "why_ai": "순위를 자르는 규칙이다 — 점수는 ② 의 AI 가 냈다."},
+    {"no": 5, "key": "weigh", "title": "비중 나누기", "nodes": ["weights"],
+     "does": "고른 종목에 돈을 나눈다. 덜 흔들리는 종목에 조금 더 실어 종목마다 위험 기여가 비슷하게 한다.",
+     "why_ai": "리스크 패리티 공식이다 — 학습 모델이 아니다(배분 강화학습은 네 번 시도 끝에 9월 종료)."},
+    {"no": 6, "key": "exposure", "title": "주식 비중 정하기(노출)", "nodes": ["exposure"],
+     "does": "시장이 약세·위기 국면이면 주식 비중을 줄이고 나머지는 현금으로 둔다(배수는 설정값 — 흐름도 칸에 그날 값).",
+     "why_ai": "국면 규칙(V6)이다. HMM·밴딧 같은 AI 노출은 후보로 시험 중이다."},
+    {"no": 7, "key": "order", "title": "주문 · 체결", "nodes": ["execute", "fill"],
+     "does": "주문을 몇 조각으로 나눠 한 시간 간격으로 내고, 증권사 모의계좌에서 체결된 것을 장부에 적는다.",
+     "why_ai": "마지막 안전장치라 일부러 AI 를 두지 않는다 — 순수 코드만(불변식 6)."},
+    {"no": None, "key": "commentary", "title": "해설 — 매매 밖", "nodes": ["commentary"],
+     "does": "매일 결과를 읽고 해설을 쓴다. 점수·비중·주문 어디에도 들어가지 않는다.",
+     "why_ai": "Claude(LLM)가 쓰는 해설일 뿐 — 매매 결정에 쓰지 않는다(불변식 8)."},
+]
+
+
 #: **후보 → 흐름 단계** — 매매 과정 탭의 '후보' 칩(dashboard.md §7-2). 그 단계를 바꾸려고 등록·대기 중인 시행 하나에 한 줄.
 #: 새 후보가 생기면 **여기에 한 줄만 더한다**(다른 곳은 고치지 않는다). 칸:
 #:   ``stage``  — 흐름도 단계 키(`pipeline_view.FLOW_KEYS`)  · ``change`` — 무엇을 바꾸나 한 줄
@@ -706,6 +738,7 @@ def trial_history(store: Store, *, as_of: datetime, catalog_path: Path = CATALOG
 __all__ = [
     "CATALOG_PATH",
     "PIPELINE_STAGES",
+    "PIPELINE_STEPS",
     "SHADOW_TRACKS",
     "live_models",
     "load_catalog",

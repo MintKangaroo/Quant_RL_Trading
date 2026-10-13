@@ -485,9 +485,41 @@ def flow(store: Store, *, as_of: datetime, market: str, models_root: Path | None
         "screen_error": summary_error,
         "notes": [],
         "nodes": nodes,
+        "steps": _steps(nodes),
         "selected": selected,
         "sessions": sessions(store, as_of=as_of, market=market),
     }
+
+
+def _steps(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """큰 단계 일곱(`model_story.PIPELINE_STEPS`) — AI 여부는 그 세션 **켜진** 노드의 kind 에서 정한다.
+
+    '점수 있음'(scored)은 점수 모델 결과를 세기만 하므로 AI 판정에서 뺀다. 숫자는 켜진 첫 노드의 들어온 수(없으면 나간 수)
+    → 켜진 마지막 노드의 나간 수.
+    """
+    by_key = {n["key"]: n for n in nodes}
+    out = []
+    for step in model_story.PIPELINE_STEPS:
+        members = [by_key[k] for k in step["nodes"] if k in by_key]
+        live = [n for n in members if n.get("active")]
+        kinds = {n["kind"] for n in live if n["key"] != "scored"}
+        ai = "ai" if "ai" in kinds else ("llm" if "llm" in kinds else "rule")
+        # 종목 수를 세는 노드만 — Analyst 칸은 Analyst 개수, 집행·체결은 주문 건수라 따로 적는다.
+        counted = [n for n in live if n["key"] not in ("analysts", "execute", "fill", "commentary")]
+        first, last = (counted[0], counted[-1]) if counted else (None, None)
+        n_in = None if first is None else (first.get("n_in") if first.get("n_in") is not None else first.get("n_out"))
+        n_out = None if last is None else last.get("n_out")
+        text = None
+        if n_out is not None:
+            text = f"{n_out:,}종목" if n_in is None or n_in == n_out else f"{n_in:,} → {n_out:,}종목"
+        if step["key"] == "order":
+            sent, filled = by_key.get("execute", {}).get("n_out"), by_key.get("fill", {}).get("n_out")
+            if sent is not None:
+                text = f"주문 {sent:,}건" + (f" → 체결 {filled:,}건" if filled is not None else "")
+        out.append({"no": step["no"], "key": step["key"], "title": step["title"], "does": step["does"],
+                    "why_ai": step["why_ai"], "ai": ai, "nodes": [n["key"] for n in members],
+                    "live_nodes": [n["key"] for n in live], "n_in": n_in, "n_out": n_out, "count_text": text})
+    return out
 
 
 def _ranker_inputs() -> set[str]:

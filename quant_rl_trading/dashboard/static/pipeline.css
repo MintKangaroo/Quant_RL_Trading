@@ -78,3 +78,30 @@
   .pl-session select, .pl-search input, .pl-search button { min-height: 36px; }
   .pl-pick-btn { padding: 6px 8px; }
 }
+
+/* 매매 단계 요약표 (2026-10-13) */
+.pl-steps { margin-bottom: 18px; }
+.pl-steps-table td { vertical-align: top; }
+.pl-steps-table tr.pl-step { cursor: pointer; }
+.pl-steps-table tr.pl-step:hover td, .pl-steps-table tr.pl-step:focus td { background: var(--panel-2, rgba(255,255,255,0.03)); }
+.pl-steps-table tr.off-path td { color: var(--muted); }
+.pl-step-no { width: 26px; text-align: center; }
+.pl-step-title { white-space: nowrap; font-weight: 600; }
+.pl-step-does { min-width: 260px; }
+.pl-step-ai { min-width: 220px; }
+.pl-step-ai .pl-kind { margin-right: 6px; }
+.pl-step-why { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.pl-step-n { white-space: nowrap; }
+.pl-step-cand { color: var(--muted); white-space: nowrap; }
+@media (max-width: 760px) {
+  .pl-steps-table thead { display: none; }
+  .pl-steps-table, .pl-steps-table tbody, .pl-steps-table tr, .pl-steps-table td { display: block; width: auto; min-width: 0; }
+  .pl-steps-table tr.pl-step { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; column-gap: 6px; padding: 8px 0;
+                               border-bottom: 1px solid var(--line, rgba(255,255,255,0.08)); }
+  .pl-steps-table td { padding: 1px 0; border: 0; white-space: normal; }
+  .pl-step-no { grid-row: 1; grid-column: 1; }
+  .pl-step-title { grid-row: 1; grid-column: 2; white-space: normal; }
+  .pl-step-n { grid-row: 1; grid-column: 3; text-align: right; }
+  .pl-step-does, .pl-step-ai, .pl-step-cand { grid-column: 2 / 4; }
+  .pl-step-cand:empty { display: none; }
+}

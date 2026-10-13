@@ -2,7 +2,7 @@
 {% block title %}매매 과정 · Quant_RL_Trading{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='control.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='pipeline.css', v='20261011a') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='pipeline.css', v='20261013a') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'pipeline' %}{% include "_scope.html" %}{% endwith %}
@@ -12,7 +12,7 @@
     <div>
       <span class="desk-eyebrow">TRADE PIPELINE / HOW A DECISION IS MADE</span>
       <h2>매매 과정</h2>
-      <p class="desk-lede">한 세션의 매매가 어떤 단계를 거쳐 정해졌나 — 단계마다 들어온 종목 수와 나간 종목 수, 어디에 AI 가 쓰였나.</p>
+      <p class="desk-lede">지금 방식으로 최신 매매가 어떤 단계를 거쳐 정해졌나 — 단계마다 하는 일, 들어온 종목 수와 나간 종목 수, 어디에 AI 가 쓰였나.</p>
     </div>
     <nav class="ledger-switch seg" aria-label="장부">
       <a href="/pipeline" data-ledger="paper">국장 · 모의계좌</a>
@@ -21,21 +21,25 @@
   </div>
   <section class="alerts" id="alerts" aria-live="polite"></section>
 
-  <section class="pl-bar" aria-label="세션 고르기">
-    <label class="pl-session"><span>세션</span><select id="pl-session" aria-label="세션 고르기"></select></label>
+  <section class="pl-bar" aria-label="최신 매매">
     <span class="pl-stamp" id="pl-stamp"></span>
     <span class="pl-legend" aria-label="범례">
       <span class="lg lg-ai">AI</span><span class="lg lg-rule">규칙</span><span class="lg lg-llm">LLM</span>
-      <span class="lg lg-cand">후보</span><span class="lg lg-off">꺼짐</span>
+      <span class="lg lg-cand">후보</span>
     </span>
+  </section>
+
+  <section class="panel pl-steps" aria-labelledby="pl-steps-title">
+    <h2 id="pl-steps-title"><span class="section-index">01</span>매매 단계 <span class="sub">지금 방식 — 단계마다 하는 일과 AI 를 쓰는지. 줄을 누르면 아래 흐름도에서 그 단계</span></h2>
+    <div id="pl-steps"></div>
   </section>
 
   <section class="pl-grid">
     <section class="panel pl-flow-panel" aria-labelledby="pl-flow-title">
-      <h2 id="pl-flow-title"><span class="section-index">01</span>흐름도 <span class="sub">단계를 누르면 옆에 숫자·설정·걸러진 종목</span></h2>
+      <h2 id="pl-flow-title"><span class="section-index">02</span>흐름도 <span class="sub">번호는 위 단계 — 누르면 옆에 숫자·설정·걸러진 종목</span></h2>
       <div id="pl-flow" class="pl-flow" role="img" aria-label="매매 흐름도"></div>
       <p class="note">흐름의 숫자는 그 세션 기록(events)과 세션이 쓴 선정 함수(screen)를 그 세션 시각으로 다시 부른 결과다.
-        점선 칩은 그 단계를 바꾸려고 등록·대기 중인 후보 시행이다 — 판정 결과는 시행 대장 원문을 그대로 옮긴다.</p>
+        점선 칩은 그 단계를 바꾸려고 시험 중인 후보다. 꺼진 단계와 기각이 끝난 후보는 보이지 않는다 — 기각 기록은 모델 검증 탭 '과거 학습 내역'.</p>
     </section>
     <aside class="panel pl-side" aria-labelledby="pl-side-title">
       <h2 id="pl-side-title">단계 <span class="sub" id="pl-side-sub"></span></h2>
@@ -44,7 +48,7 @@
   </section>
 
   <section class="panel pl-inside" aria-labelledby="pl-inside-title">
-    <h2 id="pl-inside-title"><span class="section-index">02</span>AI 속 들여다보기 <span class="sub" id="pl-inside-sub">종목 하나 — 점수 모델이 왜 그 점수를 냈나</span></h2>
+    <h2 id="pl-inside-title"><span class="section-index">03</span>AI 속 들여다보기 <span class="sub" id="pl-inside-sub">종목 하나 — 점수 모델이 왜 그 점수를 냈나</span></h2>
     <div class="pl-pick">
       <div id="pl-picks" class="pl-picks" aria-label="선정 명단"></div>
       <form id="pl-search" class="pl-search" autocomplete="off">
@@ -60,7 +64,7 @@
         <p class="pl-foot" id="pl-contrib-foot"></p>
       </section>
       <section class="pl-block" aria-labelledby="pl-ttm-title">
-        <h3 id="pl-ttm-title">TTM 예측 점수 · 실제 가격 <span class="sub" id="pl-ttm-sub"></span></h3>
+        <h3 id="pl-ttm-title">TTM 예측 순위 · 실제 주가 <span class="sub" id="pl-ttm-sub"></span></h3>
         <div id="pl-ttm" class="pl-chart"></div>
         <p class="pl-foot" id="pl-ttm-foot"></p>
       </section>
@@ -83,5 +87,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='pipeline.js', v='20261011a') }}"></script>
+<script src="{{ url_for('static', filename='pipeline.js', v='20261013a') }}"></script>
 {% endblock %}
