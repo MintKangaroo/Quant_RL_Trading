@@ -10,7 +10,8 @@ run id `daily-signals-<시장>-<날짜>-<이름>`, 같은 세션을 두 번 안 
 
 - `c1fa`: 입력은 창고 `fa_features`. 그 세션 FA 가 아직 없으면 `score_be2.score_session(features_only=True)` 로 먼저 적는다
   (be2 와 같은 함수·같은 run id — 22:56 BE2 채점이 이미 적었으면 '이미 있다' 로 통과). 러너는 같은 잠금(score-be2.lock)을 잡는다.
-- `ar_insider`: 입력은 창고 `signals`(점수 6) + 내부자 원자료(G4·G7). FA 를 쓰지 않는다.
+- `ar_insider`: 입력은 창고 `signals`(점수 6) + 내부자 원자료(G4·G7). FA 를 쓰지 않는다. 국장·미장 둘 다(`--market US` —
+  미장 세션 공표 시각 05:20 KST 가 as_of, 세션 날짜는 ET 날짜). `SHADOW_START` 는 두 시장 모두 세션 날짜로 본다.
 
 ## 소급하지 않는다 (금고 second 창 봉인)
 
@@ -92,12 +93,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--analyst", required=True, choices=sorted(ANALYSTS))
     parser.add_argument("--root", default="data")
-    parser.add_argument("--market", default="KR", choices=["KR"])
+    parser.add_argument("--market", default="KR", choices=["KR", "US"])
     parser.add_argument("--day", type=date.fromisoformat)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
     if args.day is not None and args.day < SHADOW_START:
         print(f"--day {args.day}: shadow 시작({SHADOW_START}) 전 — 금고 second 창을 소급 채점하지 않는다", file=sys.stderr)
+        return RC_BAD_ARGS
+    if args.analyst == "c1fa" and args.market != "KR":
+        print("c1fa 는 국장만 — 미장 FA 명단이 실전 명단과 다르다(be2 와 같은 이유)", file=sys.stderr)
         return RC_BAD_ARGS
     store = Store(root=Path(args.root))
     market = Market(args.market)

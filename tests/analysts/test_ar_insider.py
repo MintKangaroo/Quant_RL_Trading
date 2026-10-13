@@ -75,7 +75,7 @@ def _synthetic(monkeypatch, *, empty_flow: bool = False) -> dict[str, pd.DataFra
     g4["insider_sell_60"] = rng.exponential(size=len(g4))
     g4["insider_net_60"] = rng.normal(size=len(g4))
     monkeypatch.setattr(ar_insider.fa_features, "_scores", lambda store, m, s, a: scores.copy())
-    monkeypatch.setattr(ar_insider.fa_features, "_priced", lambda store, m, s, a: priced)
+    monkeypatch.setattr(ar_insider, "priced_on", lambda store, m, s, a: priced)
     monkeypatch.setattr(ar_insider.fa_features, "_group",
                         lambda store, g, m, s: g4.copy() if g == "G4" else None)
     return {"scores": scores, "g4": g4, "priced": pd.DataFrame({"entity_id": sorted(priced)})}
@@ -145,6 +145,7 @@ def test_model_refused_before_usable_from_or_on_bad_file(models: Path) -> None:
 def test_analyst_end_to_end(store, models: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     store.seed_config_defaults()
     _synthetic(monkeypatch)
+    monkeypatch.setattr(ar_insider, "insider_staleness", lambda st, m, a: "")
     analyst = ar_insider.ArInsiderAnalyst(store, ReplayClock(AS_OF), market=Market.KR, models_root=models)
     signals = analyst.run(AS_OF, confidence=1.0)
     assert analyst.skip_reason == "" and signals
@@ -166,7 +167,26 @@ def test_analyst_skips_when_models_missing(store, tmp_path: Path, monkeypatch) -
     analyst = ar_insider.ArInsiderAnalyst(store, ReplayClock(AS_OF), market=Market.KR, models_root=tmp_path)
     assert analyst.run(AS_OF) == [] and "얼린 AR 모델" in analyst.skip_reason
     us = ar_insider.ArInsiderAnalyst(store, ReplayClock(AS_OF), market=Market.US, models_root=tmp_path)
-    assert us.run(AS_OF) == [] and "국장만" in us.skip_reason
+    assert us.run(AS_OF) == [] and "얼린 AR 모델" in us.skip_reason      # 미장도 같은 관문(시장 거부가 아니다)
+
+
+def test_us_session_features_mark_is_us_and_zero_g4(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """미장: is_us = 1, G4(DART)는 미장 행이 없어 0, G7(Form 4)는 값이 있다 — 판정 패널(load_us → attach)과 같다."""
+    rng = np.random.default_rng(4)
+    names = [f"US:T{i:03d}" for i in range(60)]
+    scores = pd.DataFrame({"entity_id": names, "session": SESSION})
+    for c in ("chart", "event", "flow", "fundamental", "regime", "risk"):
+        scores[c] = rng.normal(size=len(names)).astype(np.float32)
+    g7 = pd.DataFrame({"entity_id": names[::2], "session": SESSION, "form4_sell_60": rng.exponential(size=30),
+                       "form4_sellers_20": rng.integers(0, 3, size=30).astype(float), "form4_buy_60": rng.exponential(size=30)})
+    monkeypatch.setattr(ar_insider.fa_features, "_scores", lambda store, m, s, a: scores.copy())
+    monkeypatch.setattr(ar_insider, "priced_on", lambda store, m, s, a: set(names))
+    monkeypatch.setattr(ar_insider.fa_features, "_group", lambda store, g, m, s: g7.copy() if g == "G7" else None)
+    out = ar_insider.session_features(None, "US", SESSION, AS_OF)
+    assert isinstance(out, pd.DataFrame)
+    assert (out["is_us"] == 1.0).all()
+    assert (out[list(GROUPS["G4"])] == 0).all().all()
+    assert out["form4_sell_60"].std() > 0
 
 
 # --------------------------------------------------------------------------- ⑤ 설치 도구
@@ -192,3 +212,29 @@ def test_install_copies_only_matching_files(tmp_path: Path, monkeypatch) -> None
     assert tool.install(source, root, apply=True) == 3                     # 자리에 다른 파일 — 덮지 않는다
     (source / "AR-treat-s1.txt").write_text("tampered\n")
     assert tool.install(source, tmp_path / "fresh", apply=True) == 2       # 원본 지문 불일치
+
+
+def test_fund_usd_once(store, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """미장 shadow 첫 자본은 달러 한 번 — 두 번째는 넣지 않는다(입금일 NAV 가 수익으로 잡힌다)."""
+    from tools import fund_shadow_usd as tool
+
+    moment = datetime(2026, 10, 13, 20, 20, tzinfo=UTC)
+    monkeypatch.setattr(tool, "opening_moment", lambda st, m, now: moment)
+    now = datetime(2026, 10, 15, 4, 0, tzinfo=UTC)
+    assert tool.fund(store, usd=370000.0, now=now, apply=False) == 0
+    assert store.get("capital_flows", as_of=now, lookback=3650).empty
+    assert tool.fund(store, usd=370000.0, now=now, apply=True) == 0
+    flows = store.get("capital_flows", as_of=now, lookback=3650)
+    assert len(flows) == 1 and flows.iloc[0]["currency"] == "USD" and float(flows.iloc[0]["amount"]) == 370000.0
+    assert tool.fund(store, usd=370000.0, now=now, apply=True) == 3
+    assert tool.main(["--sandbox", "data/_paper", "--usd", "1"]) == 2
+
+
+def test_analyst_refuses_stale_insider_data(store, models: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """내부자 원자료 수집이 멈췄으면(최근 관측 0행) 채점하지 않는다 — 0 으로 빈 내부자 열로 조용히 돌지 않는다."""
+    _synthetic(monkeypatch)
+    assert "수집이 멈췄다" in ar_insider.insider_staleness(store, "KR", AS_OF)       # 빈 창고 = 최근 관측 없음
+    analyst = ar_insider.ArInsiderAnalyst(store, ReplayClock(AS_OF), market=Market.KR, models_root=models)
+    assert analyst.run(AS_OF) == [] and "insider_trades" in analyst.skip_reason
+    us = ar_insider.ArInsiderAnalyst(store, ReplayClock(AS_OF), market=Market.US, models_root=models)
+    assert us.run(AS_OF) == [] and "form4_trades" in us.skip_reason

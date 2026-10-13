@@ -30,8 +30,10 @@
 - 얼린 파일의 sha256 앞 16자가 등록 문서 '모델 해시' 와 다르면 점수를 안 낸다(`MODEL_HASHES` — 테스트가 문서와 맞춘다).
 - `USABLE_FROM`(2026-07-01) 전 as_of 는 채점하지 않는다 — 학습창 안을 채점하면 외운 값이다.
 - 점수 6 열 중 하나라도 그 세션에 비었으면(일일 실행기 전·Analyst 사망) 점수를 안 낸다 — 빈 열은 "순위 중앙" 으로 보여 경고가 없다.
+- 내부자 원자료가 `INSIDER_STALE_DAYS` 동안 한 행도 안 들어왔으면 점수를 안 낸다(`insider_staleness`) — 같은 이유.
 - 관찰 모드: 일일 실행기·주간 IC 목록에 없다 → 운영 가중치 0. 쓰는 곳은 `data/_ar_shadow` 의 `selector.weights_override` 뿐.
-- 국장만(지금). 모델은 두 시장 한 모델이지만 미장 shadow 는 따로 정한다(설계 문서 '미장').
+- 두 시장(2026-10-13 사용자 "AR 두 시장 다"): 한 모델에 is_us 만 다르다. 미장은 점수 6 의 flow 가 flow_us, 내부자는 G7(Form 4)이
+  값을 갖고 G4(DART)는 0 이다 — 판정 패널(`load_us` → `attach`)과 같다. 미장 장부는 `data/_ar_us_shadow`(달러 자본).
 """
 from __future__ import annotations
 
@@ -122,6 +124,40 @@ def usable_ar_model(root: Path, *, as_of: datetime) -> tuple[ArModel | None, str
     return model, ""
 
 
+#: 시세 행의 세션 날짜는 **서울 시각 날짜**다 — 미장 봉은 ET 세션 날짜의 09:00 KST 로 적힌다(국장은 그날 KST). `fa_features._priced` 는
+#: 시장 현지 시각으로 바꿔 미장 봉을 하루 앞 날짜로 읽는다(그 함수는 국장만 써 왔다 — 미장 0종목, 2026-10-13 배선 확인에서 발견).
+PRICE_DATE_TZ = "Asia/Seoul"
+
+
+def priced_on(store, market: str, session: date, as_of: datetime) -> set[str]:  # type: ignore[no-untyped-def]
+    """그 세션 종가가 있는 종목(판정 패널의 타깃 행 대용). 국장은 `fa_features._priced` 와 같은 값이다(테스트)."""
+    from quant_rl_trading.store.prices import read_prices
+
+    prices = read_prices(store, as_of=as_of, lookback=fa_features.PRICE_LOOKBACK_DAYS, market=market, columns=["close"])
+    if prices.empty:
+        return set()
+    days = pd.to_datetime(prices["valid_from"], utc=True).dt.tz_convert(PRICE_DATE_TZ).dt.date
+    return set(prices.loc[(days == session).to_numpy(), "entity_id"].astype(str))
+
+
+#: 내부자 원자료 표 — 시장별(G4 = DART 임원·주요주주 · G7 = SEC Form 4).
+INSIDER_TABLE: dict[str, str] = {"KR": "insider_trades", "US": "form4_trades"}
+#: 원자료 신선도 관문 — 이 달력일 안에 관측된 행이 하나도 없으면 수집이 멈춘 것으로 본다(데이터 계약 관문, 매매 임계치가 아니다).
+#: 2026-10-13 배선 확인에서 찾았다: 두 표 모두 **매일 수집 크론이 없다**(백필 도구뿐) — insider_trades 는 8/28, form4_trades 는 7/1 이 마지막.
+#: 그 상태로 채점하면 60세션 창이 비어 가며 내부자 열이 전부 0(순위 중앙)이 되고, 처리 모델은 학습 때 본 적 없는 입력으로 **조용히** 돈다.
+INSIDER_STALE_DAYS = 14
+
+
+def insider_staleness(store, market: str, as_of: datetime) -> str:  # type: ignore[no-untyped-def]
+    """그 시장 내부자 원자료가 as_of 기준 `INSIDER_STALE_DAYS` 안에 관측된 행이 있는가. 없으면 이유 문자열(빈 문자열 = 신선)."""
+    table = INSIDER_TABLE[market]
+    rows = store.get(table, as_of=as_of, lookback=INSIDER_STALE_DAYS, market=market, columns=["entity_id", "valid_from"])
+    if rows.empty:
+        return (f"{table} 에 최근 {INSIDER_STALE_DAYS}일 관측이 없다 — 내부자 수집이 멈췄다. 내부자 열이 0 으로 비면 "
+                "처리 모델이 학습 때 본 적 없는 입력으로 돈다 — 채점하지 않는다")
+    return ""
+
+
 def session_features(store, market: str, session: date, as_of: datetime) -> pd.DataFrame | str:  # type: ignore[no-untyped-def]
     """그 세션의 AR 입력(종목 인덱스, `FEATURES` 순서). 못 만들면 **이유 문자열**.
 
@@ -133,7 +169,7 @@ def session_features(store, market: str, session: date, as_of: datetime) -> pd.D
     empty = [c for c in SCORE_COLUMNS if scores[c].notna().sum() == 0]
     if empty:
         return f"{session} 점수 열 {empty} 이 비었다 — 일일 실행기가 아직 안 돌았거나 Analyst 가 죽었다"
-    priced = fa_features._priced(store, market, session, as_of)
+    priced = priced_on(store, market, session, as_of)
     panel = scores[scores["entity_id"].astype(str).isin(priced)].drop(columns=["session"]).reset_index(drop=True)
     if panel.empty:
         return f"{session} 점수 종목 중 그 세션 시세가 있는 종목이 없다"
@@ -185,14 +221,15 @@ class ArInsiderAnalyst(RankerAnalyst):
         self._as_of = as_of
         self._pred = pd.Series(dtype=float)
         self.skip_reason = ""
-        if self.market != Market.KR:
-            self.skip_reason = "국장만 — 미장 AR shadow 는 따로 정한다"
-            return pd.DataFrame()
         self._ar, reason = self._resolve_ar(as_of)
         if self._ar is None:
             self.skip_reason = f"얼린 AR 모델을 쓸 수 없다: {reason}"
             return pd.DataFrame()
         market = str(self.market)
+        stale = insider_staleness(self.store, market, as_of)
+        if stale:
+            self.skip_reason = stale
+            return pd.DataFrame()
         session = fa_features.session_of(market, as_of)
         frame = session_features(self.store, market, session, as_of)
         if isinstance(frame, str):

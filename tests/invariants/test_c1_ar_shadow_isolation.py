@@ -15,13 +15,18 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
+#: 장부 → (분석가, 러너, 샌드박스, 템플릿, 덮어쓰기 키, 시장)
 CASES = {
-    "c1fa": (REPO / "scripts" / "run_shadow_c1.sh", "data/_c1_shadow", REPO / "config" / "shadow" / "c1.config-overrides.yaml"),
-    "ar_insider": (REPO / "scripts" / "run_shadow_ar.sh", "data/_ar_shadow", REPO / "config" / "shadow" / "ar.config-overrides.yaml"),
+    "c1": ("c1fa", REPO / "scripts" / "run_shadow_c1.sh", "data/_c1_shadow",
+           REPO / "config" / "shadow" / "c1.config-overrides.yaml", "selector.weights_override", "KR"),
+    "ar": ("ar_insider", REPO / "scripts" / "run_shadow_ar.sh", "data/_ar_shadow",
+           REPO / "config" / "shadow" / "ar.config-overrides.yaml", "selector.weights_override", "KR"),
+    "ar_us": ("ar_insider", REPO / "scripts" / "run_shadow_ar_us.sh", "data/_ar_us_shadow",
+              REPO / "config" / "shadow" / "ar_us.config-overrides.yaml", "selector.weights_override_us", "US"),
 }
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
+@pytest.mark.parametrize("name", sorted({c[0] for c in CASES.values()}))
 def test_shadow_alpha_gets_no_operational_weight(name: str) -> None:
     from quant_rl_trading.session.signals import SCORERS
     from tools.measure_ic import ANALYSTS
@@ -30,18 +35,18 @@ def test_shadow_alpha_gets_no_operational_weight(name: str) -> None:
     assert name not in ANALYSTS, f"주간 IC --save 가 {name} 에 운영 가중치를 준다"
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_override_template_switches_only_this_alpha(name: str) -> None:
-    _, _, template = CASES[name]
+@pytest.mark.parametrize("book", sorted(CASES))
+def test_override_template_switches_only_this_alpha(book: str) -> None:
+    name, _, _, template, key, _ = CASES[book]
     config = yaml.safe_load(template.read_text(encoding="utf-8"))
-    assert config == {"selector.weights_override": {name: 1.0, "risk": 1.0}}
+    assert config == {key: {name: 1.0, "risk": 1.0}}
 
 
-@pytest.mark.parametrize("name", sorted(CASES))
-def test_runner_writes_only_to_its_shadow_sandbox(name: str) -> None:
+@pytest.mark.parametrize("key", sorted(CASES))
+def test_runner_writes_only_to_its_shadow_sandbox(key: str) -> None:
     from quant_rl_trading.store import mode
 
-    runner, book, template = CASES[name]
+    name, runner, book, template, _, market = CASES[key]
     text = runner.read_text(encoding="utf-8")
     found = re.search(r"^BOOK=(\S+)$", text, flags=re.M)
     assert found is not None and found.group(1) == book
@@ -53,6 +58,7 @@ def test_runner_writes_only_to_its_shadow_sandbox(name: str) -> None:
     assert sessions and all('--sandbox "${BOOK}"' in line for line in sessions)
     assert "--live-store" not in text and "--live-broker" not in text
     assert f"--analyst {name}" in text
+    assert all(f"--market {market}" in line for line in sessions)
     assert re.search(r'^exit "\$\{RC:-1\}"$', text, flags=re.M), "크론이 보는 rc 를 echo 가 삼키지 않게"
 
 
@@ -60,6 +66,7 @@ def test_scoring_never_backfills_the_second_window() -> None:
     from tools import score_shadow_alpha as tool
 
     assert date(2026, 10, 13) <= tool.SHADOW_START
-    assert set(tool.ANALYSTS) == set(CASES)
+    assert set(tool.ANALYSTS) == {c[0] for c in CASES.values()}
     assert tool.main(["--analyst", "c1fa", "--day", "2026-10-02", "--root", "/nonexistent-never-opened"]) == tool.RC_BAD_ARGS
     assert tool.score_session(None, "ar_insider", None, date(2026, 10, 12), None) == tool.RC_BAD_ARGS  # type: ignore[arg-type]
+    assert tool.main(["--analyst", "c1fa", "--market", "US", "--root", "/nonexistent-never-opened"]) == tool.RC_BAD_ARGS
