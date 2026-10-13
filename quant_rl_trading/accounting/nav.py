@@ -127,6 +127,30 @@ def twr_return(*, nav: float, previous_nav: float, inflow: float) -> float:
     return (nav - inflow) / previous_nav - 1.0
 
 
+def daily_pnl(*, nav: float, previous_nav: float, inflow: float) -> float | None:
+    """그날 번 돈 = NAV_t − NAV_{t−1} − 그날 입출금. ``twr_return`` 의 분자와 같은 정의다.
+
+    입출금을 빼지 않으면 입금일이 통째로 수익이 된다. 비교할 어제가 없으면(첫날) None — 0 이 아니다.
+    """
+    if previous_nav <= 0.0:
+        return None
+    return nav - inflow - previous_nav
+
+
+def pnl_from_twr(*, nav: float, inflow: float, twr: float | None) -> float | None:
+    """``nav_daily`` 한 행(nav·inflow·twr_return)에서 그날 수익금.
+
+    회계가 그 행을 적을 때 ``twr = (nav − inflow) / previous_nav − 1`` 이었으므로 ``previous_nav`` 를 되찾을 수 있다 —
+    화면이 직전 행을 다시 골라 붙이다 회계와 다른 '어제' 를 잡는 일을 막는다. 값은 ``daily_pnl`` 과 같다.
+    ``twr`` 가 없거나 −100% 면 None.
+    """
+    if twr is None or twr != twr or twr <= -1.0:
+        return None
+    base = nav - inflow
+    previous_nav = base / (1.0 + twr)
+    return daily_pnl(nav=nav, previous_nav=previous_nav, inflow=inflow)
+
+
 def compound(returns: Sequence[float], *, base: float = BASE_INDEX) -> list[float]:
     """누적지수. 낙폭·IR·트래킹에러가 전부 이 위에서 계산된다."""
     index = base

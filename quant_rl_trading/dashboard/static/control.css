@@ -219,6 +219,15 @@
 .ls-tracks p.ls-hint { color: var(--dim); font-size: 11px; }
 .ls-track-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .ls-track-head strong { font-size: 12.5px; font-weight: 600; }
+/* 병행 트랙 지금 성과(2026-10-13 밤) — 장부 한 줄씩, 끝 칸에 작은 누적 곡선(ECharts). 폰은 mcard 로 카드. */
+.ls-pf { margin-top: 5px; }
+.ls-pf-table { width: 100%; }
+.ls-pf-table td, .ls-pf-table th { white-space: nowrap; }
+.ls-pf-name { font-weight: 600; }
+.ls-pf-vs { display: block; font-size: 10px; color: var(--dim); }
+.ls-pf-seq { font-size: 11.5px; }
+.ls-pf-spark { width: 110px; padding-top: 2px; padding-bottom: 2px; }
+.ls-pf-chart { width: 104px; height: 30px; }
 .ls-count { margin: 4px 0; font-size: 13px; color: var(--text); }
 .ls-count .sub { font-size: 11px; margin-left: 8px; }
 .ls-lessons { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 2px 0 6px; margin: 6px 0 8px; }

@@ -141,12 +141,23 @@ def live_models() -> Any:
     `usable_from ≤ as_of` 로 거른다 — 실전 랭커가 모델을 찾는 규칙과 같다."""
     from pathlib import Path
 
+    from quant_rl_trading.dashboard.services import alpha_ir as alpha_ir_service
+    from quant_rl_trading.store.memo import derived
+
     current = scope()
-    return envelope(
-        current,
-        service_story.live_models(store(), as_of=current.as_of, lookback=current.lookback,
-                                  models_root=Path(research_store().root)),
-    )
+    research = research_store()
+    main = store()
+    data = service_story.live_models(main, as_of=current.as_of, lookback=current.lookback,
+                                     models_root=Path(research.root))
+    # 병행 트랙마다 지금 성과(dashboard.md 2026-10-13 밤 ⑥) — 트레이딩 탭 '지수 대비 IR' 과 **같은 계산·같은 캐시 키**.
+    try:
+        alpha = derived(main, ("alpha_ir", current.as_of.isoformat()),
+                        lambda: alpha_ir_service.alpha_ir(Path(research.root), config=main, source=research,
+                                                          as_of=current.as_of))
+    except Exception:  # noqa: BLE001 — 지수 대비가 깨져도 장부 누적은 보인다(칸은 '모름')
+        alpha = None
+    service_story.track_performance(Path(research.root), data.get("tracks", []), alpha, current.as_of)
+    return envelope(current, data)
 
 
 @bp.get("/trial-history")

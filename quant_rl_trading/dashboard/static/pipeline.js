@@ -15,7 +15,8 @@ const plNum = (v) => (v === null || v === undefined ? PL_UNKNOWN : Number(v).toL
 const plPct = (v, d = 1) => (v === null || v === undefined ? PL_UNKNOWN : `${(v * 100).toFixed(d)}%`);
 const plSigned = (v, d = 4) => (v === null || v === undefined ? PL_UNKNOWN : `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(d)}`);
 const plDay = (iso) => (iso ? String(iso).slice(0, 10) : PL_UNKNOWN);
-const plStamp = (iso) => (iso ? String(iso).replace("T", " ").slice(0, 16) : PL_UNKNOWN);
+// 시각은 한국 시간 고정(scope.js kstStamp, 2026-10-13 밤) — ISO 를 잘라 쓰면 서버 시간대(UTC)가 그대로 보였다.
+const plStamp = (iso) => (iso ? kstStamp(iso) : PL_UNKNOWN);
 
 /* 종류 → 색 토큰. 손익 색(--up/--down)·선택 색(--accent)은 쓰지 않는다 — 범주 팔레트만(DESIGN.md). */
 function plKindColor(kind) {
@@ -573,6 +574,38 @@ function renderWhy(d) {
     <p class="pl-back"><a class="control-link" href="${plEsc(link.pathname + link.search)}">트레이딩 탭 '왜 샀나' 패널에서 다섯 단계 전부 보기</a></p>`;
 }
 
+/* ---------------------------------------------------------------- ③ 거르기 — 뉴스 매수 금지 */
+
+/* 중요 시황 탭에서 옮겨 왔다(사용자 2026-10-13 밤) — 흐름도 '뉴스 매수 금지' 노드가 막은 명단이다.
+ * News·SNS Analyst 는 매수 금지만 할 수 있다(매도 권한 없음). 만료된 차단도 남긴다 — "방금 풀렸다" 와 "여태 걸려 있다" 는 다르다. */
+const PL_BLOCK_CATEGORY = {
+  dilution: "희석", insider_sell: "내부자매도", delisting: "상장폐지",
+  litigation: "소송", trading_halt: "거래정지", accounting: "회계",
+};
+
+async function renderBlocks() {
+  const target = document.getElementById("pl-blocks");
+  if (!target) return;
+  const body = await fetchJson("pipeline/blocks");
+  const d = body.data;
+  const count = document.getElementById("pl-blocks-count");
+  if (count) count.textContent = `차단 중 ${d.active_verdicts} · 기록 ${d.verdicts.length}건`;
+  if (!d.verdicts.length) {
+    target.innerHTML = `<p class="empty">창 안에 기록된 매수 금지 판정이 없다.</p>`;
+    return;
+  }
+  target.innerHTML = `<table class="dense"><thead><tr><th>종목</th><th class="mid">Analyst</th><th>사유</th>
+    <th class="num">발동 KST</th><th class="num">만료 KST</th><th class="mid">상태</th></tr></thead><tbody>${d.verdicts.map((row) => `<tr>
+      <td><span class="name">${plEsc(row.name)}</span> <span class="code">${plEsc(row.entity_id)}</span></td>
+      <td class="mid"><span class="tag dim">${plEsc(row.analyst)}</span></td>
+      <td>${plEsc(PL_BLOCK_CATEGORY[row.category] || row.category)}
+        <div class="sub trunc" title="${plEsc(row.reason)}">${plEsc(row.reason)}</div></td>
+      <td class="num">${plStamp(row.valid_from)}</td>
+      <td class="num">${plStamp(row.expires_at)}</td>
+      <td class="mid"><span class="verdict ${row.active ? "critical" : "info"}">${row.active ? "차단 중" : "만료"}</span></td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
 /* ---------------------------------------------------------------- 시작 */
 
 let plResizeTimer = null;
@@ -590,4 +623,4 @@ if (typeof window !== "undefined" && window.ResizeObserver) {
   }).observe(document.getElementById("pl-flow"));
 }
 
-runAll([renderFlow, renderInside]);
+runAll([renderFlow, renderBlocks, renderInside]);

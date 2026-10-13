@@ -11,7 +11,7 @@
 <main class="sys-wrap">
   <div class="desk-heading">
     <div><span class="desk-eyebrow">SYSTEM / MONITOR</span><h2>시스템</h2>
-      <p class="desk-lede">배관이 도는가 — 서버 자원 · 예약 작업(크론) · 창고 테이블 · 안전장치 · LLM 사용량.</p></div>
+      <p class="desk-lede">배관이 도는가 — 서버 자원 · 예약 작업(크론) · 창고 테이블 · 안전장치 · LLM 사용량 · 파이프라인 이벤트.</p></div>
     <div class="desk-side"><span class="sub" id="sys-updated">-</span></div>
   </div>
 
@@ -115,6 +115,17 @@
       없는 모델은 "단가 모름"으로 남기고 합계에서 뺀다 — 0원으로 채우지
       않는다. agent_cache 적재 건수와는 더하지 않는다 — 하나는 "무엇을
       알고 있나", 하나는 "무엇을 새로 계산했나"다.
+    </p>
+  </section>
+  {# 파이프라인 이벤트 — 중요 시황 탭에서 옮겼다(2026-10-13 밤). 배관이 도는지의 증거라 운영 갈래다. #}
+  <section class="panel">
+    <h2>파이프라인 이벤트 <span class="sub">관측 → Signal → Selector → Allocator → 주문 → 체결</span>
+      <span class="right"><span class="sub" id="events-count"></span></span>
+    </h2>
+    <div id="events" class="scroll dense mcard"></div>
+    <p class="note">
+      세션이 남긴 판단 로그다(창고 <code>events</code>). 크론 로그와 달리 창고 사실이라
+      <strong>as_of 로 되감긴다</strong>. 아직 쌓이기 전이면 비어 있는 것이 맞다 — 지어내지 않는다.
     </p>
   </section>
 </main>

@@ -47,6 +47,15 @@
     </aside>
   </section>
 
+  {# ③ 거르기 — 뉴스 매수 금지 명단. 중요 시황 탭에서 옮겼다(2026-10-13 밤) — 흐름도 '뉴스 매수 금지' 노드가 하는 일이다. #}
+  <section class="panel pl-blocks" aria-labelledby="pl-blocks-title">
+    <h2 id="pl-blocks-title">③ 거르기 — 뉴스 매수 금지 <span class="sub">News·SNS 판정 · 매수만 막는다(매도 권한 없음)</span>
+      <span class="right"><span class="sub" id="pl-blocks-count"></span></span></h2>
+    <div id="pl-blocks" class="scroll dense mcard"></div>
+    <p class="note">악재 키워드가 걸린 종목은 새로 사지 않는다. Claude 가 원문을 읽고 오탐이면 풀어 준다 — 새로 막지는 않는다.
+      만료된 차단도 남긴다.</p>
+  </section>
+
   <section class="panel pl-inside" aria-labelledby="pl-inside-title">
     <h2 id="pl-inside-title"><span class="section-index">03</span>AI 속 들여다보기 <span class="sub" id="pl-inside-sub">종목 하나 — 점수 모델이 왜 그 점수를 냈나</span></h2>
     <div class="pl-pick">
@@ -87,5 +96,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='pipeline.js', v='20261013a') }}"></script>
+<script src="{{ url_for('static', filename='pipeline.js', v='20261013b') }}"></script>
 {% endblock %}

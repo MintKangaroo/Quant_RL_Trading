@@ -5,9 +5,13 @@
  * - 국장 실적은 **예상**이다 — 라벨에 (예상) 이 붙고 점선 테두리.
  * - 시각은 서버가 서울 기준으로 준다. 여기서 시간대를 다시 만지지 않는다.
  * - 좁은 화면(휴대폰)에서는 격자 대신 날짜별 목록으로 흐른다(CSS).
+ * - **오늘 = as_of 의 서울 날짜**(서버가 `today` 로 준다 — 보는 기기의 날짜가 아니다). 되감으면 그날이 오늘이다.
+ *   오늘 칸을 강조하고, 페이지를 열면 아래 상세에 오늘 일정이 바로 펼쳐진다(2026-10-13 밤 사용자 요청).
  */
 const SCHED_WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 let schedMonth = null;
+/** 마지막으로 그린 일정 응답 — 중요 시황 KPI(오늘 일정 수)가 같은 응답을 센다(다시 부르지 않는다). */
+let schedLastData = null;
 
 function schedEsc(v) {
   return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -23,8 +27,7 @@ function schedItem(item, { full = false } = {}) {
 
 function renderSchedule(target, data) {
   const [year, mon] = data.month.split("-").map(Number);
-  const now = new Date();
-  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const todayKey = schedToday(data);
   let pastWithItems = 0;
   const first = new Date(year, mon - 1, 1);
   const total = new Date(year, mon, 0).getDate();
@@ -38,8 +41,8 @@ function renderSchedule(target, data) {
     const dow = new Date(year, mon - 1, d).getDay();
     const past = key < todayKey;
     cells.push(
-      `<div class="sched-cell${items.length ? " pick" : ""}${dow === 0 || dow === 6 ? " wk" : ""}${past ? " past" : ""}${key === todayKey ? " today" : ""}" data-date="${key}">
-        <b class="d">${d}<small>${SCHED_WEEKDAYS[dow]}</small></b>${shown}${more}
+      `<div class="sched-cell${items.length || key === todayKey ? " pick" : ""}${dow === 0 || dow === 6 ? " wk" : ""}${past ? " past" : ""}${key === todayKey ? " today" : ""}" data-date="${key}">
+        <b class="d">${d}<small>${SCHED_WEEKDAYS[dow]}</small>${key === todayKey ? `<em class="sched-today-tag">오늘</em>` : ""}</b>${shown}${more}
       </div>`,
     );
   }
@@ -67,30 +70,59 @@ function renderSchedule(target, data) {
   }
 }
 
+/** as_of 의 서울 날짜. 서버가 준 값이 우선 — 없으면(옛 응답) as_of 를 서울 날짜로 바꾼다. 기기 날짜는 쓰지 않는다. */
+function schedToday(data) {
+  if (data && data.today) return data.today;
+  return (typeof kstDate === "function" && data && data.as_of) ? kstDate(data.as_of) : "";
+}
+
+/** 하루 상세 — 그 날 일정 전부. 오늘이면 '오늘' 을 붙이고, 비었으면 비었다고 적는다. */
+function schedDayDetail(target, data, key) {
+  const items = data.days[key] || [];
+  const today = key === schedToday(data);
+  const head = `<b>${key}${today ? ` <em class="sched-today-tag">오늘</em>` : ""}</b>`;
+  target.innerHTML = head + (items.length
+    ? items.map((i) => schedItem(i, { full: true })).join("")
+    : `<p class="empty">${today ? "오늘" : "이날"} 등록된 일정이 없다.</p>`);
+  target.hidden = false;
+}
+
 function bindScheduleDay(root, target, data) {
   root.onclick = (event) => {
     const cell = event.target.closest(".sched-cell.pick");
     if (!cell) return;
     root.querySelectorAll(".sched-cell.on").forEach((el) => el.classList.remove("on"));
     cell.classList.add("on");
-    const items = data.days[cell.dataset.date] || [];
-    target.innerHTML = `<b>${cell.dataset.date}</b>` + items.map((i) => schedItem(i, { full: true })).join("");
-    target.hidden = false;
+    schedDayDetail(target, data, cell.dataset.date);
   };
+  // 페이지를 열면 오늘이 펼쳐져 있다 — 보고 있는 달에 오늘이 있을 때만(다른 달로 넘기면 접는다).
+  // 폰 목록은 오늘 칸이 이미 맨 위에 전부 펼쳐져 있어 아래에 한 번 더 적지 않는다.
+  const today = schedToday(data);
+  const cell = today && root.querySelector ? root.querySelector(`.sched-cell[data-date="${today}"]`) : null;
+  if (cell && !SCHED_MOBILE.matches) {
+    cell.classList.add("on");
+    schedDayDetail(target, data, today);
+  }
 }
 
 const SCHED_MOBILE = window.matchMedia ? window.matchMedia("(max-width: 640px)") : { matches: false };
 
 /* 휴대폰 — 오늘부터 30일 목록. 달을 넘겨 이어 붙인다(월말에 "이달" 은 비어 보인다). */
 function renderUpcoming(target, data) {
+  const today = schedToday(data);
+  // 오늘은 일정이 없어도 맨 위에 선다 — '오늘 뭐 있지' 의 답이 '없다' 인 것도 답이다.
   const days = Object.keys(data.days);
+  if (today && !days.includes(today)) days.unshift(today);
+  days.sort();
   if (!days.length) {
     target.innerHTML = `<p class="empty">${data.from}~${data.to} 사이 등록된 일정이 없다.</p>`;
   } else {
     target.innerHTML = `<div class="sched-list">${days.map((key) => {
       const d = new Date(`${key}T00:00:00`);
       const label = `${d.getMonth() + 1}/${d.getDate()} <small>${SCHED_WEEKDAYS[d.getDay()]}</small>`;
-      return `<div class="sched-cell pick" data-date="${key}"><b class="d">${label}</b>${data.days[key].map((i) => schedItem(i)).join("")}</div>`;
+      const items = data.days[key] || [];
+      const isToday = key === today;
+      return `<div class="sched-cell pick${isToday ? " today" : ""}" data-date="${key}"><b class="d">${label}${isToday ? `<em class="sched-today-tag">오늘</em>` : ""}</b>${items.length ? items.map((i) => schedItem(i)).join("") : `<span class="sched-none">등록된 일정 없음</span>`}</div>`;
     }).join("")}</div>`;
   }
   const label = document.getElementById("sched-label");
@@ -108,6 +140,7 @@ async function loadSchedule(month) {
     const day = document.getElementById("sched-day");
     if (!grid) return;
     day.hidden = true;
+    schedLastData = body.data;
     renderUpcoming(grid, body.data);
     bindScheduleDay(grid, day, body.data);
     return;
@@ -120,6 +153,7 @@ async function loadSchedule(month) {
   const day = document.getElementById("sched-day");
   if (!grid) return;
   day.hidden = true;
+  schedLastData = data;
   renderSchedule(grid, data);
   bindScheduleDay(grid, day, data);
   const prev = document.getElementById("sched-prev");

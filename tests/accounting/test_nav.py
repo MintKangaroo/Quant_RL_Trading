@@ -237,3 +237,25 @@ def test_혼합_벤치마크는_가중평균이다() -> None:
         kr_returns=[0.10], us_returns_krw=[0.00], kr_weight=0.5, us_weight=0.5
     )
     assert index[0] == pytest.approx(105.0)
+
+
+# -- 그날 수익금 (dashboard.md 2026-10-13 밤 ①) ---------------------------------
+
+
+def test_수익금은_입출금을_뺀_NAV_증감이다() -> None:
+    from quant_rl_trading.accounting.nav import daily_pnl
+
+    assert daily_pnl(nav=1_050.0, previous_nav=1_000.0, inflow=30.0) == 20.0
+    assert daily_pnl(nav=1_000.0, previous_nav=0.0, inflow=1_000.0) is None   # 첫날 — 어제가 없다
+
+
+def test_한_행에서_꺼낸_수익금은_직전_행으로_잰_것과_같다() -> None:
+    from quant_rl_trading.accounting.nav import daily_pnl, pnl_from_twr, twr_return
+
+    nav, previous, inflow = 1_234_567.0, 1_100_000.0, 100_000.0
+    twr = twr_return(nav=nav, previous_nav=previous, inflow=inflow)
+    assert pnl_from_twr(nav=nav, inflow=inflow, twr=twr) == pytest.approx(
+        daily_pnl(nav=nav, previous_nav=previous, inflow=inflow)
+    )
+    assert pnl_from_twr(nav=nav, inflow=inflow, twr=None) is None
+    assert pnl_from_twr(nav=nav, inflow=inflow, twr=float("nan")) is None

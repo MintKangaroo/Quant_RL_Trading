@@ -13,6 +13,7 @@ from flask import Blueprint, request
 from werkzeug.exceptions import BadRequest
 
 from quant_rl_trading.dashboard.api.common import envelope, research_store, scope, store
+from quant_rl_trading.dashboard.services import headlines as headlines_service
 from quant_rl_trading.dashboard.services import pipeline_view as service
 
 bp = Blueprint("pipeline_api", __name__, url_prefix="/api/pipeline")
@@ -50,3 +51,11 @@ def inside() -> Any:
     entity = (request.args.get("entity") or "").strip() or None
     return envelope(current, service.inside(store(), as_of=current.as_of, market=_market(), entity_id=entity,
                                             models_root=Path(research_store().root)))
+
+
+@bp.get("/blocks")
+def blocks() -> Any:
+    """③ 거르기 — 뉴스 매수 금지 명단(News·SNS 판정, 매수 금지만). 중요 시황 탭에서 옮겼다(2026-10-13 밤)."""
+    current = scope()
+    return envelope(current, headlines_service.blocks_payload(store(), as_of=current.as_of,
+                                                                     lookback=current.lookback, market=_market()))

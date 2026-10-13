@@ -1049,5 +1049,352 @@
       "max_lookback_days": 400,
       "missing_warn": 0.01
     }
+  },
+  "system/events": {
+    "as_of": "2026-08-30T03:31:09.214506+00:00",
+    "live": true,
+    "lookback_days": 90,
+    "thresholds": {
+      "coverage_warn": 0.98,
+      "default_lookback_days": 90,
+      "failure_rows": 50,
+      "latency_p90_warn_ms": 300000,
+      "max_lookback_days": 400,
+      "missing_warn": 0.01
+    },
+    "data": {
+      "events": [
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260703-a",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260703-b",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012417-20260703-a",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012417-20260703-b",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012730-20260703-a",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012730-20260703-b",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T023811-20260703-a",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T023811-20260703-b",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T115151-20260703-a",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "fill_simulator",
+          "payload": "{\"fills\":[{\"avg_price\":2425006.0,\"entity_id\":\"KR:000660\",\"filled_quantity\":10,\"impact_bps\":0.025815,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":309500.0,\"entity_id\":\"KR:005930\",\"filled_quantity\":10,\"impact_bps\":0.01115,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1989012.0,\"entity_id\":\"KR:009150\",\"filled_quantity\":10,\"impact_bps\":0.059343,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":1589008.0,\"entity_id\":\"KR:402340\",\"filled_quantity\":10,\"impact_bps\":0.052571,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"},{\"avg_price\":208001.0,\"entity_id\":\"KR:005935\",\"filled_quantity\":10,\"impact_bps\":0.029706,\"reason\":\"ok\",\"requested_quantity\":10,\"side\":\"buy\",\"status\":\"filled\"}]}",
+          "payload_chars": 808,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T115151-20260703-b",
+          "seq": 2,
+          "stage": "execute",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260703-a",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260703-b",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012417-20260703-a",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012417-20260703-b",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012730-20260703-a",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260811T012730-20260703-b",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T023811-20260703-a",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T023811-20260703-b",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T115151-20260703-a",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "strategy",
+          "payload": "{\"orders\":[{\"entity_id\":\"KR:000660\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005930\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:009150\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:402340\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"},{\"entity_id\":\"KR:005935\",\"limit_price\":null,\"quantity\":10,\"reason\":\"top-value\",\"side\":\"buy\"}]}",
+          "payload_chars": 477,
+          "payload_truncated": false,
+          "run_id": "m1-20260815T115151-20260703-b",
+          "seq": 1,
+          "stage": "decide",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 34587,
+          "payload_truncated": true,
+          "run_id": "m1-20260703-a",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 34587,
+          "payload_truncated": true,
+          "run_id": "m1-20260703-b",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 34587,
+          "payload_truncated": true,
+          "run_id": "m1-20260811T012417-20260703-a",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 34587,
+          "payload_truncated": true,
+          "run_id": "m1-20260811T012417-20260703-b",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 34587,
+          "payload_truncated": true,
+          "run_id": "m1-20260811T012730-20260703-a",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 34587,
+          "payload_truncated": true,
+          "run_id": "m1-20260811T012730-20260703-b",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 98253,
+          "payload_truncated": true,
+          "run_id": "m1-20260815T023811-20260703-a",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 98253,
+          "payload_truncated": true,
+          "run_id": "m1-20260815T023811-20260703-b",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 98253,
+          "payload_truncated": true,
+          "run_id": "m1-20260815T115151-20260703-a",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        },
+        {
+          "actor": "store",
+          "payload": "{\"entities\":[\"KR:000020\",\"KR:000040\",\"KR:000050\",\"KR:000070\",\"KR:000080\",\"KR:000087\",\"KR:000100\",\"KR:000105\",\"KR:000120\",\"KR:000140\",\"KR:000145\",\"KR:000150\",\"KR:000155\",\"KR:000157\",\"KR:000180\",\"KR:0001A0\",\"KR:000210\",\"KR:000215\",\"KR:000220\",\"KR:000225\",\"KR:000227\",\"KR:000230\",\"KR:000240\",\"KR:000250\",\"KR:000270\",\"KR:000300\",\"KR:000320\",\"KR:000325\",\"KR:000370\",\"KR:000390\",\"KR:000400\",\"KR:000430\",\"KR:000440\",\"KR:000480\",\"KR:000490\",\"KR:0004V0\",\"KR:0004Y0\",\"KR:000500\",\"KR:000520\",\"KR:000540\",\"KR:000545\",\"KR:000590\",\"KR:000640\",\"KR:000650\",\"KR:000660\",\"KR:000670\",\"KR:000680\",\"KR:000700\",\"KR:000720\",\"KR:000725\",\"KR:000760\",\"KR:0007C0\",\"KR:0007J0\",\"KR:000810\",\"KR:000815\",\"KR:000850\",\"KR:000860\",\"KR:000880\",\"KR:00088K\",\"KR:000890\",\"KR:0008Z0\",\"KR:000910\",\"KR:000950\",\"KR:000970\",\"KR:000990\",\"KR:0009K0\",\"KR:001000\",\"KR:001020\",\"KR:001040\",\"KR:001045\",\"KR:00104K\",\"KR:001060\",\"KR:001065\",\"KR:001067\",\"KR:001070\",\"KR:001080\",\"KR:0010F0\",\"KR:0010V0\",\"KR:001120\",\"KR:001130\",\"KR:0011A0\",\"KR:0011T0\",\"KR:001200\",\"KR:001210\",\"KR:001230\",\"KR:001250\",\"KR:001260\",\"KR:001270\",\"KR:001275\",\"KR:001290\",\"KR:001340\",\"KR:001360\",\"KR:001380\",\"KR:001390\",\"KR:0013V0\",\"KR:001420\",\"KR:001430\",\"KR:001440\",\"KR:001450\",\"KR:001460\",\"KR:001465\",\"KR:001470\",\"KR:001500\",\"KR:001510\",\"KR:001515\",\"KR:001520\",\"KR:001525\",\"KR:001527\",\"KR:001530\",\"KR:001540\",\"KR:001550\",\"KR:001560\",\"KR:001570\",\"KR:0015G0\",\"KR:0015N0\",\"KR:0015S0\",\"KR:001620\",\"KR:001630\",\"KR:001680\",\"KR:001685\",\"KR:001720\",\"KR:001740\",\"KR:001750\",\"KR:001755\",\"KR:001770\",\"KR:001780\",\"KR:001790\",\"KR:001795\",\"KR:0017J0\",\"KR:001800\",\"KR:001810\",\"KR:001820\",\"KR:001840\",\"KR:001940\",\"KR:002020\",\"KR:002025\",\"KR:002030\",\"KR:002070\",\"KR:002100\",\"KR:002140\",\"KR:002150\",\"KR:002170\",\"KR:002200\",\"KR:002210\",\"KR:002220\",\"KR:002230\",\"KR:002240\",\"KR:002290\",\"KR:002310\",\"KR:002320\",\"KR:002350\",\"KR:002355\",\"KR:002360\",\"KR:002380\",\"KR:002390\",\"KR:002410\",\"KR:002420\",\"KR:002450\",\"KR:002460\",\"KR:002600\",\"KR:002620\",\"KR:002630\",\"KR:002680\",\"KR:002690\",\"KR:002700\",\"KR:002 …(잘림)",
+          "payload_chars": 98253,
+          "payload_truncated": true,
+          "run_id": "m1-20260815T115151-20260703-b",
+          "seq": 0,
+          "stage": "observe",
+          "ts_sim": "2026-07-04T08:00:00+09:00",
+          "ts_wall": "2026-01-01T09:00:00+09:00"
+        }
+      ]
+    }
   }
 }

@@ -1,10 +1,12 @@
-"""중요 시황 API — 지금 시장에서 우리와 관련해 무슨 일이 벌어졌나.
+"""중요 시황 API — 공시. 매수 차단은 매매 과정 탭(`/api/pipeline/blocks`), 파이프라인 이벤트는
+시스템 탭(`/api/system/events`)으로 옮겼다(2026-10-13 밤). 집계는 `services/headlines.py` 한 곳.
 
-여기서 고정하는 사실은 셋이다.
+여기서 고정하는 사실은 넷이다.
 
 1. **매수 차단만 있다** — News·SNS Analyst 는 매도 권한이 없다 (금지 사항)
 2. **부피가 큰 통상 신고는 빠진다** — ownership·other·earnings 는 중요 공시 표에 안 든다
 3. **events 가 0행이면 빈 리스트다** — 지어내지 않는다
+4. **중요 시황 응답에는 공시만 있다** — 안 보는 탭의 데이터를 부르지 않는다
 
 시가총액 트리맵은 이 탭에 없다 — 마켓 탭(`services/market.py`)으로 옮겼다.
 `test_market_api.py` 에서 검증한다.
@@ -87,18 +89,29 @@ def client(desk):  # type: ignore[no-untyped-def]
 
 
 def test_매수_차단은_전부_block이다(client) -> None:
-    body = client.get("/api/headlines").get_json()
+    body = client.get("/api/pipeline/blocks").get_json()
     verdicts = body["data"]["verdicts"]
     assert {row["decision"] for row in verdicts} == {"block"}
     assert body["data"]["active_verdicts"] == 1
 
 
 def test_살아있는_차단이_먼저_온다(client) -> None:
-    body = client.get("/api/headlines").get_json()
+    body = client.get("/api/pipeline/blocks").get_json()
     verdicts = body["data"]["verdicts"]
     assert verdicts[0]["active"] is True
     assert verdicts[0]["category"] == "delisting"
     assert verdicts[-1]["active"] is False
+
+
+def test_매수_차단은_보는_시장_종목만(client) -> None:
+    body = client.get("/api/pipeline/blocks?market=US").get_json()
+    assert body["data"] == {"verdicts": [], "active_verdicts": 0}
+
+
+def test_매수_차단도_as_of_로_되감긴다(client) -> None:
+    before = (NOW - timedelta(days=2)).isoformat()
+    body = client.get(f"/api/pipeline/blocks?as_of={before.replace('+', '%2B')}").get_json()
+    assert body["data"]["verdicts"] == []
 
 
 def test_통상_신고는_중요_공시에서_빠진다(client) -> None:
@@ -109,22 +122,25 @@ def test_통상_신고는_중요_공시에서_빠진다(client) -> None:
     assert docs[0]["entity_names"] == ["관리종목전자"]
 
 
-def test_이벤트가_0행이면_빈_리스트다(client) -> None:
+def test_중요_시황_응답에는_공시만_있다(client) -> None:
     body = client.get("/api/headlines").get_json()
+    assert set(body["data"]) == {"documents"}
+
+
+def test_이벤트가_0행이면_빈_리스트다(client) -> None:
+    body = client.get("/api/system/events").get_json()
     assert body["data"]["events"] == []
 
 
 def test_없는_창고는_전부_빈_상태다(store) -> None:
     store.seed_config_defaults()
     client = create_app(store=store, clock=ReplayClock(NOW)).test_client()
-    body = client.get("/api/headlines").get_json()
-    assert body["data"] == {
-        "verdicts": [],
-        "active_verdicts": 0,
-        "documents": [],
-        "events": [],
-    }
+    assert client.get("/api/headlines").get_json()["data"] == {"documents": []}
+    assert client.get("/api/pipeline/blocks").get_json()["data"] == {"verdicts": [], "active_verdicts": 0}
+    assert client.get("/api/system/events").get_json()["data"] == {"events": []}
 
 
 def test_as_of_에_타임존이_없으면_거부한다(client) -> None:
     assert client.get("/api/headlines?as_of=2026-08-14T07:00:00").status_code == 400
+    assert client.get("/api/pipeline/blocks?as_of=2026-08-14T07:00:00").status_code == 400
+    assert client.get("/api/system/events?as_of=2026-08-14T07:00:00").status_code == 400

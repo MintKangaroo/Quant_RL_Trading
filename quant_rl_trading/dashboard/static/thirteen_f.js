@@ -22,6 +22,132 @@ function changeTag(change, pct) {
   return `<span class="dim">유지</span>`;
 }
 
+/* -- 그림 (ECharts, 시트 테마) ----------------------------------------------
+ * dashboard.md 2026-10-13 밤 ③. 색 규칙: 기관의 매수·매도는 **우리 손익이 아니다** — 손익 색(초록·빨강)을 쓰지 않는다.
+ * 막대는 무채색, 강조색은 '우리 보유와 겹침'·'신규' 같은 표시에만. 폰(≤640)은 막대 수를 줄인다(가로 스크롤 없음). */
+const TF_PHONE = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 640px)") : { matches: false };
+const tfTop = (rows, desk, phone) => rows.slice(0, TF_PHONE.matches ? phone : desk);
+/** 막대 수로 높이 — 막대 하나 22px(폰 20px) + 여백. 높이를 고정하면 막대가 적은 기관에서 굵은 막대가 된다. */
+function tfHeight(id, bars, extra = 34) {
+  const el = document.getElementById(id);
+  if (el && el.style) el.style.height = `${Math.max(140, bars * (TF_PHONE.matches ? 20 : 22) + extra)}px`;
+}
+/** 긴 영문 발행사 이름을 축 칸에 맞게 자른다(원문은 툴팁). */
+function tfName(text, max) {
+  const t = String(text || "");
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+const tfAxisName = () => (TF_PHONE.matches ? 13 : 24);
+const tfOursTag = (row) => (row.ours ? " · 보유" : "");
+
+function drawFilersChart(filers) {
+  const id = "tf-filers-chart";
+  if (!document.getElementById(id)) return;
+  const rows = [...filers].sort((a, b) => b.total_usd - a.total_usd).reverse();   // 가로 막대는 아래부터 그린다
+  tfHeight(id, rows.length);
+  const c = chart(id);
+  c.setOption({
+    ...BASE,
+    tooltip: { ...BASE.tooltip, trigger: "item",
+      formatter: (p) => { const f = rows[p.dataIndex]; return `${f.filer_name}<br>${usdB(f.total_usd)} · ${num(f.holdings)}종목<br>${f.report_date} 기준 · ${f.lag_days}일 뒤 공개`; } },
+    grid: { left: 8, right: 64, top: 6, bottom: 6, containLabel: true },
+    xAxis: { type: "value", ...AXIS, axisLabel: { show: false }, splitLine: { show: false } },
+    yAxis: { type: "category", data: rows.map((f) => tfName(f.filer_name, tfAxisName())), ...AXIS, axisTick: { show: false } },
+    series: [{
+      type: "bar", barMaxWidth: 14,
+      data: rows.map((f) => ({ value: f.total_usd / 1e9,
+        itemStyle: { color: f.filer_cik === SELECTED ? COLOR.accent : COLOR.muted } })),
+      label: { show: true, position: "right", color: COLOR.muted, fontFamily: "IBM Plex Mono", fontSize: 10,
+               formatter: (p) => `$${p.value.toFixed(1)}B` },
+    }],
+  }, true);
+  if (c.off) c.off("click");
+  c.on("click", (p) => {
+    const f = rows[p.dataIndex];
+    if (!f) return;
+    SELECTED = f.filer_cik;
+    loadFilers();
+    loadHoldings(SELECTED);
+  });
+}
+
+/** 선택 기관 상위 보유 — 왼쪽 비중, 오른쪽 직전 분기 대비 주식 수 변화(%). 종목 축 하나를 같이 쓴다. */
+function drawHoldingsChart(data) {
+  const id = "tf-holdings-chart";
+  if (!document.getElementById(id)) return;
+  const rows = tfTop(data.rows || [], 15, 10).slice().reverse();
+  tfHeight(id, rows.length, 40);
+  const names = rows.map((r) => tfName(r.issuer, TF_PHONE.matches ? 11 : 20) + tfOursTag(r));
+  const changeValue = (r) => (r.change === "신규" ? null : r.change_pct === null || r.change_pct === undefined ? null : r.change_pct * 100);
+  const cap = document.getElementById("tf-holdings-cap");
+  if (cap) {
+    cap.innerHTML = `<span class="tf-key"><i class="tf-sw" style="background:${COLOR.muted}"></i>비중(왼쪽)</span>
+      <span class="tf-key"><i class="tf-sw" style="background:${COLOR.dim}"></i>직전 분기(${data.previous_date || "없음"}) 대비 주식 수(오른쪽)</span>
+      <span class="tf-key"><i class="tf-sw" style="background:${COLOR.accent}"></i>신규 편입 · 우리 미장 보유와 겹침</span>
+      ${data.ours_known === false ? `<span>우리 보유: 모름(장부 없음)</span>` : ""}`;
+  }
+  const c = chart(id);
+  c.setOption({
+    ...BASE,
+    tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" },
+      formatter: (ps) => { const r = rows[ps[0].dataIndex]; return `${r.issuer}${r.ours ? " (우리 보유)" : ""}<br>비중 ${pct(r.weight, 1)} · ${usdB(r.value_usd)}<br>직전 분기 대비 ${r.change}${r.change_pct === null || r.change_pct === undefined ? "" : ` ${(r.change_pct * 100).toFixed(1)}%`}`; } },
+    grid: [
+      { left: TF_PHONE.matches ? 96 : 150, width: TF_PHONE.matches ? "30%" : "36%", top: 6, bottom: 22 },
+      { right: 34, width: TF_PHONE.matches ? "26%" : "30%", top: 6, bottom: 22 },
+    ],
+    xAxis: [
+      { gridIndex: 0, type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${v}%` }, splitNumber: 2 },
+      { gridIndex: 1, type: "value", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${v}%` }, splitNumber: 2 },
+    ],
+    yAxis: [
+      { gridIndex: 0, type: "category", data: names, ...AXIS, axisTick: { show: false },
+        axisLabel: { ...AXIS.axisLabel, color: COLOR.muted, fontFamily: "Pretendard Variable, IBM Plex Mono", fontSize: 10,
+          formatter: (v) => v, rich: {} } },
+      { gridIndex: 1, type: "category", data: names, ...AXIS, axisLabel: { show: false }, axisTick: { show: false } },
+    ],
+    series: [
+      { type: "bar", xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 12,
+        data: rows.map((r) => ({ value: r.weight * 100, itemStyle: { color: r.ours ? COLOR.accent : COLOR.muted } })) },
+      { type: "bar", xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 12,
+        data: rows.map((r) => (r.change === "신규"
+          ? { value: 0, itemStyle: { color: COLOR.accent }, label: { show: true, position: "right", formatter: "신규", color: COLOR.accent, fontSize: 10 } }
+          : { value: changeValue(r), itemStyle: { color: COLOR.dim } })),
+        markLine: { silent: true, symbol: "none", data: [{ xAxis: 0 }], lineStyle: { color: COLOR.border }, label: { show: false } } },
+    ],
+  }, true);
+}
+
+/** 겹쳐 든 종목 — 최신 분기 기관 수 vs 각 기관의 직전 분기 기관 수. 우리 미장 보유와 겹치면 강조색. */
+function drawConsensusChart(rows, meta) {
+  const id = "tf-consensus-chart";
+  if (!document.getElementById(id)) return;
+  const shown = tfTop(rows, 20, 10).slice().reverse();
+  tfHeight(id, shown.length, 40);
+  const cap = document.getElementById("tf-consensus-cap");
+  const ours = rows.filter((r) => r.ours).length;
+  if (cap) {
+    cap.innerHTML = `<span class="tf-key"><i class="tf-sw" style="background:${COLOR.muted}"></i>최신 분기 기관 수</span>
+      <span class="tf-key"><i class="tf-sw" style="background:${COLOR.faint || COLOR.border}"></i>각 기관의 직전 분기</span>
+      <span class="tf-key"><i class="tf-sw" style="background:${COLOR.accent}"></i>우리 미장 보유와 겹침</span>
+      <span>${meta.ours_known ? `겹침 ${ours}종목 / 우리 보유 ${meta.ours_count}종목` : "우리 보유: 모름(장부 없음)"}</span>`;
+  }
+  const c = chart(id);
+  c.setOption({
+    ...BASE,
+    tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" },
+      formatter: (ps) => { const r = shown[ps[0].dataIndex]; return `${r.issuer}${r.ticker ? ` (${r.ticker})` : ""}${r.ours ? " · 우리 보유" : ""}<br>기관 ${r.filers} · 직전 ${r.filers_prev === null || r.filers_prev === undefined ? "—" : r.filers_prev}<br>${r.names.join(", ")}`; } },
+    grid: { left: 8, right: 24, top: 6, bottom: 22, containLabel: true },
+    xAxis: { type: "value", minInterval: 1, ...AXIS },
+    yAxis: { type: "category", data: shown.map((r) => tfName(r.issuer, TF_PHONE.matches ? 13 : 22) + tfOursTag(r)), ...AXIS, axisTick: { show: false } },
+    series: [
+      { name: "직전 분기", type: "bar", barMaxWidth: 7, barGap: "10%",
+        data: shown.map((r) => ({ value: r.filers_prev, itemStyle: { color: COLOR.faint || COLOR.border } })) },
+      { name: "최신 분기", type: "bar", barMaxWidth: 7,
+        data: shown.map((r) => ({ value: r.filers, itemStyle: { color: r.ours ? COLOR.accent : COLOR.muted } })) },
+    ],
+  }, true);
+}
+
 /** 가장 최근 분기말(YYYY-MM-DD). 기관마다 신고가 달라 첫 줄이 최신이라는 보장이 없다. */
 function latestReport(filers) {
   return filers.map((f) => f.report_date).filter(Boolean).sort().slice(-1)[0] || "—";
@@ -53,6 +179,7 @@ async function loadFilers() {
     return;
   }
 
+  drawFilersChart(filers);
   const worst = Math.max(...filers.map((f) => f.lag_days));
   document.getElementById("kpis").innerHTML = [
     kpi("따라보는 기관", num(filers.length), "SEC 13F-HR 신고 기준"),
@@ -109,6 +236,7 @@ async function loadHoldings(cik) {
      ${data.lag_days}일 뒤 공개 · ${num(data.holdings)}종목 ·
      원본 ${num(data.folded_total)}줄</span>`;
 
+  drawHoldingsChart(data);
   const closed = data.closed && data.closed.length
     ? `<p class="note">직전 분기(${data.previous_date}) 대비 <strong>청산</strong>:
        ${data.closed.map((c) => `${c.issuer} (${usdB(c.value_usd)})`).join(" · ")}</p>`
@@ -124,7 +252,7 @@ async function loadHoldings(cik) {
     </tr></thead>
     <tbody>${data.rows.map((r) => `
       <tr>
-        <td>${r.issuer}<br><span class="sub">${r.entity_id}</span></td>
+        <td>${r.issuer}${r.ours ? `<span class="tf-ours">보유</span>` : ""}<br><span class="sub">${r.ticker || r.entity_id}</span></td>
         <td class="num">${pct(r.weight, 1)}</td>
         <td class="num">${usdB(r.value_usd)}</td>
         <td class="num">${num(Math.round(r.shares))}</td>
@@ -137,8 +265,10 @@ async function loadHoldings(cik) {
 }
 
 async function loadConsensus() {
-  const { rows } = (await fetchJson("thirteen-f/consensus")).data;
+  const data = (await fetchJson("thirteen-f/consensus")).data;
+  const rows = data.rows;
   const target = document.getElementById("consensus");
+  if (rows.length) drawConsensusChart(rows, data);
   if (!rows.length) {
     target.innerHTML = `<div class="empty">둘 이상이 겹쳐 든 종목이 없다 —
       기관이 하나뿐이면 겹칠 수가 없다.</div>`;
@@ -147,13 +277,14 @@ async function loadConsensus() {
   target.innerHTML = `
   <div class="scroll"><table class="dense">
     <thead><tr>
-      <th>종목</th><th class="num">기관 수</th><th class="num">합산 평가액</th>
+      <th>종목</th><th class="num">기관 수</th><th class="num">직전</th><th class="num">합산 평가액</th>
       <th class="num">최대 비중</th><th>기관</th><th>기준일</th>
     </tr></thead>
     <tbody>${rows.map((r) => `
       <tr>
-        <td>${r.issuer}<br><span class="sub">${r.entity_id}</span></td>
+        <td>${r.issuer}${r.ours ? `<span class="tf-ours">보유</span>` : ""}<br><span class="sub">${r.ticker || r.entity_id}</span></td>
         <td class="num">${r.filers}</td>
+        <td class="num ${r.filers_prev === null || r.filers_prev === undefined ? "dim" : ""}">${r.filers_prev === null || r.filers_prev === undefined ? "—" : r.filers_prev}</td>
         <td class="num">${usdB(r.total_usd)}</td>
         <td class="num">${pct(r.max_weight, 1)}</td>
         <td class="sub">${r.names.join(" · ")}</td>

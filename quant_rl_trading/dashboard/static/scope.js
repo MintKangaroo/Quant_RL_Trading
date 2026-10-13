@@ -21,7 +21,7 @@ const COLOR = {
   text: token("--text"), muted: token("--muted"), dim: token("--dim"), border: token("--border"),
   panel: token("--panel"), panel2: token("--panel2"),
   warn: token("--warn"), up: token("--up"), down: token("--down"),
-  bench: token("--bench"), accent: token("--accent"),
+  bench: token("--bench"), accent: token("--accent"), faint: token("--faint"),
   ok: token("--ok"), bad: token("--bad"),
   // 범주 팔레트 — 종목·시리즈 **구분**용, 손익 의미 없음 (:root --s1~--s6).
   // learning IC 차트와 포지션 도넛이 같은 순서로 쓴다. 하드코딩하면 화면마다 갈린다.
@@ -139,6 +139,31 @@ const num = (v) => (v === null || v === undefined ? "—" : Number(v).toLocaleSt
 const ms = (v) => (v === null || v === undefined ? "—" : Number(v).toFixed(0) + " ms");
 const dec = (v, digits = 4) => (v === null || v === undefined ? "—" : Number(v).toFixed(digits));
 
+/* 시각은 **한국 시간(Asia/Seoul)** 으로 찍는다 — 보는 기기의 시간대를 따르지 않는다(dashboard.md 2026-10-13 밤 ②).
+ * 해외에서 폰으로 열거나 UTC 로 맞춘 기기에서 열면 '발표 21:30' 이 '12:30' 으로 보였다. 모양은 'YYYY-MM-DD HH:mm'
+ * 한 가지, `withLabel` 이면 끝에 ' KST'. 표에서는 머리글에 KST 를 한 번 적고 칸은 시각만 둔다. */
+const KST_PARTS = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
+function kstParts(iso) {
+  const at = iso instanceof Date ? iso : new Date(iso);
+  if (iso === null || iso === undefined || iso === "" || Number.isNaN(at.valueOf())) return null;
+  const out = {};
+  for (const part of KST_PARTS.formatToParts(at)) out[part.type] = part.value;
+  return out;
+}
+function kstStamp(iso, withLabel = false) {
+  const p = kstParts(iso);
+  if (!p) return "—";
+  return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}${withLabel ? " KST" : ""}`;
+}
+/** 한국 날짜 'YYYY-MM-DD' — as_of 의 '오늘' 을 기기 날짜가 아니라 서울 날짜로. */
+function kstDate(iso) {
+  const p = kstParts(iso);
+  return p ? `${p.year}-${p.month}-${p.day}` : null;
+}
+
 /* 스파크라인. 축도 눈금도 없는 **모양**이다 — 정확한 값은 바로 옆에 있다.
  *
  * 점이 둘 미만이면 아무것도 그리지 않는다. 한 점을 선으로 그리면 평평한
@@ -198,18 +223,14 @@ function showScope(body) {
     label.hidden = false;
     label.classList.remove("rewound");
     label.classList.add("live-tick");
-    const at = new Date(body.as_of);
-    const hh = String(at.getHours()).padStart(2, "0");
-    const mm = String(at.getMinutes()).padStart(2, "0");
-    const ss = String(at.getSeconds()).padStart(2, "0");
-    label.textContent = params().has("as_of") ? "" : `갱신 ${hh}:${mm}:${ss} · 자동 ${AUTO_REFRESH_MS / 1000}초`;
+    const p = kstParts(body.as_of) || { hour: "--", minute: "--", second: "--" };
+    label.textContent = params().has("as_of") ? "" : `갱신 ${p.hour}:${p.minute}:${p.second} KST · 자동 ${AUTO_REFRESH_MS / 1000}초`;
     return;
   }
   label.hidden = false;
   label.classList.remove("live-tick");
   label.classList.add("rewound");
-  const stamp = String(body.as_of).replace("T", " ").slice(0, 16);
-  label.textContent = `${stamp} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
+  label.textContent = `${kstStamp(body.as_of, true)} 시점을 보고 있다 · 창 ${body.lookback_days}일`;
 }
 
 /** 데이터 기준일 띠. **날짜 없는 숫자는 없다** — 어느 세션 값인지, 늦었으면 며칠인지. */

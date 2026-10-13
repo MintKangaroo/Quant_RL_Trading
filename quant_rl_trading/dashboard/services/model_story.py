@@ -562,10 +562,108 @@ def live_models(store: Store, *, as_of: datetime, lookback: int = 90,
     }
 
 
+#: 병행 트랙 패널에 **넣지 않는** 장부 — C1·AR shadow. 11/23 판정 기준을 고정하기 전에 10월 성적이 화면에 보이면
+#: 기준이 결과에 맞춰질 수 있다(사용자 10/13). SHADOW_TRACKS 에 실수로 들어와도 여기서 막는다(테스트가 지킨다).
+HIDDEN_TRACK_LEDGERS = frozenset({"_c1_shadow", "_ar_shadow", "_ar_us_shadow"})
+
+
+def _track_ledgers(track: dict[str, str]) -> list[str]:
+    """트랙의 장부 디렉터리 이름들 — "data/_k200hmm_shadow · data/_k200v6_shadow" 처럼 둘일 수 있다."""
+    return [Path(part.strip()).name for part in str(track["ledger"]).split("·") if part.strip()]
+
+
+def _hidden(track: dict[str, str]) -> bool:
+    names = set(_track_ledgers(track))
+    if track.get("compare_ledger"):
+        names.add(Path(track["compare_ledger"]).name)
+    return bool(names & HIDDEN_TRACK_LEDGERS)
+
+
+def _cumulative(series: pd.Series) -> list[list[Any]]:
+    """TWR 지수 → (세션, 첫 세션 대비 누적 수익). 회계가 적은 index_value 의 비율일 뿐 — NAV 를 다시 계산하지 않는다."""
+    if series.empty or not series.iloc[0]:
+        return []
+    base = float(series.iloc[0])
+    return [[d.isoformat(), float(v) / base - 1.0] for d, v in series.items()]
+
+
+def track_performance(root: Path, tracks: list[dict[str, Any]], alpha: dict[str, Any] | None,
+                      as_of: datetime) -> None:
+    """트랙마다 장부별 **지금 성과**를 ``perf`` 로 붙인다(dashboard.md 2026-10-13 밤 ⑥). 계산은 하지 않고 옮긴다.
+
+    - 누적·곡선·비교 장부 대비: ``nav_daily.index_value`` 끼리(``_book_index``) — 같은 창(트랙 첫 세션부터).
+    - KODEX200 대비 초과·IR(전체 창)·순차 검정: ``alpha_ir.alpha_ir`` 결과(트레이딩 탭 표와 같은 숫자, 같은 캐시).
+    - 국장 장부가 아니면 KODEX200 칸은 ``alpha_ir`` 의 사유(해당 없음)를 그대로.
+    """
+    from quant_rl_trading.dashboard.services import alpha_ir as alpha_ir_module
+
+    books = {str(b["ledger"]): b for b in alpha_ir_module.BOOKS}
+    alpha_rows = {str(r["key"]): r for r in (alpha or {}).get("books", [])}
+    seq = (alpha or {}).get("sequential") or {}
+    seq_pairs = {str(p["label"]): p for p in seq.get("pairs", [])}
+    min_sessions = (alpha or {}).get("min_sessions")
+    for track in tracks:
+        compare_root = Path(track["compare_ledger"]).name if track.get("compare_ledger") else None
+        perf: list[dict[str, Any]] = []
+        for name in _track_ledgers(track):
+            book = _book_index(root / name, as_of)
+            meta = books.get(name)
+            label = meta["name"] if meta else name
+            if book.empty:
+                perf.append({"ledger": f"data/{name}", "name": label, "status": "no_book",
+                             "reason": "장부 아직 없음 — 첫 NAV 가 생기면 줄이 찬다"})
+                continue
+            since = book.index[0]
+            curve = _cumulative(book)
+            entry: dict[str, Any] = {
+                "ledger": f"data/{name}", "name": label, "status": "ok", "since": since.isoformat(),
+                "sessions": int(len(book)), "total": curve[-1][1] if len(curve) >= 2 else None,
+                "curve": curve, "compare": None, "kodex": None, "ir": None, "sequential": None,
+            }
+            # 비교 대상 — compare_ledger 가 있으면 그 장부(같은 창), 없으면 KODEX200(아래 kodex 와 같은 값).
+            if compare_root:
+                other = _book_index(root / compare_root, as_of)
+                other = other[other.index >= since]
+                ocurve = _cumulative(other)
+                ototal = ocurve[-1][1] if len(ocurve) >= 2 else None
+                entry["compare"] = {"name": track.get("compare_name") or compare_root, "total": ototal,
+                                    "excess": (entry["total"] - ototal)
+                                    if entry["total"] is not None and ototal is not None else None,
+                                    "curve": ocurve}
+            row = alpha_rows.get(str(meta["key"])) if meta else None
+            if row is None:
+                entry["kodex"] = {"status": "unknown", "reason": "지수 대비 IR 표에 없는 장부"}
+            elif row.get("status") != "ok":
+                entry["kodex"] = {"status": row.get("status"), "reason": row.get("reason")}
+            else:
+                win = (row.get("windows") or {}).get("all") or {}
+                entry["kodex"] = {"status": "ok", "excess": win.get("excess"), "etf_total": win.get("etf_total"),
+                                  "since": row.get("since")}
+                entry["ir"] = {"value": win.get("ir"), "sufficient": bool(win.get("sufficient")),
+                               "sessions": win.get("sessions"), "need": win.get("need") or min_sessions}
+                if not compare_root:
+                    # KODEX200 누적 = 장부 누적 − 누적 초과(alpha_ir 곡선의 정의 그대로) — 새 계산이 아니라 같은 값의 다른 꼴.
+                    ours = dict((d, v) for d, v in curve)
+                    kcurve = [[d, ours[d] - x] for d, x in (row.get("curve") or []) if d in ours]
+                    entry["compare"] = {"name": alpha.get("benchmark") if alpha else "KODEX200",
+                                        "total": win.get("etf_total"), "excess": win.get("excess"),
+                                        "curve": kcurve, "is_benchmark": True}
+            if meta:
+                for treat, ctrl, pair_label in alpha_ir_module.PAIRS:
+                    if meta["key"] in (treat, ctrl) and pair_label in seq_pairs:
+                        entry["sequential"] = {**seq_pairs[pair_label], "role": "처리" if meta["key"] == treat else "대조"}
+                        break
+            perf.append(entry)
+        track["perf"] = perf
+
+
 def _tracks(root: Path, as_of: datetime, day: date) -> list[dict[str, Any]]:
-    """as_of 에 돌던 병행 장부. 시작일이 "auto" 인 장부는 첫 NAV 가 있어야 나가고, 수익 비교를 같이 싣는다."""
+    """as_of 에 돌던 병행 장부. 시작일이 "auto" 인 장부는 첫 NAV 가 있어야 나가고, 수익 비교를 같이 싣는다.
+    C1·AR shadow(``HIDDEN_TRACK_LEDGERS``)는 넣지 않는다."""
     out: list[dict[str, Any]] = []
     for track in SHADOW_TRACKS:
+        if _hidden(track):
+            continue
         if track["started"] == "auto":
             returns = track_returns(root, track, as_of)
             if returns is None:
@@ -733,10 +831,12 @@ def trial_history(store: Store, *, as_of: datetime, catalog_path: Path = CATALOG
 
 __all__ = [
     "CATALOG_PATH",
+    "HIDDEN_TRACK_LEDGERS",
     "PIPELINE_STAGES",
     "PIPELINE_STEPS",
     "SHADOW_TRACKS",
     "live_models",
     "load_catalog",
+    "track_performance",
     "trial_history",
 ]

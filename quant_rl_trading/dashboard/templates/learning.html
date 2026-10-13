@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}모델 검증 · Quant_RL_Trading{% endblock %}
 {% block styles %}
-<link rel="stylesheet" href="{{ url_for('static', filename='control.css', v='20261013') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='control.css', v='20261013b') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'learning' %}{% include "_scope.html" %}{% endwith %}
@@ -151,5 +151,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='learning.js', v='20261013') }}"></script>
+<script src="{{ url_for('static', filename='learning.js', v='20261013b') }}"></script>
 {% endblock %}

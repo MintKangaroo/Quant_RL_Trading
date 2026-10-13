@@ -1,0 +1,7 @@
+/* 기관 보유(13F) 탭 그림 셋 — 시트 테마 그대로(dashboard.md 2026-10-13 밤 ③). 높이는 막대 수로 JS 가 정한다
+   (`tfHeight`) — 여기 값은 그리기 전 자리만 잡는다. 폰 폭에서도 가로 스크롤이 없게 width 100%. */
+.tf-chart { width: 100%; min-height: 160px; height: 200px; }
+.tf-chart-cap { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10.5px; color: var(--dim); margin: 2px 0 6px; }
+.tf-chart-cap .tf-key { display: inline-flex; align-items: center; gap: 4px; }
+.tf-chart-cap .tf-sw { display: inline-block; width: 10px; height: 8px; border-radius: 1px; }
+.tf-ours { color: var(--accent); font-weight: 600; font-size: 10.5px; margin-left: 4px; }

@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block title %}13F · Quant_RL_Trading{% endblock %}
 
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='thirteen_f.css', v='20261013') }}">
+{% endblock %}
+
 {% block body %}
 {% with active = 'thirteen-f' %}{% include "_scope.html" %}{% endwith %}
 
@@ -28,12 +32,15 @@
   <section class="kpis" id="kpis"></section>
 
   <section class="panel">
-    <h2>기관 <span class="sub">최신 신고 기준 · 규모 순</span></h2>
+    <h2>기관 <span class="sub">최신 신고 기준 · 규모 순 — 막대를 누르면 그 기관 보유</span></h2>
+    <div id="tf-filers-chart" class="tf-chart" role="img" aria-label="기관별 신고 규모"></div>
     <div id="filers" class="mcard"></div>
   </section>
 
   <section class="panel">
     <h2 id="holdings-title">보유 종목</h2>
+    <div class="tf-chart-cap" id="tf-holdings-cap"></div>
+    <div id="tf-holdings-chart" class="tf-chart" role="img" aria-label="선택 기관 보유 상위 — 비중과 직전 분기 대비 주식 수 변화"></div>
     <div id="holdings" class="mcard"></div>
     <p class="note">
       13F 는 <strong>자회사 운용역별로 줄을 나눠</strong> 낸다 — 버크셔
@@ -44,7 +51,9 @@
   </section>
 
   <section class="panel">
-    <h2>여러 기관이 겹쳐 든 종목 <span class="sub">각 기관의 최신 분기끼리</span></h2>
+    <h2>여러 기관이 겹쳐 든 종목 <span class="sub">각 기관의 최신 분기끼리 · 기관 수 변화 · 우리 미장 보유와 겹침</span></h2>
+    <div class="tf-chart-cap" id="tf-consensus-cap"></div>
+    <div id="tf-consensus-chart" class="tf-chart" role="img" aria-label="종목별 보유 기관 수 — 최신 분기와 직전 분기"></div>
     <div id="consensus" class="mcard"></div>
     <p class="note">
       분기가 다른 신고를 섞으면 "세 기관이 들고 있다" 가 서로 다른 시점의
@@ -57,5 +66,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='thirteen_f.js') }}"></script>
+<script src="{{ url_for('static', filename='thirteen_f.js', v='20261013') }}"></script>
 {% endblock %}

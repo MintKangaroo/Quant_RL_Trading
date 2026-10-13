@@ -1,5 +1,8 @@
 """중요 시황 탭 집계 — **지금 시장에서 우리와 관련해 무슨 일이 벌어졌나.**
 
+2026-10-13 밤: 이 탭은 이제 일정·중요 공시만 그린다. 같은 모듈의 ``verdicts`` 는 매매 과정 탭
+(``/api/pipeline/blocks``), ``system_events`` 는 시스템 탭(``/api/system/events``)이 부른다 — 집계는 한 곳에 둔다.
+
 뉴스·일정 탭(`briefing.py`)이 "세상에서 무슨 일이 있었나" 를 넓게 훑는다면,
 이 화면은 **판정으로 이어진 것**만 좁혀 본다: News Analyst 가 실제로 매수를
 막은 건(verdicts), 그럴 만한 공시(documents 중 중요도 높은 것), 그리고
@@ -215,10 +218,27 @@ def _payload(raw: Any) -> dict[str, Any]:
 
 
 def payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """중요 시황 탭 — 공시만. 매수 차단은 매매 과정 탭(``blocks_payload``), 파이프라인 이벤트는 시스템 탭
+    (``events_payload``)으로 옮겼다(사용자 2026-10-13 밤 "그 탭과 상관없다"). 안 보는 탭의 데이터를 부르지 않는다."""
+    return {"documents": important_documents(store, as_of=as_of, lookback=lookback)}
+
+
+def blocks_payload(
+    store: Store, *, as_of: datetime, lookback: int, market: str | None = None
+) -> dict[str, Any]:
+    """매매 과정 탭 ③ 거르기 — 뉴스 매수 금지. 흐름도 ``verdicts`` 노드가 하는 일의 명단이다.
+
+    ``market`` 을 주면 그 시장 종목(``KR:``/``US:``)만 — 흐름도가 보는 시장과 같은 명단이어야 한다."""
     verdict_rows = verdicts(store, as_of=as_of, lookback=lookback)
+    if market:
+        prefix = f"{market.upper()}:"
+        verdict_rows = [row for row in verdict_rows if row["entity_id"].startswith(prefix)]
     return {
         "verdicts": verdict_rows,
         "active_verdicts": sum(1 for row in verdict_rows if row["active"]),
-        "documents": important_documents(store, as_of=as_of, lookback=lookback),
-        "events": system_events(store, as_of=as_of, lookback=lookback),
     }
+
+
+def events_payload(store: Store, *, as_of: datetime, lookback: int) -> dict[str, Any]:
+    """시스템 탭 — 관측→체결 판단 로그. 배관이 도는지의 증거라 운영 갈래다."""
+    return {"events": system_events(store, as_of=as_of, lookback=lookback)}

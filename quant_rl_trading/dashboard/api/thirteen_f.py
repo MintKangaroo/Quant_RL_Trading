@@ -10,8 +10,9 @@ from typing import Any
 
 from flask import Blueprint, request
 
-from quant_rl_trading.dashboard.api.common import envelope, scope, store
+from quant_rl_trading.dashboard.api.common import envelope, scope, shadow_store, store
 from quant_rl_trading.dashboard.services import thirteen_f as service
+from quant_rl_trading.store import Store
 
 bp = Blueprint("thirteen_f_api", __name__, url_prefix="/api/thirteen-f")
 
@@ -35,10 +36,22 @@ def holdings() -> Any:
         cik = rows[0]["filer_cik"]
     payload = service.holdings(store(), as_of=current.as_of, filer_cik=cik)
     payload["filer_cik"] = cik
+    if payload.get("rows"):
+        ours = service.our_us_holdings(_our_ledger(), as_of=current.as_of)
+        payload.update(service.mark_ours(payload["rows"], store(), as_of=current.as_of, ours=ours))
     return envelope(current, payload)
+
+
+def _our_ledger() -> Store:
+    """미장 슬리브가 사는 장부 — shadow(data/_shadow). 없으면 주 장부(테스트·단일 장부 실행)."""
+    return shadow_store() or store()
 
 
 @bp.get("/consensus")
 def consensus() -> Any:
+    """겹쳐 든 종목 + 기관 수 변화(``filers_prev``) + 우리 미장 보유와의 겹침(``ours``)."""
     current = scope()
-    return envelope(current, {"rows": service.consensus(store(), as_of=current.as_of)})
+    rows = service.consensus(store(), as_of=current.as_of)
+    ours = service.our_us_holdings(_our_ledger(), as_of=current.as_of)
+    meta = service.mark_ours(rows, store(), as_of=current.as_of, ours=ours)
+    return envelope(current, {"rows": rows, **meta})

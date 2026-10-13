@@ -43,10 +43,9 @@ function money(value, currency) {
   return `${num(Math.round(value / 1e8))}억${unit}`;
 }
 
+/* 발표 시각 — 한국 시간 고정(scope.js kstStamp). 기기 시간대·ko-KR 짧은 꼴을 쓰지 않는다. 머리글이 'KST' 를 든다. */
 function stamp(iso) {
-  const at = new Date(iso);
-  if (Number.isNaN(at.valueOf())) return "—";
-  return at.toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+  return kstStamp(iso);
 }
 
 /* 지수 entity_id 에서 사람이 읽는 이름만 뗀다. "KR:IDX:KRX TMI" → "KRX TMI". */
@@ -767,7 +766,7 @@ function renderMacro(body, code, suffix) {
       tools/collect_macro.py 를 확인할 것.</p>`;
     return;
   }
-  const head = `<thead><tr><th>지표</th><th class="num">발표</th>
+  const head = `<thead><tr><th>지표</th><th class="num">발표 KST</th>
     <th class="num">실측</th><th class="num">직전</th></tr></thead>`;
   // 색을 쓰지 않는다 — 전월대비 변화는 손익이 아니고, 부호에 좋고 나쁨을
   // 입힐 수 없다(dashboard.md §8-2). 방향은 부호로만 보여준다.

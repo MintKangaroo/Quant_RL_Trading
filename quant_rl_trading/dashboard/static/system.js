@@ -254,6 +254,27 @@ async function renderProcesses() {
 }
 
 
+/* 파이프라인 이벤트 — 관측→Signal→Selector→Allocator→주문→체결 판단 로그(창고 events). 중요 시황 탭에서 옮겼다
+ * (2026-10-13 밤) — 배관이 도는지의 증거라 운영 갈래다. 창고 사실이라 as_of 로 되감긴다. 시각은 한국 시간. */
+async function renderEvents() {
+  const target = document.getElementById("events");
+  if (!target) return;
+  const { data } = await fetchJson("system/events");
+  const rows = data.events || [];
+  const count = document.getElementById("events-count");
+  if (count) count.textContent = `${rows.length}건`;
+  if (!rows.length) {
+    target.innerHTML = `<p class="empty">창 안에 파이프라인 이벤트가 없다 — 세션이 events 를 남기면 관측→체결 판단이 여기 쌓인다.</p>`;
+    return;
+  }
+  target.innerHTML = `<table class="stamp-first dense"><thead><tr><th>시각 KST</th><th>실행</th><th class="mid">단계</th>
+    <th>주체</th></tr></thead><tbody>${rows.map((row) => `<tr>
+      <td class="num">${kstStamp(row.ts_sim)}</td>
+      <td class="code">${esc(row.run_id)}</td>
+      <td class="mid"><span class="tag dim">${esc(row.stage)}</span></td>
+      <td>${esc(row.actor)}</td></tr>`).join("")}</tbody></table>`;
+}
+
 function renderClock() {
   document.getElementById("sys-updated").textContent =
     "갱신 " + new Date().toLocaleTimeString("ko-KR");
@@ -261,6 +282,6 @@ function renderClock() {
 
 runAll([
   renderSummary, renderResources, renderProcesses, renderJobs, renderTables,
-  renderLatency, renderSafety, renderCache, renderLlmUsage, renderClock,
+  renderLatency, renderSafety, renderCache, renderLlmUsage, renderEvents, renderClock,
 ]);
 setInterval(() => { renderResources(); renderProcesses(); renderClock(); }, 8000);

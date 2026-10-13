@@ -34,6 +34,7 @@ from typing import Any
 import pandas as pd
 
 from quant_rl_trading.accounting import ledger as ledger_module
+from quant_rl_trading.accounting import nav as nav_module
 from quant_rl_trading.accounting import performance as performance_module
 from quant_rl_trading.accounting import snapshot as snapshot_module
 from quant_rl_trading.accounting.rates import Rates
@@ -1567,12 +1568,17 @@ def returns_calendar(
         for row in ordered.to_dict(orient="records"):
             nav_usd = float(row["equity_us"]) + float(row["cash_usd"])
             session = pd.Timestamp(row["valid_from"]).date().isoformat()
+            inflow_usd = usd_flow.get(session, 0.0)
             if previous is None or previous <= 0:
                 ret = 0.0
+                pnl = None
             else:
-                ret = (nav_usd - usd_flow.get(session, 0.0)) / previous - 1.0
+                ret = (nav_usd - inflow_usd) / previous - 1.0
+                # 수익금 정의는 회계 한 곳(``accounting.nav.daily_pnl``) — 입금을 뺀 그날 번 달러.
+                pnl = nav_module.daily_pnl(nav=nav_usd, previous_nav=previous, inflow=inflow_usd)
             if nav_usd > 0:
-                days.append({"session": session, "return": ret, "nav": nav_usd})
+                days.append({"session": session, "return": ret, "nav": nav_usd, "pnl": pnl,
+                             "inflow": inflow_usd, "currency": "USD"})
                 previous = nav_usd
         # 같은 세션의 스냅샷이 둘(05:20·16:00)이면 마지막 것만 — 앞 것은 국장 마감 전 중간값이다.
         collapsed: dict[str, dict[str, Any]] = {}
@@ -1580,18 +1586,29 @@ def returns_calendar(
             if day["session"] in collapsed:
                 collapsed[day["session"]]["return"] = (1.0 + collapsed[day["session"]]["return"]) * (1.0 + day["return"]) - 1.0
                 collapsed[day["session"]]["nav"] = day["nav"]
+                merged = collapsed[day["session"]]
+                if merged["pnl"] is not None and day["pnl"] is not None:
+                    merged["pnl"] = merged["pnl"] + day["pnl"]
+                elif day["pnl"] is not None:
+                    merged["pnl"] = day["pnl"]
+                merged["inflow"] = merged["inflow"] + day["inflow"]
             else:
                 collapsed[day["session"]] = dict(day)
         days = list(collapsed.values())
     else:
-        days = [
-            {
+        days = []
+        for row in ordered.to_dict(orient="records"):
+            inflow = float(row.get("inflow") or 0.0) if pd.notna(row.get("inflow")) else 0.0
+            twr = None if pd.isna(row["twr_return"]) else float(row["twr_return"])
+            days.append({
                 "session": pd.Timestamp(row["valid_from"]).date().isoformat(),
                 "return": float(row["twr_return"]),
                 "nav": float(row["nav"]),
-            }
-            for row in ordered.to_dict(orient="records")
-        ]
+                # 그날 수익금(원화환산) — 회계가 적은 행 하나에서(``accounting.nav.pnl_from_twr``). 화면은 계산하지 않는다.
+                "pnl": nav_module.pnl_from_twr(nav=float(row["nav"]), inflow=inflow, twr=twr),
+                "inflow": inflow,
+                "currency": "KRW",
+            })
     # 월별 누적은 일별 수익률의 곱이다. 합이 아니다 — 합으로 재면 변동이 큰
     # 달에서 실제와 벌어진다.
     months: dict[str, float] = {}

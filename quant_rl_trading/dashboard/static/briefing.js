@@ -40,12 +40,9 @@ const MARKET_NAME = { KR: "한국", US: "미국" };
 const market = (code) => MARKET_NAME[code] || code;
 
 function stamp(iso) {
-  const at = new Date(iso);
-  if (Number.isNaN(at.valueOf())) return "—";
-  // 다른 탭과 같은 'YYYY-MM-DD HH:mm'(보는 기기 시각). ko-KR 짧은 꼴('26. 9. 28. 오후 9:30')은
-  // 칸 안에서 세 줄로 쪼개졌고, 탭마다 날짜 모양이 달랐다(2026-09-29 점검).
-  const p2 = (n) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${p2(at.getMonth() + 1)}-${p2(at.getDate())} ${p2(at.getHours())}:${p2(at.getMinutes())}`;
+  // 'YYYY-MM-DD HH:mm' 한국 시간 고정(scope.js kstStamp, 2026-10-13 밤) — 예전엔 보는 기기 시각이었다.
+  // 머리글이 'KST' 를 든다.
+  return kstStamp(iso);
 }
 
 /** 실측값과 직전값의 변화.
@@ -69,8 +66,8 @@ function releaseRows(items, { withActual }) {
     return `<p class="empty">${withActual ? "발표된 지표가 없다." : "예정된 발표가 없다."}</p>`;
   }
   const head = withActual
-    ? "<thead><tr><th>지표</th><th>발표</th><th class='num'>실측</th><th class='num'>직전</th><th class='num'>변화</th></tr></thead>"
-    : "<thead><tr><th>지표</th><th>예정</th><th>남은 시간</th></tr></thead>";
+    ? "<thead><tr><th>지표</th><th>발표 KST</th><th class='num'>실측</th><th class='num'>직전</th><th class='num'>변화</th></tr></thead>"
+    : "<thead><tr><th>지표</th><th>예정 KST</th><th>남은 시간</th></tr></thead>";
 
   const now = Date.now();
   const body = items.map((item) => {
@@ -122,7 +119,7 @@ function newsRows(items) {
   // 머리글도 값과 같은 정렬이어야 한다. 값은 오른쪽인데 머리글만 왼쪽이면
   // 넓은 열에서 둘이 멀찍이 떨어져 서로 다른 열처럼 보인다.
   // thead 로 감싸야 스크롤 중에도 머리글이 붙어 있는다 (app.css .scroll).
-  return `<table class="news"><thead><tr><th class="num">발행</th><th>제목</th></tr></thead>`
+  return `<table class="news"><thead><tr><th class="num">발행 KST</th><th>제목</th></tr></thead>`
     + `<tbody>${rows}</tbody></table>`;
 }
 
@@ -176,7 +173,7 @@ async function render() {
   document.getElementById("next").innerHTML = d.next
     ? `<div class="kpis">${[
         kpi("지표", esc(d.next.indicator), esc(d.next.release_name)),
-        kpi("발표 시각", stamp(d.next.scheduled_at), esc(market(d.next.market))),
+        kpi("발표 시각", kstStamp(d.next.scheduled_at, true), esc(market(d.next.market))),
         kpi("남은 시간", countdown(d.next.in_seconds), "as_of 기준", d.next.in_seconds < 3600),
       ].join("")}</div>`
     : `<p class="empty">예정된 발표가 없다.</p>`;

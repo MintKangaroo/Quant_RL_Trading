@@ -848,10 +848,81 @@ function lsRanker(r, base) {
 
 function lsTracks(tracks, base) {
   if (!tracks.length) return `<p class="empty">이 시점에 돌던 병행 장부가 없다.</p>`;
-  return `<ul class="ls-tracks">${tracks.map((t) => `<li>
+  return `<ul class="ls-tracks">${tracks.map((t, i) => `<li>
       <div class="ls-track-head"><strong>${frEsc(t.name)}</strong><span class="ls-when">${frEsc(t.started)}~</span></div>
-      <p>${frEsc(t.compares)}</p>${lsTrackReturns(t.returns)}
+      <p>${frEsc(t.compares)}</p>${t.perf ? lsTrackPerf(t, i) : lsTrackReturns(t.returns)}
       <p class="ls-hint"><span class="mono">${frEsc(t.ledger)}</span> ${lsDocLink(base, t.doc)}</p></li>`).join("")}</ul>`;
+}
+
+/* 트랙마다 지금 성과 — 장부 한 줄씩(dashboard.md 2026-10-13 밤 ⑥). **숫자는 서버가 준 그대로** 옮긴다:
+ * 누적·비교 장부 대비는 회계가 적은 TWR 지수끼리(model_story.track_returns 와 같은 창), KODEX200 대비·IR·순차 검정은
+ * 트레이딩 탭 '지수 대비 IR' 표와 같은 계산(alpha_ir). 표본이 모자란 IR 은 숫자 대신 n/N. 곡선은 ECharts 작은 선. */
+const lsPctS = (v) => (v === null || v === undefined ? "—" : `${v > 0 ? "▲" : v < 0 ? "▼" : ""}${Math.abs(v * 100).toFixed(2)}%`);
+const lsTone = (v) => (v > 0 ? "up" : v < 0 ? "down" : "");
+let lsSparkQueue = [];
+
+function lsTrackPerf(t, i) {
+  const rows = (t.perf || []).map((p, j) => {
+    if (p.status !== "ok") {
+      return `<tr><td class="ls-pf-name">${frEsc(p.name)}</td><td colspan="8" class="dim">${frEsc(p.reason || "모름")}</td></tr>`;
+    }
+    const cmp = p.compare;
+    const cmpCell = cmp
+      ? `<td class="num ${lsTone(cmp.excess)}" title="${frEsc(cmp.name)} ${lsPctS(cmp.total)}">${lsPctS(cmp.excess)}<span class="ls-pf-vs">vs ${frEsc(cmp.name)}</span></td>`
+      : `<td class="num dim">—</td>`;
+    const k = p.kodex || {};
+    const kCell = k.status === "ok"
+      ? `<td class="num ${lsTone(k.excess)}" title="KODEX200 총수익 ${lsPctS(k.etf_total)} · ${frEsc(k.since || "")}부터">${lsPctS(k.excess)}</td>`
+      : `<td class="num dim" title="${frEsc(k.reason || "")}">${k.status === "not_applicable" ? "해당 없음" : "모름"}</td>`;
+    const ir = p.ir;
+    const irCell = !ir
+      ? `<td class="num dim">—</td>`
+      : ir.sufficient && ir.value !== null && ir.value !== undefined
+        ? `<td class="num ${lsTone(ir.value)}">${ir.value > 0 ? "▲" : ir.value < 0 ? "▼" : ""}${Math.abs(ir.value).toFixed(2)}</td>`
+        : `<td class="num dim" title="표본 부족 — 세션 ${ir.sessions} < ${ir.need}">${ir.sessions ?? 0}/${ir.need ?? "—"}</td>`;
+    const sq = p.sequential;
+    const seqCell = sq
+      ? `<td class="ls-pf-seq" title="${frEsc(sq.label)} · ${frEsc(sq.role)} · 연환산 ${sq.annual === null || sq.annual === undefined ? "—" : lsPctS(sq.annual)} [${sq.lower === null || sq.lower === undefined ? "—" : lsPctS(sq.lower)}, ${sq.upper === null || sq.upper === undefined ? "—" : lsPctS(sq.upper)}]">${frEsc(sq.status)} <span class="dim">n ${sq.n}</span></td>`
+      : `<td class="dim">짝 없음</td>`;
+    const sid = `ls-spark-${i}-${j}`;
+    lsSparkQueue.push({ id: sid, perf: p });
+    return `<tr>
+      <td class="ls-pf-name" title="${frEsc(p.ledger)}">${frEsc(p.name)}</td>
+      <td class="num">${frEsc(p.since)}</td>
+      <td class="num">${p.sessions}</td>
+      <td class="num ${lsTone(p.total)}">${lsPctS(p.total)}</td>
+      ${cmpCell}${kCell}${irCell}${seqCell}
+      <td class="ls-pf-spark"><div id="${sid}" class="ls-pf-chart" role="img" aria-label="${frEsc(p.name)} 누적 수익 곡선"></div></td>
+    </tr>`;
+  }).join("");
+  return `<div class="ls-pf mcard"><table class="dense ls-pf-table">
+    <thead><tr><th>장부</th><th class="num">시작</th><th class="num">세션</th><th class="num">누적</th>
+      <th class="num">비교 대비</th><th class="num">KODEX200 대비</th><th class="num">IR</th><th>순차 검정</th><th>곡선</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+/* 작은 누적 곡선 — 장부 실선, 비교 대상 점선. 축·눈금 없이 0선만(앞섰나 뒤졌나). 색은 무채색 — 손익 색은 숫자 칸이 든다. */
+function lsDrawSparks() {
+  const queue = lsSparkQueue;
+  lsSparkQueue = [];
+  for (const { id, perf } of queue) {
+    if (!document.getElementById(id)) continue;
+    const ours = perf.curve || [];
+    const other = (perf.compare && perf.compare.curve) || [];
+    if (ours.length < 2) continue;
+    chart(id).setOption({
+      ...BASE, tooltip: { show: false }, legend: { show: false },
+      grid: { left: 2, right: 2, top: 3, bottom: 3 },
+      xAxis: { type: "category", data: ours.map((d) => d[0]), show: false, boundaryGap: false },
+      yAxis: { type: "value", show: false, scale: true },
+      series: [
+        { type: "line", data: ours.map((d) => d[1]), showSymbol: false, lineStyle: { width: 1.3, color: COLOR.text },
+          markLine: { silent: true, symbol: "none", data: [{ yAxis: 0 }], lineStyle: { color: COLOR.border, width: 1 }, label: { show: false } } },
+        ...(other.length ? [{ type: "line", showSymbol: false, lineStyle: { width: 1, type: "dashed", color: COLOR.dim },
+          data: ours.map((d) => { const hit = other.find((o) => o[0] === d[0]); return hit ? hit[1] : null; }), connectNulls: true }] : []),
+      ],
+    }, true);
+  }
 }
 
 /* 병행 장부 수익 한 줄 — 회계가 적은 TWR 지수끼리(같은 창). 서버가 준 숫자만 옮긴다. */
@@ -872,7 +943,9 @@ async function renderLiveModels() {
   const data = body.data;
   const base = "";
   ranker.innerHTML = lsRanker(data.ranker || {}, base);
+  lsSparkQueue = [];
   document.getElementById("live-tracks").innerHTML = lsTracks(data.tracks || [], base);
+  lsDrawSparks();
 }
 
 /* ③ 과거 학습 내역 — 카탈로그(사람이 옮겨 적은 요약) + 시행 대장. 판정은 원문 그대로다.

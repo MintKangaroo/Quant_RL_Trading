@@ -1,4 +1,4 @@
-/* 중요 시황 — 지금 시장에서 우리와 관련해 무슨 일이 벌어졌나.
+/* 중요 시황 — 오늘·이달 일정과 중요 공시.
  *
  * 공통 규약은 scope.js 에 있다. 뉴스·일정 탭과 같은 이유로 60초 폴링이고,
  * as_of 가 있으면 갱신을 멈춘다 — 타임머신을 켠 채 화면이 현재로 흘러가면
@@ -18,12 +18,9 @@ function isLive() {
 }
 
 function stamp(iso) {
-  const at = new Date(iso);
-  if (Number.isNaN(at.valueOf())) return "—";
-  // 다른 탭과 같은 'YYYY-MM-DD HH:mm'(보는 기기 시각). ko-KR 짧은 꼴('26. 9. 28. 오후 9:30')은
-  // 칸 안에서 세 줄로 쪼개졌고, 탭마다 날짜 모양이 달랐다(2026-09-29 점검).
-  const p2 = (n) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${p2(at.getMonth() + 1)}-${p2(at.getDate())} ${p2(at.getHours())}:${p2(at.getMinutes())}`;
+  // 'YYYY-MM-DD HH:mm' 한국 시간 고정(scope.js kstStamp, 2026-10-13 밤) — 예전엔 보는 기기 시각이었다.
+  // 머리글이 'KST' 를 든다.
+  return kstStamp(iso);
 }
 
 const DOC_TYPE_NAME = {
@@ -31,40 +28,29 @@ const DOC_TYPE_NAME = {
   contract: "계약", dividend: "배당", buyback: "자사주", news: "뉴스",
 };
 
-const CATEGORY_NAME = {
-  dilution: "희석", insider_sell: "내부자매도", delisting: "상장폐지",
-  litigation: "소송", trading_halt: "거래정지", accounting: "회계",
-};
+/* 매수 차단(News·SNS 판정)은 매매 과정 탭 ③ 거르기 옆으로, 파이프라인 이벤트는 시스템 탭으로 옮겼다
+ * (사용자 2026-10-13 밤 "그 탭과 상관없다") — 이 탭은 일정과 중요 공시만. */
 
-function renderKpis(body) {
-  const d = body.data;
-  document.getElementById("kpis").innerHTML = [
-    kpi("매수 차단 중", num(d.active_verdicts), `전체 기록 ${num(d.verdicts.length)}건`,
-        d.active_verdicts > 0),
-    kpi("중요 공시·뉴스", num(d.documents.length), "창 안 기준"),
-    kpi("파이프라인 이벤트", num(d.events.length), "관측→체결 판단 로그"),
+/* KPI — 오늘 일정 수는 일정 달력(schedule.js)이 받은 응답에서 센다. 오늘 = as_of 의 서울 날짜(서버 today). */
+let headlinesDocs = null;
+let headlinesToday = null;   // {day, count} — 달을 넘겨 본 뒤에도 오늘 수는 오늘 달 응답에서 센 값 그대로
+function renderKpis() {
+  const target = document.getElementById("kpis");
+  if (!target) return;
+  const sched = typeof schedLastData !== "undefined" ? schedLastData : null;
+  const today = sched ? schedToday(sched) : null;
+  if (sched && today && (!sched.month || today.startsWith(sched.month))) {
+    headlinesToday = { day: today, count: (sched.days[today] || []).length };
+  }
+  const todayItems = headlinesToday ? { length: headlinesToday.count } : null;
+  const monthCount = sched && sched.counts ? sched.counts.macro + sched.counts.earnings : null;
+  target.innerHTML = [
+    kpi("오늘 일정", todayItems === null ? "—" : num(todayItems.length),
+        headlinesToday ? `${headlinesToday.day} (KST) · 지표·실적 발표` : "일정을 못 읽었다"),
+    kpi("이 화면 일정", monthCount === null ? "—" : num(monthCount),
+        sched ? (sched.month ? `${sched.month} 한 달` : `${sched.from}~${sched.to}`) : "—"),
+    kpi("중요 공시·뉴스", headlinesDocs === null ? "—" : num(headlinesDocs), "창 안 기준"),
   ].join("");
-}
-
-function verdictRows(rows) {
-  if (!rows.length) return `<p class="empty">기록된 판정이 없다.</p>`;
-  const head = `<thead><tr><th>종목</th><th class="mid">Analyst</th><th>사유</th>
-    <th class="num">발동</th><th class="num">만료</th><th class="mid">상태</th></tr></thead>`;
-  const body_ = rows
-    .map(
-      (row) => `<tr>
-        <td><span class="name">${esc(row.name)}</span><span class="code">${esc(row.entity_id)}</span></td>
-        <td class="mid"><span class="tag dim">${esc(row.analyst)}</span></td>
-        <td>${esc(CATEGORY_NAME[row.category] || row.category)}
-            <div class="sub trunc" title="${esc(row.reason)}">${esc(row.reason)}</div></td>
-        <td class="num">${stamp(row.valid_from)}</td>
-        <td class="num">${stamp(row.expires_at)}</td>
-        <td class="mid"><span class="verdict ${row.active ? "critical" : "info"}">
-          ${row.active ? "차단 중" : "만료"}</span></td>
-      </tr>`
-    )
-    .join("");
-  return `<table>${head}<tbody>${body_}</tbody></table>`;
 }
 
 function documentRows(rows) {
@@ -72,7 +58,7 @@ function documentRows(rows) {
     return `<p class="empty">중요 공시·뉴스가 없다. tools/collect_disclosures.py 를 확인할 것 —
       비어 있는 것과 중요한 일이 없는 것은 다르다.</p>`;
   }
-  const head = `<thead><tr><th class="num">발행</th><th>제목</th></tr></thead>`;
+  const head = `<thead><tr><th class="num">발행 KST</th><th>제목</th></tr></thead>`;
   const body_ = rows
     .map((item) => {
       const tags = item.entities
@@ -91,47 +77,18 @@ function documentRows(rows) {
   return `<table class="news">${head}<tbody>${body_}</tbody></table>`;
 }
 
-function eventRows(rows) {
-  if (!rows.length) {
-    return `<p class="empty">이 창고에 파이프라인 이벤트가 없다. 백테스트·라이브 run 이
-      이 창고에 events 를 남기면 관측→체결까지의 판단이 여기 쌓인다.</p>`;
-  }
-  const head = `<thead><tr><th>시각</th><th>실행</th><th class="mid">단계</th>
-    <th>주체</th></tr></thead>`;
-  const body_ = rows
-    .map(
-      (row) => `<tr>
-        <td class="mono">${stamp(row.ts_sim)}</td>
-        <td class="code">${esc(row.run_id)}</td>
-        <td class="mid"><span class="tag dim">${esc(row.stage)}</span></td>
-        <td>${esc(row.actor)}</td>
-      </tr>`
-    )
-    .join("");
-  return `<table class="stamp-first">${head}<tbody>${body_}</tbody></table>`;
-}
-
 async function loadHeadlines() {
   const body = await fetchJson("headlines");
   showScope(body);
   const d = body.data;
-
-  document.getElementById("verdicts-count").textContent = `${d.verdicts.length}건`;
+  headlinesDocs = d.documents.length;
   document.getElementById("documents-count").textContent = `${d.documents.length}건`;
-  document.getElementById("events-count").textContent = `${d.events.length}건`;
-
-  renderKpis(body);
-  document.getElementById("verdicts").innerHTML = verdictRows(d.verdicts);
   document.getElementById("documents").innerHTML = documentRows(d.documents);
-  document.getElementById("events").innerHTML = eventRows(d.events);
-
-  const warnings = [];
-  if (d.active_verdicts > 0) warnings.push(`${d.active_verdicts}개 종목이 매수 차단 중이다`);
-  showAlerts(warnings);
+  showAlerts([]);
 }
 
-runAll([loadHeadlines, () => loadSchedule(schedMonth)]);
+runAll([loadHeadlines, () => loadSchedule(schedMonth), renderKpis]);
 
 if (isLive()) {
-  window.setInterval(() => runAll([loadHeadlines]), REFRESH_MS);
+  window.setInterval(() => runAll([loadHeadlines, renderKpis]), REFRESH_MS);
 }

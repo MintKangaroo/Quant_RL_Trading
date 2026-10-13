@@ -23,6 +23,7 @@ from flask import Blueprint
 from quant_rl_trading.dashboard.api.common import envelope, scope, store
 from quant_rl_trading.dashboard.services import data_quality
 from quant_rl_trading.dashboard.services import freshness as freshness_service
+from quant_rl_trading.dashboard.services import headlines as headlines_service
 from quant_rl_trading.dashboard.services import system as service
 
 bp = Blueprint("system", __name__, url_prefix="/api/system")
@@ -126,3 +127,11 @@ def processes() -> Any:
     """이 프로젝트 아래에서 도는 프로세스. **as_of 로 되감기지 않는다.**"""
     current = scope()
     return envelope(current, service.project_processes(store().root))
+
+
+@bp.get("/events")
+def events() -> Any:
+    """파이프라인 이벤트 — 관측→Signal→Selector→Allocator→주문→체결 판단 로그(창고 ``events``). 중요 시황 탭에서
+    옮겼다(2026-10-13 밤) — 배관이 도는지의 증거라 운영 갈래다. 창고 사실이라 as_of 로 되감긴다."""
+    current = scope()
+    return envelope(current, headlines_service.events_payload(store(), as_of=current.as_of, lookback=current.lookback))

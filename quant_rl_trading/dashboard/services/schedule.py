@@ -121,6 +121,8 @@ def month_schedule(store: Store, *, as_of: datetime, month: str | None = None) -
         days.setdefault(item["date"], []).append(item)
     return {
         "month": month,
+        # 화면의 '오늘' — as_of 의 서울 날짜(기기 날짜가 아니다). 되감으면 그날이 오늘이다(dashboard.md 2026-10-13 밤 ⑤).
+        "today": as_of.astimezone(SEOUL).date().isoformat(),
         "days": days,
         "counts": {
             "macro": sum(1 for i in items if i["kind"] == "macro"),
@@ -152,7 +154,7 @@ def upcoming(store: Store, *, as_of: datetime, days: int = 30) -> dict[str, Any]
                 merged[day] = items
     items = [i for day in sorted(merged) for i in merged[day]]
     return {
-        "from": today.isoformat(), "to": last.isoformat(), "days": dict(sorted(merged.items())),
+        "from": today.isoformat(), "to": last.isoformat(), "today": today.isoformat(), "days": dict(sorted(merged.items())),
         "counts": {
             "macro": sum(1 for i in items if i["kind"] == "macro"),
             "earnings": sum(1 for i in items if i["kind"] == "earnings"),

@@ -171,15 +171,26 @@ def consensus(store: Store, *, as_of: datetime) -> list[dict[str, Any]]:
     if frame.empty:
         return []
     latest_rows = []
+    previous_rows = []
     for _, group in frame.groupby("filer_cik"):
-        latest_rows.append(group[group["valid_from"] == group["valid_from"].max()])
+        quarters = sorted(group["valid_from"].unique())
+        latest_rows.append(group[group["valid_from"] == quarters[-1]])
+        if len(quarters) >= 2:
+            previous_rows.append(group[group["valid_from"] == quarters[-2]])
     current = pd.concat(latest_rows)
+    # 각 기관의 **직전 분기**에서 그 종목을 든 기관 수 — 기관 수 변화 막대(dashboard.md 2026-10-13 밤 ③).
+    # 직전 분기가 없는 기관은 분모에서 빠진다(``filers_with_prev``) — '안 들었다' 와 '모른다' 를 섞지 않는다.
+    previous = pd.concat(previous_rows) if previous_rows else current.iloc[0:0]
+    prev_counts = previous.groupby("cusip")["filer_cik"].nunique().to_dict() if not previous.empty else {}
+    with_prev = len(previous_rows)
 
     out: list[dict[str, Any]] = []
     for cusip, group in current.groupby("cusip"):
         if len(group) < 2:
             continue
         out.append({
+            "filers_prev": int(prev_counts.get(cusip, 0)) if with_prev else None,
+            "filers_with_prev": int(with_prev),
             "issuer": str(group["issuer"].iloc[0]),
             "cusip": str(cusip),
             "entity_id": str(group["entity_id"].iloc[0]),
@@ -190,3 +201,40 @@ def consensus(store: Store, *, as_of: datetime) -> list[dict[str, Any]]:
             "dates": sorted({pd.Timestamp(v).date().isoformat() for v in group["valid_from"]}),
         })
     return sorted(out, key=lambda row: (-row["filers"], -row["total_usd"]))[:20]
+
+
+def our_us_holdings(ledger: Store | None, *, as_of: datetime) -> set[str] | None:
+    """우리 미장 보유(``US:티커``) — 미장 슬리브 장부의 최근 세션 **실현 비중 > 0** (불변식 7 의 그 값).
+
+    장부가 없거나 기록이 없으면 None(모름) — 빈 집합(안 들고 있다)과 다르다. 회계를 다시 접지 않는다.
+    """
+    if ledger is None:
+        return None
+    try:
+        frame = ledger.get("realized_weights", as_of=as_of, lookback=30,
+                           columns=["market", "session_id", "realized_weight"])
+    except Exception:  # noqa: BLE001 — 겹침 표시는 곁가지라 장부가 깨져도 탭이 산다
+        return None
+    if frame.empty:
+        return None
+    frame = frame[frame["market"].astype(str) == "US"]
+    if frame.empty:
+        return None
+    last = frame["valid_from"].max()
+    latest = frame[frame["valid_from"] == last].sort_values("observed_at").groupby("entity_id").tail(1)
+    return {str(e) for e, w in zip(latest["entity_id"], latest["realized_weight"], strict=False)
+            if pd.notna(w) and float(w) > 0}
+
+
+def mark_ours(rows: list[dict[str, Any]], store: Store, *, as_of: datetime, ours: set[str] | None) -> dict[str, Any]:
+    """CUSIP 축 행에 ``ticker``·``ours`` 를 붙인다. 매핑은 ``store/holdings.cusip_to_entity``(애매한 CUSIP 은 안 붙인다)."""
+    from quant_rl_trading.store.holdings import cusip_to_entity
+
+    mapping = cusip_to_entity(store, as_of=as_of) if rows else pd.DataFrame()
+    lookup = dict(zip(mapping["id_value"].astype(str).str.upper(), mapping["entity_id"], strict=False)) \
+        if not mapping.empty else {}
+    for row in rows:
+        ticker = lookup.get(str(row.get("cusip", "")).strip().upper())
+        row["ticker"] = str(ticker) if ticker else None
+        row["ours"] = None if ours is None or ticker is None else ticker in ours
+    return {"ours_known": ours is not None, "ours_count": len(ours) if ours is not None else None}

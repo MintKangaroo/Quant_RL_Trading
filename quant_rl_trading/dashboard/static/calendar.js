@@ -10,6 +10,17 @@
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+/** 수익금 — 원은 원 단위, 달러는 센트까지. 부호를 붙인다. 값이 없으면 "—"(0 이 아니다). */
+function calMoney(value, currency) {
+  if (value === null || value === undefined || value === "" || Number.isNaN(Number(value))) return "—";
+  const v = Number(value);
+  const sign = v > 0 ? "+" : v < 0 ? "−" : "";
+  if (currency === "USD") {
+    return `${sign}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `${sign}${Math.round(Math.abs(v)).toLocaleString("ko-KR")}원`;
+}
+
 /** "2026-08" → 그 달의 일수 */
 function daysInMonth(month) {
   const [year, mon] = month.split("-").map(Number);
@@ -59,8 +70,11 @@ function monthGrid(month, days, scale, { compact = false } = {}) {
     cells.push(
       `<span class="cal-cell pick" data-session="${hit.session}"
              data-return="${hit.return}"
+             data-pnl="${hit.pnl === null || hit.pnl === undefined ? "" : hit.pnl}"
+             data-inflow="${hit.inflow || 0}"
+             data-ccy="${hit.currency || "KRW"}"
              style="background:${cellColor(hit.return, scale)}"
-             title="${hit.session} · ${(hit.return * 100).toFixed(2)}% · NAV ${Math.round(hit.nav).toLocaleString()}">
+             title="${hit.session} · ${(hit.return * 100).toFixed(2)}% · 수익금 ${calMoney(hit.pnl, hit.currency)} · NAV ${Math.round(hit.nav).toLocaleString()}">
          <i class="d">${day}</i>${body}
        </span>`,
     );
@@ -239,9 +253,20 @@ function bindDayDetail(root, cal, target) {
 
     // **어느 날의 수익인지 먼저 적는다** — 날짜 없이 "코스피 +1.53%" 만 보이면 오늘로 읽힌다
     // (2026-08-28 실측: 27일 값을 28일 시장과 비교해 "틀렸다" 가 됐다).
+    // 수익금 = 회계가 적은 그날 손익(NAV 증감 − 입출금). 화면은 계산하지 않고 옮긴다. 입출금이 있던 날은
+    // 따로 적는다 — 안 적으면 입금일 NAV 증감이 손익으로 읽힌다(dashboard.md 2026-10-13 밤 ①).
+    const ccy = cell.dataset.ccy || "KRW";
+    const pnlRaw = cell.dataset.pnl;
+    const pnl = pnlRaw === "" || pnlRaw === undefined ? null : Number(pnlRaw);
+    const inflow = Number(cell.dataset.inflow || 0);
+    const flowNote = inflow
+      ? `<span class="day-idx flow"><i>입출금 별도</i><b>${calMoney(inflow, ccy)}</b></span>`
+      : "";
     target.innerHTML =
       `<span class="day-idx"><i>${session} 하루</i></span>` +
       `<span class="day-idx mine"><i>내 포트폴리오</i><b class="${cls(mine)}">${fmt(mine)}</b></span>` +
+      `<span class="day-idx mine"><i>수익금</i><b class="${cls(pnl)}">${calMoney(pnl, ccy)}</b></span>` +
+      flowNote +
       cells;
     target.hidden = false;
   });
