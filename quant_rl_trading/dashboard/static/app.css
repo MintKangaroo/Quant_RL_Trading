@@ -1293,3 +1293,20 @@ td.num.bad { color: var(--bad); }
   /* 패널 제목 — 부제가 길면 제목 글자가 눌려 "주문 · 체\n결" 로 꺾였다(10/6). 부제를 다음 줄로 내린다. */
   .panel h2 { flex-wrap: wrap; row-gap: 2px; }
 }
+
+/* 중요 시황 — 발표 해석 표: 해석 칸이 넓게(2026-10-13) */
+.explain-table { table-layout: fixed; width: 100%; }
+.explain-table col.c-xind { width: 24%; }
+.explain-table col.c-xsur { width: 11%; }
+.explain-table col.c-xrea { width: 14%; }
+.explain-table col.c-xtxt { width: 51%; }
+.explain-table td { vertical-align: top; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .explain-table colgroup, .explain-table thead { display: none; }
+  .explain-table, .explain-table tbody, .explain-table tr, .explain-table td { display: block; width: auto; }
+  .explain-table tr { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .explain-table td.num { text-align: left; display: inline-block; margin-right: 10px; }
+}
+/* 뉴스·일정 달력 범례 — 파랑 = 거시지표, 초록 = 기업 실적, 점선 = 예상 */
+.sched-legend { display: flex; gap: 12px; flex-wrap: wrap; }
+.sched-legend .sched-item { margin: 0; }
