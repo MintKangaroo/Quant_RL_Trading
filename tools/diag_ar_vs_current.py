@@ -26,7 +26,7 @@ import argparse
 import gc
 import json
 import sys
-from datetime import date
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -74,31 +74,65 @@ def rank_gauss_inplace(df: pd.DataFrame, cols: list[str], *, keep_nan: bool = Fa
 # --------------------------------------------------------------------------- 미장 공통 자료
 
 
+def us_tradable() -> dict[date, set[str]]:
+    """미장 명단 = 내부자 심화 패널에 그 세션 행이 있는 종목. 종목 이름은 범주로 읽어 **같은 문자열 객체를 나눠 쓴다**
+    (행마다 문자열 660만 개를 만들면 4GB 상한에 걸린다 — 2026-10-14 00:45 MemoryError)."""
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 진단 패널
+
+    t = pq.read_table(US_PANEL, columns=["entity_id", "session"], read_dictionary=["entity_id"])  # invariant-allow: data-access — 진단 패널
+    keys = t.to_pandas()
+    del t
+    keys["session"] = pd.to_datetime(keys["session"]).dt.date
+    cats = keys["entity_id"].cat.categories
+    codes = keys["entity_id"].cat.codes.to_numpy()
+    out: dict[date, set[str]] = {}
+    for d, idx in keys.groupby("session").indices.items():
+        out[d] = set(cats[codes[idx]])
+    del keys
+    gc.collect()
+    return out
+
+
+def read_wide(store: Any, *, columns: list[str], adjusted: bool, keep: set[str], start: date,
+              months: int = 6) -> dict[str, pd.DataFrame]:
+    """미장 가격을 반년 조각으로 읽어 열마다 넓은 표로(종목은 keep 만) — 한 번에 읽으면 1천만 행이 넘는다."""
+    from quant_rl_trading.store.prices import read_prices
+
+    parts: dict[str, list[pd.DataFrame]] = {c: [] for c in columns}
+    lo = start
+    while lo <= el.DATE_CAP:
+        hi = date(lo.year + (lo.month - 1 + months) // 12, (lo.month - 1 + months) % 12 + 1, 1)
+        until = min(datetime.combine(hi, time(0), tzinfo=UTC), el.CAP_AS_OF)
+        f = read_prices(store, as_of=el.CAP_AS_OF, lookback=(el.DATE_CAP - lo).days + 2, until=until, columns=columns,
+                        adjusted=adjusted, market="US")
+        f = f[f["entity_id"].isin(keep)]
+        f["day"] = pd.to_datetime(f["valid_from"]).dt.date
+        f = f[(f["day"] >= lo) & (f["day"] < hi) & (f["day"] <= el.DATE_CAP)]
+        for c in columns:
+            parts[c].append(f.pivot_table(index="day", columns="entity_id", values=c, aggfunc="last").astype(np.float32))
+        log(f"  가격 조각 {lo}~{hi} {len(f):,}행")
+        del f
+        gc.collect()
+        lo = hi
+    return {c: pd.concat(v).sort_index() for c, v in parts.items()}
+
+
 def cmd_context_us(root: str, force: bool) -> int:
     el.require_heavy(force)
     from quant_rl_trading.store import Store
-    from quant_rl_trading.store.prices import read_prices
 
     store = Store(root=Path(root))
-    start = date(2021, 8, 1)
-    prices = read_prices(store, as_of=el.CAP_AS_OF, lookback=(el.DATE_CAP - start).days + 10, columns=["close"],
-                         adjusted=True, market="US")
-    prices["day"] = pd.to_datetime(prices["valid_from"]).dt.date
-    close = prices.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index()
-    del prices
-    gc.collect()
-    close = close[close.index <= el.DATE_CAP].astype("float64")
+    trad = us_tradable()
+    keep = set().union(*trad.values()) | {US_INDEX}
+    log(f"미장 명단 {len(trad)}세션 · 종목 {len(keep):,}")
+    close = read_wide(store, columns=["close"], adjusted=True, keep=keep, start=date(2021, 8, 1))["close"].astype("float64")
     el.guard_cap(close.index, "미장 가격")
-    spy = close[US_INDEX].copy() if US_INDEX in close.columns else None
-    if spy is None:
+    if US_INDEX not in close.columns:
         raise SystemExit("US:SPY 가격이 없다 — 벤치 없이 진행하지 않는다")
+    spy = close[US_INDEX].copy()
     ret = close.shift(-2) / close.shift(-1) - 1.0
     ret = ret.where(ret.abs() <= el.MAX_MOVE)
     bench = spy.shift(-2) / spy.shift(-1) - 1.0
-    keys = pd.read_parquet(US_PANEL, columns=["entity_id", "session"])  # invariant-allow: data-access — 진단 패널
-    keys["session"] = pd.to_datetime(keys["session"]).dt.date
-    trad = {d: set(p["entity_id"]) for d, p in keys.groupby("session")}
-    del keys
     days = [d for d in ret.index if d in trad]
     uni = pd.Series({d: float(ret.loc[d].reindex(list(trad[d])).mean()) for d in days})
     cost = float(store.config("accounting.fee_us", as_of=el.CAP_AS_OF))
@@ -114,18 +148,13 @@ def cmd_style_us(root: str, force: bool) -> int:
     **원 종가 수준**을 쓴다. 분할 보정 종가 × 원 거래량(10/7 미장 명단 오염의 원인)은 쓰지 않는다."""
     el.require_heavy(force)
     from quant_rl_trading.store import Store
-    from quant_rl_trading.store.prices import read_prices
 
     store = Store(root=Path(root))
-    start = date(2021, 7, 1)
-    p = read_prices(store, as_of=el.CAP_AS_OF, lookback=(el.DATE_CAP - start).days + 10, columns=["close", "volume"],
-                    adjusted=False, market="US")
-    p["day"] = pd.to_datetime(p["valid_from"]).dt.date
-    p = p[p["day"] <= el.DATE_CAP]
-    p["dv"] = (p["close"].astype(float) * p["volume"].astype(float)).astype(np.float32)
-    dv = p.pivot_table(index="day", columns="entity_id", values="dv", aggfunc="last").sort_index()
-    px = p.pivot_table(index="day", columns="entity_id", values="close", aggfunc="last").sort_index().astype(np.float32)
-    del p
+    keep = set().union(*us_tradable().values())
+    w = read_wide(store, columns=["close", "volume"], adjusted=False, keep=keep, start=date(2021, 7, 1))
+    px = w["close"]
+    dv = (w["close"].astype(np.float64) * w["volume"].astype(np.float64)).astype(np.float32)
+    del w
     gc.collect()
     adv = dv.rolling(20, min_periods=10).mean().astype(np.float32)
     OUT.mkdir(parents=True, exist_ok=True)

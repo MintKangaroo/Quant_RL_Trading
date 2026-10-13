@@ -261,6 +261,14 @@ _CTX_FIELDS = ("close", "bench", "k200_close", "uni", "scale", "caps", "sectors"
 _CTX_META = "meta.pkl"
 
 
+def _trad_frame_of(trad: dict[date, set[str]]) -> pd.DataFrame:
+    """명단 dict → (session, entity_id 범주) 표. 튜플 수백만 개를 만들지 않는다."""
+    days = list(trad)
+    ents = [e for d in days for e in trad[d]]
+    sess = np.repeat(np.array(days, dtype=object), [len(trad[d]) for d in days])
+    return pd.DataFrame({"session": sess, "entity_id": pd.Categorical(ents)})
+
+
 def save_context(ctx: Context, path: Path = CONTEXT_FILE) -> None:
     """필드마다 따로 쓴다 — 통째로 pickle 하면 직렬화 사본이 겹쳐 4GB 상한에 걸린다(2026-10-13 22:07 MemoryError).
     ret 은 close 에서 다시 만든다(같은 식). trad 는 (session, entity_id) 표로."""
@@ -272,7 +280,7 @@ def save_context(ctx: Context, path: Path = CONTEXT_FILE) -> None:
         if name == "close":
             obj = obj.astype("float32")
         if name == "trad":
-            obj = pd.DataFrame([(d, e) for d, names in obj.items() for e in names], columns=["session", "entity_id"])
+            obj = _trad_frame_of(obj)
         pd.to_pickle(obj, path / f"{name}.pkl")  # invariant-allow: data-access — 연구 캐시
         del obj
         gc.collect()
