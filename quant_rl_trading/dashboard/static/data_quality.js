@@ -31,7 +31,7 @@ async function renderSummary() {
 async function renderCoverage() {
   const { data } = await fetchJson("data-quality/coverage");
   chart("chart-coverage").setOption({
-    ...BASE,
+    ...BASE, legend: { show: false },   // 계열 하나 — 범례가 선을 가렸다(§8-5)
     xAxis: { type: "category", data: data.points.map((p) => p.session), ...AXIS },
     yAxis: { type: "value", scale: true, ...AXIS },
     series: [{
@@ -191,17 +191,20 @@ function drawDivergence(data) {
   if (!rows.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
   el.style.display = "";
   el.style.height = `${rows.length * 26 + 30}px`;
+  const labels = rows.map((r) => `${short(r.a)} ↔ ${short(r.b)}`);
   if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "최대 차"], [COLOR.warn, "임계 넘음"]], `점선 = 임계 ${pct(data.threshold, 1)}p`);
   chart("dq-div-chart").setOption({
     ...BASE, legend: { show: false },
     tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const r = rows[p.dataIndex]; return `${short(r.a)} ↔ ${short(r.b)}<br>최대 차 ${pct(r.max_abs_diff, 2)}p · 잰 세션 ${num(r.measured)} · 경고 ${num(r.alerts.length)}`; } },
     grid: { left: 8, right: 48, top: 4, bottom: 18, containLabel: true },
     xAxis: { type: "value", ...AXIS, max: (v) => Math.max(v.max, data.threshold) * 1.15, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${(v * 100).toFixed(1)}%p` } },
-    yAxis: { type: "category", data: rows.map((r) => `${short(r.a)} ↔ ${short(r.b)}`), ...AXIS, axisTick: { show: false } },
+    yAxis: { type: "category", data: labels, ...AXIS, axisTick: { show: false } },
     series: [{ type: "bar", barMaxWidth: 12,
       data: rows.map((r) => ({ value: r.max_abs_diff, itemStyle: { color: r.max_abs_diff > data.threshold ? COLOR.warn : COLOR.muted } })),
-      label: { show: true, position: "right", color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono", formatter: (p) => `${(p.value * 100).toFixed(2)}%p` },
-      markLine: { silent: true, symbol: "none", data: [{ xAxis: data.threshold }], lineStyle: { color: COLOR.warn, type: "dashed" }, label: { show: false } } }],
+      label: { show: true, position: "right", color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono", formatter: (p) => `${(p.value * 100).toFixed(2)}%p` } },
+      // 임계선은 선 계열 하나로(첫 줄~끝 줄) — 막대 계열의 markLine 은 가로 막대에서 엉뚱한 자리에 그려졌다(10/13 실측).
+      { type: "line", silent: true, symbol: "none", lineStyle: { color: COLOR.warn, type: "dashed", width: 1 }, tooltip: { show: false },
+        data: [[data.threshold, labels[0]], [data.threshold, labels[labels.length - 1]]] }],
   }, true);
 }
 
