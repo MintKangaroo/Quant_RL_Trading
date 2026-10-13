@@ -252,15 +252,11 @@ SHADOW_TRACKS: list[dict[str, str]] = [
     {"name": "K200 HMM / V6", "ledger": "data/_k200hmm_shadow · data/_k200v6_shadow", "started": "2026-09-28",
      "compares": "같은 코스피200 포트에 노출 규칙만 다르다 — 학습된 국면 확률(HMM) vs 지금 규칙(V6). 20세션 뒤(10/27 경) 비교.",
      "doc": "docs/protocols/v2-hmm-exposure-2026-10.md"},
-    {"name": "W72 / N24", "ledger": "data/_w72_shadow · data/_n24_shadow", "started": "2026-09-28",
-     "compares": "지금 방식 그대로 폭만 72종목 vs 24종목. 기록만 — 72종목(AQ)은 금고 early(10/13)에서 기각됐다(재학습 시드 3/3 짐).",
-     "doc": "docs/protocols/breadth72-forward-2026-09.md"},
+    {"name": "N24", "ledger": "data/_n24_shadow", "started": "2026-09-28",
+     "compares": "지금 방식 그대로 24종목 — P1-b′ 의 비교 대조. 짝이던 W72(AQ)는 금고 early(10/13) 기각으로 10/13 장부를 멈췄다.",
+     "doc": "docs/protocols/p1b-prime-2026-10.md"},
     # 시작일을 적지 않는다("auto") — 장부에 첫 NAV 가 생긴 날이 시작일이고, 그 전에는 줄이 안 나간다.
     # 수익은 회계가 적은 TWR 지수(nav_daily.index_value)끼리만 견준다 — 여기서 NAV 를 다시 계산하지 않는다.
-    {"name": "BE2", "ledger": "data/_be2_shadow", "started": "auto",
-     "compares": "마지막 모델 회차 BE2(트랜스포머 + GBM 순위 평균)를 얼린 모델로 — 금고 early(10/13) 기각, 기록만. 지금 모의계좌와 규칙은 같고 "
-                 "종목 점수만 BE2. 모의계좌와 같은 창 수익을 나란히 본다(체결은 시뮬레이션이라 비용 차이가 섞인다).",
-     "doc": "docs/design/be2-shadow.md", "compare_ledger": "data/_paper", "compare_name": "모의계좌"},
     {"name": "지수+V6", "ledger": "data/_idxv6_shadow", "started": "auto",
      "compares": "KODEX200 한 종목을 100% 로, 노출만 지금 규칙(V6) 그대로 — 실자금 투입 관문 ② 의 '지수+V6' 대안을 계산값이 "
                  "아니라 실제 매매 기록으로. 모의계좌와 같은 정보 시점으로 결정한다(분배금은 안 받는다 — 그만큼 불리하게 적힌다).",
@@ -318,7 +314,7 @@ STAGE_CANDIDATES: list[dict[str, Any]] = [
      "doc": "docs/protocols/final-model-round-2026-10.md",
      "judge": [{"label": "금고 early(7/1~9/30)", "date": "2026-10-13"}],
      "ledger": ["final-model-round-2026-10:BE", "final-model-round-2026-10:BE2"], "catalog": "BE",
-     "pair": "BE2 − N24", "switch": "BE2"},
+     "pair": None, "switch": "BE2"},
     {"id": "AR", "stage": "model", "title": "AR — 내부자 거래 재료를 랭커 입력에",
      "change": "랭커 입력에 내부자 거래(국장 DART 임원·주요주주 G4 · 미장 Form 4 G7)를 더한다. 금고 통과 뒤 재학습 · shadow 를 거쳐 실전은 재승인.",
      "doc": "docs/protocols/insider-forward-2026-09.md",
@@ -378,7 +374,7 @@ STAGE_CANDIDATES: list[dict[str, Any]] = [
      "change": "상위 24 → 72종목(완충 216)으로 넓혀 운에 덜 흔들리게 한다.",
      "doc": "docs/protocols/breadth72-forward-2026-09.md",
      "judge": [{"label": "금고 early", "date": "2026-10-13"}],
-     "ledger": ["breadth72-forward-2026-09:AQ"], "catalog": None, "pair": "W72 − N24", "switch": "AQ"},
+     "ledger": ["breadth72-forward-2026-09:AQ"], "catalog": None, "pair": None, "switch": "AQ"},
     {"id": "P1B2", "stage": "cadence", "title": "P1-b″ — 회전 줄이기",
      "change": "100종목 · 완충 500 · 20세션 재조정 · 확실히 나을 때만 교체(θ 1.0).",
      "doc": "docs/protocols/vault-early-additions-2026-10.md",

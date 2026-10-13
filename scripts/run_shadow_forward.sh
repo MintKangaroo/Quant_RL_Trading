@@ -13,7 +13,7 @@ for _ in $(seq 1 60); do
     sleep 30
 done
 rc_all=0
-for BOOK in data/_w72_shadow data/_n24_shadow; do
+for BOOK in data/_n24_shadow; do   # W72 는 10/13 금고 기각으로 멈춤(사용자 10/13 "기각된 거는 측정 안 해도")
     (
         echo "=== $(date '+%F %T') 전방 shadow ${BOOK} (KR) ==="
         EXTRA=()

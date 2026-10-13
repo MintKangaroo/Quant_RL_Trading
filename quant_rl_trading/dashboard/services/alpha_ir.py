@@ -37,8 +37,6 @@ BOOKS: list[dict[str, str]] = [
     {"key": "z2", "name": "Z2", "ledger": "_z2_shadow", "market": "KR"},
     {"key": "k200v6", "name": "K200 V6", "ledger": "_k200v6_shadow", "market": "KR"},
     {"key": "k200hmm", "name": "K200 HMM", "ledger": "_k200hmm_shadow", "market": "KR"},
-    {"key": "be2", "name": "BE2", "ledger": "_be2_shadow", "market": "KR"},
-    {"key": "w72", "name": "W72", "ledger": "_w72_shadow", "market": "KR"},
     {"key": "n24", "name": "N24", "ledger": "_n24_shadow", "market": "KR"},
     {"key": "p1b", "name": "P1-b′", "ledger": "_p1b_shadow", "market": "KR"},
     {"key": "ix", "name": "IX 지수−패자", "ledger": "_ix_shadow", "market": "KR"},
@@ -51,13 +49,12 @@ BOOKS: list[dict[str, str]] = [
 ]
 
 #: 순차 검정 짝(처리, 대조) — 등록 문서의 대조 그대로(self-improvement.md §10 ④). 일 초과수익 = 처리 − 대조 NAV 일수익(겹치는 날만).
+#: BE2·W72 는 10/13 금고 기각으로 장부를 멈추고 표·짝에서 뺐다(사용자 10/13 "기각된 거는 측정 안 해도").
 PAIRS: list[tuple[str, str, str]] = [
     ("tg", "livekr", "TG − 실전 그림자"),
     ("ixt", "ix0", "IX-T − IX0"),
     ("ix", "ix0", "IX − IX0"),
-    ("w72", "n24", "W72 − N24"),
     ("p1b", "n24", "P1-b′ − N24"),
-    ("be2", "n24", "BE2 − N24"),
 ]
 SEQ_ALPHA_KEY = "dashboard.seq_alpha"
 SEQ_TSTAR_KEY = "dashboard.seq_t_star"
