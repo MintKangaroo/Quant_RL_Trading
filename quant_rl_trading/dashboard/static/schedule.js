@@ -105,6 +105,34 @@ function bindScheduleDay(root, target, data) {
   }
 }
 
+/** 날짜별 일정 수 — 지표·실적 쌓은 막대, 오늘(as_of 서울 날짜) 강조(§8-5). 응답에 있는 날만 센다 — 계산하지 않는다. */
+function schedDrawChart(data) {
+  const el = document.getElementById("hl-sched-chart");
+  const cap = document.getElementById("hl-sched-cap");
+  if (!el || typeof chart !== "function") return;
+  const keys = Object.keys(data.days || {}).sort();
+  if (!keys.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  const today = schedToday(data);
+  const count = (key, kind) => (data.days[key] || []).filter((i) => i.kind === kind).length;
+  if (cap && typeof vizCaption === "function") {
+    cap.innerHTML = vizCaption([[COLOR.accent, "지표 발표"], [COLOR.muted, "실적 발표"]], `날짜별 건수 · 오늘 ${today ? today.slice(5) : "—"} 굵게`);
+  }
+  chart("hl-sched-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "axis", formatter: (ps) => { const k = keys[ps[0].dataIndex]; return `${k}${k === today ? " (오늘)" : ""}<br>지표 ${count(k, "macro")} · 실적 ${count(k, "earnings")}`; } },
+    grid: { left: 30, right: 6, top: 6, bottom: 20 },
+    xAxis: { type: "category", data: keys.map((k) => k.slice(5)), ...AXIS, axisTick: { show: false },
+             axisLabel: { ...AXIS.axisLabel, formatter: (v) => (today && v === today.slice(5) ? `{t|${v}}` : v),
+                          rich: { t: { color: COLOR.accent, fontWeight: 600, fontFamily: "IBM Plex Mono", fontSize: 10 } } } },
+    yAxis: { type: "value", ...AXIS, minInterval: 1 },
+    series: [
+      { type: "bar", stack: "d", barMaxWidth: 14, data: keys.map((k) => ({ value: count(k, "macro"), itemStyle: { color: COLOR.accent, opacity: k === today ? 1 : 0.55 } })) },
+      { type: "bar", stack: "d", barMaxWidth: 14, data: keys.map((k) => ({ value: count(k, "earnings"), itemStyle: { color: COLOR.muted, opacity: k === today ? 1 : 0.55 } })) },
+    ],
+  }, true);
+}
+
 const SCHED_MOBILE = window.matchMedia ? window.matchMedia("(max-width: 640px)") : { matches: false };
 
 /* 휴대폰 — 오늘부터 30일 목록. 달을 넘겨 이어 붙인다(월말에 "이달" 은 비어 보인다). */
@@ -142,6 +170,7 @@ async function loadSchedule(month) {
     day.hidden = true;
     schedLastData = body.data;
     renderUpcoming(grid, body.data);
+    schedDrawChart(body.data);
     bindScheduleDay(grid, day, body.data);
     return;
   }
@@ -155,6 +184,7 @@ async function loadSchedule(month) {
   day.hidden = true;
   schedLastData = data;
   renderSchedule(grid, data);
+  schedDrawChart(data);
   bindScheduleDay(grid, day, data);
   const prev = document.getElementById("sched-prev");
   const next = document.getElementById("sched-next");

@@ -84,6 +84,11 @@ async function loadHeadlines() {
   headlinesDocs = d.documents.length;
   document.getElementById("documents-count").textContent = `${d.documents.length}건`;
   document.getElementById("documents").innerHTML = documentRows(d.documents);
+  // 공시 유형별 건수 — 아래 표에 실린 것(최근 상위)만 센다(§8-5, 세기만).
+  const byType = {};
+  for (const doc of d.documents) byType[doc.doc_type] = (byType[doc.doc_type] || 0) + 1;
+  hbarChart("hl-doc-chart", Object.entries(byType).sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => ({ label: DOC_TYPE_NAME[type] || type, value: n })), { format: (v) => `${v}건`, min: 70 });
   showAlerts([]);
 }
 
