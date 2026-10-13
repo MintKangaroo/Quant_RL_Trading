@@ -181,8 +181,20 @@ FAMILY["C1G"] = "ranker"
 ENTITY["C1G"] = "c1-gbm-fa-second-2026-10:C1G"
 #: 판정 기록 detail 첫머리에 붙는 말 — 등록 문서 '기록' 절(선택 편향을 기록에 남긴다).
 RECORD_NOTE = {"C1G": "C1G · 금고 early 결과를 본 뒤 고른 대조군(선택 편향)"}
+
+#: 시행 CR(docs/protocols/cr-crisis-exposure-2026-10.md, 사용자 10/13 "시행 CR 등록") — V6 국면 노출의 crisis(·bear) 배수.
+#: **주 시험은 긴 과거**(`tools/trial_cr_exposure.py --run`, 종가 ≤ 2026-09-30)이고 이 창은 **확인(해 방지)만** 한다.
+#: C1G 와 같은 규칙: 해시가 고정됐을 때만 second 창에 붙는다. 붙어도 주 시험이 통과가 아니면 `PREREQ` 가 건너뛴다.
+CR_PROTOCOL = Path("docs/protocols/cr-crisis-exposure-2026-10.md")
+CR_PROTOCOL_HASH: str | None = None
+if CR_PROTOCOL_HASH:
+    EXTRA_TRIALS["second"] = (*EXTRA_TRIALS["second"], "CR")
+EXTRA_PROTOCOLS["CR"] = (CR_PROTOCOL, CR_PROTOCOL_HASH)
+FAMILY["CR"] = "selection"
+ENTITY["CR"] = "cr-crisis-exposure-2026-10:CR"
+RECORD_NOTE["CR"] = "CR · 금고는 확인(해 방지)만 — 주 시험은 긴 과거(trial_cr_exposure), 그 방향은 10/13 장×전략 진단이 지수 위에서 먼저 봤다"
 #: 해시 고정 전이라 아직 창에 안 붙은 따로 등록 시행 — `--plan` 이 "고정 대기" 로 보여 준다(판정에는 영향 없음).
-PENDING_WINDOW: dict[str, str] = {"TG": "second", "C1G": "second"}
+PENDING_WINDOW: dict[str, str] = {"TG": "second", "C1G": "second", "CR": "second"}
 
 
 def pending_trials(win: Window) -> list[str]:
@@ -1620,9 +1632,27 @@ def run_p1b2(store: Store) -> tuple[list[str], str]:
     return lines, verdict
 
 
+def run_cr(store: Store) -> tuple[list[str], str]:
+    """CR 금고 확인 — `trial_cr_exposure.vault_run`(얼린 C0 × 실전 경로 FA = `_c0_inputs`, 주 시험과 같은 포트·노출 규칙)."""
+    from tools.trial_cr_exposure import vault_run
+
+    return vault_run(store, Path(store.root))
+
+
+def cr_prereq(store: Store) -> str | None:
+    """CR 이 이 창에 들어가기 전 조건 — 주 시험 결과 파일이 같은 등록 해시로 '주 시험 통과' 였다. 아니면 건너뛸 이유."""
+    from tools.trial_cr_exposure import vault_prereq
+
+    return vault_prereq(Path(store.root), CR_PROTOCOL_HASH)
+
+
+#: 창에 붙은 시행이 **판정 전에** 갖춰야 할 조건(없으면 None). 이유를 돌려주면 그 시행은 건너뛴다(기록·개봉 계수에 안 들어간다).
+PREREQ = {"CR": cr_prereq}
+
+
 RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b,
            "TF": lambda st: run_tf(st, "TF"), "TB": lambda st: run_tf(st, "TB"), "TC": lambda st: run_tf(st, "TC"),
-           "P1B2": run_p1b2, "TG": lambda st: run_tf(st, "TG"), "C1G": run_c1g}
+           "P1B2": run_p1b2, "TG": lambda st: run_tf(st, "TG"), "C1G": run_c1g, "CR": run_cr}
 
 
 # --------------------------------------------------------------------------- 기록
@@ -1838,6 +1868,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"\n=== 시행 {trial} — {win.name} 창 건너뜀: 앞 개봉 판정이 {prior!r} "
                       f"(이 창은 {SECOND_NEEDS[win.name][trial]} 인 경우만 — 등록 문서 '두 번째 금고') ===", flush=True)
                 continue
+        skip = PREREQ[trial](store) if trial in PREREQ else None
+        if skip:
+            print(f"\n=== 시행 {trial} — {win.name} 창 건너뜀: {skip} ===", flush=True)
+            continue
         digest = hashlib.sha256(protocol_path(trial).read_bytes()).hexdigest()[:16]
         print(f"\n=== 시행 {trial} — {protocol_path(trial)} (해시 {digest}) · 금고 {win.name} {VAULT_START}~{VAULT_END} ===",
               flush=True)
