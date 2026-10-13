@@ -135,11 +135,12 @@ async function renderSafety() {
   document.getElementById("safety").innerHTML = `
     <div class="facts">
       <div class="fact"><span>킬스위치</span>
-        <strong class="${data.killswitch_engaged ? 'down' : 'up'}">
+        <strong class="${data.killswitch_engaged ? 'bad' : 'good'}">
           ${data.killswitch_engaged ? "발동" : "정상"}</strong></div>
-      <div class="fact"><span>사유</span><strong>${esc(data.killswitch_reason || "—")}</strong></div>
       <div class="fact"><span>설정 판번호</span><strong>v${num(data.config_version)}</strong></div>
       <div class="fact"><span>LLM 월 예산</span><strong>$${num(data.llm_monthly_budget_usd)}</strong></div>
+      ${data.killswitch_reason ? `<div class="fact fact-wide"><span>${data.killswitch_engaged ? "발동 사유" : "마지막 해제 기록"}</span>
+        <p>${esc(data.killswitch_reason)}</p></div>` : ""}
     </div>`;
 }
 
