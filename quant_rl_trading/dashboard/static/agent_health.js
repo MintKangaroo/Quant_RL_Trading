@@ -85,6 +85,11 @@ async function renderSignals() {
       관찰 모드여도 점수는 남겨야 나중에 켤 근거가 생긴다.</div>`;
     return;
   }
+  // 기록된 Signal 수 막대(§8-5) — 버전마다 한 줄. 세기는 API 가 했다.
+  hbarChart("ah-signals-chart", data.analysts.slice().sort((a, b) => b.signals - a.signals).map((a) => ({
+    label: `${a.analyst} · ${a.version}`, value: a.signals,
+    tip: `${a.analyst} · ${a.version}<br>신호 ${num(a.signals)} · 종목 ${num(a.entities)} · 세션 ${num(a.sessions)}`,
+  })), { top: 16, phoneTop: 10, labelMax: 30, min: 90 });
   target.innerHTML = `<table>
     <thead><tr><th>Analyst</th><th class="num">신호</th><th class="num">종목</th>
       <th class="num">세션</th><th class="num">지연 p90</th><th class="num">최근 as_of</th></tr></thead>
@@ -118,12 +123,10 @@ async function renderVerdicts() {
       ${kpi("평균 초과수익", pct(card.mean_excess, 2), "음수면 손실을 피한 것",
             card.mean_excess !== null && card.mean_excess > 0)}
     </div>
-    <table>
-      <thead><tr><th>사유</th><th class="num">건수</th></tr></thead>
-      <tbody>${data.by_category.map((row) => `<tr>
-        <td>${row.category}</td><td class="num">${num(row.count)}</td>
-      </tr>`).join("")}</tbody>
-    </table>`;
+`;
+  // 사유별 건수 — 표 대신 막대(§8-5). 거부는 손익이 아니라 무채색.
+  hbarChart("ah-verdict-chart", data.by_category.map((row) => ({ label: row.category, value: row.count })),
+            { format: (v) => `${num(v)}건`, min: 80 });
 }
 
 runAll([renderSummary, renderRoster, renderIcHistory, renderSignals, renderVerdicts]);

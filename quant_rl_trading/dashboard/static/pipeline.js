@@ -70,6 +70,7 @@ async function renderFlow() {
   if (data.screen_error) warnings.push(`선정 함수를 다시 부르지 못했다 — ${plEsc(data.screen_error)}`);
   showAlerts(warnings);
   renderSteps(data);
+  renderFunnel(data);
   drawFlow(data);
   const wanted = new URLSearchParams(window.location.search).get("stage");
   const first = data.nodes.find((n) => n.key === wanted) || data.nodes.find((n) => n.key === "model") || data.nodes[0];
@@ -86,6 +87,18 @@ function renderSessionBar(data, body) {
     ? `최신 매매 — <span class="num">${plDay(data.session.as_of)}</span> 장 마감 자료로 정해 다음 거래일 아침에 주문했다`
       + (data.session.nav ? ` · 자본 <span class="num">${plNum(Math.round(data.session.nav))}원</span>` : "")
     : `이 시점에 보이는 매매 기록이 없다`;
+}
+
+/* 깔때기 — 흐름 노드(켜진 것, 해설 제외)마다 나간 종목 수. 로그 축 — 2,868 → 24 를 한 그림에(§8-5). 색 = AI·규칙·LLM. */
+function renderFunnel(data) {
+  const cap = document.getElementById("pl-funnel-cap");
+  const nodes = (data.nodes || []).filter((n) => n.active && n.key !== "commentary" && n.key !== "analysts" && n.n_out !== null && n.n_out !== undefined && n.n_out > 0);
+  if (cap) cap.innerHTML = nodes.length ? vizCaption([[plKindColor("ai"), "AI"], [plKindColor("rule"), "규칙"], [plKindColor("llm"), "LLM"]],
+    "단계마다 남은 수 · 로그 축 · 주문·체결은 조각·건수") : "";
+  hbarChart("pl-funnel", nodes.map((n) => ({
+    label: n.title, value: n.n_out, color: plKindColor(n.kind),
+    tip: `${plEsc(n.title)}<br>${n.n_in !== null && n.n_in !== undefined ? `${plNum(n.n_in)} → ` : ""}${plNum(n.n_out)}`,
+  })), { log: true, phoneTop: 16, format: (v) => plNum(v), labelMax: 22, min: 120 });
 }
 
 function renderSteps(data) {
@@ -590,6 +603,16 @@ async function renderBlocks() {
   const d = body.data;
   const count = document.getElementById("pl-blocks-count");
   if (count) count.textContent = `차단 중 ${d.active_verdicts} · 기록 ${d.verdicts.length}건`;
+  // 사유별 건수 — 지금 막고 있는 것(차단 중)과 만료를 갈라 쌓는다. 응답을 세기만 한다(§8-5).
+  const byCat = {};
+  for (const row of d.verdicts) {
+    const key = PL_BLOCK_CATEGORY[row.category] || row.category;
+    byCat[key] = byCat[key] || { active: 0, expired: 0 };
+    byCat[key][row.active ? "active" : "expired"] += 1;
+  }
+  hbarChart("pl-blocks-chart", Object.entries(byCat).sort((a, b) => (b[1].active + b[1].expired) - (a[1].active + a[1].expired))
+    .map(([k, v]) => ({ label: k, value: v.active + v.expired, color: v.active ? COLOR.bad : COLOR.dim,
+      tip: `${plEsc(k)}<br>차단 중 ${v.active} · 만료 ${v.expired}` })), { format: (v) => `${v}건`, min: 70 });
   if (!d.verdicts.length) {
     target.innerHTML = `<p class="empty">창 안에 기록된 매수 금지 판정이 없다.</p>`;
     return;
