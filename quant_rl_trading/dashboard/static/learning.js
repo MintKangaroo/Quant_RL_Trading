@@ -620,19 +620,141 @@ function frControlsLine(controls) {
     <span class="kpi-note">모델이 이겨야 하는 기준선이다(지금 쓰는 GBM · 새 재료를 넣은 GBM)</span></p>`;
 }
 
+//: 시행 대장의 판정 줄을 읽기 좋게 — 줄 자체(대장)는 그대로 두고 화면에서만 나눈다(사용자 2026-10-13 "정리해줘").
+//: 프로토콜 → 묶음 이름, 시행 기호 → 쉬운 이름. 모르는 것은 원래 이름을 그대로 쓴다.
+const FR_FAMILY_NAME = {
+  "final-model-round-2026-10": "마지막 모델 회차",
+  "decision-focused-v2-2026-10": "결정 중심 학습 v2",
+  "decision-focused-2026-10": "결정 중심 학습 v1",
+  "be3-pretrain-2026-10": "BE 사전학습",
+};
+const FR_TRIAL_NAME = {
+  BE: "세트 트랜스포머 랭커",
+  BF: "LambdaRank 순위 최적화 GBM",
+  BG: "잔차 RL — 종목은 그대로, 비중만 기울임",
+  "D1a-C1": "결정 중심 학습 — 소수 집중(온도 낮음)",
+  "D1b-C1": "결정 중심 학습 — 넓게 분산(온도 높음)",
+  BE3: "BE 에 사전학습을 더한 판",
+};
+//: 대장 줄에 기준 수치가 없는 시행 — docs/trials-postmortem.md 의 결과 줄을 옮긴다(대장은 그대로).
+const FR_TRIAL_RESULT = {
+  "D1a-C1": "대 C1 −3.9%p — 집중 투자라 시작일만 바꿔도 연 3.9%p 흔들림",
+  "D1b-C1": "대 C1 −0.3%p — 현행과 성향이 같았고, 같은 구간 지수(+41.3%)가 더 높았다(+37.7%)",
+};
+//: 기준 기호의 뜻 — 칩에 마우스를 올리면 보인다.
+const FR_CRITERIA = {
+  "①": "평균 초과수익(연)", "②": "구간·시드 일관성", "③": "국면(박스/급등) 둘 다",
+  "④": "ΔIC — 순위 예측력을 보탰나", "⑤": "최대낙폭·회전율", "⑥": "현행 랭커(C1) 대비",
+  "⑦": "기존 채택안 대비", "⑧": "국면별 대비", "⑨": "지수 대비",
+};
+const FR_MARK = /[①②③④⑤⑥⑦⑧⑨]/;
+
+function frVerdictWord(text) {
+  if (/채택/.test(text) && !/채택\s*(안|않|못)/.test(text)) return "adopt";
+  if (/기각/.test(text)) return "reject";
+  return null;
+}
+
+function frVerdictBadge(word) {
+  if (word === "adopt") return `<span class="fr-v fr-v-adopt">채택</span>`;
+  if (word === "reject") return `<span class="fr-v fr-v-reject">기각</span>`;
+  return "";
+}
+
+function frTidy(text) {
+  // 0.053719778… 같은 긴 소수는 넷째 자리까지
+  return String(text).replace(/-?\d+\.\d{5,}/g, (m) => Number(m).toFixed(4)).trim();
+}
+
+function frChips(text) {
+  // "①평균 +3.1%p ○ · ②5/5 (100%) ○ · ⑤MDD … · 회전 … ○" → 기호마다 한 칩
+  return text.split(/(?=[①②③④⑤⑥⑦⑧⑨])/).map((part) => part.replace(/[\s·]+$/, "").trim())
+    .filter((part) => FR_MARK.test(part[0]))
+    .map((part) => {
+      const pass = /○\s*$/.test(part);
+      const fail = /[×✗]\s*$/.test(part);
+      const body = part.replace(/\s*[○×✗]\s*$/, "");
+      const tone = pass ? "pass" : (fail ? "fail" : "note");
+      const mark = pass ? "○" : (fail ? "✗" : "");
+      return `<span class="fr-chip fr-chip-${tone}" title="${frEsc(FR_CRITERIA[part[0]] || "")}">${frEsc(frTidy(body))}${mark ? ` <b>${mark}</b>` : ""}</span>`;
+    }).join("");
+}
+
+function frParseVerdict(v) {
+  const short = String(v.entity_id).split(":").pop();
+  const segments = String(v.detail || "").split(/\s*\|\s*/).map((x) => x.trim()).filter(Boolean);
+  const head = [];
+  const notes = [];
+  const candidates = [];
+  let current = null;
+  let overall = null;
+  let leading = true;
+  for (const seg of segments) {
+    const mark = seg.search(FR_MARK);
+    const judged = /^판정/.test(seg);
+    // 머리 요약("BE2 = … → 채택 — 모델이 나아서(⑥ 통과)")은 기호가 있어도 기준 칩이 아니다
+    if (leading && /→/.test(seg) && !/^(기록|과적합)/.test(seg)) { head.push(seg); continue; }
+    if (mark >= 0 && !judged) {
+      leading = false;
+      const label = seg.slice(0, mark).replace(/[:\s]+$/, "").trim();
+      if (label || !current) {
+        current = { label: label || short, chips: [], verdict: null };
+        candidates.push(current);
+      }
+      current.chips.push(seg.slice(mark));
+      continue;
+    }
+    if (judged) {
+      leading = false;
+      const named = seg.match(/^판정\(([^)]+)\)/);
+      const target = named ? candidates.find((c) => c.label.includes(named[1])) : current;
+      const word = frVerdictWord(seg);
+      if (target && !target.verdict) target.verdict = { word, text: seg.replace(/^판정(\([^)]*\))?\s*:?\s*/, "") };
+      else if (!overall) overall = seg.replace(/^판정\s*:?\s*/, "");
+      continue;
+    }
+    if (leading && !/^(기록|과적합)/.test(seg)) { head.push(seg); continue; }
+    leading = false;
+    notes.push(seg);
+  }
+  const all = [head.join(" "), overall || "", ...candidates.map((c) => c.verdict?.text || "")].join(" ");
+  const anyAdopt = candidates.some((c) => c.verdict?.word === "adopt") || frVerdictWord(head.join(" ")) === "adopt";
+  return { short, head, notes, candidates, overall, word: anyAdopt ? "adopt" : frVerdictWord(all) };
+}
+
+function frVerdictCard(v) {
+  const p = frParseVerdict(v);
+  const family = String(v.entity_id).split(":")[0];
+  const name = FR_TRIAL_NAME[p.short] || "";
+  const when = String(v.at).replace("T", " ").slice(0, 16);
+  const cands = p.candidates.map((c) => `<div class="fr-cand">
+      <div class="fr-cand-head"><strong>${frEsc(c.label)}</strong>${frVerdictBadge(c.verdict?.word)}</div>
+      <div class="fr-chips">${c.chips.map(frChips).join("")}</div>
+      ${c.verdict && c.verdict.text && !/^(채택|기각)$/.test(c.verdict.text.trim())
+        ? `<div class="kpi-note">${frEsc(c.verdict.text)}</div>` : ""}
+    </div>`).join("");
+  let headline = p.head.length ? p.head.join(" · ") : (p.overall || "");
+  if (FR_TRIAL_RESULT[p.short]) headline = `${headline ? headline + " — " : ""}${FR_TRIAL_RESULT[p.short]} (복기 문서)`;
+  const notes = p.notes.length ? `<details class="fr-notes"><summary>세부 기록 ${p.notes.length}줄 — 과적합 격차·학습 비용·성향</summary>
+      <ul>${p.notes.map((n) => `<li>${frEsc(frTidy(n.replace(/^기록\s*:?\s*/, "")))}</li>`).join("")}</ul></details>` : "";
+  return `<article class="fr-verdict fr-verdict-${p.word || "none"}">
+    <header><span class="fr-vname"><strong>${frEsc(p.short)}</strong>${name ? ` <span>${frEsc(name)}</span>` : ""}</span>${frVerdictBadge(p.word)}</header>
+    <div class="kpi-note">${frEsc(FR_FAMILY_NAME[family] || family)} · ${frEsc(when)} · 등록 지문 ${frEsc(v.protocol_hash || "미고정")}</div>
+    ${headline ? `<p class="fr-headline">${frEsc(frTidy(headline))}</p>` : ""}
+    ${cands}
+    ${notes}
+  </article>`;
+}
+
 function renderFinalRoundVerdicts(target, data) {
   if (!data.verdicts.length) {
     target.innerHTML = `<p class="kpi-note">판정 기록 없음 — 학습이 끝나면 시행 대장에 한 줄이 적힌다.
       진행률이 100% 라도 판정은 별도 실행이다.</p>`;
     return;
   }
-  const rows = data.verdicts.map((v) => `<tr>
-    <td><strong>${frEsc(v.entity_id)}</strong><div class="kpi-note">${frEsc(v.family)} · ${frEsc(v.protocol_hash || "해시 미고정")}</div></td>
-    <td>${String(v.at).replace("T", " ").slice(0, 16)}</td>
-    <td>${frEsc(v.detail)}</td></tr>`).join("");
-  target.innerHTML = `<h3>판정 기록 <span class="sub">시행 대장에 적힌 줄 그대로</span></h3>
-    <table class="dense"><thead><tr><th>시행</th><th>시각</th><th>판정</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
+  const adopted = data.verdicts.filter((v) => frParseVerdict(v).word === "adopt").map((v) => String(v.entity_id).split(":").pop());
+  target.innerHTML = `<h3>판정 기록 <span class="sub">${data.verdicts.length}건 · 채택 ${adopted.length ? frEsc(adopted.join("·")) : "없음"} · 기준 ○ 통과 ✗ 미달 (칩에 올리면 뜻)</span></h3>
+    <div class="fr-verdicts">${data.verdicts.map(frVerdictCard).join("")}</div>`;
 }
 
 async function renderFinalRound() {
