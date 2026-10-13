@@ -212,16 +212,19 @@ def our_us_holdings(ledger: Store | None, *, as_of: datetime) -> set[str] | None
         return None
     try:
         frame = ledger.get("realized_weights", as_of=as_of, lookback=30,
-                           columns=["market", "session_id", "realized_weight"])
-    except Exception:  # noqa: BLE001 — 겹침 표시는 곁가지라 장부가 깨져도 탭이 산다
+                           columns=["market", "session_id", "realized_weight", "valid_from", "observed_at"])
+        if frame.empty:
+            return None
+        frame = frame[frame["market"].astype(str) == "US"]
+        if frame.empty:
+            return None
+        last = frame["valid_from"].max()
+        latest = frame[frame["valid_from"] == last]
+        if "observed_at" in latest.columns:   # 정정본이 있으면 마지막 관측만
+            latest = latest.sort_values("observed_at")
+        latest = latest.groupby("entity_id").tail(1)
+    except Exception:  # noqa: BLE001 — 겹침 표시는 곁가지라 장부가 깨져도 탭이 산다(모름)
         return None
-    if frame.empty:
-        return None
-    frame = frame[frame["market"].astype(str) == "US"]
-    if frame.empty:
-        return None
-    last = frame["valid_from"].max()
-    latest = frame[frame["valid_from"] == last].sort_values("observed_at").groupby("entity_id").tail(1)
     return {str(e) for e, w in zip(latest["entity_id"], latest["realized_weight"], strict=False)
             if pd.notna(w) and float(w) > 0}
 
@@ -230,7 +233,10 @@ def mark_ours(rows: list[dict[str, Any]], store: Store, *, as_of: datetime, ours
     """CUSIP 축 행에 ``ticker``·``ours`` 를 붙인다. 매핑은 ``store/holdings.cusip_to_entity``(애매한 CUSIP 은 안 붙인다)."""
     from quant_rl_trading.store.holdings import cusip_to_entity
 
-    mapping = cusip_to_entity(store, as_of=as_of) if rows else pd.DataFrame()
+    try:
+        mapping = cusip_to_entity(store, as_of=as_of) if rows else pd.DataFrame()
+    except Exception:  # noqa: BLE001 — 매핑이 깨져도 13F 표는 산다(티커·겹침은 모름)
+        mapping = pd.DataFrame()
     lookup = dict(zip(mapping["id_value"].astype(str).str.upper(), mapping["entity_id"], strict=False)) \
         if not mapping.empty else {}
     for row in rows:

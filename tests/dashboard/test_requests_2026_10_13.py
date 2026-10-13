@@ -108,3 +108,39 @@ def test_트랙_성과는_장부가_없으면_없다고_적는다(tmp_path: Path
     model_story.track_performance(tmp_path, tracks, None, NOW)
     perf = tracks[0]["perf"]
     assert perf[0]["status"] == "no_book" and perf[0]["name"] == "Z2"
+
+
+TEMPLATES = Path(__file__).resolve().parents[2] / "quant_rl_trading" / "dashboard" / "templates"
+STATIC = TEMPLATES.parent / "static"
+
+
+def test_과거_RL_진단은_모델_검증_탭에_없고_연구_작업은_시스템_탭에_있다() -> None:
+    learning = (TEMPLATES / "learning.html").read_text(encoding="utf-8")
+    for gone in ("rl-diagnostics", "training-live", "research-jobs", "empty-curriculum", "empty-ir-vs-baseline"):
+        assert f'id="{gone}"' not in learning
+    script = (STATIC / "learning.js").read_text(encoding="utf-8")
+    for gone in ("learning/training-runs", "learning/evaluations", "learning/curriculum", "learning/research-jobs"):
+        assert gone not in script
+    assert 'id="research-jobs"' in (TEMPLATES / "system.html").read_text(encoding="utf-8")
+    assert "learning/research-jobs" in (STATIC / "system.js").read_text(encoding="utf-8")
+
+
+def test_옮긴_패널은_원래_탭에_없다() -> None:
+    headlines = (TEMPLATES / "headlines.html").read_text(encoding="utf-8")
+    assert 'id="verdicts"' not in headlines and 'id="events"' not in headlines
+    assert 'id="pl-blocks"' in (TEMPLATES / "pipeline.html").read_text(encoding="utf-8")
+    assert 'id="events"' in (TEMPLATES / "system.html").read_text(encoding="utf-8")
+
+
+def test_우리_미장_보유는_최근_세션_실현_비중에서(store) -> None:  # type: ignore[no-untyped-def]
+    """10/13 실측: columns 로 observed_at 을 빼먹어 13F 탭 두 API 가 500 이었다 — 실제 행으로 돈다."""
+    store.seed_config_defaults()
+    rows = []
+    for moment, weights in ((D1, {"US:AAA": 0.1, "US:BBB": 0.2}), (D2, {"US:AAA": 0.0, "US:BBB": 0.3, "KR:005930": 0.4})):
+        for entity, w in weights.items():
+            rows.append({"entity_id": entity, "valid_from": moment, "observed_at": moment, "source": "test",
+                         "market": entity[:2], "session_id": f"s-{moment.date()}", "target_weight": w,
+                         "realized_weight": w, "initial_quantity": 0.0, "reference_price": 1.0,
+                         "reference_equity": 1.0})
+    store.append("realized_weights", rows, ingest_run_id="rw")
+    assert thirteen_f.our_us_holdings(store, as_of=NOW) == {"US:BBB"}
