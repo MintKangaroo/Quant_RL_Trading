@@ -654,6 +654,42 @@ _SPECS: dict[str, TableSpec] = {
             "(공시 시각 미상 → 장 마감 뒤로 보수적). 내부자 순매수 신호(사전등록 시행 D)의 재료."
         ),
     ),
+    # 국장 내부자 보고서 **원문 파싱**(2026-10-13, AR2 계열 탐색). `insider_trades`(elestock, 증감만·최근 2년)와
+    # 표를 나눈다 — 같은 표에 넣으면 등록된 G4(AR) 입력이 몰래 바뀐다. 세부변동 한 줄 = 한 행.
+    "insider_reports": TableSpec(
+        name="insider_reports",
+        columns={
+            "market": pa.string(),
+            "rcept_no": pa.string(),
+            "line": pa.int64(),                  # 보고서 안 세부변동 줄 순번(0부터)
+            "reporter": pa.string(),             # 성명(명칭)
+            "owner_key": pa.string(),            # 성명+생년월일 해시 — 원값은 싣지 않는다
+            "reporter_type": pa.string(),        # IFR_TP: D 개인(국내) · I 국내법인 · K 금융기관 · Y 연기금 …
+            "registered": pa.string(),           # STF_RYN: Y 등기 · N 비등기 · 98 해당없음
+            "position": pa.string(),             # 직위명 원문
+            "major_holder": pa.string(),         # MAIN_SH: 1 10%이상 · 2 사실상지배 · 4 아님
+            "report_kind": pa.string(),          # RPT_DST: 1 신규 · 2 변동
+            "shares_outstanding": pa.float64(),  # 발행주식 총수(보고서 기재)
+            "obligation_date": pa.string(),      # 보고의무발생일 YYYY-MM-DD
+            "reason_code": pa.string(),          # RPT_RSN 코드(01 장내매수 · 02 장내매도 · 34 증여 …)
+            "reason": pa.string(),               # 보고사유 이름 원문
+            "category": pa.string(),             # market · offmarket · grant · role · transfer · corporate · other
+            "change_date": pa.string(),          # 변동일 YYYY-MM-DD — 창은 이게 아니라 접수일(valid_from)로 센다
+            "security_code": pa.string(),        # STR_KND: 1 보통주 · 2 우선주 · 4 전환사채 …
+            "before": pa.float64(),
+            "change": pa.float64(),
+            "after": pa.float64(),
+            "price": pa.float64(),               # 취득/처분 단가(원). 비주식 증권은 행사가액
+            "price_raw": pa.string(),
+            "plan_report_date": pa.string(),     # TRD_PLN_RD 거래계획보고 일자(2024-07 사전공시제 뒤 서식)
+        },
+        natural_key=("entity_id", "valid_from", "rcept_no", "line"),
+        observation_lag_days=1,
+        doc=(
+            "DART 임원ㆍ주요주주 특정증권등 소유상황보고서 원문(document.xml)의 세부변동내역. valid_from = observed_at = "
+            "접수일 18:00 KST(FilingPolicy). 정정본은 싣지 않는다. 보고사유로 장내매매와 기계적 변동을 가른다."
+        ),
+    ),
     # **insider_trades 와 표를 나눈다** (2026-09-19). 같은 표에 미장을 넣으면 6차 G4 의 등록된
     # 미장 입력(전부 0)이 몰래 바뀐다. 필드도 다르다 — Form 4 는 거래 코드·가격·10b5-1 여부가 있다.
     "form4_trades": TableSpec(
