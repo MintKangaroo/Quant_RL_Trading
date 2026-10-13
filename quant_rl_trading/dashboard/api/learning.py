@@ -189,3 +189,18 @@ def exposure_effect() -> Any:
     result = derived(current_store, ("exposure_effect", current.as_of.isoformat()),
                      lambda: compute(current_store, as_of=current.as_of))
     return envelope(current, {**result, "line": effect_line(result)})
+
+
+@bp.get("/candidates")
+def candidates() -> Any:
+    """② 무엇이 시험 중이고 언제 판정되나 — 매매 과정 탭 후보 칩과 **같은 함수**(``pipeline_view.candidates``)를 부른다.
+    결과는 대장·카탈로그를 옮기기만 하고(판정을 새로 내리지 않는다), 판정일이 as_of 뒤인 결과는 없다(그 함수 규칙)."""
+    from pathlib import Path
+
+    from quant_rl_trading.dashboard.services import pipeline_view
+
+    current = scope()
+    research = research_store()
+    data = pipeline_view.candidates(research, store(), as_of=current.as_of, market="KR", root=Path(research.root))
+    keep = ("id", "stage", "title", "change", "judge", "status", "applied", "doc", "doc_fixed")
+    return envelope(current, {"candidates": [{k: c[k] for k in keep} for c in data["candidates"]]})

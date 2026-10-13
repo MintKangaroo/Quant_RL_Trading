@@ -181,6 +181,121 @@ function stripChart(id, rows, cols, cells, opts = {}) {
   return c;
 }
 
+/* -- IC 추이 (사용자 10/13 밤 "이게 뭐야" — 범례 12개 쪽넘김·불규칙 시각 범주·점 흩뿌림을 다시 그린다) ----------
+ * - x 는 **시간 축**, 측정은 **주(월요일, KST)** 로 묶어 그 주 마지막 측정 하나 — 같은 주에 두 번 잰 것이 지그재그를 만들지 않게.
+ *   IC 값은 API 그대로다(다시 계산하지 않는다). 묶는 것은 날짜뿐.
+ * - 시장마다 작은 그림 하나(호출하는 쪽이 KR·US 를 따로 부른다).
+ * - **실전 알파(가중치 > 0)는 굵은 색 선**, 나머지는 옅은 회색 — 지금 매매에 쓰는 것이 먼저 읽힌다.
+ * - 범례 대신 **선 끝 이름**(겹치면 위아래로 민다). 합격선은 라벨 붙은 점선(값은 API 가 config 에서 준 것만). */
+const IC_DAY_MS = 86400000;
+function icWeekKey(iso) {
+  const d = kstDate(iso);
+  if (!d) return null;
+  const t = Date.parse(`${d}T00:00:00Z`);
+  const dow = (new Date(t).getUTCDay() + 6) % 7;     // 월 = 0
+  return t - dow * IC_DAY_MS;                          // 그 주 월요일(KST 날짜를 UTC 자정으로)
+}
+function icWeekly(points) {
+  const byWeek = new Map();
+  for (const p of points || []) {
+    if (p.ic === null || p.ic === undefined) continue;
+    const key = icWeekKey(p.at);
+    if (key === null) continue;
+    const prev = byWeek.get(key);
+    if (!prev || p.at > prev.at) byWeek.set(key, p);
+  }
+  return [...byWeek.entries()].sort((a, b) => a[0] - b[0]).map(([week, p]) => ({ week, ...p }));
+}
+function icWeekLabel(ms) {
+  const d = new Date(ms);
+  return `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** series: [{analyst, points:[{at, ic}]}] · opts: {threshold, weightOf(analyst) → 가중치|null, title} */
+function icTrendChart(id, series, opts = {}) {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  const lines = series.map((s) => ({ s, pts: icWeekly(s.points) })).filter((x) => x.pts.length);
+  const c = chart(id);
+  if (!lines.length) {
+    c.clear();
+    c.setOption({ ...BASE, title: { text: opts.empty || "저장된 IC 이력 없음", left: "center", top: "middle",
+      textStyle: { color: COLOR.dim, fontSize: 12, fontWeight: "normal" } } }, true);
+    return c;
+  }
+  const weight = (a) => (opts.weightOf ? opts.weightOf(a) : null);
+  // 굵은 선(실전)을 나중에 그려 위에 오게, 색은 실전만 팔레트 순서로.
+  lines.sort((a, b) => (weight(a.s.analyst) > 0) - (weight(b.s.analyst) > 0));
+  let colorIndex = 0;
+  const phone = vizPhone();
+  const seriesOut = lines.map(({ s, pts }) => {
+    const live = weight(s.analyst) > 0;
+    const color = live ? COLOR.series[colorIndex++ % COLOR.series.length] : COLOR.dim;
+    const last = pts[pts.length - 1];
+    return {
+      name: s.analyst, type: "line", showSymbol: pts.length < 3, symbolSize: 4, connectNulls: true,
+      z: live ? 3 : 2,
+      data: pts.map((p) => [p.week, p.ic]),
+      lineStyle: { width: live ? 2.2 : 1, color, opacity: live ? 1 : 0.55 },
+      itemStyle: { color },
+      endLabel: { show: true, color: live ? color : COLOR.dim, fontSize: phone ? 9 : 10, fontFamily: "IBM Plex Mono",
+        fontWeight: live ? 600 : 400,
+        formatter: () => `${s.analyst} ${last.ic >= 0 ? "" : "−"}${Math.abs(last.ic).toFixed(3)}` },
+      // 실전 선 이름은 겹치면 위아래로 밀고, 옅은 선 이름은 겹치면 숨긴다(툴팁이 전부 말한다).
+      labelLayout: live ? { moveOverlap: "shiftY" } : { hideOverlap: true },
+      emphasis: { focus: "series" },
+    };
+  });
+  const ys = lines.flatMap((l) => l.pts.map((p) => p.ic));
+  if (opts.threshold !== null && opts.threshold !== undefined) ys.push(opts.threshold);
+  const lo = Math.min(0, ...ys), hi = Math.max(...ys);
+  const pad = (hi - lo) * 0.08 || 0.01;
+  if (opts.threshold !== null && opts.threshold !== undefined) {
+    const weeks = [...new Set(lines.flatMap((l) => l.pts.map((p) => p.week)))].sort((a, b) => a - b);
+    seriesOut.push({
+      name: "합격선", type: "line", silent: true, symbol: "none", z: 1, tooltip: { show: false },
+      data: [[weeks[0], opts.threshold], [weeks[weeks.length - 1], opts.threshold]],
+      lineStyle: { width: 1, color: COLOR.warn, type: "dashed" },
+      endLabel: { show: true, color: COLOR.warn, fontSize: 10, fontFamily: "IBM Plex Mono", formatter: () => `합격선 ${opts.threshold}` },
+      labelLayout: { moveOverlap: "shiftY" },
+    }, {
+      name: "0", type: "line", silent: true, symbol: "none", z: 1, tooltip: { show: false },
+      data: [[weeks[0], 0], [weeks[weeks.length - 1], 0]],
+      lineStyle: { width: 1, color: COLOR.border },
+    });
+  }
+  c.setOption({
+    ...BASE, legend: { show: false },
+    title: opts.title ? { text: opts.title, left: 0, top: 0, textStyle: { color: COLOR.muted, fontSize: 11, fontWeight: 600, fontFamily: "Pretendard Variable, IBM Plex Mono" } } : undefined,
+    tooltip: { ...BASE.tooltip, trigger: "axis",
+      formatter: (ps) => {
+        const rows = ps.filter((p) => p.seriesName !== "합격선" && p.seriesName !== "0")
+          .sort((a, b) => b.value[1] - a.value[1])
+          .map((p) => `${p.marker}${vizEsc(p.seriesName)} ${p.value[1].toFixed(3)}${weight(p.seriesName) > 0 ? " · 실전" : ""}`);
+        return `${icWeekLabel(ps[0].value[0])} 주<br>${rows.join("<br>")}`;
+      } },
+    grid: { left: 40, right: phone ? 84 : 104, top: opts.title ? 26 : 12, bottom: 22 },
+    xAxis: { type: "time", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: icWeekLabel, hideOverlap: true } },
+    yAxis: { type: "value", ...AXIS, min: lo - pad, max: hi + pad,
+             axisLabel: { ...AXIS.axisLabel, formatter: (v) => v.toFixed(2), showMinLabel: false, showMaxLabel: false } },
+    series: seriesOut,
+  }, true);
+  return c;
+}
+
+/** 같은 자료를 Analyst × 주 칸 띠로(비교용) — 칸 색 = 합격선 위(ok)·0~합격선(dim)·0 아래(bad 옅게). */
+function icHeatChart(id, series, opts = {}) {
+  const rows = series.map((s) => ({ s, pts: icWeekly(s.points) })).filter((x) => x.pts.length);
+  const weeks = [...new Set(rows.flatMap((r) => r.pts.map((p) => p.week)))].sort((a, b) => a - b);
+  const th = opts.threshold;
+  const cells = rows.flatMap((r) => r.pts.map((p) => ({
+    row: r.s.analyst, col: icWeekLabel(p.week),
+    color: th != null && p.ic >= th ? COLOR.ok : p.ic >= 0 ? COLOR.faint : COLOR.bad,
+    tip: `${vizEsc(r.s.analyst)} · ${icWeekLabel(p.week)} 주<br>IC ${p.ic.toFixed(3)}`,
+  })));
+  return stripChart(id, rows.map((r) => r.s.analyst), weeks.map(icWeekLabel), cells, { labelMax: 12 });
+}
+
 /** 그림 위 캡션 한 줄 — 색 칸 + 이름(차트 안 범례 대신). items: [[색, 이름], ...], extra: 덧붙일 글(이스케이프된 HTML) */
 function vizCaption(items, extra = "") {
   return `<div class="chart-cap">${items.map(([color, label]) =>
