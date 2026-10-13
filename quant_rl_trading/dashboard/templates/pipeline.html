@@ -32,6 +32,9 @@
   <section class="panel pl-steps" aria-labelledby="pl-steps-title">
     <h2 id="pl-steps-title"><span class="section-index">01</span>매매 단계 <span class="sub">지금 방식 — 단계마다 하는 일과 AI 를 쓰는지. 줄을 누르면 아래 흐름도에서 그 단계</span></h2>
     <div id="pl-steps"></div>
+    {# 깔때기 — 단계마다 남은 종목 수(로그 축). 그 세션 기록·선정 함수가 낸 숫자 그대로(§8-5). #}
+    <div id="pl-funnel-cap"></div>
+    <div id="pl-funnel" class="viz" role="img" aria-label="단계별 남은 종목 수 깔때기"></div>
   </section>
 
   <section class="pl-grid">
@@ -51,7 +54,10 @@
   <section class="panel pl-blocks" aria-labelledby="pl-blocks-title">
     <h2 id="pl-blocks-title">③ 거르기 — 뉴스 매수 금지 <span class="sub">News·SNS 판정 · 매수만 막는다(매도 권한 없음)</span>
       <span class="right"><span class="sub" id="pl-blocks-count"></span></span></h2>
+    <div id="pl-blocks-chart" class="viz" role="img" aria-label="매수 금지 사유별 건수"></div>
+    <details class="fold"><summary>매수 금지 명단</summary>
     <div id="pl-blocks" class="scroll dense mcard"></div>
+    </details>
     <p class="note">악재 키워드가 걸린 종목은 새로 사지 않는다. Claude 가 원문을 읽고 오탐이면 풀어 준다 — 새로 막지는 않는다.
       만료된 차단도 남긴다.</p>
   </section>
@@ -96,5 +102,5 @@
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='pipeline.js', v='20261013b') }}"></script>
+<script src="{{ url_for('static', filename='pipeline.js', v='20261013v') }}"></script>
 {% endblock %}
