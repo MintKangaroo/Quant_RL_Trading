@@ -1,7 +1,7 @@
 """공통 평가 사다리 — 어떤 새 점수(또는 랭커 재료 후보)든 **같은 세 칸**으로 판정표를 낸다(2026-10-13, 사용자 "판단 기준·좋은 종목을 못 찾으면 말짱도루묵").
 
     # 0) 공통 자료(가격·명단·라벨·벤치·V6·시총·업종)를 한 번 굽는다 — 무거움, 연구 슬롯 잠금 안에서
-    flock -n data/_locks/research-slot-1.lock nice -n 10 .venv/bin/python tools/eval_ladder.py context
+    for p in market caps sectors; do flock -n data/_locks/research-slot-1.lock nice -n 10 .venv/bin/python tools/eval_ladder.py context --part $p; done
 
     # 1) 모델(랭커 대체) 판정 — 점수 파일 하나 대 대조(기본 C0) 파일
     #    --score·--control 에 이름만 주면 data/_diag/eval-ladder/scores/<이름> 점수 파일을 읽는다(경로도 된다)
@@ -65,7 +65,7 @@ CONTEXT_START = date(2021, 11, 10)
 OUT = Path("data/_diag/eval-ladder")  # invariant-allow: data-access — 연구 캐시(창고 아님)
 SCORES = OUT / "scores"
 LEDGER = OUT / "ledger.jsonl"
-CONTEXT_FILE = OUT / "context.pkl"
+CONTEXT_FILE = OUT / "context"
 #: 연구 캐시 — 거래가능 명단(≤ 2026-06-30 연구 확장 패널, 7/1~9/30 금고 early 작업 캐시 = 실전 `tradable_entities`).
 TRAD_LONG = Path("data/_diag-long/tradable-KR.pkl")  # invariant-allow: data-access — 연구 캐시
 TRAD_EARLY = Path("data/_diag/vault-early/tradable-KR.pkl")  # invariant-allow: data-access — 금고 early 작업 캐시(이제 탐색 자료)
@@ -186,7 +186,8 @@ def _trad_frame(path: Path) -> pd.DataFrame:
     return f[["session", "entity_id"]]
 
 
-def build_context(store: Any, *, start: date = CONTEXT_START, end: date = DATE_CAP, with_caps: bool = True) -> Context:
+def build_context(store: Any, *, start: date = CONTEXT_START, end: date = DATE_CAP, with_caps: bool = True,
+                  with_sectors: bool = True) -> Context:
     """가격·벤치·명단·V6·시총·업종. **as_of 는 CAP_AS_OF 를 넘지 않는다.**"""
     from quant_rl_trading.store.prices import read_prices
     from tools.diag_bear_2022 import exposure_scales
@@ -215,7 +216,7 @@ def build_context(store: Any, *, start: date = CONTEXT_START, end: date = DATE_C
     uni = pd.Series({d: float(ret.loc[d].reindex(list(trad[d])).mean()) for d in days})
     scale, _state = exposure_scales(store, days, as_of)
     caps = _caps(store, start, end, as_of) if with_caps else None
-    sectors = _sectors(store, as_of, list(close.columns))
+    sectors = _sectors(store, as_of, list(close.columns)) if with_sectors else {}
     return Context(close=close, ret=ret, bench=bench, k200_close=k, trad=trad, uni=uni,
                    scale=scale.reindex(days).fillna(1.0), caps=caps, sectors=sectors)
 
@@ -254,15 +255,61 @@ def _sectors(store: Any, as_of: datetime, entities: list[str]) -> dict[str, str]
     return {e: str(v).replace("KSIC:", "")[:2] for e, v in raw.items()}
 
 
+_CTX_FIELDS = ("close", "bench", "k200_close", "uni", "scale", "caps", "sectors", "trad")
+
+
 def save_context(ctx: Context, path: Path = CONTEXT_FILE) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pd.to_pickle(ctx, path)  # invariant-allow: data-access — 연구 캐시
+    """필드마다 따로 쓴다 — 통째로 pickle 하면 직렬화 사본이 겹쳐 4GB 상한에 걸린다(2026-10-13 22:07 MemoryError).
+    ret 은 close 에서 다시 만든다(같은 식). trad 는 (session, entity_id) 표로."""
+    import gc
+
+    path.mkdir(parents=True, exist_ok=True)
+    for name in _CTX_FIELDS:
+        obj = getattr(ctx, name)
+        if name == "close":
+            obj = obj.astype("float32")
+        if name == "trad":
+            obj = pd.DataFrame([(d, e) for d, names in obj.items() for e in names], columns=["session", "entity_id"])
+        pd.to_pickle(obj, path / f"{name}.pkl")  # invariant-allow: data-access — 연구 캐시
+        del obj
+        gc.collect()
+
+
+def save_context_part(store: Any, part: str, path: Path = CONTEXT_FILE) -> None:
+    """공통 자료를 조각으로 굽는다 — market(가격·벤치·명단·V6) · caps(시총) · sectors(업종). 프로세스마다 하나씩
+    (2026-10-13 22:07·22:09 한 프로세스에서 다 하다 4GB 가상 메모리 상한에 MemoryError)."""
+    import gc
+
+    path.mkdir(parents=True, exist_ok=True)
+    as_of = CAP_AS_OF
+    if part == "market":
+        ctx = build_context(store, with_caps=False, with_sectors=False)
+        ctx.caps, ctx.sectors = None, {}
+        for name in ("close", "bench", "k200_close", "uni", "scale", "trad"):
+            obj = getattr(ctx, name)
+            if name == "close":
+                obj = obj.astype("float32")
+            if name == "trad":
+                obj = pd.DataFrame([(d, e) for d, names in obj.items() for e in names], columns=["session", "entity_id"])
+            pd.to_pickle(obj, path / f"{name}.pkl")  # invariant-allow: data-access — 연구 캐시
+            del obj
+            gc.collect()
+    elif part == "caps":
+        pd.to_pickle(_caps(store, CONTEXT_START, DATE_CAP, as_of), path / "caps.pkl")  # invariant-allow: data-access — 연구 캐시
+    else:
+        close = pd.read_pickle(path / "close.pkl")  # invariant-allow: data-access — 연구 캐시
+        pd.to_pickle(_sectors(store, as_of, list(close.columns)), path / "sectors.pkl")  # invariant-allow: data-access — 연구 캐시
 
 
 def load_context(path: Path = CONTEXT_FILE) -> Context:
-    ctx = pd.read_pickle(path)  # invariant-allow: data-access — 연구 캐시
-    guard_cap(ctx.close.index, "공통 자료")
-    return ctx
+    parts = {n: pd.read_pickle(path / f"{n}.pkl") for n in _CTX_FIELDS}  # invariant-allow: data-access — 연구 캐시
+    close = parts["close"].astype("float64")
+    guard_cap(close.index, "공통 자료")
+    ret = close.shift(-2) / close.shift(-1) - 1.0
+    ret = ret.where(ret.abs() <= MAX_MOVE)
+    trad = {d: set(p["entity_id"]) for d, p in parts["trad"].groupby("session")}
+    return Context(close=close, ret=ret, bench=parts["bench"], k200_close=parts["k200_close"], trad=trad, uni=parts["uni"],
+                   scale=parts["scale"], caps=parts["caps"], sectors=parts["sectors"])
 
 
 # --------------------------------------------------------------------------- 점수 파일
@@ -282,10 +329,51 @@ def resolve(spec: str) -> Path:
     return p if (p.suffix or "/" in spec) else score_path(spec)
 
 
-def read_scores(path: Path | str) -> dict[int, pd.DataFrame]:
-    """점수 파일 → {seed: (entity_id, session, pred)}. DATE_CAP 뒤 세션이 있으면 거부."""
+class LazyScores(Mapping[int, pd.DataFrame]):
+    """점수 파일의 시드를 **하나씩** 읽는다(필요할 때만) — 시드 다섯 × 300만 행을 한꺼번에 들면 4GB 상한을 넘는다
+    (2026-10-13 22:19 scores 단계 MemoryError). `lo`·`hi` 는 세션 창(양끝 포함)."""
+
+    def __init__(self, path: Path, lo: date | None = None, hi: date | None = None) -> None:
+        self.path, self.lo, self.hi = path, lo, hi
+        seeds = pd.read_parquet(path, columns=["seed"])["seed"]  # invariant-allow: data-access — 점수 캐시
+        self._seeds = sorted(int(x) for x in seeds.unique())
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._seeds)
+
+    def __len__(self) -> int:
+        return len(self._seeds)
+
+    def __getitem__(self, seed: int) -> pd.DataFrame:
+        if seed not in self._seeds:
+            raise KeyError(seed)
+        filters: list[tuple[str, str, Any]] = [("seed", "==", int(seed))]
+        if self.lo is not None:
+            filters.append(("session", ">=", self.lo))
+        if self.hi is not None:
+            filters.append(("session", "<=", self.hi))
+        f = pd.read_parquet(self.path, columns=["entity_id", "session", "pred"], filters=filters)  # invariant-allow: data-access — 점수 캐시
+        f["session"] = pd.to_datetime(f["session"]).dt.date
+        guard_cap(f["session"].unique(), str(self.path))
+        return f.reset_index(drop=True)
+
+    def window(self, lo: date | None, hi: date | None) -> LazyScores:
+        out = LazyScores.__new__(LazyScores)
+        out.path, out._seeds = self.path, self._seeds
+        out.lo = max(x for x in (self.lo, lo) if x is not None) if (self.lo or lo) else None
+        out.hi = min(x for x in (self.hi, hi) if x is not None) if (self.hi or hi) else None
+        return out
+
+
+def read_scores(path: Path | str) -> Mapping[int, pd.DataFrame]:
+    """점수 파일 → {seed: (entity_id, session, pred)}. parquet 는 시드를 하나씩 읽는 `LazyScores`. DATE_CAP 뒤 세션이 있으면 거부."""
     path = resolve(str(path))
-    frame = pd.read_parquet(path) if path.suffix == SCORE_SUFFIX else pd.read_pickle(path)  # invariant-allow: data-access — 점수 캐시
+    if path.suffix == SCORE_SUFFIX:
+        sess = pd.read_parquet(path, columns=["session"])["session"]  # invariant-allow: data-access — 점수 캐시
+        guard_cap(pd.Series(sess.unique()), str(path))
+        del sess
+        return LazyScores(path)
+    frame = pd.read_pickle(path)  # invariant-allow: data-access — 점수 캐시
     frame["session"] = pd.to_datetime(frame["session"]).dt.date
     guard_cap(frame["session"].unique(), str(path))
     if "seed" not in frame.columns:
@@ -293,22 +381,45 @@ def read_scores(path: Path | str) -> dict[int, pd.DataFrame]:
     return {int(s): p[["entity_id", "session", "pred"]].reset_index(drop=True) for s, p in frame.groupby("seed")}
 
 
-def write_scores(preds: Mapping[int, pd.DataFrame], path: Path) -> None:
-    frames = []
-    for s, p in preds.items():
-        guard_cap(p["session"].unique(), str(path))
-        frames.append(p[["entity_id", "session", "pred"]].assign(seed=int(s)))
+def write_scores(preds: Mapping[int, pd.DataFrame] | Any, path: Path) -> None:
+    """시드마다 한 조각씩 흘려 쓴다(전체를 이어 붙이지 않는다). `preds` 는 Mapping 또는 (seed, frame) 반복자."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 점수 캐시 쓰기
+
+    items = preds.items() if isinstance(preds, Mapping) else preds
     path.parent.mkdir(parents=True, exist_ok=True)
-    pd.concat(frames, ignore_index=True).to_parquet(path, index=False)  # invariant-allow: data-access — 점수 캐시
+    tmp = path.with_name(path.name + ".tmp")
+    schema = pa.schema([("entity_id", pa.string()), ("session", pa.date32()), ("pred", pa.float64()), ("seed", pa.int64())])
+    writer = pq.ParquetWriter(tmp, schema)  # invariant-allow: data-access — 점수 캐시
+    try:
+        for s, p in items:
+            guard_cap(p["session"].unique(), str(path))
+            part = p[["entity_id", "session", "pred"]].assign(seed=int(s))
+            part["session"] = pd.to_datetime(part["session"]).dt.date
+            writer.write_table(pa.Table.from_pandas(part, schema=schema, preserve_index=False))  # invariant-allow: data-access — 점수 캐시
+            del part
+    finally:
+        writer.close()
+    tmp.replace(path)
 
 
 def bundle(preds: Mapping[int, pd.DataFrame]) -> pd.DataFrame:
-    """시드 평균 묶음 — 같은 (종목, 세션)의 점수 평균(AL 의 '5시드 평균 점수')."""
-    allp = pd.concat([p.assign(seed=s) for s, p in preds.items()], ignore_index=True)
-    return allp.groupby(["entity_id", "session"], as_index=False)["pred"].mean()
+    """시드 평균 묶음 — 같은 (종목, 세션)의 점수 평균(AL 의 '5시드 평균 점수'). 시드를 하나씩 더한다."""
+    total: pd.Series | None = None
+    count: pd.Series | None = None
+    for p in preds.values():
+        v = p.set_index(["entity_id", "session"])["pred"].astype(float)
+        one = pd.Series(1.0, index=v.index)
+        total = v if total is None else total.add(v, fill_value=0.0)
+        count = one if count is None else count.add(one, fill_value=0.0)
+        del p, v, one
+    out = (total / count).rename("pred").reset_index()
+    return out[["entity_id", "session", "pred"]]
 
 
-def restrict(preds: Mapping[int, pd.DataFrame], lo: date | None, hi: date | None) -> dict[int, pd.DataFrame]:
+def restrict(preds: Mapping[int, pd.DataFrame], lo: date | None, hi: date | None) -> Mapping[int, pd.DataFrame]:
+    if isinstance(preds, LazyScores):
+        return preds.window(lo, hi)
     out = {}
     for s, p in preds.items():
         m = pd.Series(True, index=p.index)
@@ -522,7 +633,8 @@ def loss_table(preds: Mapping[int, pd.DataFrame], ctx: Context, *, y5: pd.DataFr
     ports = {s: port_summary(v["_net"], v["_turn"], ctx) for s, v in per_seed.items()}
     return {"rows": rows, "ports": ports,
             "bundle_port": port_summary(bun["_net"], bun["_turn"], ctx) if bun is not None else None,
-            "window": [str(min(min(p["session"]) for p in preds.values())), str(max(max(p["session"]) for p in preds.values()))]}
+            "window": [str(min(v["_net"].index.min() for v in per_seed.values())),
+                       str(max(v["_net"].index.max() for v in per_seed.values()))]}
 
 
 # --------------------------------------------------------------------------- 칸 ② 재료 모드 — 재학습
@@ -619,6 +731,22 @@ def _p_two(t: float) -> float:
     return float(2 * (1 - norm.cdf(abs(t)))) if np.isfinite(t) else float("nan")
 
 
+class _Subset(Mapping[int, pd.DataFrame]):
+    """Mapping 의 일부 키만 — 값은 꺼낼 때 읽는다(LazyScores 를 통째로 들지 않는다)."""
+
+    def __init__(self, base: Mapping[int, pd.DataFrame], keys: Sequence[int]) -> None:
+        self.base, self.keys_ = base, list(keys)
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self.keys_)
+
+    def __len__(self) -> int:
+        return len(self.keys_)
+
+    def __getitem__(self, k: int) -> pd.DataFrame:
+        return self.base[k]
+
+
 def ladder(preds: Mapping[int, pd.DataFrame], ctx: Context, *, control: Mapping[int, pd.DataFrame] | None = None,
            thresholds: Thresholds = Thresholds(), n_tests: int = 1, plus_base: Mapping[int, Mapping[str, pd.DataFrame]] | None = None,
            y5: pd.DataFrame | None = None) -> dict[str, Any]:
@@ -654,7 +782,7 @@ def ladder(preds: Mapping[int, pd.DataFrame], ctx: Context, *, control: Mapping[
         kind = "재학습(C0+재료 − C0)"
     elif control is not None:
         common = sorted(set(preds) & set(control))
-        cic = ic_frame({s: control[s] for s in common}, y5, ctx.trad)
+        cic = ic_frame(_Subset(control, common), y5, ctx.trad)
         dic = pd.DataFrame({s: ics[s] - cic[s] for s in common})
         kind = "짝 ΔIC(점수 − 대조)"
     else:
@@ -807,6 +935,8 @@ def main(argv: list[str] | None = None) -> int:
     cx = sub.add_parser("context", help="공통 자료 굽기(무거움)")
     cx.add_argument("--root", default="data")
     cx.add_argument("--force", action="store_true")
+    cx.add_argument("--part", choices=("market", "caps", "sectors"), required=True,
+                    help="조각마다 따로 돈다(프로세스를 나눠 4GB 상한 안에 둔다)")
     rn = sub.add_parser("run", help="사다리 판정표")
     rn.add_argument("--name", required=True)
     rn.add_argument("--score", required=True)
@@ -824,9 +954,8 @@ def main(argv: list[str] | None = None) -> int:
         require_heavy(args.force)
         from quant_rl_trading.store import Store
 
-        ctx = build_context(Store(root=Path(args.root)))
-        save_context(ctx)
-        print(f"공통 자료 {CONTEXT_FILE} · 가격 {ctx.close.index[0]}~{ctx.close.index[-1]} · 명단 {len(ctx.trad)}세션", flush=True)
+        save_context_part(Store(root=Path(args.root)), args.part)
+        print(f"공통 자료 {CONTEXT_FILE} · 조각 {args.part} 저장", flush=True)
         return 0
     if args.end is not None and args.end > DATE_CAP:
         raise CapViolation(f"--end {args.end} > {DATE_CAP}")

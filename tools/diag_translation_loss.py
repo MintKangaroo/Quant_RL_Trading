@@ -93,24 +93,33 @@ def _early(arm: str) -> dict[int, pd.DataFrame]:
     return el.read_scores(el.score_path(f"early-{arm}", OUT))
 
 
-def cmd_scores() -> int:
+def _arm_seed(arm: str, s: int, early: dict[str, Any]) -> pd.DataFrame:
+    """한 군·한 시드의 이은 점수 — 한 번에 하나만 메모리에 둔다(22:19 MemoryError)."""
     from tools.trial_final_transformer import rank_average
 
-    e = {arm: _early(arm) for arm in ("C0", "C1", "BE2")}
-    c0, c1, be2 = {}, {}, {}
-    for s in el.SEEDS:
+    if arm == "C0":
         bear = _kr(pd.read_pickle(BEAR_PRED / f"pred-seed{s}.pkl"))  # invariant-allow: data-access — 진단 캐시
-        f0 = pd.read_pickle(FINAL / f"pred-C0-seed{s}-{TAG}.pkl")  # invariant-allow: data-access — 회차 캐시
-        f1 = pd.read_pickle(FINAL / f"pred-C1-seed{s}-{TAG}.pkl")  # invariant-allow: data-access — 회차 캐시
-        be = pd.read_parquet(FINAL / "BE" / f"seed{s}-judge.parquet")  # invariant-allow: data-access — 회차 캐시
-        f1k = f1[f1["market"] == "KR"]
-        b2 = _kr(rank_average(be[be["market"] == "KR"], f1k))
-        c0[s] = pd.concat([bear[bear["session"] < SPLICE], _kr(f0)[lambda f: f["session"] >= SPLICE], e["C0"][s]], ignore_index=True)
-        c1[s] = pd.concat([_kr(f1k), e["C1"][s]], ignore_index=True)
-        be2[s] = pd.concat([b2, e["BE2"][s]], ignore_index=True)
-        log(f"  시드 {s}: C0 {len(c0[s]):,} · C1 {len(c1[s]):,} · BE2 {len(be2[s]):,}행")
-    for name, preds in (("C0", c0), ("C1", c1), ("BE2", be2)):
-        el.write_scores(preds, el.score_path(name))
+        f0 = _kr(pd.read_pickle(FINAL / f"pred-C0-seed{s}-{TAG}.pkl"))  # invariant-allow: data-access — 회차 캐시
+        return pd.concat([bear[bear["session"] < SPLICE], f0[f0["session"] >= SPLICE], early["C0"][s]], ignore_index=True)
+    f1 = pd.read_pickle(FINAL / f"pred-C1-seed{s}-{TAG}.pkl")  # invariant-allow: data-access — 회차 캐시
+    f1k = f1[f1["market"] == "KR"]
+    del f1
+    if arm == "C1":
+        return pd.concat([_kr(f1k), early["C1"][s]], ignore_index=True)
+    be = pd.read_parquet(FINAL / "BE" / f"seed{s}-judge.parquet")  # invariant-allow: data-access — 회차 캐시
+    b2 = _kr(rank_average(be[be["market"] == "KR"], f1k))
+    return pd.concat([b2, early["BE2"][s]], ignore_index=True)
+
+
+def cmd_scores() -> int:
+    early = {arm: _early(arm) for arm in ("C0", "C1", "BE2")}
+    for arm in ("C0", "C1", "BE2"):
+        def gen(arm: str = arm):  # type: ignore[no-untyped-def]
+            for s in el.SEEDS:
+                frame = _arm_seed(arm, s, early)
+                log(f"  {arm} 시드 {s}: {len(frame):,}행 {frame['session'].min()}~{frame['session'].max()}")
+                yield s, frame
+        el.write_scores(gen(), el.score_path(arm))
     return 0
 
 

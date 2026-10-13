@@ -65,10 +65,33 @@ def test_read_scores_rejects_late_session(tmp_path) -> None:
         el.read_scores(tmp_path / "bad.parquet")
 
 
+def test_lazy_scores_round_trip_and_window(tmp_path) -> None:
+    days = [date(2026, 9, 28), date(2026, 9, 29), date(2026, 9, 30)]
+    frames = {s: pd.DataFrame({"entity_id": ["A", "B", "C"], "session": days, "pred": [s, s + 1.0, s + 2.0]}) for s in (0, 1)}
+    el.write_scores(((s, f) for s, f in frames.items()), tmp_path / "x.parquet")
+    lazy = el.read_scores(tmp_path / "x.parquet")
+    assert isinstance(lazy, el.LazyScores) and list(lazy) == [0, 1]
+    assert lazy[1]["pred"].tolist() == [1.0, 2.0, 3.0]
+    win = el.restrict(lazy, date(2026, 9, 29), None)
+    assert win[0]["session"].tolist() == days[1:]
+    b = el.bundle(lazy).set_index("entity_id")["pred"]
+    assert b["A"] == pytest.approx(0.5)
+
+
 def test_write_scores_rejects_late_session(tmp_path) -> None:
     p = pd.DataFrame({"entity_id": ["KR:1"], "session": [date(2026, 10, 2)], "pred": [0.1]})
     with pytest.raises(SystemExit):
         el.write_scores({0: p}, tmp_path / "x.parquet")
+
+
+def test_context_round_trip(tmp_path) -> None:
+    ctx, _ = _context(n_days=40, n_ent=6)
+    ctx.caps = pd.DataFrame({"session": [ctx.close.index[0]], "entity_id": ["KR:000000"], "cap": [1.0]})
+    ctx.sectors = {"KR:000000": "26"}
+    el.save_context(ctx, tmp_path / "ctx")
+    back = el.load_context(tmp_path / "ctx")
+    assert np.allclose(back.ret.fillna(0).to_numpy(), ctx.ret.fillna(0).to_numpy(), atol=1e-5)
+    assert back.trad.keys() == ctx.trad.keys() and back.sectors == ctx.sectors
 
 
 def test_bundle_is_seed_mean() -> None:

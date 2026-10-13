@@ -340,7 +340,7 @@ Phil(스스로 채점·회고·전략 재작성하는 트레이더)의 구조를
 - **날짜 상한 2026-09-30 이 코드에 박혀 있다**(`DATE_CAP`) — 그 뒤 세션이 든 점수 파일은 rc 2 로 거부한다. 금고 second(10/1~) 봉인.
 - 다중검정: `--n-tests`(이 질문에서 지금까지 본 변형 수)를 주면 Bonferroni 보정 p 를 찍고 `data/_diag/eval-ladder/ledger.jsonl` 에 한 줄 남긴다. 판정 문턱(t*)은 바꾸지 않는다.
 - 쓰는 법:
-  1. 공통 자료(한 번): `flock` 으로 연구 슬롯을 잡고 `.venv/bin/python tools/eval_ladder.py context`(무거움, 금지 창 밖).
+  1. 공통 자료(한 번): `flock` 으로 연구 슬롯을 잡고 `.venv/bin/python tools/eval_ladder.py context --part market` → `--part caps` → `--part sectors`(조각마다 따로 — 4GB 상한, 무거움, 금지 창 밖).
   2. 점수 파일: `entity_id · session · pred (· seed)` parquet — `data/_diag/eval-ladder/scores/<이름>` 에 두면 이름만으로 부른다. 국장, 결정 세션 t 의 점수(t 장 마감 뒤 알 수 있는 것만).
   3. 모델: `.venv/bin/python tools/eval_ladder.py run --name X --score X --control C0 --n-tests K --loss`(손실표도).
   4. 재료: `... run --mode feature --name X --score <재료 파일>` — 칸 ② 가 C0 재학습 짝(시드 5 × 약 50블록 GBM, 연구 슬롯 안에서).
