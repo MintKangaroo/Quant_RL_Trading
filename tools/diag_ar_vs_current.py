@@ -229,29 +229,70 @@ def us_panel() -> pd.DataFrame:
     return out
 
 
-def build_pooled() -> tuple[pd.DataFrame, list[date], pd.Index]:
-    kr = kr_panel()
-    log(f"국장 패널 {len(kr):,}행")
-    us = us_panel()
-    log(f"미장 패널 {len(us):,}행 {date.fromordinal(int(us['ord'].min()))}~{date.fromordinal(int(us['ord'].max()))}")
-    from pandas.api.types import union_categoricals
+def cmd_panel(market: str, force: bool) -> int:
+    """시장 하나의 압축 패널을 파일로(프로세스마다 하나 — 03:20·03:24 한 프로세스에서 둘을 만들다 가상 메모리 4GB 에 걸렸다)."""
+    el.require_heavy(force)
+    f = kr_panel() if market == "KR" else us_panel()
+    OUT.mkdir(parents=True, exist_ok=True)
+    f.to_parquet(el.score_path(f"panel-{market}", OUT), index=False)  # invariant-allow: data-access — 진단 캐시
+    log(f"{market} 압축 패널 {len(f):,}행 {date.fromordinal(int(f['ord'].min()))}~{date.fromordinal(int(f['ord'].max()))}")
+    return 0
 
-    ents = union_categoricals([kr["entity_id"], us["entity_id"]]).categories
-    for f in (kr, us):
-        f["ent"] = pd.Categorical(f["entity_id"], categories=ents).codes.astype(np.int32)
-        f.drop(columns="entity_id", inplace=True)
-    panel = pd.concat([kr, us], ignore_index=True, copy=False)
-    del kr, us
+
+def rank_gauss_array(x: np.ndarray, key: np.ndarray) -> np.ndarray:
+    """세션×시장 안 rank-gauss(결측 0) — `trial_pooled_rank.rank_gauss` 와 같은 식, 열 하나씩."""
+    s = pd.Series(x)
+    g = s.groupby(key, sort=False)
+    r = g.rank(pct=True).to_numpy()
+    cnt = g.transform("count").to_numpy()
+    v = norm.ppf((r * cnt - 0.5) / cnt)
+    return np.nan_to_num(v, nan=0.0).astype(np.float32)
+
+
+def load_pooled() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[date], np.ndarray]:
+    """두 시장 압축 패널 → (X[NUM 열 rank-gauss], y, sidx, market, ent, 축, 종목 이름). DataFrame 을 이어 붙이지 않는다."""
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 진단 캐시
+
+    tabs = [pq.read_table(el.score_path(f"panel-{m}", OUT), read_dictionary=["entity_id"]) for m in ("KR", "US")]  # invariant-allow: data-access — 진단 캐시
+    n = sum(t.num_rows for t in tabs)
+    X = np.empty((n, len(NUM)), dtype=np.float32)
+    ords = np.empty(n, dtype=np.int32)
+    market = np.empty(n, dtype=np.int8)
+    names: list[str] = []
+    ent = np.empty(n, dtype=np.int32)
+    lookup: dict[str, int] = {}
+    at = 0
+    for t in tabs:
+        k = t.num_rows
+        for j, c in enumerate(NUM):
+            X[at:at + k, j] = t.column(c).to_numpy(zero_copy_only=False)
+        ords[at:at + k] = t.column("ord").to_numpy()
+        market[at:at + k] = t.column("market").to_numpy()
+        col = t.column("entity_id").combine_chunks()
+        dic = col.dictionary.to_pylist()
+        remap = np.array([lookup.setdefault(e, len(lookup)) for e in dic], dtype=np.int32)
+        ent[at:at + k] = remap[col.indices.to_numpy(zero_copy_only=False)]
+        at += k
+        del col
+    del tabs
     gc.collect()
-    ords = np.sort(panel["ord"].unique())
-    axis = [date.fromordinal(int(o)) for o in ords]
-    panel["sidx"] = np.searchsorted(ords, panel["ord"].to_numpy()).astype(np.int32)
-    panel.drop(columns="ord", inplace=True)
-    have = panel["target"].notna().to_numpy()
-    rank_gauss_inplace(panel, [*FEATS, *G4, *G7, "target"], key="sidx")
-    panel.loc[~have, "target"] = np.nan
-    log(f"합동 패널 {len(panel):,}행 · 세션 {len(axis)} · 종목 {len(ents):,} · 정답 {int(have.sum()):,}")
-    return panel, axis, ents
+    names = list(lookup)
+    uniq = np.unique(ords)
+    axis = [date.fromordinal(int(o)) for o in uniq]
+    sidx = np.searchsorted(uniq, ords).astype(np.int32)
+    del ords
+    key = market.astype(np.int64) * 100_000 + sidx
+    jt = NUM.index("target")
+    y_raw = X[:, jt].copy()
+    for j, c in enumerate(NUM):
+        if c == "is_us":
+            continue
+        X[:, j] = rank_gauss_array(X[:, j], key)
+        gc.collect()
+    y = np.where(np.isnan(y_raw), np.nan, X[:, jt]).astype(np.float32)
+    del y_raw, key
+    log(f"합동 패널 {n:,}행 · 세션 {len(axis)} · 종목 {len(names):,} · 정답 {int((~np.isnan(y)).sum()):,}")
+    return X, y, sidx, market, ent, axis, np.asarray(names, dtype=object)
 
 
 def fit(ds: Any, seed: int):  # type: ignore[no-untyped-def]
@@ -262,45 +303,39 @@ def cmd_walk(force: bool, seeds: tuple[int, ...]) -> int:
     el.require_heavy(force)
     import lightgbm as lgb
 
-    panel, axis, ents = build_pooled()
-    sidx = panel["sidx"].to_numpy()
+    X, y, sidx, market, ent, axis, names = load_pooled()
     OUT.mkdir(parents=True, exist_ok=True)
     meta: dict[str, Any] = {"folds": []}
+    ax = np.array(axis, dtype=object)
     for arm, cols in (("ARc", CONTROL), ("AR", TREAT)):
-        preds = {s: np.full(len(panel), np.nan, dtype=np.float32) for s in seeds}
-        xall = panel[cols].to_numpy(np.float32)
-        yall = panel["target"].to_numpy(np.float32)
+        cidx = [NUM.index(c) for c in cols]
+        preds = {s: np.full(len(y), np.nan, dtype=np.float32) for s in seeds}
         for year in YEARS:
             lo = next(i for i, d in enumerate(axis) if d >= date(year, 1, 1))
             hi = max(i for i, d in enumerate(axis) if d <= min(date(year, 12, 31), el.DATE_CAP))
             te = lo - GAP - 1
-            idx_tr = np.flatnonzero((sidx <= te) & ~np.isnan(yall))
+            idx_tr = np.flatnonzero((sidx <= te) & ~np.isnan(y))
             idx_te = np.flatnonzero((sidx >= lo) & (sidx <= hi))
-            ds = lgb.Dataset(xall[idx_tr], yall[idx_tr], free_raw_data=True)
+            ds = lgb.Dataset(X[np.ix_(idx_tr, cidx)], y[idx_tr], free_raw_data=True)
             ds.construct()
             gc.collect()
-            xt = xall[idx_te]
+            xt = X[np.ix_(idx_te, cidx)]
             for s in seeds:
                 preds[s][idx_te] = fit(ds, s).predict(xt).astype(np.float32)
             meta["folds"].append({"arm": arm, "year": year, "train_end": str(axis[te]), "n_train": int(len(idx_tr)),
                                   "n_test": int(len(idx_te))})
             log(f"  {arm} {year}: 학습 ~{axis[te]} {len(idx_tr):,}행 · 채점 {axis[lo]}~{axis[hi]} {len(idx_te):,}행")
-            del ds, xt
+            del ds, xt, idx_tr, idx_te
             gc.collect()
-        del xall, yall
-        ax = np.array(axis, dtype=object)
-        ent_names = np.asarray(ents, dtype=object)
-        for market, code in (("KR", 0), ("US", 1)):
-            mask = (panel["market"] == code).to_numpy()
+        for mname, code in (("KR", 0), ("US", 1)):
+            mask = market == code
 
-            def gen(mask: np.ndarray = mask, preds: dict = preds, ax: np.ndarray = ax,
-                    ent_names: np.ndarray = ent_names):  # type: ignore[no-untyped-def]
+            def gen(mask: np.ndarray = mask, preds: dict = preds):  # type: ignore[no-untyped-def]
                 for s in seeds:
                     ok = mask & ~np.isnan(preds[s])
-                    yield s, pd.DataFrame({"entity_id": ent_names[panel["ent"].to_numpy()[ok]],
-                                           "session": ax[sidx[ok]], "pred": preds[s][ok].astype(float)})
-            el.write_scores(gen(), el.score_path(f"{arm}-{market}", OUT))
-            log(f"  {arm}-{market} 저장")
+                    yield s, pd.DataFrame({"entity_id": names[ent[ok]], "session": ax[sidx[ok]], "pred": preds[s][ok].astype(float)})
+            el.write_scores(gen(), el.score_path(f"{arm}-{mname}", OUT))
+            log(f"  {arm}-{mname} 저장")
         del preds
         gc.collect()
     (OUT / "walk-meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1))
@@ -432,7 +467,7 @@ def cmd_report(force: bool) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("context-us", "style-us", "walk", "report"))
+    ap.add_argument("cmd", choices=("context-us", "style-us", "panel-kr", "panel-us", "walk", "report"))
     ap.add_argument("--root", default="data")
     ap.add_argument("--force", action="store_true")
     ap.add_argument("--seeds", type=int, nargs="*", default=list(el.SEEDS))
@@ -441,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_context_us(args.root, args.force)
     if args.cmd == "style-us":
         return cmd_style_us(args.root, args.force)
+    if args.cmd in ("panel-kr", "panel-us"):
+        return cmd_panel(args.cmd[-2:].upper(), args.force)
     if args.cmd == "walk":
         return cmd_walk(args.force, tuple(args.seeds))
     return cmd_report(args.force)
