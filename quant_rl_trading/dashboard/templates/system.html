@@ -117,6 +117,12 @@
       알고 있나", 하나는 "무엇을 새로 계산했나"다.
     </p>
   </section>
+  {# 연구 작업 — 모델 검증 탭의 접힌 RL 진단 안에 있던 것을 옮겼다(2026-10-13 밤). #}
+  <section class="panel">
+    <h2>연구 작업 <span class="sub">지금 도는 연구 스크립트 · 최근 로그 — 과거 시점으로 되감기지 않음</span></h2>
+    <div id="research-jobs" class="scroll mcard"></div>
+  </section>
+
   {# 파이프라인 이벤트 — 중요 시황 탭에서 옮겼다(2026-10-13 밤). 배관이 도는지의 증거라 운영 갈래다. #}
   <section class="panel">
     <h2>파이프라인 이벤트 <span class="sub">관측 → Signal → Selector → Allocator → 주문 → 체결</span>
@@ -133,5 +139,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
-<script src="{{ url_for('static', filename='system.js', v='20261013b') }}"></script>
+<script src="{{ url_for('static', filename='system.js', v='20261013c') }}"></script>
 {% endblock %}

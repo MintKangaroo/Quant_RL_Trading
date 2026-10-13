@@ -47,7 +47,7 @@ function drawFilersChart(filers) {
   tfHeight(id, rows.length);
   const c = chart(id);
   c.setOption({
-    ...BASE,
+    ...BASE, legend: { show: false },
     tooltip: { ...BASE.tooltip, trigger: "item",
       formatter: (p) => { const f = rows[p.dataIndex]; return `${f.filer_name}<br>${usdB(f.total_usd)} · ${num(f.holdings)}종목<br>${f.report_date} 기준 · ${f.lag_days}일 뒤 공개`; } },
     grid: { left: 8, right: 64, top: 6, bottom: 6, containLabel: true },
@@ -88,7 +88,7 @@ function drawHoldingsChart(data) {
   }
   const c = chart(id);
   c.setOption({
-    ...BASE,
+    ...BASE, legend: { show: false },
     tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" },
       formatter: (ps) => { const r = rows[ps[0].dataIndex]; return `${r.issuer}${r.ours ? " (우리 보유)" : ""}<br>비중 ${pct(r.weight, 1)} · ${usdB(r.value_usd)}<br>직전 분기 대비 ${r.change}${r.change_pct === null || r.change_pct === undefined ? "" : ` ${(r.change_pct * 100).toFixed(1)}%`}`; } },
     grid: [
@@ -133,7 +133,7 @@ function drawConsensusChart(rows, meta) {
   }
   const c = chart(id);
   c.setOption({
-    ...BASE,
+    ...BASE, legend: { show: false },
     tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" },
       formatter: (ps) => { const r = shown[ps[0].dataIndex]; return `${r.issuer}${r.ticker ? ` (${r.ticker})` : ""}${r.ours ? " · 우리 보유" : ""}<br>기관 ${r.filers} · 직전 ${r.filers_prev === null || r.filers_prev === undefined ? "—" : r.filers_prev}<br>${r.names.join(", ")}`; } },
     grid: { left: 8, right: 24, top: 6, bottom: 22, containLabel: true },

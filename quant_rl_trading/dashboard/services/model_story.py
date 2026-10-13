@@ -645,7 +645,7 @@ def track_performance(root: Path, tracks: list[dict[str, Any]], alpha: dict[str,
                     # KODEX200 누적 = 장부 누적 − 누적 초과(alpha_ir 곡선의 정의 그대로) — 새 계산이 아니라 같은 값의 다른 꼴.
                     ours = dict((d, v) for d, v in curve)
                     kcurve = [[d, ours[d] - x] for d, x in (row.get("curve") or []) if d in ours]
-                    entry["compare"] = {"name": alpha.get("benchmark") if alpha else "KODEX200",
+                    entry["compare"] = {"name": "KODEX200",
                                         "total": win.get("etf_total"), "excess": win.get("excess"),
                                         "curve": kcurve, "is_benchmark": True}
             if meta:
