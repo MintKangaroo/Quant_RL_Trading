@@ -99,6 +99,10 @@ CONFIG_PROBES = (
 )
 
 
+#: 지연 기록 적재 묶음(세션 수). `Backfiller.latency_batch` 참고.
+LATENCY_BATCH = 100
+
+
 def build_store(root: Path | None = None) -> Store:
     store = Store(root=root) if root is not None else Store()
     now = LiveClock().now()
@@ -197,9 +201,35 @@ def run_backfill(
 
     progress = ProgressLog(root=store.root, plan_id=f"{market}-{start}-{end}")
     report = BackfillReport(market=market)
-    started = time.monotonic()  # invariant-allow: wallclock
     pause = float(store.config("backfill.session_pause_ms", as_of=now)) / 1000.0
 
+    # 지연 기록은 100세션마다 한 파일로 — 세션마다 적재하면 여러 해 백필이 ingest_latency 에
+    # 파일을 수천 개 남긴다(2026-10-11 주식선물 2,742개, 화면 요청마다 0.5초). 끝에서 반드시 비운다.
+    backfiller.latency_batch = LATENCY_BATCH
+    try:
+        _run(backfiller, pending, report, progress, clock, pause)
+    finally:
+        backfiller.flush_latency()
+
+    print(
+        f"\n완료 — 세션 {report.sessions}개 "
+        f"(건너뜀 {report.skipped}, 미공표 대기 {report.deferred}), "
+        f"{report.render_counts()}, 실패 {len(report.failures)}건"
+    )
+    for unit, message in report.failures[:20]:
+        print(f"  실패 {unit}: {message}")
+    return 1 if report.failures else 0
+
+
+def _run(
+    backfiller: Backfiller | PanelBackfiller,
+    pending: list[date],
+    report: BackfillReport,
+    progress: ProgressLog,
+    clock: Clock,
+    pause: float,
+) -> None:
+    started = time.monotonic()  # invariant-allow: wallclock
     for index, day in enumerate(pending, start=1):
         if index > 1:
             time.sleep(pause)  # 소스를 두들겨 차단당하지 않기 위한 예의
@@ -226,15 +256,6 @@ def run_backfill(
             + tail
             + (f"  {result.error}" if result.error else "")
         )
-
-    print(
-        f"\n완료 — 세션 {report.sessions}개 "
-        f"(건너뜀 {report.skipped}, 미공표 대기 {report.deferred}), "
-        f"{report.render_counts()}, 실패 {len(report.failures)}건"
-    )
-    for unit, message in report.failures[:20]:
-        print(f"  실패 {unit}: {message}")
-    return 1 if report.failures else 0
 
 
 def flow_symbols(store: Store, clock: Clock, market: Market) -> list[str]:

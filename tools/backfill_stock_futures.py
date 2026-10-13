@@ -46,6 +46,9 @@ from quant_rl_trading.settings import load_env  # noqa: E402
 from tools.backfill import build_store  # noqa: E402
 
 UNMAPPED_CSV = Path("logs/stock-futures-unmapped.csv")
+#: 지연 기록을 이만큼 세션마다 한 파일로 —
+#: 세션마다 쓰면 ingest_latency 에 파일이 수천 개 생긴다(10/11).
+LATENCY_BATCH = 100
 
 
 class RecordingResolver(UnderlyingResolver):
@@ -120,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     backfiller = PanelBackfiller(
         store=store, source=KrxOpenApi(), clock=clock, archive=RawArchive(root=store.root),
         policy=publication_policy(store, Market.KR, clock=clock), panel=stock_futures_panel(resolver), market=Market.KR,
+        latency_batch=LATENCY_BATCH,
     )
     sessions = backfiller.plan(args.start, end)
     pending = backfiller.pending(sessions)
@@ -129,6 +133,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     pause = max(float(store.config("backfill.session_pause_ms", as_of=now)) / 1000.0, args.pause)
+    try:
+        return _run(backfiller, pending, pause, args.max_empty, resolver)
+    finally:
+        backfiller.flush_latency()
+
+
+def _run(backfiller: PanelBackfiller, pending: list[date], pause: float, max_empty: int,
+         resolver: RecordingResolver) -> int:
     total, empty_run, rc = 0, 0, 0
     for i, day in enumerate(pending, 1):
         if i > 1:
@@ -142,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
         if not result.skipped and result.rows == 0:
             empty_run += 1
             print(f"[{i}/{len(pending)}] {day} 0행 [{result.verdict}] (연속 {empty_run})", flush=True)
-            if empty_run >= args.max_empty:
+            if empty_run >= max_empty:
                 print(f"거래일 0행이 {empty_run}번 연달아 — 한도·차단 의심, 멈춘다", flush=True)
                 rc = 4
                 break

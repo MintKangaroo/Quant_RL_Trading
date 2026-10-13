@@ -252,6 +252,14 @@ class PanelBackfiller:
     #: 확인된 가용 시각. ``_UNREAD`` 는 "아직 안 읽었다" 이고 ``None`` 은
     #: "설정에 없다 = 확인 못 했다" 다. 둘을 같은 값으로 두면 매번 다시 읽는다.
     _window: Any = field(default=_UNREAD, repr=False)
+    #: 지연 기록을 몇 세션마다 한 번 적재하나. 기본 1 = 세션마다(예전 그대로).
+    #: 여러 해 백필은 크게 준다 — 세션마다 적재하면 ``ingest_latency`` 에 파일이 세션 수만큼 생긴다
+    #: (2026-10-11 주식선물 백필 2,742세션 → 그날 파티션 파일 2,742개, 화면 요청마다 0.5초).
+    #: 크게 주면 호출자가 끝에 ``flush_latency()`` 를 반드시 부른다 —
+    #: 안 부르면 마지막 묶음이 사라진다.
+    latency_batch: int = 1
+    _latency: LatencyRecorder | None = field(default=None, repr=False)
+    _latency_sessions: int = field(default=0, repr=False)
 
     def _policy(self) -> ObservedAtPolicy:
         """발행 일정을 확인하지 못한 패널은 하한을 씌워 쓴다."""
@@ -276,9 +284,13 @@ class PanelBackfiller:
             return PanelResult(day=day, table=table, rows=0, skipped=True)
 
         run_id = run_id_for(self.panel.key, self.market, day)
-        latency = LatencyRecorder(
-            store=self.store, clock=self.clock, source=self.source.name, ingest_run_id=run_id
-        )
+        if self._latency is None:
+            # 묶음의 run id 는 첫 세션 것이다 — 행마다 detail 에 세션 날짜가 있어
+            # 어느 세션 지연인지는 남는다.
+            self._latency = LatencyRecorder(
+                store=self.store, clock=self.clock, source=self.source.name, ingest_run_id=run_id
+            )
+        latency = self._latency
         detail = f"{self.market}:{table}:{day.isoformat()}"
         try:
             # 관측시각을 가장 먼저 정한다. 아직 공표되지 않은 세션이면 여기서
@@ -322,7 +334,17 @@ class PanelBackfiller:
                 day, Verdict.FETCH_FAILED, stage="fetch", message=str(error), error=error
             )
         finally:
-            latency.flush()
+            self._latency_sessions += 1
+            if self._latency_sessions >= max(1, self.latency_batch):
+                self.flush_latency()
+
+    def flush_latency(self) -> int:
+        """모아 둔 지연 기록을 적재한다.
+
+        묶음 적재(``latency_batch`` > 1)를 쓰는 호출자는 끝에 반드시 부른다.
+        """
+        latency, self._latency, self._latency_sessions = self._latency, None, 0
+        return latency.flush() if latency is not None else 0
 
     # -- 0행의 판정 -------------------------------------------------------------
 

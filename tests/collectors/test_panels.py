@@ -280,3 +280,61 @@ def test_only_codes_filters_panels(store, tmp_path) -> None:
     backfiller = make(store, tmp_path, "flows", only_codes=frozenset({"005930"}))
 
     assert backfiller.run_session(MON).rows == 2
+
+
+# -- 지연 기록 묶음 적재 ---------------------------------------------------------
+#
+# 시계가 고정(ReplayClock)이라 지연 행은 같은 키로 겹친다 —
+# 조회로 세지 않고 **파일 수**와 **run id** 로 센다.
+# 지키려는 성질이 바로 "파일이 몇 개 생기나" 다.
+
+
+def _latency_files(store) -> int:  # type: ignore[no-untyped-def]
+    return len(list((store.root / "curated" / "ingest_latency").rglob("*.parquet")))
+
+
+def _run_ids(day_list: list[date]) -> list[str]:
+    from quant_rl_trading.collectors.panels import run_id_for
+
+    return [f"latency-{run_id_for(PANELS['flows'].key, Market.KR, d)}" for d in day_list]
+
+
+def test_latency_is_flushed_every_session_by_default(store, tmp_path) -> None:
+    """기본은 예전 그대로 — 세션마다 한 번 적재(매일 수집 크론이 이 경로다)."""
+    store.seed_config_defaults()
+    backfiller = make(store, tmp_path, "flows")
+    for day in (MON, TUE, WED):
+        assert backfiller.run_session(day).ok
+    assert _latency_files(store) == 3
+    assert all(store.ingest_run_recorded("ingest_latency", r) for r in _run_ids([MON, TUE, WED]))
+
+
+def test_latency_batch_writes_one_file_per_batch(store, tmp_path) -> None:
+    """여러 해 백필이 세션마다 지연을 적재하면 ingest_latency 에 파일이 세션 수만큼 생긴다
+    (2026-10-11 주식선물 2,742개 → 화면 요청마다 0.5초).
+    묶음이면 묶음당 하나, 남은 것은 flush 가 비운다.
+    """
+    store.seed_config_defaults()
+    backfiller = make(store, tmp_path, "flows", latency_batch=2)
+    for day in (MON, TUE, WED, THU, FRI):
+        assert backfiller.run_session(day).ok
+    assert _latency_files(store) == 2                 # 5번째 세션은 아직 메모리에
+    assert backfiller.flush_latency() == 4            # 한 세션 = 단계 넷
+    assert backfiller.flush_latency() == 0            # 두 번 불러도 같은 것을 두 번 적지 않는다
+    assert _latency_files(store) == 3
+    # 묶음의 run id 는 첫 세션 것
+    runs = _run_ids([MON, TUE, WED, THU, FRI])
+    recorded = [store.ingest_run_recorded("ingest_latency", r) for r in runs]
+    assert recorded == [True, False, True, False, True]
+
+
+def test_latency_batch_keeps_skipped_sessions_out(store, tmp_path) -> None:
+    """이미 적재한 세션은 지연을 안 남기고 묶음 계수도 안 올린다."""
+    store.seed_config_defaults()
+    make(store, tmp_path, "flows").run_session(MON)
+    backfiller = make(store, tmp_path, "flows", latency_batch=2)
+    assert backfiller.run_session(MON).skipped
+    assert backfiller.run_session(TUE).ok
+    assert _latency_files(store) == 1                 # MON 것만, TUE 는 아직 묶음 안
+    assert backfiller.flush_latency() == 4
+    assert _latency_files(store) == 2
