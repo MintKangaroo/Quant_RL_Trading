@@ -148,6 +148,8 @@ class Context:
     scale: pd.Series                     # V6 노출 배수(결정 세션 전날 종가까지)
     caps: pd.DataFrame | None = None     # session · entity_id · cap
     sectors: dict[str, str] = field(default_factory=dict)
+    cost: float = ONE_WAY_COST          # 편도 비용(국장 0.41%, 미장은 config accounting.fee_us)
+    market: str = "KR"
 
     @property
     def calendar(self) -> list[date]:
@@ -256,6 +258,7 @@ def _sectors(store: Any, as_of: datetime, entities: list[str]) -> dict[str, str]
 
 
 _CTX_FIELDS = ("close", "bench", "k200_close", "uni", "scale", "caps", "sectors", "trad")
+_CTX_META = "meta.pkl"
 
 
 def save_context(ctx: Context, path: Path = CONTEXT_FILE) -> None:
@@ -273,6 +276,7 @@ def save_context(ctx: Context, path: Path = CONTEXT_FILE) -> None:
         pd.to_pickle(obj, path / f"{name}.pkl")  # invariant-allow: data-access — 연구 캐시
         del obj
         gc.collect()
+    pd.to_pickle({"cost": ctx.cost, "market": ctx.market}, path / _CTX_META)  # invariant-allow: data-access — 연구 캐시
 
 
 def save_context_part(store: Any, part: str, path: Path = CONTEXT_FILE) -> None:
@@ -308,8 +312,10 @@ def load_context(path: Path = CONTEXT_FILE) -> Context:
     ret = close.shift(-2) / close.shift(-1) - 1.0
     ret = ret.where(ret.abs() <= MAX_MOVE)
     trad = {d: set(p["entity_id"]) for d, p in parts["trad"].groupby("session")}
+    meta = pd.read_pickle(path / _CTX_META) if (path / _CTX_META).exists() else {}  # invariant-allow: data-access — 연구 캐시
     return Context(close=close, ret=ret, bench=parts["bench"], k200_close=parts["k200_close"], trad=trad, uni=parts["uni"],
-                   scale=parts["scale"], caps=parts["caps"], sectors=parts["sectors"])
+                   scale=parts["scale"], caps=parts["caps"], sectors=parts["sectors"],
+                   cost=float(meta.get("cost", ONE_WAY_COST)), market=str(meta.get("market", "KR")))
 
 
 # --------------------------------------------------------------------------- 점수 파일
@@ -395,6 +401,7 @@ def write_scores(preds: Mapping[int, pd.DataFrame] | Any, path: Path) -> None:
         for s, p in items:
             guard_cap(p["session"].unique(), str(path))
             part = p[["entity_id", "session", "pred"]].assign(seed=int(s))
+            part["entity_id"] = part["entity_id"].astype(str)
             part["session"] = pd.to_datetime(part["session"]).dt.date
             writer.write_table(pa.Table.from_pandas(part, schema=schema, preserve_index=False))  # invariant-allow: data-access — 점수 캐시
             del part
@@ -550,7 +557,10 @@ def book(pred: pd.DataFrame, ctx: Context, *, n: int = N, mult: int = MULT, ever
     if smooth:
         wide = wide.ewm(span=SPAN).mean()
     daily, turn, _ = long_leg(wide, ctx.ret, ctx.trad, n, every=every, mult=mult, theta=theta)
-    return daily, turn.reindex(daily.index).fillna(0.0)
+    turn = turn.reindex(daily.index).fillna(0.0)
+    if ctx.cost != ONE_WAY_COST:                       # long_leg 는 국장 0.41% 를 박아 둔다 — 시장 비용으로 바꿔 끼운다
+        daily = daily + turn * (ONE_WAY_COST - ctx.cost)
+    return daily, turn
 
 
 def v6(net: pd.Series, ctx: Context) -> pd.Series:
@@ -564,7 +574,7 @@ def port_summary(net: pd.Series, turn: pd.Series, ctx: Context) -> dict[str, Any
     days = list(net.index)
     b = ctx.bench.reindex(days).fillna(0.0)
     u = ctx.uni.reindex(days)
-    gross = net + turn * ONE_WAY_COST
+    gross = net + turn * ctx.cost
     ex_k, ex_u = net - b, net - u
     with_v6 = v6(net, ctx)
     return {
@@ -572,7 +582,7 @@ def port_summary(net: pd.Series, turn: pd.Series, ctx: Context) -> dict[str, Any
         "vs_k200": describe(ex_k, ctx), "vs_uni": describe(ex_u, ctx), "gross_vs_uni": describe(gross - u, ctx),
         "v6_vs_k200": describe(with_v6 - b, ctx),
         "mdd": mdd(net), "k200_mdd": mdd(b), "v6_mdd": mdd(with_v6),
-        "turn": float(turn.sum() * ANN / max(1, len(days))), "cost": float((turn * ONE_WAY_COST).sum() * ANN / max(1, len(days))),
+        "turn": float(turn.sum() * ANN / max(1, len(days))), "cost": float((turn * ctx.cost).sum() * ANN / max(1, len(days))),
     }
 
 
@@ -608,8 +618,8 @@ def stage_series(pred: pd.DataFrame, ctx: Context, y5: pd.DataFrame) -> dict[str
         "d10_d1": dec["d10"] - dec["d1"],
         "d10_u": dec["d10"] - u.reindex(dec.index),
         "d1_u": dec["d1"] - u.reindex(dec.index),
-        "top_raw": (raw + raw_turn * ONE_WAY_COST) - u.reindex(raw.index),
-        "top_gross": (net + turn * ONE_WAY_COST) - u.reindex(days),
+        "top_raw": (raw + raw_turn * ctx.cost) - u.reindex(raw.index),
+        "top_gross": (net + turn * ctx.cost) - u.reindex(days),
         "top_net": net - u.reindex(days),
         "top_k200": net - b,
         "v6_k200": v6(net, ctx) - b,
