@@ -79,14 +79,44 @@ KR shadow(`data/_shadow`, 현행 ranker)와 모의계좌.
    (곧 상장폐지될 종목이 남는다, be2-shadow.md 4 와 같은 차이). rank-gauss 는 열마다 값이 있는 종목 안에서만 매기므로 그 몇 종목만큼만 다르다.
 4. **점수 정정본**: 연구 캐시는 굽는 날의 정정본, 매일은 그 세션 as_of 에 보였던 값.
 5. **C1 의 `miss_ba`**: 학습은 연구 패널의 미래참조 표지로, 채점은 as_of 표지로(금고 앞당김 문서 '명시해 두는 차이' 4 — be2 와 같다).
-6. **미장은 안 한다(지금)**: c1fa 는 be2 와 같은 이유(미장 FA 명단이 실전과 다르다). AR 은 두 시장 한 모델이지만 미장 shadow 장부의
-   배선(미장 점수 6 의 실전 명단·M1 합성·달러 슬리브)은 따로 정한다 — 사용자 지시 "국장 장부부터".
+6. **c1fa 는 미장을 안 한다**: be2 와 같은 이유(미장 FA 명단이 실전과 다르다). AR 미장은 아래 절.
+7. **AR 미장 평활**: 금고 판정의 미장 장부는 예측에 EMA5 를 씌웠다(`_ar_books` → `us_book(wide.ewm(span=5))`). 실전 미장 규칙은
+   `ranker.smoothing_span_us = 0`(시행 R 기각 — 평활 없음)이고 장부는 "현행 규칙 그대로, 알파만" 이므로 **평활 없이** 돈다.
+   판정 포트와 한 칸 다르다(결정 필요 사항 — 미장만 EMA5 를 켜려면 `ar_insider` 에 시장별 평활 키를 따로 두어야 한다).
+
+## AR 미장 shadow (2026-10-13 추가 — 사용자 "AR 두 시장 다")
+
+| | |
+|---|---|
+| 신호 | `ar_insider`(같은 Analyst, `--market US`) — 점수 6(flow = flow_us) + is_us 1 + G4 0(DART 는 국장 자료) + G7(Form 4, 세션 개장 09:30 ET as_of) |
+| 모델 | 국장과 같은 얼린 파일(`data/models/ar_insider/AR-treat-s{0,1,2}.txt`) — 두 시장 한 모델 |
+| 장부 | `data/_ar_us_shadow`(미장만, 모의 체결, **달러 $370,000** — `tools/fund_shadow_usd.py` 가 첫 실행에 넣는다) |
+| 설정 | `config/shadow/ar_us.config-overrides.yaml` → `selector.weights_override_us = {ar_insider: 1, risk: 1}`(미장 키가 공통 키보다 먼저 — 체크인 기본값 `{}` 를 덮는다) |
+| 러너 | `scripts/run_shadow_ar_us.sh` — 미장 run_daily·run_session 이 끝나길 기다리고 `wait_us_prices`(rc 6 미룸) 뒤 채점 → 세션 |
+| 규칙 | 현행 미장 shadow 그대로(상위 24 · 완충 48 · 10세션 재조정 · 리스크 패리티 · V6 · 평활 없음). M1 결측 규칙은 fundamental 이 알파에 없어 해당 없음 |
+
+- **왜 달러 입금 도구인가**: `run_session --capital` 은 원화로 넣는다 — 미장 주문가능금액(달러 현금)이 0 이라 주문이 안 나간다(G1 9/25 첫 세션 사고).
+  `fund_shadow_usd` 는 `--capital` 과 같은 시각(워밍업 세션 스냅샷 − 1일, 같은 run id)에 통화만 USD 로 넣고, 기록이 이미 있으면 넣지 않는다(rc 3).
+- **신선도**: 미장 세션 공표 시각(05:20 KST 다음날)이 valid_from = observed_at — 일일 규약. `freshness_grace_seconds_us` 그대로.
+- **소급 금지**: `SHADOW_START`(2026-10-13, 세션 날짜 = ET 날짜) 전 미장 세션은 채점하지 않는다.
+- **판정 행 집합 차이**: 판정 미장 패널은 `backfill_ic_history` 점수 ∩ 타깃(시세가 있는 종목). 매일은 점수 ∩ 그 세션 시세 — 국장과 같은 차이.
+
+## 내부자 원자료 신선도 — 지금 AR shadow 는 멈춘다 (2026-10-13 배선 확인에서 발견)
+
+- **두 표 모두 매일 수집 크론이 없다.** `insider_trades`(DART, G4)는 백필 `tools/backfill_insider_dart.py` 의 마지막 행이 **2026-08-28**,
+  `form4_trades`(SEC Form 4, G7)는 `collectors/sec_form4.py` 백필의 마지막 행이 **2026-07-01** 이다(창고 조회, 10/13).
+  연구 월 조각도 같다 — G7-US 의 `form4_sellers_20` 이 8·9월 0%, `form4_sell_60` 비영 비율이 23%(7월) → 17%(8월) → 5%(9월).
+- 그대로 채점하면 60세션 창이 비어 가며 내부자 열이 0(순위 중앙)으로 수렴하고 처리 모델이 **학습 때 본 적 없는 입력으로 조용히** 돈다(미장은 이미 전부 0).
+- 그래서 `ar_insider.insider_staleness` 가 최근 `INSIDER_STALE_DAYS`(14) 일 관측이 0행이면 점수를 안 낸다 → `score_shadow_alpha` rc 4 → 러너가 세션을 안 돈다.
+  **지금 상태로는 AR 국장·미장 shadow 둘 다 매일 rc 4 로 멈춘다.** 매일 수집기(DART 임원·주요주주 보고 · SEC Form 4)를 크론에 올려야 돈다 — 결정 사항.
+- 금고 early 판정에도 영향이 있다(기록): 7/1~9/30 창의 미장 G7 은 8월부터 비어 갔고 국장 G4 는 8/28 뒤가 없다. AR 의 early 통과 몫 중
+  내부자 정보가 아닌 "본 적 없는 0 입력" 의 몫이 섞였을 수 있다.
 
 ## 운영 장부로 새지 않는 이유
 
 - `c1fa`·`ar_insider` 는 `session/signals.SCORERS`(일일 실행기)·`tools/measure_ic.ANALYSTS`(주간 IC --save)에 없다 → 측정표에 가중치가 안 생긴다.
-- `selector.weights_override` 체크인 기본값은 `{}`(끔). 켜는 곳은 두 샌드박스의 `config-overrides.yaml` 뿐이고 실전 창고는 덮어쓰기 파일을 거부한다.
-- 러너는 `--sandbox data/_c1_shadow`·`data/_ar_shadow` 에만 쓴다(`--live-store`·`--live-broker` 없음). 정적 검사: `tests/invariants/test_c1_ar_shadow_isolation.py`.
+- `selector.weights_override`(·`_us`) 체크인 기본값은 `{}`(끔). 켜는 곳은 세 샌드박스의 `config-overrides.yaml` 뿐이고 실전 창고는 덮어쓰기 파일을 거부한다.
+- 러너는 `--sandbox data/_c1_shadow`·`data/_ar_shadow`·`data/_ar_us_shadow` 에만 쓴다(`--live-store`·`--live-broker` 없음). 정적 검사: `tests/invariants/test_c1_ar_shadow_isolation.py`.
 - 실전 창고에 새로 쓰는 것은 `signals` 의 `c1fa`·`ar_insider` 행과(be2 채점이 실패한 날만) `fa_features` 한 세션 — 운영 선정이 안 읽는다.
 
 ## 금고 second 창 봉인 — 소급하지 않는다
@@ -110,7 +140,10 @@ KR shadow(`data/_shadow`, 현행 ranker)와 모의계좌.
 ```
 55 0 * * 2-6 /home/mintkangaroo/Project/Quant_RL_Trading/scripts/run_shadow_c1.sh
 5 1 * * 2-6 /home/mintkangaroo/Project/Quant_RL_Trading/scripts/run_shadow_ar.sh
+5 13 * * 2-6 /home/mintkangaroo/Project/Quant_RL_Trading/scripts/run_shadow_ar_us.sh     # 미장(10/13 추가) — 12:20 미장 shadow · 12:45 G1 뒤
 ```
+
+일요일 압축 줄 샌드박스 목록에 `data/_ar_us_shadow` 추가(10/13 추가분).
 
 ## 되돌리기
 

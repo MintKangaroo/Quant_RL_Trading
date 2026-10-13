@@ -82,6 +82,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from quant_rl_trading.analysts import be2 as be2_module  # noqa: E402
+from quant_rl_trading.analysts import ic as ic_module  # noqa: E402
 from quant_rl_trading.schemas.fa import SCORE_COLUMNS  # noqa: E402
 from quant_rl_trading.store import Store  # noqa: E402
 from quant_rl_trading.store.prices import read_prices  # noqa: E402
@@ -970,49 +971,65 @@ def run_be2(store: Store, *, confirm: bool = False) -> tuple[list[str], str]:
 
 # --------------------------------------------------------------------------- C1G (c1-gbm-fa-second-2026-10.md — 두 번째 금고, 국장)
 
-C1G_KEYS = ("ann", "h1", "h2", "mdd", "turn", "ic")
+#: C1G 기준(새 틀 — docs/protocols/_template-principle-test-2026-10.md). **주 기준 = 원리 시험**(거래가능 전 종목 h5 순위 IC 의 짝 차),
+#: 포트는 해 방지만. 문턱·여유는 등록 문서 '검정력' 절(`tools/power_principle.py --case c1g`, 금고 밖 자료)에서 정했다 — 테스트가 문서와 맞춘다.
+C1G_GATE_T = 2.0         # P1 창 ΔIC NW t(lag 4) 문턱(그리고 평균 > 0) — 금고 밖 30세션 블록 귀무 통과 9.4%
+C1G_GATE_SEEDS = 4       # P2 시드별 창 평균 ΔIC > 0 인 시드 수(5 중) — 귀무 통과 53%(시드끼리 상관), 일관성 확인용
+C1G_GATE_SPREAD = -0.032  # P3(보조, 해 방지) Δ십분위 스프레드 창 평균 하한 = −1.645 × 블록 표준편차 0.0197
+C1G_GATE_ANN = -0.68     # H1 상위 24 연수익 차(C1 − C0) 하한 = −1.645 × 블록 표준편차 0.414
+C1G_GATE_MDD = -0.043    # H2 MDD 차(C1 − C0) 하한 = −1.645 × 블록 표준편차 0.026
+C1G_GATE_TURN = 3.3      # H3 연 회전 비(C1/C0) 상한 = 금고 밖 30세션 블록 회전 비의 95% 분위 3.28
+C1G_NW_LAG = 4
+C1G_PORT_KEYS = ("ann", "mdd", "turn")
 
 
-def judge_c1g(res: dict[str, list[dict[str, float]]]) -> tuple[list[str], str]:
-    """C1G 기준 ①~⑤ — BE2 등록(final-model-round-2026-10.md)의 대 C0 숫자 그대로(`BE2_GATE_*`), 주인공만 C1. res[군] = 시드 순서 지표, 군 = C1·C0.
+def judge_c1g(dic: pd.DataFrame, dsp: pd.DataFrame, port: dict[str, list[dict[str, float]]]) -> tuple[list[str], str]:
+    """C1G 새 기준. ``dic``·``dsp`` = 세션 × 시드 의 ΔIC·Δ십분위 스프레드(C1 − C0, 거래가능 전 종목), ``port[군]`` = 시드 순서 포트 지표(C1·C0).
 
-    ① 시드 평균 연수익 ≥ C0 + 2%p ② 시드의 80% 이상이 같은 시드 C0 보다 높다 ③ 창을 세션 수 절반으로 가른 두 구간 모두 ≥ C0 − 1%p
-    ④ ΔIC(h5) ≥ 0 ⑤ MDD 가 2%p 넘게 깊지 않고 회전 ≤ C0 × 1.2. 지표가 빠지거나 nan 이면 크게 멈춘다(조용히 기각하지 않는다).
+    P1 창 평균 ΔIC(시드 평균) > 0 이고 NW t ≥ C1G_GATE_T · P2 시드별 평균 ΔIC > 0 인 시드 ≥ C1G_GATE_SEEDS ·
+    P3(보조) Δ스프레드 평균 ≥ C1G_GATE_SPREAD · H1 연수익 차 ≥ C1G_GATE_ANN · H2 MDD 차 ≥ C1G_GATE_MDD · H3 회전 비 ≤ C1G_GATE_TURN.
+    포트(H)로는 "이겼다" 를 주장하지 않는다. 지표가 비거나 nan 이면 크게 멈춘다(조용히 기각하지 않는다).
     """
+    if dic.empty or dic.shape[1] == 0 or dic.mean(axis=1).dropna().empty:
+        raise ValueError("judge_c1g: ΔIC 가 비었다 — 조용히 기각하지 않는다")
     for arm in ("C1", "C0"):
-        for i, row in enumerate(res[arm]):
-            bad = [k for k in C1G_KEYS if k not in row or not np.isfinite(row[k])]
+        for i, row in enumerate(port[arm]):
+            bad = [k for k in C1G_PORT_KEYS if k not in row or not np.isfinite(row[k])]
             if bad:
-                raise ValueError(f"judge_c1g: {arm} 시드 {i} 에 지표 {bad} 가 없다 — 조용히 기각하지 않는다")
-    c1, c0 = res["C1"], res["C0"]
-    if len(c1) != len(c0) or not c1:
-        raise ValueError(f"judge_c1g: 시드 수가 다르거나 비었다 (C1 {len(c1)} · C0 {len(c0)})")
-    wins = sum(a["ann"] > b["ann"] for a, b in zip(c1, c0, strict=True))
-    share = wins / len(c1)
-    halves = [(_mean(c1, k), _mean(c0, k)) for k in ("h1", "h2")]
-    dic = _mean(c1, "ic") - _mean(c0, "ic")
-    c = (
-        _mean(c1, "ann") >= _mean(c0, "ann") + BE2_GATE_MEAN,
-        share >= BE2_GATE_SHARE,
-        all(a >= b + BE2_GATE_HALF for a, b in halves),
-        dic >= BE2_GATE_IC,
-        _mean(c1, "mdd") >= _mean(c0, "mdd") - BE2_GATE_MDD and _mean(c1, "turn") <= _mean(c0, "turn") * BE2_GATE_TURN,
-    )
-    lines = ["| 군 | 연수익(시드 평균) | 시드별 | 전반 | 후반 | MDD | 회전 | IC |", "|---|---|---|---|---|---|---|---|"]
-    for arm, rows in (("C1 GBM·FA", c1), ("C0 6점수", c0)):
-        lines.append(f"| {arm} | {_mean(rows, 'ann'):+.1%} | " + " / ".join(f"{r['ann']:+.1%}" for r in rows)
-                     + f" | {_mean(rows, 'h1'):+.1%} | {_mean(rows, 'h2'):+.1%} | {_mean(rows, 'mdd'):.1%} | "
-                       f"{_mean(rows, 'turn'):.1f} | {_mean(rows, 'ic'):+.4f} |")
-    lines += [
-        f"①평균 {_mean(c1, 'ann') - _mean(c0, 'ann'):+.1%}p (≥ +2%p) {mark(c[0])} · ②{wins}/{len(c1)} ({share:.0%}) {mark(c[1])} · "
-        f"③두 구간 {halves[0][0] - halves[0][1]:+.1%}p / {halves[1][0] - halves[1][1]:+.1%}p (≥ −1%p) {mark(c[2])}",
-        f"④ΔIC {dic:+.4f} (≥ 0) {mark(c[3])} · ⑤MDD {_mean(c1, 'mdd'):.1%} 대 {_mean(c0, 'mdd'):.1%} · 회전 "
-        f"{_mean(c1, 'turn'):.1f} 대 {_mean(c0, 'turn'):.1f} (×{_mean(c1, 'turn') / max(_mean(c0, 'turn'), 1e-12):.2f}) {mark(c[4])}",
+                raise ValueError(f"judge_c1g: {arm} 시드 {i} 에 포트 지표 {bad} 가 없다 — 조용히 기각하지 않는다")
+    if len(port["C1"]) != len(port["C0"]) or len(port["C1"]) != dic.shape[1]:
+        raise ValueError(f"judge_c1g: 시드 수가 맞지 않는다 (ΔIC {dic.shape[1]} · C1 {len(port['C1'])} · C0 {len(port['C0'])})")
+    daily = dic.mean(axis=1).dropna()
+    mean_ic = float(daily.mean())
+    t_ic = float(ic_module.newey_west_t(daily, lag=C1G_NW_LAG)) if len(daily) > C1G_NW_LAG + 2 else float("nan")
+    if not np.isfinite(t_ic):
+        raise ValueError(f"judge_c1g: ΔIC 세션 {len(daily)} 로 NW t 를 못 잰다")
+    per_seed = dic.mean(axis=0)
+    seeds_up = int((per_seed > 0).sum())
+    spread = float(dsp.mean(axis=1).dropna().mean())
+    ann = _mean(port["C1"], "ann") - _mean(port["C0"], "ann")
+    mdd = _mean(port["C1"], "mdd") - _mean(port["C0"], "mdd")
+    turn = _mean(port["C1"], "turn") / max(_mean(port["C0"], "turn"), 1e-12)
+    p = (mean_ic > 0 and t_ic >= C1G_GATE_T, seeds_up >= C1G_GATE_SEEDS, spread >= C1G_GATE_SPREAD)
+    h = (ann >= C1G_GATE_ANN, mdd >= C1G_GATE_MDD, turn <= C1G_GATE_TURN)
+    lines = [
+        f"원리(주) P1 ΔIC 평균 {mean_ic:+.4f} · NW t {t_ic:+.2f} (> 0 이고 t ≥ {C1G_GATE_T}) {mark(p[0])} · "
+        f"P2 시드 {seeds_up}/{dic.shape[1]} 양수 (≥ {C1G_GATE_SEEDS}) {mark(p[1])} · "
+        f"P3 Δ십분위 스프레드 {spread:+.4f} (≥ {C1G_GATE_SPREAD:+.3f}) {mark(p[2])}",
+        "시드별 ΔIC " + " / ".join(f"{v:+.4f}" for v in per_seed) + f" · 채점 세션 {len(daily)}",
+        "| 군 | 연수익(시드 평균) | 시드별 | MDD | 회전 |", "|---|---|---|---|---|",
     ]
-    if all(c):
-        verdict = "채택 후보 — C1 금고 second 통과(①~⑤), 실전 반영은 사용자 재승인"
+    for arm, rows in (("C1 GBM·FA", port["C1"]), ("C0 6점수", port["C0"])):
+        lines.append(f"| {arm} | {_mean(rows, 'ann'):+.1%} | " + " / ".join(f"{r['ann']:+.1%}" for r in rows)
+                     + f" | {_mean(rows, 'mdd'):.1%} | {_mean(rows, 'turn'):.1f} |")
+    lines.append(f"해 방지(포트) H1 연수익 차 {ann:+.1%}p (≥ {C1G_GATE_ANN:+.0%}p) {mark(h[0])} · H2 MDD 차 {mdd:+.1%}p "
+                 f"(≥ {C1G_GATE_MDD:+.1%}p) {mark(h[1])} · H3 회전 비 ×{turn:.2f} (≤ ×{C1G_GATE_TURN:.2f}) {mark(h[2])}")
+    if all(p) and all(h):
+        verdict = "채택 후보 — C1 금고 second 원리 시험 통과·포트 해 없음, 실전 반영은 사용자 재승인"
+    elif not (p[0] and p[1]):
+        verdict = "기각 — 원리 시험 미통과(C1 의 순위 우위가 안 보였다), shadow 는 기록으로만"
     else:
-        verdict = "기각 — C1 을 실전에 넣지 않는다(shadow 는 기록으로만)"
+        verdict = "기각 — 원리는 보였으나 포트에서 해(P3·H 미통과), shadow 는 기록으로만"
     return lines, verdict
 
 
@@ -1041,10 +1058,15 @@ def frozen_c1(expected: dict[str, str], *, folder: Path | None = None) -> tuple[
 
 
 def run_c1g(store: Store) -> tuple[list[str], str]:
-    """C1G — 얼린 C1·C0 × 실전 경로 FA × 국장 포트(BE2 금고 판정과 같은 함수 `be2_predictions`). BE2 군은 계산되지만 판정에 안 쓴다."""
+    """C1G — 얼린 C1·C0 × 실전 경로 FA(BE2 금고 판정과 같은 함수 `be2_predictions`, BE2 군은 쓰지 않는다).
+
+    원리 시험: 세션마다 **거래가능 전 종목**(market_data 의 명단 = 실전 `tradable_entities`)에서 h5 순위 IC·십분위 스프레드를
+    C1·C0 시드별로(`tools.power_principle.session_stats` — 검정력을 잰 바로 그 함수) → 짝 차. 포트: 상위 24(등록 채점 규칙).
+    """
     from quant_rl_trading.collectors.market_hours import Market, trading_days
     from quant_rl_trading.collectors.publication import publication_policy
     from quant_rl_trading.replay.clock import LiveClock
+    from tools.power_principle import session_stats
     from tools.trial_lambdarank import top_overlap
 
     model, c0 = frozen_c1(c1g_hashes())
@@ -1055,20 +1077,19 @@ def run_c1g(store: Store) -> tuple[list[str], str]:
     y = panel[["entity_id", "session", "y5"]].rename(columns={"y5": "target"})
     del panel
     ret, bench, trad = market_data(store, sessions, cache=VAULT)
-    res: dict[str, list[dict[str, float]]] = {}
-    for arm in ("C1", "C0"):
-        res[arm] = []
-        for seed in model.seeds:
+    dic, dsp = {}, {}
+    port: dict[str, list[dict[str, float]]] = {"C1": [], "C0": []}
+    for seed in model.seeds:
+        st = {arm: session_stats(preds[arm][int(seed)], y, trad) for arm in ("C1", "C0")}
+        dic[int(seed)] = st["C1"]["ic"] - st["C0"]["ic"]
+        dsp[int(seed)] = st["C1"]["spread"] - st["C0"]["spread"]
+        for arm in ("C1", "C0"):
             daily, extra = portfolio(preds[arm][int(seed)], ret, trad, every=EVERY)
-            row = stats(daily, bench, extra)
-            row["ic"] = _ic(preds[arm][int(seed)], y)
-            res[arm].append(row)
-        print(f"  {arm}: 연 {_mean(res[arm], 'ann'):+.1%} · IC {_mean(res[arm], 'ic'):+.4f}", flush=True)
-    lines, verdict = judge_c1g(res)
+            port[arm].append(stats(daily, bench, extra))
+    lines, verdict = judge_c1g(pd.DataFrame(dic).sort_index(), pd.DataFrame(dsp).sort_index(), port)
     overlap = np.mean([top_overlap(preds["C1"][int(s)], preds["C0"][int(s)]) for s in model.seeds])
-    lines.append(f"기록(기준 아님) 채점 세션 {len(sessions)} · 상위 24 겹침 C1 대 C0 {overlap:.0%} · "
-                 f"β C1 {_mean(res['C1'], 'beta'):+.2f} 대 C0 {_mean(res['C0'], 'beta'):+.2f} · 입력 = 실전 경로 fa_features(miss_ba as_of) · "
-                 "선택 편향: 금고 early 결과를 본 뒤 고른 대조군")
+    lines.append(f"기록(기준 아님) 상위 24 겹침 C1 대 C0 {overlap:.0%} · β C1 {_mean(port['C1'], 'beta'):+.2f} 대 C0 "
+                 f"{_mean(port['C0'], 'beta'):+.2f} · 입력 = 실전 경로 fa_features(miss_ba as_of) · 선택 편향: 금고 early 결과를 본 뒤 고른 대조군")
     return lines, verdict
 
 

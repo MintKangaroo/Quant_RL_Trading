@@ -78,63 +78,96 @@ def test_record_note_marks_selection_bias() -> None:
     assert "선택 편향" in vj.RECORD_NOTE["C1G"]
 
 
-# --------------------------------------------------------------------------- ② 기준
+# --------------------------------------------------------------------------- ② 기준(새 틀 — 원리 시험 주 · 포트 해 방지)
 
 
-def _m(ann: float, *, h1: float | None = None, h2: float | None = None, mdd: float = -0.10, turn: float = 15.0,
-       ic: float = 0.05) -> dict[str, float]:
-    return {"ann": ann, "h1": ann if h1 is None else h1, "h2": ann if h2 is None else h2, "mdd": mdd, "turn": turn,
-            "ic": ic, "beta": 1.0}
+def _dic(mean: float, *, n: int = 30, seeds: int = 5, noise: float = 0.002, seed_shift: list[float] | None = None) -> pd.DataFrame:
+    rng = np.random.default_rng(7)
+    shift = seed_shift or [0.0] * seeds
+    cols = {s: mean + shift[s] + rng.normal(scale=noise, size=n) for s in range(seeds)}
+    return pd.DataFrame(cols, index=[date(2026, 10, 1) + pd.Timedelta(days=i) for i in range(n)])
 
 
-def _res(c1: list[float], c0: list[float], **kw) -> dict:  # type: ignore[no-untyped-def]
-    return {"C1": [_m(a, **kw.get("t", {})) for a in c1], "C0": [_m(a, **kw.get("b", {})) for a in c0]}
+def _port(ann: float = 0.10, mdd: float = -0.08, turn: float = 20.0, seeds: int = 5) -> list[dict[str, float]]:
+    return [{"ann": ann, "mdd": mdd, "turn": turn, "beta": 1.0} for _ in range(seeds)]
 
 
-def test_c1g_uses_be2_gate_numbers() -> None:
-    assert (vj.BE2_GATE_MEAN, vj.BE2_GATE_SHARE, vj.BE2_GATE_HALF, vj.BE2_GATE_IC, vj.BE2_GATE_MDD, vj.BE2_GATE_TURN) == (
-        0.02, 0.80, -0.01, 0.0, 0.02, 1.2)
+def _judge(dic=None, dsp=None, c1=None, c0=None):  # type: ignore[no-untyped-def]
+    dic = _dic(0.03) if dic is None else dic
+    dsp = _dic(0.0) if dsp is None else dsp
+    return vj.judge_c1g(dic, dsp, {"C1": c1 or _port(), "C0": c0 or _port()})
+
+
+def test_c1g_gate_numbers_match_the_document() -> None:
     body = vj.C1G_PROTOCOL.read_text()
-    for text in ("C0 + **2%p**", "**80% 이상(5 중 4)**", "C0 − **1%p**", "≥ **0**", "**2%p** 넘게", "C0 × **1.2**"):
-        assert text in body, text
+    for value in (vj.C1G_GATE_T, vj.C1G_GATE_SEEDS):
+        assert f"**{value:g}**" in body, value
+    for value in (vj.C1G_GATE_SPREAD, vj.C1G_GATE_ANN, vj.C1G_GATE_MDD):
+        assert f"**{value:+g}**" in body, value
+    assert f"**×{vj.C1G_GATE_TURN:g}**" in body
+    assert vj.C1G_NW_LAG == 4
 
 
-def test_c1g_adopts_on_all_five() -> None:
-    lines, verdict = vj.judge_c1g(_res([0.12] * 5, [0.08] * 5))
+def test_c1g_adopts_when_principle_and_no_harm() -> None:
+    lines, verdict = _judge()
     assert verdict.startswith("채택 후보") and "재승인" in verdict
-    assert all(k in "".join(lines) for k in ("①", "②", "③", "④", "⑤"))
-
-
-@pytest.mark.parametrize("kw,c1", [
-    ({}, [0.09] * 5),                                                     # ① +1%p < +2%p
-    ({}, [0.20, 0.20, 0.20, 0.05, 0.05]),                                 # ② 3/5
-    ({"t": {"h1": 0.065, "h2": 0.175}}, [0.12] * 5),                     # ③ 전반 −1.5%p
-    ({"t": {"ic": 0.045}}, [0.12] * 5),                                  # ④ ΔIC < 0
-    ({"t": {"mdd": -0.125}}, [0.12] * 5),                                # ⑤ MDD 2.5%p 깊음
-    ({"t": {"turn": 18.5}}, [0.12] * 5),                                 # ⑤ 회전 ×1.23
-])
-def test_c1g_rejects_on_each_gate(kw, c1) -> None:  # type: ignore[no-untyped-def]
-    assert vj.judge_c1g(_res(c1, [0.08] * 5, **kw))[1].startswith("기각")
-
-
-def test_c1g_early_numbers_would_fail_three_and_five() -> None:
-    """금고 early 의 C1·C0 숫자(문서 '선택 편향' 2) — 이 기준이면 ③·⑤ 에서 떨어진다. 기준을 C1 에 맞추지 않았다는 확인."""
-    c1 = [_m(a, h1=0.425, h2=0.465, mdd=-0.159, turn=26.5, ic=0.0638) for a in (0.336, 0.440, 0.323, 0.523, 0.604)]
-    c0 = [_m(a, h1=0.438, h2=-0.345, mdd=-0.067, turn=20.4, ic=0.0414) for a in (0.062, 0.084, 0.098, -0.017, 0.005)]
-    lines, verdict = vj.judge_c1g({"C1": c1, "C0": c0})
-    assert verdict.startswith("기각")
     text = "\n".join(lines)
-    assert "③두 구간 -1.3%p" in text and "×1.30" in text
+    assert all(k in text for k in ("P1", "P2", "P3", "H1", "H2", "H3"))
+
+
+def test_c1g_rejects_without_principle() -> None:
+    assert _judge(dic=_dic(0.0, noise=0.02))[1].startswith("기각 — 원리")
+    shift = [0.0] * vj.C1G_GATE_SEEDS + [-0.2] * (5 - vj.C1G_GATE_SEEDS)
+    shift[0] = -0.2                                                    # 양수 시드가 문턱보다 하나 적다
+    assert _judge(dic=_dic(0.03, seed_shift=shift))[1].startswith("기각 — 원리")
+
+
+@pytest.mark.parametrize("kw", [
+    {"dsp": "spread"}, {"c1": "ann"}, {"c1": "mdd"}, {"c1": "turn"},
+])
+def test_c1g_rejects_on_each_harm_gate(kw) -> None:  # type: ignore[no-untyped-def]
+    if kw.get("dsp"):
+        verdict = _judge(dsp=_dic(vj.C1G_GATE_SPREAD - 0.01))[1]
+    elif kw["c1"] == "ann":
+        verdict = _judge(c1=_port(ann=0.10 + vj.C1G_GATE_ANN - 0.01))[1]
+    elif kw["c1"] == "mdd":
+        verdict = _judge(c1=_port(mdd=-0.08 + vj.C1G_GATE_MDD - 0.01))[1]
+    else:
+        verdict = _judge(c1=_port(turn=20.0 * vj.C1G_GATE_TURN + 1.0))[1]
+    assert verdict.startswith("기각 — 원리는 보였으나 포트")
+
+
+def test_c1g_early_numbers_pass_the_harm_gates_only_if_within_margin() -> None:
+    """금고 early 포트 숫자(문서 '선택 편향' 2) — 새 해 방지 여유로 다시 읽는다(기록, 판정 아님)."""
+    c1 = [{"ann": a, "mdd": -0.159, "turn": 26.5, "beta": 1.0} for a in (0.336, 0.440, 0.323, 0.523, 0.604)]
+    c0 = [{"ann": a, "mdd": -0.067, "turn": 20.4, "beta": 1.0} for a in (0.062, 0.084, 0.098, -0.017, 0.005)]
+    lines, _ = vj.judge_c1g(_dic(0.022), _dic(0.0), {"C1": c1, "C0": c0})
+    text = "\n".join(lines)
+    assert "H2 MDD 차 -9.2%p" in text and "×1.30" in text
 
 
 def test_c1g_stops_on_missing_metric() -> None:
-    res = _res([0.12] * 5, [0.08] * 5)
-    del res["C1"][2]["ic"]
+    c1 = _port()
+    del c1[2]["mdd"]
     with pytest.raises(ValueError):
-        vj.judge_c1g(res)
-    res = _res([0.12] * 4, [0.08] * 5)
+        _judge(c1=c1)
     with pytest.raises(ValueError):
-        vj.judge_c1g(res)
+        _judge(c1=_port(seeds=4))
+    with pytest.raises(ValueError):
+        _judge(dic=pd.DataFrame())
+
+
+def test_session_stats_scores_only_the_tradable_universe() -> None:
+    from tools.power_principle import session_stats
+
+    d = date(2026, 7, 1)
+    names = [f"KR:{i:03d}" for i in range(40)]
+    pred = pd.DataFrame({"entity_id": names, "session": d, "pred": np.arange(40.0)})
+    target = pd.DataFrame({"entity_id": names, "session": d, "target": np.r_[np.arange(20.0), -np.arange(20.0)]})
+    full = session_stats(pred, target, {d: set(names)})
+    half = session_stats(pred, target, {d: set(names[:20])})
+    assert half.loc[d, "ic"] == pytest.approx(1.0) and full.loc[d, "ic"] < 0.5
+    assert half.loc[d, "n"] == 20
 
 
 # --------------------------------------------------------------------------- ③ 모델 해시
