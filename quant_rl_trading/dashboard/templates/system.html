@@ -67,6 +67,8 @@
 
   <section class="panel">
     <h2>크론 작업 — 최근 성공/실패</h2>
+    <div id="sys-jobs-cap"></div>
+    <div id="sys-jobs-strip" class="viz" role="img" aria-label="크론 작업 최근 실행 — 성공·실패·미확인"></div>
     <div id="jobs" class="mcard"></div>
     <p class="note">
       <code>crontab -l</code> 로 확인한 4개 작업뿐이다. 로그(<code>logs/*.log</code>)를
@@ -80,10 +82,14 @@
   <section class="grid2">
     <div class="panel">
       <h2>창고 테이블 — 최신성 · 최근 파티션 행수</h2>
+      <div id="sys-tables-cap"></div>
+      <div id="sys-tables-bar" class="viz" role="img" aria-label="창고 테이블별 지연 거래일"></div>
       <div class="scroll mcard" id="tables"></div>
     </div>
     <div class="panel">
       <h2>수집 지연 — 단계별 (data-quality 와 같은 실측)</h2>
+      <div id="sys-latency-cap"></div>
+      <div id="sys-latency-chart" class="viz" role="img" aria-label="수집 단계별 지연 p50·p90·p99"></div>
       <div id="latency"></div>
     </div>
   </section>
@@ -107,6 +113,7 @@
 
   <section class="panel">
     <h2>LLM 실제 호출 (llm_usage) — 모델별 토큰·비용</h2>
+    <div id="sys-llm-bar" class="viz" role="img" aria-label="에이전트·모델별 LLM 비용"></div>
     <div class="scroll mcard" id="llm-usage"></div>
     <p class="note" id="llm-usage-note"></p>
     <p class="note">
@@ -128,6 +135,8 @@
     <h2>파이프라인 이벤트 <span class="sub">관측 → Signal → Selector → Allocator → 주문 → 체결</span>
       <span class="right"><span class="sub" id="events-count"></span></span>
     </h2>
+    <div id="sys-events-cap"></div>
+    <div id="sys-events-strip" class="viz" role="img" aria-label="세션별 파이프라인 단계 기록"></div>
     <div id="events" class="scroll dense mcard"></div>
     <p class="note">
       세션이 남긴 판단 로그다(창고 <code>events</code>). 크론 로그와 달리 창고 사실이라

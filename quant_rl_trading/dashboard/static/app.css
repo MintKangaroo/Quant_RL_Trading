@@ -357,6 +357,13 @@ main { padding: 10px 12px 24px; display: grid; gap: 10px; }
 .panel > .scroll { margin: 0; padding: 0 11px; }
 
 .chart { width: 100%; height: 240px; }
+/* §8-5 공통 그림 — 높이는 막대·줄 수로 JS(hbarChart·stripChart)가 정한다. 캡션 줄이 범례다. */
+.viz { width: 100%; min-height: 90px; height: 160px; }
+.chart-cap { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10.5px; color: var(--dim); margin: 2px 0 4px; }
+.chart-cap .cap-key { display: inline-flex; align-items: center; gap: 4px; }
+.chart-cap .cap-key i { display: inline-block; width: 10px; height: 8px; border-radius: 1px; }
+.viz-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+@media (max-width: 640px) { .viz-pair { grid-template-columns: 1fr; } }
 
 /* 목록이 긴 패널은 **패널 안에서** 스크롤한다. 페이지가 길어지면 화면 하나에
    전체를 못 담고(dashboard.md §2: 1920×1080 에서 스크롤 없이), 위쪽 지표를

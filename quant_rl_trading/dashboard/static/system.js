@@ -66,6 +66,7 @@ async function renderJobs() {
     target.innerHTML = `<div class="empty">등록된 작업이 없다.</div>`;
     return;
   }
+  drawJobsStrip(data);
   target.innerHTML = `<table>
     <thead><tr><th>작업</th><th>일정</th><th>최근 실행</th><th>결과</th>
       <th>마지막 성공</th></tr></thead>
@@ -102,6 +103,7 @@ function tableStaleChip(row) {
 
 async function renderTables() {
   const { data } = await fetchJson("system/tables");
+  drawTablesBar(data);
   document.getElementById("tables").innerHTML = `<table>
     <thead><tr><th>테이블</th><th class="num">최근 창 행수</th>
       <th>최신 valid_from</th><th>상태</th></tr></thead>
@@ -120,6 +122,7 @@ async function renderLatency() {
     target.innerHTML = `<div class="empty">최근 창에 수집 지연 기록이 없다.</div>`;
     return;
   }
+  drawLatencyChart(data.stages);
   target.innerHTML = `<table>
     <thead><tr><th>단계</th><th class="num">p50</th><th class="num">p90</th>
       <th class="num">p99</th><th class="num">성공률</th><th class="num">표본</th></tr></thead>
@@ -179,6 +182,7 @@ async function renderLlmUsage() {
       ? `단가표에 없는 모델: ${data.unpriced_models.join(", ")} — 그 모델의 비용은 합계에서 빠졌다.`
       : "";
   }
+  drawLlmBar(data.rows);
   target.innerHTML = `<table>
     <thead><tr><th>에이전트</th><th>모델</th><th class="num">호출</th>
       <th class="num">입력 토큰</th><th class="num">출력 토큰</th>
@@ -268,12 +272,112 @@ async function renderEvents() {
     target.innerHTML = `<p class="empty">창 안에 파이프라인 이벤트가 없다 — 세션이 events 를 남기면 관측→체결 판단이 여기 쌓인다.</p>`;
     return;
   }
+  drawEventsStrip(rows);
   target.innerHTML = `<table class="stamp-first dense"><thead><tr><th>시각 KST</th><th>실행</th><th class="mid">단계</th>
     <th>주체</th></tr></thead><tbody>${rows.map((row) => `<tr>
       <td class="num">${kstStamp(row.ts_sim)}</td>
       <td class="code">${esc(row.run_id)}</td>
       <td class="mid"><span class="tag dim">${esc(row.stage)}</span></td>
       <td>${esc(row.actor)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+/* -- 그림 (dashboard.md §8-5) — 표 위에 핵심 하나. 값은 API 그대로, 상태색은 ok/bad(손익색 아님). -- */
+const kstDay = (iso) => { const d = kstDate(iso); return d ? d.slice(5) : "—"; };
+
+/** 크론 작업 — 작업 × 날짜 칸 띠. 같은 날 여러 번 돌았으면 나쁜 쪽(실패 > 미확인 > 성공)을 칠한다. */
+function drawJobsStrip(jobs) {
+  const rank = (ok) => (ok === false ? 2 : ok === null ? 1 : 0);
+  const cells = new Map();
+  const cols = new Set();
+  for (const job of jobs) {
+    for (const run of job.runs || []) {
+      const col = kstDay(run.started_at);
+      cols.add(kstDate(run.started_at) || "");
+      const key = `${job.label}|${col}`;
+      const prev = cells.get(key);
+      if (!prev || rank(run.ok) > rank(prev.ok)) {
+        cells.set(key, { row: job.label, col, ok: run.ok, at: run.started_at, market: run.market });
+      }
+    }
+  }
+  const days = [...cols].filter(Boolean).sort().map((d) => d.slice(5));
+  const cap = document.getElementById("sys-jobs-cap");
+  if (!days.length) {
+    if (cap) cap.innerHTML = "";
+    const el = document.getElementById("sys-jobs-strip");
+    if (el) el.style.display = "none";
+    return;
+  }
+  if (cap) cap.innerHTML = vizCaption([[COLOR.ok, "성공"], [COLOR.bad, "실패"], [COLOR.dim, "미확인(rc 못 찾음)"]], "작업당 최근 실행 · 날짜는 KST");
+  stripChart("sys-jobs-strip", jobs.map((j) => j.label), days, [...cells.values()].map((c) => ({
+    row: c.row, col: c.col,
+    color: c.ok === false ? COLOR.bad : c.ok === null ? COLOR.dim : COLOR.ok,
+    tip: `${esc(c.row)}<br>${kstStamp(c.at, true)}${c.market ? ` · ${esc(c.market)}` : ""}<br>${c.ok === false ? "실패" : c.ok === null ? "미확인" : "성공"}`,
+  })), { labelMax: 26 });
+}
+
+/** 창고 테이블 — 최근 창 행수(로그 축) 가로 막대, 색 = 최신성(표의 배지 tableStaleChip 과 같은 판정 — 기준이 둘이면 안 된다).
+ *  모든 표가 '1거래일 전' 인 평일엔 지연 막대가 다 같아 아무 말도 안 한다 — 크기와 최신성을 한 그림에. 0행(미가동)은 막대 없이 캡션에. */
+function drawTablesBar(rows) {
+  const state = (r) => (r.alarm === false ? "event" : tableStaleChip(r).includes("tone-off") ? "stale" : "ok");
+  const live = rows.filter((r) => r.rows_recent > 0).sort((a, b) => b.rows_recent - a.rows_recent);
+  const idle = rows.length - live.length;
+  const stale = live.filter((r) => state(r) === "stale").length;
+  const cap = document.getElementById("sys-tables-cap");
+  if (cap) cap.innerHTML = vizCaption([[COLOR.bad, "지연 경보"], [COLOR.muted, "최신"], [COLOR.faint, "사건 표(경보 없음)"]],
+    `막대 = 최근 창 행수(로그) · 지연 ${stale} · 창 안 0행 ${idle}개는 아래 표`);
+  hbarChart("sys-tables-bar", live.map((r) => ({
+    label: r.table, value: r.rows_recent,
+    color: state(r) === "stale" ? COLOR.bad : state(r) === "event" ? COLOR.faint : COLOR.muted,
+    tip: `${esc(r.table)}<br>최근 창 ${num(r.rows_recent)}행 · ${stamp(r.latest_valid_from)}${r.stale_days != null ? ` · ${r.stale_days}거래일 전` : ""}`,
+  })), { top: 16, phoneTop: 10, log: true, format: (v) => num(v), min: 90 });
+}
+
+/** 수집 지연 — 단계별 p50·p90·p99(ms) 묶음 가로 막대, 로그 축(단계마다 자릿수가 다르다). */
+function drawLatencyChart(stages) {
+  const el = document.getElementById("sys-latency-chart");
+  if (!el) return;
+  const rows = stages.slice().reverse();
+  const phone = vizPhone();
+  el.style.height = `${Math.max(120, rows.length * (phone ? 30 : 34) + 24)}px`;
+  const cap = document.getElementById("sys-latency-cap");
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "p50"], [COLOR.series[1], "p90"], [COLOR.warn, "p99"]], "ms · 로그 축");
+  const bar = (key, color) => ({ name: key, type: "bar", barMaxWidth: 7, barGap: "15%",
+    data: rows.map((r) => (r[key] && r[key] > 0 ? r[key] : null)), itemStyle: { color } });
+  chart("sys-latency-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" },
+      formatter: (ps) => { const r = rows[ps[0].dataIndex]; return `${esc(r.stage)}<br>p50 ${ms(r.p50)} · p90 ${ms(r.p90)} · p99 ${ms(r.p99)}<br>성공률 ${pct(r.ok_rate, 1)} · 표본 ${num(r.samples)}`; } },
+    grid: { left: 8, right: 16, top: 4, bottom: 20, containLabel: true },
+    xAxis: { type: "log", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v >= 1000 ? `${v / 1000}s` : `${v}ms`) } },
+    yAxis: { type: "category", data: rows.map((r) => vizTrunc(r.stage, phone ? 14 : 22)), ...AXIS, axisTick: { show: false } },
+    series: [bar("p50", COLOR.muted), bar("p90", COLOR.series[1]), bar("p99", COLOR.warn)],
+  }, true);
+}
+
+/** LLM 실제 호출 — 에이전트·모델별 비용(달러) 가로 막대. 단가 모르는 줄은 막대 없이 뺀다(0 달러가 아니다). */
+function drawLlmBar(rows) {
+  const priced = rows.filter((r) => r.cost_usd !== null).sort((a, b) => b.cost_usd - a.cost_usd);
+  hbarChart("sys-llm-bar", priced.map((r) => ({
+    label: `${r.agent} · ${r.model}`, value: r.cost_usd,
+    tip: `${esc(r.agent)} · ${esc(r.model)}<br>$${dec(r.cost_usd, 4)} · 호출 ${num(r.calls)}`,
+  })), { top: 10, phoneTop: 6, format: (v) => `$${dec(v, 2)}`, labelMax: 34, min: 70 });
+}
+
+/** 파이프라인 이벤트 — 단계 × 세션 칸 띠. 세션마다 관측→선정→배분→노출→집행이 다 찍혔나를 한눈에. */
+const SYS_STAGE_ORDER = ["observe", "signal", "select", "allocate", "exposure", "execute", "fill"];
+function drawEventsStrip(rows) {
+  const runs = [...new Set(rows.map((r) => r.run_id))].sort();
+  const stages = [...new Set(rows.map((r) => r.stage))]
+    .sort((a, b) => (SYS_STAGE_ORDER.indexOf(a) + 1 || 99) - (SYS_STAGE_ORDER.indexOf(b) + 1 || 99));
+  // "session-KR-2026-10-12" → "10-12 KR" — 칸 아래 글자가 짧아야 폰에서 겹치지 않는다.
+  const label = (run) => { const m = /^session-([A-Z]+)-\d{4}-(\d{2}-\d{2})$/.exec(String(run)); return m ? `${m[2]} ${m[1]}` : String(run); };
+  const cap = document.getElementById("sys-events-cap");
+  if (cap) cap.innerHTML = vizCaption([[COLOR.ok, "기록 있음"]], `빈칸 = 그 세션에 그 단계 기록 없음 · 최근 ${rows.length}건 기준`);
+  stripChart("sys-events-strip", stages, runs.map(label), rows.map((r) => ({
+    row: r.stage, col: label(r.run_id), color: COLOR.ok,
+    tip: `${esc(r.run_id)}<br>${esc(r.stage)} · ${esc(r.actor)}<br>${kstStamp(r.ts_sim, true)}`,
+  })), { labelMax: 12 });
 }
 
 /* 연구 작업 — 지금 도는 연구 스크립트(프로세스)와 최근 로그. 모델 검증 탭의 접힌 RL 진단 안에 있던 것을 옮겼다
