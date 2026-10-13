@@ -289,3 +289,9 @@
 .fr-notes summary { cursor: pointer; }
 .fr-notes ul { margin: 4px 0 0; padding-left: 16px; }
 .fr-notes li { margin: 2px 0; overflow-wrap: anywhere; }
+
+/* ③ 과거 학습 내역 접기(2026-10-13) · 내역 줄 안의 판정 카드 */
+.ls-fold > summary { cursor: pointer; padding: 6px 0; font-weight: 500; }
+.ls-fold[open] > summary span:first-child { color: var(--muted); }
+.ls-ledger .fr-verdict { margin: 6px 0; font-size: 13px; color: var(--text); }
+.ls-ledger { list-style: none; padding-left: 0; }

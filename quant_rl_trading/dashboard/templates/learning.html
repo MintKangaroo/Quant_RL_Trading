@@ -2,7 +2,6 @@
 {% block title %}모델 검증 · Quant_RL_Trading{% endblock %}
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='control.css', v='20261013') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='alpha_ir.css', v='20261006') }}">
 {% endblock %}
 {% block body %}
 {% with active = 'learning' %}{% include "_scope.html" %}{% endwith %}
@@ -51,12 +50,11 @@
 
   <section class="ls-zone" id="zone-live" aria-labelledby="zone-live-title">
     <header class="ls-zone-head">
-      <h2 id="zone-live-title"><span class="section-index">02</span>지금 매매에 쓰이는 모델</h2>
-      <span class="sub">무엇이 어떻게 매매를 정하나 · 값은 설정 파일에서</span>
+      <h2 id="zone-live-title"><span class="section-index">02</span>랭커 상태 · 병행 트랙</h2>
+      <span class="sub">점수 모델이 잘 맞히고 있나 · 비교 장부</span>
     </header>
-    <p class="ls-lede">매매는 아래 순서로 정해진다. 기계학습 모델은 <strong>③ 랭커 하나</strong>이고, 나머지는 시행으로 검증해
-      채택한 규칙이다. 강화학습(RL)은 지금 매매에 쓰이지 않는다.</p>
-    <div id="live-flow"></div>
+    <p class="ls-lede">매매가 어떤 순서로 정해지는지(단계·설정 값·걸러진 종목)는 <a href="/pipeline">매매 과정</a> 탭,
+      장부별 지수 대비 IR 은 <a href="/trading">트레이딩</a> 탭에 있다.</p>
     <div class="ls-live-grid">
       <section class="ls-block" aria-labelledby="live-ranker-title">
         <h3 id="live-ranker-title">랭커 — 지금 상태 <span class="sub">주간 적중도 측정 · 모델 파일</span></h3>
@@ -67,12 +65,6 @@
         <div id="live-tracks"></div>
       </section>
     </div>
-    {# 장부별 지수 대비 IR — 트레이딩 탭과 같은 API·같은 렌더러(alpha_ir.js, dashboard.md §5 ②). #}
-    <section class="ls-block" aria-labelledby="alpha-ir-title">
-      <h3 id="alpha-ir-title">장부별 지수 대비 IR <span class="sub">트랙을 수익 한 숫자가 아니라 KODEX200 총수익 대비 IR 로 견준다</span>
-        <span class="sub" id="alpha-ir-stamp"></span></h3>
-      <div id="alpha-ir" class="scroll dense"><p class="empty">장부별 IR 을 계산하고 있다.</p></div>
-    </section>
   </section>
 
   <section class="ls-zone" id="zone-history" aria-labelledby="zone-history-title">
@@ -80,10 +72,14 @@
       <h2 id="zone-history-title"><span class="section-index">03</span>과거 학습 내역</h2>
       <span class="sub">무엇을 해봤고 왜 안 됐나 · 최신이 위</span>
     </header>
-    <div id="history-summary"></div>
-    <div id="history-lessons"></div>
-    <div id="history-filter" class="ls-filter" role="group" aria-label="분류로 거르기"></div>
-    <div id="history-list"></div>
+    {# 접고 펼친다(사용자 2026-10-13). 기본은 접힘 — 펼침 상태는 이 페이지가 떠 있는 동안만(브라우저 저장소 금지). #}
+    <details class="ls-fold" id="history-fold">
+      <summary><span>펼쳐 보기</span> <span class="sub" id="history-fold-count"></span></summary>
+      <div id="history-summary"></div>
+      <div id="history-lessons"></div>
+      <div id="history-filter" class="ls-filter" role="group" aria-label="분류로 거르기"></div>
+      <div id="history-list"></div>
+    </details>
   </section>
 
   <section class="ls-zone" id="zone-detail" aria-labelledby="zone-detail-title">
@@ -156,5 +152,4 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='scope.js') }}"></script>
 <script src="{{ url_for('static', filename='learning.js', v='20261013') }}"></script>
-<script src="{{ url_for('static', filename='alpha_ir.js', v='20261006') }}"></script>
 {% endblock %}

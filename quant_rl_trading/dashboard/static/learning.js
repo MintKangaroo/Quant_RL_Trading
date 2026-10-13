@@ -752,9 +752,16 @@ function renderFinalRoundVerdicts(target, data) {
       진행률이 100% 라도 판정은 별도 실행이다.</p>`;
     return;
   }
-  const adopted = data.verdicts.filter((v) => frParseVerdict(v).word === "adopt").map((v) => String(v.entity_id).split(":").pop());
-  target.innerHTML = `<h3>판정 기록 <span class="sub">${data.verdicts.length}건 · 채택 ${adopted.length ? frEsc(adopted.join("·")) : "없음"} · 기준 ○ 통과 ✗ 미달 (칩에 올리면 뜻)</span></h3>
-    <div class="fr-verdicts">${data.verdicts.map(frVerdictCard).join("")}</div>`;
+  // 채택만 여기 둔다 — 기각은 ③ 과거 학습 내역의 그 시행 줄을 펼치면 같은 카드로 보인다(사용자 2026-10-13).
+  const adopted = data.verdicts.filter((v) => frParseVerdict(v).word === "adopt");
+  const rest = data.verdicts.length - adopted.length;
+  const moved = rest ? ` · 기각 ${rest}건은 <a href="#zone-history">③ 과거 학습 내역</a>에서 펼쳐 본다` : "";
+  target.innerHTML = `<h3>판정 기록 — 채택 <span class="sub">기준 ○ 통과 ✗ 미달 (칩에 올리면 뜻)${moved}</span></h3>
+    ${adopted.length ? `<div class="fr-verdicts">${adopted.map(frVerdictCard).join("")}</div>`
+      : `<p class="kpi-note">이 회차에 채택된 시행이 없다.</p>`}`;
+  // '과거 학습 내역' 링크는 접힌 칸을 펼치고 간다
+  const jump = target.querySelector('a[href="#zone-history"]');
+  if (jump) jump.addEventListener("click", () => { const f = document.getElementById("history-fold"); if (f) f.open = true; });
 }
 
 async function renderFinalRound() {
@@ -800,29 +807,6 @@ function lsDocLink(base, doc, label) {
   // 문서는 저장소 경로로만 보인다 — 화면에 바깥 출처를 두지 않는다(tests/invariants/test_dashboard_bans).
   if (!doc) return "";
   return `<span class="ls-doclink" title="${frEsc(doc)}">${label ? `${frEsc(label)} ` : ""}<span class="mono">${frEsc(doc)}</span></span>`;
-}
-
-function lsStage(stage, index, base) {
-  const settings = stage.settings.length
-    ? `<dl class="ls-set">${stage.settings.map((x) => `<div class="${x.found ? "" : "ls-missing"}">
-        <dt>${frEsc(x.label)}${x.market ? ` <span class="ls-mk">${frEsc(x.market)}</span>` : ""}</dt>
-        <dd title="${frEsc(x.key)}">${frEsc(x.display)}</dd></div>`).join("")}</dl>`
-    : "";
-  const adopted = stage.adopted.length
-    ? `<ul class="ls-adopted">${stage.adopted.map((a) => `<li><span class="ls-when">${frEsc(a.date)}</span>
-        <strong>${frEsc(a.trial)}</strong> <span class="ls-adopt-note">${frEsc(a.note)}</span>
-        ${lsDocLink(base, a.doc)}</li>`).join("")}</ul>`
-    : "";
-  return `<li class="ls-stage" id="stage-${frEsc(stage.key)}">
-    <span class="ls-step">${index + 1}</span>
-    <div class="ls-stage-main">
-      <h4>${frEsc(stage.title)}</h4>
-      <p class="ls-plain">${frEsc(stage.plain)}</p>
-      ${adopted}
-      ${stage.detail ? `<details class="ls-more"><summary>왜 이렇게 하나</summary><p>${frEsc(stage.detail)}</p></details>` : ""}
-    </div>
-    <div class="ls-stage-set">${settings}</div>
-  </li>`;
 }
 
 function lsRanker(r, base) {
@@ -881,16 +865,13 @@ function lsTrackReturns(r) {
 }
 
 async function renderLiveModels() {
-  const flow = document.getElementById("live-flow");
-  if (!flow) return;
+  // 흐름 띠·단계 설명은 매매 과정 탭으로 옮겼다(사용자 2026-10-13 "겹치면 빼줘") — 여기는 랭커 칸·병행 트랙만.
+  const ranker = document.getElementById("live-ranker");
+  if (!ranker) return;
   const body = await fetchJson("learning/live-models");
   const data = body.data;
   const base = "";
-  // 흐름 띠: 단계 이름만 한 줄. 누르면 그 단계 설명으로 간다.
-  const strip = `<ol class="ls-strip" aria-label="매매 흐름 요약">${data.stages.map((st, i) =>
-    `<li><a href="#stage-${frEsc(st.key)}"><span class="ls-step">${i + 1}</span>${frEsc(st.title)}</a></li>`).join("")}</ol>`;
-  flow.innerHTML = `${strip}<ol class="ls-stages">${data.stages.map((st, i) => lsStage(st, i, base)).join("")}</ol>`;
-  document.getElementById("live-ranker").innerHTML = lsRanker(data.ranker || {}, base);
+  ranker.innerHTML = lsRanker(data.ranker || {}, base);
   document.getElementById("live-tracks").innerHTML = lsTracks(data.tracks || [], base);
 }
 
@@ -925,8 +906,8 @@ function lsResultBadge(result, source) {
 function lsTrialRow(t, base) {
   const key = `${t.source}:${t.id}:${t.date}`;
   const whatText = t.what || (t.source === "ledger_only" ? "대장에만 있음 — 카탈로그 요약 없음" : "");
-  const ledger = (t.ledger || []).map((l) => `<li><span class="mono">${frEsc(l.entity_id)}</span>
-      <span class="ls-when">${frEsc(String(l.at).slice(0, 10))}</span><div>${frEsc(l.detail)}</div></li>`).join("");
+  // 대장 줄은 판정 기록 칸과 같은 카드(후보·기준 칩·접힌 세부)로 — 원문은 카드의 '세부 기록'·대장에 그대로 있다.
+  const ledger = (t.ledger || []).map((l) => `<li>${frVerdictCard(l)}</li>`).join("");
   return `<details class="ls-trial" data-key="${frEsc(key)}" ${lsOpen.has(key) ? "open" : ""}>
     <summary>
       <span class="ls-when">${frEsc(t.date)}</span>
@@ -996,6 +977,11 @@ async function renderTrialHistory() {
   const data = body.data;
   lsHistory = data;
   const r = data.summary.by_result;
+  const fold = document.getElementById("history-fold-count");
+  if (fold) {
+    const rr = data.summary.by_result;
+    fold.textContent = `총 ${data.summary.total}건 · 채택 ${rr["채택"] || 0} · 기각 ${rr["기각"] || 0} · 보류 ${rr["보류"] || 0}`;
+  }
   summary.innerHTML = `<p class="ls-count"><strong>총 ${data.summary.total}건</strong>
     · <span class="ls-r-adopt">채택 ${r["채택"] || 0}</span> · 기각 ${r["기각"] || 0} · 보류 ${r["보류"] || 0} · 진행중 ${r["진행중"] || 0}
     <span class="sub">요약 ${data.summary.catalog}건 + 대장에만 있는 줄 ${data.summary.ledger_only}건</span></p>
