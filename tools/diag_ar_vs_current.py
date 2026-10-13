@@ -240,13 +240,33 @@ def cmd_panel(market: str, force: bool) -> int:
 
 
 def rank_gauss_array(x: np.ndarray, key: np.ndarray) -> np.ndarray:
-    """세션×시장 안 rank-gauss(결측 0) — `trial_pooled_rank.rank_gauss` 와 같은 식, 열 하나씩."""
-    s = pd.Series(x)
-    g = s.groupby(key, sort=False)
-    r = g.rank(pct=True).to_numpy()
-    cnt = g.transform("count").to_numpy()
-    v = norm.ppf((r * cnt - 0.5) / cnt)
-    return np.nan_to_num(v, nan=0.0).astype(np.float32)
+    """세션×시장 안 rank-gauss(결측 0) — `trial_pooled_rank.rank_gauss` 와 같은 식(동순위 평균 순위, (r·n − 0.5)/n 의 정규분위),
+    pandas groupby 없이 정렬 한 번으로(1천만 행 groupby 가 4GB 상한에 걸렸다 — 03:26)."""
+    from scipy.special import ndtri
+
+    out = np.zeros(len(x), dtype=np.float32)
+    vi = np.flatnonzero(~np.isnan(x))
+    if not len(vi):
+        return out
+    kv, xv = key[vi], x[vi]
+    o = np.lexsort((xv, kv))
+    ks, xs = kv[o], xv[o]
+    n = len(o)
+    newg = np.empty(n, dtype=bool)
+    newg[0] = True
+    newg[1:] = ks[1:] != ks[:-1]
+    gid = np.cumsum(newg) - 1
+    gstart = np.flatnonzero(newg)
+    pos = np.arange(n) - gstart[gid]
+    newr = newg.copy()
+    newr[1:] |= xs[1:] != xs[:-1]
+    rid = np.cumsum(newr) - 1
+    rstart = np.flatnonzero(newr)
+    rlen = np.diff(np.append(rstart, n))
+    avg = pos[rstart][rid] + (rlen[rid] - 1) / 2.0
+    cnt = np.bincount(gid)[gid]
+    out[vi[o]] = ndtri((avg + 0.5) / cnt).astype(np.float32)
+    return out
 
 
 def load_pooled() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[date], np.ndarray]:
