@@ -329,13 +329,17 @@ class Be2Analyst(RankerAnalyst):
         if isinstance(batch, str):
             self.skip_reason = batch
             return pd.DataFrame()
-        per_seed = [(percentile(be1) + percentile(c1)) / 2.0
-                    for be1, c1 in self._be2.seed_predictions(batch.x, batch.flat).values()]
+        per_seed = self._seed_scores(self._be2, batch)
         entities = batch.entities
         self._pred = pd.Series(np.mean(per_seed, axis=0), index=entities)
         frame = batch.today.set_index("entity_id").loc[entities, list(FA_FEATURES)].astype(float)
         frame.index.name = None
         return frame
+
+    def _seed_scores(self, model: Be2Model, batch: SessionBatch) -> list[np.ndarray]:
+        """시드마다 세션 안 점수 — BE2 = (BE1 백분위 + C1 백분위)/2. 하위 클래스(`c1fa` — C1 만)가 이 한 곳만 바꾼다."""
+        return [(percentile(be1) + percentile(c1)) / 2.0
+                for be1, c1 in model.seed_predictions(batch.x, batch.flat).values()]
 
     def evidence_for(self, features: pd.DataFrame, entity_id: str):  # type: ignore[no-untyped-def]
         # 76열 중 절댓값 큰 셋은 결측 표지(1.0)가 차지한다 — 근거로는 점수 여섯만 보인다(ranker 와 같다).

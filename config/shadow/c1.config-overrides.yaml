@@ -1,0 +1,8 @@
+# C1 shadow — docs/design/c1-ar-shadow.md · 시행 C1G(docs/protocols/c1-gbm-fa-second-2026-10.md). scripts/run_shadow_c1.sh 가 첫 실행에
+# data/_c1_shadow/config-overrides.yaml 로 복사한다. 이 샌드박스에서만 읽힌다(실전 창고는 덮어쓰기 파일을 거부한다).
+# 나머지는 현행 모의계좌 규칙 그대로(상위 24 · 완충 72 · C10 · 리스크 패리티 · 노출 V6 · 섹터 상한).
+# 바꾸는 것은 알파 자리 하나 — 현행 측정표 {ranker: 1, risk: 1} 의 ranker 를 c1fa 로. risk 는 제약이라 알파에서 빠지고
+# 위험 하한으로 그대로 쓰인다(selector/constraints.py). 기록만 — 판정은 금고 second 창(11/23), 장부 성적은 기준이 아니다.
+selector.weights_override:
+  c1fa: 1.0
+  risk: 1.0
