@@ -167,6 +167,32 @@ class Context:
             self.__dict__["_y5"] = cached
         return cached
 
+    def y5w(self) -> pd.DataFrame:
+        """h5 라벨 넓은 표(세션 × 종목, float32)."""
+        cached = self.__dict__.get("_y5w")
+        if cached is None:
+            r5 = (self.close.shift(-6) / self.close.shift(-1) - 1.0).replace([np.inf, -np.inf], np.nan)
+            cached = r5.astype(np.float32)
+            self.__dict__["_y5w"] = cached
+        return cached
+
+    def trad_mask(self) -> pd.DataFrame:
+        """거래가능 넓은 표(세션 × 종목, bool) — close 의 축."""
+        cached = self.__dict__.get("_tmask")
+        if cached is None:
+            cols = {e: i for i, e in enumerate(self.close.columns)}
+            m = np.zeros(self.close.shape, dtype=bool)
+            rows = {d: i for i, d in enumerate(self.close.index)}
+            for d, names in self.trad.items():
+                i = rows.get(d)
+                if i is None:
+                    continue
+                idx = [cols[e] for e in names if e in cols]
+                m[i, idx] = True
+            cached = pd.DataFrame(m, index=self.close.index, columns=self.close.columns)
+            self.__dict__["_tmask"] = cached
+        return cached
+
     def ret_long(self) -> pd.DataFrame:
         """거래가능 명단 안 (session, entity_id, r) — 십분위용. 한 번 만들고 붙잡아 둔다."""
         cached = self.__dict__.get("_ret_long")
@@ -366,10 +392,22 @@ class LazyScores(Mapping[int, pd.DataFrame]):
             filters.append(("session", ">=", self.lo))
         if self.hi is not None:
             filters.append(("session", "<=", self.hi))
-        f = pd.read_parquet(self.path, columns=["entity_id", "session", "pred"], filters=filters)  # invariant-allow: data-access — 점수 캐시
-        f["session"] = pd.to_datetime(f["session"]).dt.date
-        guard_cap(f["session"].unique(), str(self.path))
-        return f.reset_index(drop=True)
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq  # invariant-allow: data-access — 점수 캐시
+
+        t = pq.read_table(self.path, columns=["entity_id", "session", "pred"], filters=filters,  # invariant-allow: data-access — 점수 캐시
+                          read_dictionary=["entity_id"])
+        days = pc.cast(pc.cast(t.column("session"), "date32"), "int32").to_numpy()
+        uniq, inv = np.unique(days, return_inverse=True)
+        sess = pd.Categorical.from_codes(inv.astype(np.int32),
+                                         categories=pd.Index([date.fromordinal(int(d) + 719163) for d in uniq]))
+        ent = t.column("entity_id").unify_dictionaries().combine_chunks()
+        f = pd.DataFrame({"entity_id": pd.Categorical.from_codes(ent.indices.to_numpy(zero_copy_only=False).astype(np.int32),
+                                                                   categories=pd.Index(ent.dictionary.to_pylist())),
+                          "session": sess, "pred": t.column("pred").to_numpy()})
+        del t, ent
+        guard_cap(list(sess.categories), str(self.path))
+        return f
 
     def window(self, lo: date | None, hi: date | None) -> LazyScores:
         out = LazyScores.__new__(LazyScores)
@@ -418,8 +456,19 @@ def write_scores(preds: Mapping[int, pd.DataFrame] | Any, path: Path) -> None:
     tmp.replace(path)
 
 
-def bundle(preds: Mapping[int, pd.DataFrame]) -> pd.DataFrame:
-    """시드 평균 묶음 — 같은 (종목, 세션)의 점수 평균(AL 의 '5시드 평균 점수'). 시드를 하나씩 더한다."""
+def bundle(preds: Mapping[int, pd.DataFrame], ctx: Context | None = None) -> pd.DataFrame:
+    """시드 평균 묶음 — 같은 (종목, 세션)의 점수 평균(AL 의 '5시드 평균 점수'). 시드를 하나씩 더한다.
+    ctx 를 주면 넓은 표로(메모리 작다)."""
+    if ctx is not None:
+        tot: pd.DataFrame | None = None
+        cnt: pd.DataFrame | None = None
+        for p in preds.values():
+            w = as_wide(p, ctx)
+            one = w.notna().astype(np.float32)
+            tot = w.fillna(0.0) if tot is None else tot.add(w.fillna(0.0), fill_value=0.0)
+            cnt = one if cnt is None else cnt.add(one, fill_value=0.0)
+            del p, w, one
+        return (tot / cnt.where(cnt > 0)).astype(np.float32)
     total: pd.Series | None = None
     count: pd.Series | None = None
     for p in preds.values():
@@ -535,20 +584,66 @@ def yearly_sign_share(x: pd.Series) -> tuple[float, dict[int, float]]:
 # --------------------------------------------------------------------------- 칸 ① 원리
 
 
-def ic_frame(preds: Mapping[int, pd.DataFrame], y5: pd.DataFrame, trad: dict[date, set[str]]) -> pd.DataFrame:
-    """세션 × 시드 IC(Spearman, 거래가능 전 종목) — `power_principle.session_stats` 그대로(검정력을 잰 함수)."""
-    from tools.power_principle import session_stats
+def is_wide(p: pd.DataFrame) -> bool:
+    return "pred" not in p.columns
 
-    return pd.DataFrame({s: session_stats(p, y5, trad)["ic"] for s, p in preds.items()}).sort_index()
+
+def as_wide(p: pd.DataFrame, ctx: Context) -> pd.DataFrame:
+    """긴 점수(entity_id·session·pred) → 넓은 표(세션 × close 의 종목, float32). 이미 넓으면 그대로.
+    가격이 없는 종목은 빠진다(라벨·수익을 잴 수 없다)."""
+    if is_wide(p):
+        return p
+    sc = p["session"].astype("category")
+    ec = p["entity_id"].astype("category")
+    mat = np.full((len(sc.cat.categories), len(ec.cat.categories)), np.nan, dtype=np.float32)
+    mat[sc.cat.codes.to_numpy(), ec.cat.codes.to_numpy()] = p["pred"].to_numpy(np.float32)
+    days = [d if isinstance(d, date) else pd.Timestamp(d).date() for d in sc.cat.categories]
+    w = pd.DataFrame(mat, index=pd.Index(days), columns=pd.Index([str(e) for e in ec.cat.categories]))
+    guard_cap(w.index, "점수")
+    return w.sort_index().reindex(columns=ctx.close.columns)
+
+
+def _row_rank(a: np.ndarray) -> np.ndarray:
+    return pd.DataFrame(a).rank(axis=1, pct=True).to_numpy()
+
+
+def wide_ic(w: pd.DataFrame, ctx: Context) -> pd.Series:
+    """세션별 Spearman — 거래가능 ∩ 점수 ∩ 라벨 이 있는 종목에서 순위의 피어슨(= power_principle.session_stats 의 ic)."""
+    idx = w.index.intersection(ctx.close.index)
+    P = w.loc[idx].to_numpy(np.float64)
+    Y = ctx.y5w().loc[idx].to_numpy(np.float64)
+    M = ctx.trad_mask().loc[idx].to_numpy() & ~np.isnan(P) & ~np.isnan(Y)
+    P[~M] = np.nan
+    Y[~M] = np.nan
+    rp, ry = _row_rank(P), _row_rank(Y)
+    rp = rp - np.nanmean(rp, axis=1, keepdims=True)
+    ry = ry - np.nanmean(ry, axis=1, keepdims=True)
+    num = np.nansum(rp * ry, axis=1)
+    den = np.sqrt(np.nansum(rp * rp, axis=1) * np.nansum(ry * ry, axis=1))
+    ic = np.where((M.sum(axis=1) >= 10) & (den > 0), num / np.where(den > 0, den, 1), np.nan)
+    return pd.Series(ic, index=idx).dropna()
+
+
+def ic_frame(preds: Mapping[int, pd.DataFrame], ctx: Context) -> pd.DataFrame:
+    """세션 × 시드 IC(Spearman, 거래가능 전 종목)."""
+    return pd.DataFrame({s: wide_ic(as_wide(p, ctx), ctx) for s, p in preds.items()}).sort_index()
 
 
 def decile_frame(pred: pd.DataFrame, ctx: Context, *, q: float = 0.10) -> pd.DataFrame:
     """일 재조정 십분위(동일가중, 비용 없음) — 결정 t 의 원 점수(평활 없음)로 t+1→t+2 수익. 열 d10·d1."""
-    m = pred.merge(ctx.ret_long(), on=["session", "entity_id"], how="inner")
-    m["rp"] = m.groupby("session")["pred"].rank(pct=True)
-    d10 = m[m["rp"] > 1 - q].groupby("session")["r"].mean()
-    d1 = m[m["rp"] <= q].groupby("session")["r"].mean()
-    return pd.DataFrame({"d10": d10, "d1": d1}).sort_index()
+    w = as_wide(pred, ctx)
+    idx = w.index.intersection(ctx.ret.index)
+    P = w.loc[idx].to_numpy(np.float64)
+    R = ctx.ret.loc[idx, w.columns].to_numpy(np.float64)
+    M = ctx.trad_mask().loc[idx, w.columns].to_numpy() & ~np.isnan(P) & ~np.isnan(R)
+    P[~M] = np.nan
+    rp = _row_rank(P)
+    with np.errstate(invalid="ignore"):
+        top = np.where(rp > 1 - q, R, np.nan)
+        bot = np.where(rp <= q, R, np.nan)
+        d10 = np.nanmean(top, axis=1)
+        d1 = np.nanmean(bot, axis=1)
+    return pd.DataFrame({"d10": d10, "d1": d1}, index=idx).dropna(how="all")
 
 
 # --------------------------------------------------------------------------- 칸 ③ 포트
@@ -561,7 +656,7 @@ def book(pred: pd.DataFrame, ctx: Context, *, n: int = N, mult: int = MULT, ever
     반환 (비용 후 일수익, 일 회전)."""
     from tools.diag_style_hedge_cost import long_leg
 
-    wide = pred.pivot_table(index="session", columns="entity_id", values="pred").sort_index()
+    wide = as_wide(pred, ctx).dropna(axis=1, how="all")
     if smooth:
         wide = wide.ewm(span=SPAN).mean()
     daily, turn, _ = long_leg(wide, ctx.ret, ctx.trad, n, every=every, mult=mult, theta=theta)
@@ -612,9 +707,8 @@ STAGES = (
 
 def stage_series(pred: pd.DataFrame, ctx: Context, y5: pd.DataFrame) -> dict[str, pd.Series]:
     """점수 하나(시드 하나 또는 묶음)의 단계별 일 계열. IC 는 단위 없음, 나머지는 일 초과수익."""
-    from tools.power_principle import session_stats
-
-    ic = session_stats(pred, y5, ctx.trad)["ic"]
+    pred = as_wide(pred, ctx)
+    ic = wide_ic(pred, ctx)
     dec = decile_frame(pred, ctx)
     u = ctx.uni
     raw, raw_turn = book(pred, ctx, n=N, mult=1, every=1, smooth=False)
@@ -637,9 +731,8 @@ def stage_series(pred: pd.DataFrame, ctx: Context, y5: pd.DataFrame) -> dict[str
 
 def loss_table(preds: Mapping[int, pd.DataFrame], ctx: Context, *, y5: pd.DataFrame | None = None) -> dict[str, Any]:
     """단계별 연율·NW t·국면·시드 범위 + 시드 평균 묶음. 모든 단계를 **같은 세션 창**(점수가 있는 창)에서 잰다."""
-    y5 = ctx.y5() if y5 is None else y5
-    per_seed = {s: stage_series(p, ctx, y5) for s, p in preds.items()}
-    bun = stage_series(bundle(preds), ctx, y5) if len(preds) > 1 else None
+    per_seed = {s: stage_series(p, ctx, None) for s, p in preds.items()}
+    bun = stage_series(bundle(preds, ctx), ctx, None) if len(preds) > 1 else None
     rows = {}
     for key, label in STAGES:
         scale = 1 if key == "ic" else ANN
@@ -778,9 +871,13 @@ def ladder(preds: Mapping[int, pd.DataFrame], ctx: Context, *, control: Mapping[
     else:
         port_preds, port_control = preds, control
     th = thresholds
-    y5 = ctx.y5() if y5 is None else y5
+    preds = {s: as_wide(p, ctx) for s, p in preds.items()}          # 시드마다 한 번 읽어 넓은 표로(작다)
+    if control is not None:
+        control = {s: as_wide(p, ctx) for s, p in control.items()}
+    if plus_base is None:
+        port_preds, port_control = preds, control
     res: dict[str, Any] = {"thresholds": th.__dict__, "n_tests": int(n_tests), "checks": {}}
-    ics = ic_frame(preds, y5, ctx.trad)
+    ics = ic_frame(preds, ctx)
     ic_mean = ics.mean(axis=1).dropna()
     dec = pd.DataFrame({s: (lambda d: d["d10"] - d["d1"])(decile_frame(p, ctx)) for s, p in preds.items()}).mean(axis=1)
     share, years = yearly_sign_share(ic_mean)
@@ -795,12 +892,12 @@ def ladder(preds: Mapping[int, pd.DataFrame], ctx: Context, *, control: Mapping[
                         "ic_seed": {int(s): float(ics[s].mean()) for s in ics.columns}}
     # ② 한계기여
     if plus_base is not None:
-        dic = pd.DataFrame({s: ic_frame({0: v["plus"]}, y5, ctx.trad)[0] - ic_frame({0: v["base"]}, y5, ctx.trad)[0]
+        dic = pd.DataFrame({s: ic_frame({0: v["plus"]}, ctx)[0] - ic_frame({0: v["base"]}, ctx)[0]
                             for s, v in plus_base.items()})
         kind = "재학습(C0+재료 − C0)"
     elif control is not None:
         common = sorted(set(preds) & set(control))
-        cic = ic_frame(_Subset(control, common), y5, ctx.trad)
+        cic = ic_frame(_Subset(control, common), ctx)
         dic = pd.DataFrame({s: ics[s] - cic[s] for s in common})
         kind = "짝 ΔIC(점수 − 대조)"
     else:
@@ -821,7 +918,7 @@ def ladder(preds: Mapping[int, pd.DataFrame], ctx: Context, *, control: Mapping[
     # ③ 포트
     per_seed = {s: book(p, ctx) for s, p in port_preds.items()}
     ports = {s: port_summary(net, turn, ctx) for s, (net, turn) in per_seed.items()}
-    bnet, bturn = book(bundle(port_preds), ctx) if len(port_preds) > 1 else per_seed[next(iter(per_seed))]
+    bnet, bturn = book(bundle(port_preds, ctx), ctx) if len(port_preds) > 1 else per_seed[next(iter(per_seed))]
     bp = port_summary(bnet, bturn, ctx)
     pos_k = sum(1 for v in ports.values() if v["vs_k200"]["ann"] > 0)
     c["③a 대 K200>0"] = judge(bp["vs_k200"]["ann"] > 0 and bp["vs_k200"]["t"] >= th.port_t, bp["vs_k200"], min_t=th.port_t,
@@ -833,7 +930,7 @@ def ladder(preds: Mapping[int, pd.DataFrame], ctx: Context, *, control: Mapping[
     c["③d MDD"] = (bp["mdd"] >= bp["k200_mdd"] - th.mdd_margin, f"{bp['mdd']:+.1%} 대 K200 {bp['k200_mdd']:+.1%}")
     res["port"] = {"bundle": bp, "seeds": ports}
     if port_control is not None:
-        cn, ct = book(bundle(port_control), ctx) if len(port_control) > 1 else book(next(iter(port_control.values())), ctx)
+        cn, ct = book(bundle(port_control, ctx), ctx) if len(port_control) > 1 else book(next(iter(port_control.values())), ctx)
         cp = port_summary(cn, ct, ctx)
         idx = bnet.index.intersection(cn.index)
         diff = describe(bnet.reindex(idx) - cn.reindex(idx), ctx)

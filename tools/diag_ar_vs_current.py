@@ -288,7 +288,7 @@ def load_pooled() -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.nd
             X[at:at + k, j] = t.column(c).to_numpy(zero_copy_only=False)
         ords[at:at + k] = t.column("ord").to_numpy()
         market[at:at + k] = t.column("market").to_numpy()
-        col = t.column("entity_id").combine_chunks()
+        col = t.column("entity_id").unify_dictionaries().combine_chunks()
         dic = col.dictionary.to_pylist()
         remap = np.array([lookup.setdefault(e, len(lookup)) for e in dic], dtype=np.int32)
         ent[at:at + k] = remap[col.indices.to_numpy(zero_copy_only=False)]
@@ -366,67 +366,82 @@ def cmd_walk(force: bool, seeds: tuple[int, ...]) -> int:
 
 
 def yearly_dic(a: Any, b: Any, ctx: el.Context) -> dict[str, Any]:
-    ia = el.ic_frame(a, ctx.y5(), ctx.trad).mean(axis=1)
-    ib = el.ic_frame(b, ctx.y5(), ctx.trad).mean(axis=1)
+    ia = el.ic_frame(a, ctx).mean(axis=1)
+    ib = el.ic_frame(b, ctx).mean(axis=1)
     d = (ia - ib).dropna()
     by = d.groupby([x.year for x in d.index])
     return {"all": el.describe(d, ctx, scale=1),
             "years": {int(y): {"dic": float(v.mean()), "t": el.nw_t(v), "n": int(len(v))} for y, v in by}}
 
 
-def style_residual_ic(ctx: el.Context) -> dict[str, Any]:
-    """미장 G7 원 열 · AR−대조 점수 차의 IC — 원래 / 스타일(log ADV20 · log 원 종가 · 60일 변동성) 잔차.
-    세션마다 피처 rank-gauss 를 세 스타일 z 에 최소제곱으로 회귀한 잔차의 순위 IC(대 h5 라벨)."""
-    adv = pd.read_pickle(OUT / "us-adv20.pkl")  # invariant-allow: data-access — 진단 캐시
-    px = pd.read_pickle(OUT / "us-rawclose.pkl")  # invariant-allow: data-access — 진단 캐시
-    vol = ctx.close.pct_change(fill_method=None).rolling(60, min_periods=30).std()
-    raw = pd.read_parquet(US_PANEL, columns=["entity_id", "session", *G7])  # invariant-allow: data-access — 진단 패널
-    raw["session"] = pd.to_datetime(raw["session"]).dt.date
-    ar = el.bundle(el.read_scores(el.score_path("AR-US", OUT))).rename(columns={"pred": "ar"})
-    arc = el.bundle(el.read_scores(el.score_path("ARc-US", OUT))).rename(columns={"pred": "arc"})
-    m = raw.merge(ar, on=["entity_id", "session"], how="left").merge(arc, on=["entity_id", "session"], how="left")
-    del raw, ar, arc
-    m["diff"] = m["ar"].rank(pct=True) - m["arc"].rank(pct=True)
-    y = ctx.y5()
-    m = m.merge(y, on=["entity_id", "session"], how="inner")
+def _panel_wide(col: str, ctx: el.Context) -> pd.DataFrame:
+    """미장 압축 패널의 원 열 하나 → 넓은 표(세션 × 종목)."""
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 진단 캐시
 
-    def stack(w: pd.DataFrame, name: str) -> pd.DataFrame:
-        s = w.stack().rename(name).reset_index()
-        s.columns = ["session", "entity_id", name]
-        return s
-    for w, name in ((np.log(adv.where(adv > 0)), "ladv"), (np.log(px.where(px > 0)), "lpx"), (vol, "vol")):
-        m = m.merge(stack(w, name), on=["session", "entity_id"], how="left")
+    t = pq.read_table(el.score_path("panel-US", OUT), columns=["entity_id", "ord", col], read_dictionary=["entity_id"])  # invariant-allow: data-access — 진단 캐시
+    ords = t.column("ord").to_numpy()
+    uniq, inv = np.unique(ords, return_inverse=True)
+    ent = t.column("entity_id").unify_dictionaries().combine_chunks()
+    f = pd.DataFrame({"entity_id": pd.Categorical.from_codes(ent.indices.to_numpy(zero_copy_only=False).astype(np.int32),
+                                                           categories=pd.Index(ent.dictionary.to_pylist())),
+                      "session": pd.Categorical.from_codes(inv.astype(np.int32), categories=pd.Index([date.fromordinal(int(o)) for o in uniq])),
+                      "pred": t.column(col).to_numpy(zero_copy_only=False)})
+    del t
+    return el.as_wide(f, ctx)
+
+
+def style_residual_ic(ctx: el.Context) -> dict[str, Any]:
+    """미장 G7 원 열 · AR·대조 점수(시드 평균) · 두 점수 순위 차의 IC — 원래 / 스타일(log ADV20 · log 원 종가 · 60일 변동성) 잔차.
+    세션마다 거래가능 ∩ 값 있는 종목에서 피처 백분위를 세 스타일 z 에 최소제곱으로 회귀한 잔차의 순위 IC(대 h5 라벨),
+    그리고 라벨도 같은 식으로 잔차화한 IC. 넓은 표로만 계산한다(긴 표 병합은 4GB 상한을 넘는다)."""
+    cols = list(ctx.close.columns)
+    adv = pd.read_pickle(OUT / "us-adv20.pkl").reindex(columns=cols)  # invariant-allow: data-access — 진단 캐시
+    px = pd.read_pickle(OUT / "us-rawclose.pkl").reindex(columns=cols)  # invariant-allow: data-access — 진단 캐시
+    vol = ctx.close.pct_change(fill_method=None).rolling(60, min_periods=30).std()
+    feats: dict[str, pd.DataFrame] = {c: _panel_wide(c, ctx) for c in G7}
+    feats["ar"] = el.bundle(el.read_scores(el.score_path("AR-US", OUT)), ctx)
+    feats["arc"] = el.bundle(el.read_scores(el.score_path("ARc-US", OUT)), ctx)
+    idx = feats["ar"].index.intersection(ctx.y5w().index)
+    for k in feats:
+        feats[k] = feats[k].reindex(index=idx, columns=cols)
+    ra = feats["ar"].rank(axis=1, pct=True)
+    rc = feats["arc"].rank(axis=1, pct=True)
+    feats["diff"] = ra - rc
+    del ra, rc
+    Y = ctx.y5w().reindex(index=idx, columns=cols).to_numpy(np.float64)
+    T = ctx.trad_mask().reindex(index=idx, columns=cols).to_numpy()
+    LA = np.log(adv.reindex(idx).where(adv.reindex(idx) > 0)).to_numpy(np.float64)
+    LP = np.log(px.reindex(idx).where(px.reindex(idx) > 0)).to_numpy(np.float64)
+    VO = vol.reindex(idx).to_numpy(np.float64)
     del adv, px, vol
+    F = {k: v.to_numpy(np.float64) for k, v in feats.items()}
+    del feats
     gc.collect()
-    m = m.dropna(subset=["ladv", "lpx", "vol", "target"])
-    feats = [*G7, "ar", "arc", "diff"]
-    rows: dict[str, dict[str, list[float]]] = {f: {"raw": [], "res": [], "res2": []} for f in feats}
+    rows: dict[str, dict[str, list[float]]] = {f: {"raw": [], "res": [], "res2": []} for f in F}
     days = []
-    for day, part in m.groupby("session"):
-        if len(part) < 200:
+    for i, day in enumerate(idx):
+        base = T[i] & ~np.isnan(Y[i]) & ~np.isnan(LA[i]) & ~np.isnan(LP[i]) & ~np.isnan(VO[i])
+        if base.sum() < 200:
             continue
-        Z = part[["ladv", "lpx", "vol"]].to_numpy(float)
+        Z = np.column_stack([LA[i][base], LP[i][base], VO[i][base]])
         Z = (Z - Z.mean(0)) / np.where(Z.std(0) > 0, Z.std(0), 1)
         Z = np.column_stack([np.ones(len(Z)), Z])
-        ty = part["target"].rank(pct=True).to_numpy(float)
+        ty = pd.Series(Y[i][base]).rank(pct=True).to_numpy()
         ty_res = ty - Z @ np.linalg.lstsq(Z, ty, rcond=None)[0]
         days.append(day)
-        for f in feats:
-            x = part[f].rank(pct=True).to_numpy(float)
+        for f, X in F.items():
+            x = X[i][base]
             ok = ~np.isnan(x)
             if ok.sum() < 200:
                 for k in ("raw", "res", "res2"):
                     rows[f][k].append(np.nan)
                 continue
-            xr = np.full(len(x), np.nan)
-            xr[ok] = x[ok] - Z[ok] @ np.linalg.lstsq(Z[ok], x[ok], rcond=None)[0]
-            rows[f]["raw"].append(float(np.corrcoef(x[ok], ty[ok])[0, 1]))
-            rows[f]["res"].append(float(pd.Series(xr[ok]).corr(pd.Series(ty[ok]), method="spearman")))
-            rows[f]["res2"].append(float(pd.Series(xr[ok]).corr(pd.Series(ty_res[ok]), method="spearman")))
-    out = {}
-    for f in feats:
-        out[f] = {k: el.describe(pd.Series(v, index=days), ctx, scale=1) for k, v in rows[f].items()}
-    return out
+            xr = pd.Series(x[ok]).rank(pct=True).to_numpy()
+            xres = xr - Z[ok] @ np.linalg.lstsq(Z[ok], xr, rcond=None)[0]
+            rows[f]["raw"].append(float(np.corrcoef(xr, ty[ok])[0, 1]))
+            rows[f]["res"].append(float(pd.Series(xres).corr(pd.Series(ty[ok]), method="spearman")))
+            rows[f]["res2"].append(float(pd.Series(xres).corr(pd.Series(ty_res[ok]), method="spearman")))
+    return {f: {k: el.describe(pd.Series(v, index=days), ctx, scale=1) for k, v in r.items()} for f, r in rows.items()}
 
 
 def _ladder_block(name: str, a: Any, b: Any, ctx: el.Context, *, n_tests: int, md: list[str], out: dict[str, Any]) -> None:

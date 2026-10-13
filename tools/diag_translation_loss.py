@@ -210,6 +210,7 @@ def levers(c0: dict[int, pd.DataFrame], ctx: el.Context) -> dict[str, Any]:
             turns.append(turn)
         return pd.concat(nets, axis=1).mean(axis=1), pd.concat(turns, axis=1).mean(axis=1)
 
+    c0 = {s: el.as_wide(p, ctx) for s, p in c0.items()}      # 시드마다 한 번 읽어 넓은 표로
     configs = {
         "현행 N24·R10·3N": (24, 3, 10, None),
         "회전 N24·R20·3N": (24, 3, 20, None),
@@ -219,7 +220,7 @@ def levers(c0: dict[int, pd.DataFrame], ctx: el.Context) -> dict[str, Any]:
         "넓게 N200·R10·3N": (200, 3, 10, None),
     }
     books = {k: seed_mean(*v) for k, v in configs.items()}
-    bn, bt = el.book(el.bundle(c0), ctx)
+    bn, bt = el.book(el.bundle(c0, ctx), ctx)
     books["묶음(5시드 점수 평균) N24·R10·3N"] = (bn, bt)
     base_net = books["현행 N24·R10·3N"][0]
     out: dict[str, Any] = {}
@@ -241,7 +242,7 @@ def index_minus_losers(c0: dict[int, pd.DataFrame], ctx: el.Context, *, top: int
     from tools.trial_p1a_prime import capped, static_book
 
     caps = {d: p.set_index("entity_id")["cap"] for d, p in ctx.caps.groupby("session")}
-    score = el.bundle(c0).pivot_table(index="session", columns="entity_id", values="pred").sort_index().ewm(span=el.SPAN).mean()
+    score = el.bundle(c0, ctx).ewm(span=el.SPAN).mean()
     days = [d for d in score.index if d in ctx.ret.index and d in caps]
 
     def members(day: date) -> pd.Series:
