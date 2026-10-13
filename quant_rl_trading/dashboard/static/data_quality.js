@@ -47,7 +47,9 @@ async function renderMissing() {
   const { data } = await fetchJson("data-quality/missing");
   chart("chart-missing").setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: ["close", "volume"] },
+    // 범례는 그림 왼쪽 위 한 줄 — 오른쪽 위에 두면 선과 겹쳤다(10/13 스크린샷). §8-5.
+    legend: { ...BASE.legend, data: ["close", "volume"], left: 0, right: "auto" },
+    grid: { ...BASE.grid, top: 30 },
     xAxis: { type: "category", data: data.points.map((p) => p.session), ...AXIS },
     yAxis: {
       type: "value", ...AXIS,
@@ -55,9 +57,10 @@ async function renderMissing() {
     },
     series: [
       { name: "close", type: "line", showSymbol: false, data: data.points.map((p) => p.close),
-        lineStyle: { width: 1.4, color: COLOR.up } },
+        lineStyle: { width: 1.4, color: COLOR.series[0] }, itemStyle: { color: COLOR.series[0] } },
+      // 결측률은 손익이 아니다 — 손익 초록(--up)을 빌리지 않고 구분 팔레트(§8-5).
       { name: "volume", type: "line", showSymbol: false, data: data.points.map((p) => p.volume),
-        lineStyle: { width: 1.4, color: COLOR.bench } },
+        lineStyle: { width: 1.4, color: COLOR.series[1] }, itemStyle: { color: COLOR.series[1] } },
     ],
   }, true);
 }
@@ -66,7 +69,8 @@ async function renderUniverse() {
   const { data } = await fetchJson("data-quality/universe");
   chart("chart-universe").setOption({
     ...BASE,
-    legend: { ...BASE.legend, data: ["상장", "상폐 누적"] },
+    legend: { ...BASE.legend, data: ["상장", "상폐 누적"], left: 0, right: "auto" },
+    grid: { ...BASE.grid, top: 30 },
     xAxis: { type: "category", data: data.points.map((p) => p.session), ...AXIS },
     yAxis: [
       { type: "value", scale: true, ...AXIS },
@@ -76,10 +80,10 @@ async function renderUniverse() {
       // 종목 수는 손익이 아니라 **계열**이다 — 글자색(흰색)으로 그리면 검은 바탕에서 축·격자와 구분이
       // 안 되고 강조선처럼 읽힌다(9/2 시트 재설계 뒤 남은 흰 계열). 범주 팔레트 1번.
       { name: "상장", type: "line", showSymbol: false, data: data.points.map((p) => p.listed),
-        lineStyle: { width: 1.4, color: COLOR.series[0] } },
+        lineStyle: { width: 1.4, color: COLOR.series[0] }, itemStyle: { color: COLOR.series[0] } },
       { name: "상폐 누적", type: "line", yAxisIndex: 1, showSymbol: false,
         data: data.points.map((p) => p.delisted_cumulative),
-        lineStyle: { width: 1.4, color: COLOR.warn, type: "dashed" } },
+        lineStyle: { width: 1.4, color: COLOR.warn, type: "dashed" }, itemStyle: { color: COLOR.warn } },
     ],
   }, true);
 }
@@ -89,15 +93,17 @@ async function renderLatency() {
   const stages = data.stages.map((s) => s.stage);
   chart("chart-latency").setOption({
     ...BASE,
-    grid: { ...BASE.grid, left: 72 },
-    legend: { ...BASE.legend, data: ["p50", "p90", "p99"] },
+    // 단계마다 자릿수가 달라(3ms·7초) 선형 축에선 눈금이 겹쳤다 — 로그 축, 범례는 왼쪽 위(§8-5).
+    grid: { ...BASE.grid, left: 72, top: 30, right: 16 },
+    legend: { ...BASE.legend, data: ["p50", "p90", "p99"], left: 0, right: "auto" },
     tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" } },
-    xAxis: { type: "value", ...AXIS },
+    xAxis: { type: "log", ...AXIS, axisLabel: { ...AXIS.axisLabel, formatter: (v) => (v >= 1000 ? `${v / 1000}s` : `${v}ms`) } },
     yAxis: { type: "category", data: stages, ...AXIS },
     series: ["p50", "p90", "p99"].map((key, index) => ({
       name: key, type: "bar",
-      data: data.stages.map((s) => s[key]),
-      itemStyle: { color: [COLOR.bench, COLOR.bad, COLOR.warn][index] },
+      data: data.stages.map((s) => (s[key] > 0 ? s[key] : null)),
+      // p90 을 빨강(--bad)으로 칠하면 '실패' 로 읽힌다 — 상태가 아니라 분위수다.
+      itemStyle: { color: [COLOR.muted, COLOR.series[1], COLOR.warn][index] },
     })),
   }, true);
 }
@@ -111,6 +117,7 @@ async function renderFailures() {
   }
   const count = document.getElementById("failures-count");
   if (count) count.textContent = `${num(data.length)}건`;
+  drawFailures(data);
   // 시각은 초까지만 — 원본(ISO·마이크로초·+09:00)을 그대로 찍으면 한 칸이 32자였다.
   target.innerHTML = `<table class="stamp-first">
     <thead><tr><th>관측시각</th><th>소스</th><th>단계</th>
@@ -132,6 +139,7 @@ async function renderDivergence() {
     return;
   }
   if (count) count.textContent = `임계 ${pct(data.threshold, 1)}p · 경고 ${num(data.alert_count)}건`;
+  drawDivergence(data);
   const rows = data.pairs.map((p) => `<tr>
       <td>${short(p.a)} ↔ ${short(p.b)}</td>
       <td class="num">${num(p.measured)}</td><td class="num">${num(p.unknown)}</td>
@@ -145,6 +153,56 @@ async function renderDivergence() {
       <th class="num">최대 차</th><th class="num">경고</th></tr></thead><tbody>${rows}</tbody></table>`
     + (alerts ? `<table class="stamp-first"><thead><tr><th>날짜</th><th>짝</th><th class="num">앞</th>
       <th class="num">뒤</th><th class="num">차</th></tr></thead><tbody>${alerts}</tbody></table>` : "");
+}
+
+/* -- 그림 (dashboard.md §8-5) — 응답을 세기만 한다. -- */
+
+/** 수집 실패 — 날짜(KST)별 소스별 쌓은 막대. 응답에 실린 최근 실패만 센다(캡션에 건수). */
+function drawFailures(rows) {
+  const el = document.getElementById("dq-fail-chart");
+  const cap = document.getElementById("dq-fail-cap");
+  if (!el) return;
+  const days = [...new Set(rows.map((r) => kstDate(r.observed_at)).filter(Boolean))].sort();
+  const sources = [...new Set(rows.map((r) => r.source))].sort();
+  if (!days.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  const color = (i) => COLOR.series[i % COLOR.series.length];
+  if (cap) cap.innerHTML = vizCaption(sources.map((src, i) => [color(i), src]), `날짜 KST · 아래 표 ${rows.length}건 기준`);
+  chart("dq-fail-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "axis", axisPointer: { type: "shadow" } },
+    grid: { left: 30, right: 6, top: 8, bottom: 20 },
+    xAxis: { type: "category", data: days.map((d) => d.slice(5)), ...AXIS, axisTick: { show: false } },
+    yAxis: { type: "value", ...AXIS, minInterval: 1 },
+    series: sources.map((src, i) => ({
+      name: src, type: "bar", stack: "f", barMaxWidth: 14, itemStyle: { color: color(i) },
+      data: days.map((d) => rows.filter((r) => r.source === src && kstDate(r.observed_at) === d).length || null),
+    })),
+  }, true);
+}
+
+/** 지수 괴리 — 짝별 최대 일수익 차(%p) 막대 + 임계 점선(서버가 설정에서 준 값). 넘은 짝만 경고색. */
+function drawDivergence(data) {
+  const el = document.getElementById("dq-div-chart");
+  const cap = document.getElementById("dq-div-cap");
+  if (!el) return;
+  const short = (id) => String(id).split(":").pop();
+  const rows = data.pairs.filter((p) => p.max_abs_diff !== null);
+  if (!rows.length) { el.style.display = "none"; if (cap) cap.innerHTML = ""; return; }
+  el.style.display = "";
+  el.style.height = `${rows.length * 26 + 30}px`;
+  if (cap) cap.innerHTML = vizCaption([[COLOR.muted, "최대 차"], [COLOR.warn, "임계 넘음"]], `점선 = 임계 ${pct(data.threshold, 1)}p`);
+  chart("dq-div-chart").setOption({
+    ...BASE, legend: { show: false },
+    tooltip: { ...BASE.tooltip, trigger: "item", formatter: (p) => { const r = rows[p.dataIndex]; return `${short(r.a)} ↔ ${short(r.b)}<br>최대 차 ${pct(r.max_abs_diff, 2)}p · 잰 세션 ${num(r.measured)} · 경고 ${num(r.alerts.length)}`; } },
+    grid: { left: 8, right: 48, top: 4, bottom: 18, containLabel: true },
+    xAxis: { type: "value", ...AXIS, max: (v) => Math.max(v.max, data.threshold) * 1.15, axisLabel: { ...AXIS.axisLabel, formatter: (v) => `${(v * 100).toFixed(1)}%p` } },
+    yAxis: { type: "category", data: rows.map((r) => `${short(r.a)} ↔ ${short(r.b)}`), ...AXIS, axisTick: { show: false } },
+    series: [{ type: "bar", barMaxWidth: 12,
+      data: rows.map((r) => ({ value: r.max_abs_diff, itemStyle: { color: r.max_abs_diff > data.threshold ? COLOR.warn : COLOR.muted } })),
+      label: { show: true, position: "right", color: COLOR.dim, fontSize: 10, fontFamily: "IBM Plex Mono", formatter: (p) => `${(p.value * 100).toFixed(2)}%p` },
+      markLine: { silent: true, symbol: "none", data: [{ xAxis: data.threshold }], lineStyle: { color: COLOR.warn, type: "dashed" }, label: { show: false } } }],
+  }, true);
 }
 
 /* 진행 중인 작업 — 백필·IC 측정이 어디까지 갔나.
