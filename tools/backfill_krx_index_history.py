@@ -81,8 +81,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     end = first - timedelta(days=1)
     panel = replace(OPENAPI_PANELS["indices-krx"], run_key=RUN_KEY)
-    backfiller = PanelBackfiller(store=store, source=KrxOpenApi(), clock=clock, archive=RawArchive(root=store.root),
-                                 policy=publication_policy(store, Market.KR, clock=clock), panel=panel, market=Market.KR)
+    # 지연 기록은 100세션마다 한 파일로 —
+    # 세션마다면 ingest_latency 파일이 세션 수만큼 생긴다(10/11).
+    backfiller = PanelBackfiller(
+        store=store, source=KrxOpenApi(), clock=clock, archive=RawArchive(root=store.root),
+        policy=publication_policy(store, Market.KR, clock=clock), panel=panel, market=Market.KR,
+        latency_batch=100,
+    )
     sessions = backfiller.plan(args.start, end)
     have = present_days(store, args.start, end)
     pending = [d for d in backfiller.pending(sessions) if d not in have]
@@ -93,15 +98,18 @@ def main(argv: list[str] | None = None) -> int:
 
     pause = float(store.config("backfill.session_pause_ms", as_of=clock.now())) / 1000.0
     failures = 0
-    for i, day in enumerate(pending, 1):
-        if i > 1:
-            time.sleep(pause)  # 소스를 두들겨 차단당하지 않기 위한 예의
-        result = backfiller.run_session(day)
-        status = "SKIP" if result.skipped else ("FAIL" if result.error else "ok")
-        failures += bool(result.error)
-        if status != "ok" or i % 50 == 0 or i == len(pending):
-            print(f"[{i}/{len(pending)}] {day} {status} rows={result.rows}"
-                  + (f"  {result.error}" if result.error else ""), flush=True)
+    try:
+        for i, day in enumerate(pending, 1):
+            if i > 1:
+                time.sleep(pause)  # 소스를 두들겨 차단당하지 않기 위한 예의
+            result = backfiller.run_session(day)
+            status = "SKIP" if result.skipped else ("FAIL" if result.error else "ok")
+            failures += bool(result.error)
+            if status != "ok" or i % 50 == 0 or i == len(pending):
+                print(f"[{i}/{len(pending)}] {day} {status} rows={result.rows}"
+                      + (f"  {result.error}" if result.error else ""), flush=True)
+    finally:
+        backfiller.flush_latency()
     print(f"완료 — {len(pending)}세션, 실패 {failures}", flush=True)
     return 1 if failures else 0
 

@@ -384,3 +384,18 @@ def test_스텁_봉만_골라_버린다(store, tmp_path) -> None:
     result = backfiller.run_session(D1)
     assert result.error is None
     assert result.prices == len([b for b in BARS[D1] if backfiller._keep(b["code"])]) - 1
+
+
+def test_latency_batch_writes_one_file_per_batch(store, tmp_path) -> None:
+    """시세 백필도 지연 기록을 묶음으로 적재한다.
+
+    패널 백필(``PanelBackfiller.latency_batch``)과 같은 규칙이다.
+    세션마다 적재하면 여러 해 백필이 ingest_latency 에 파일을 세션 수만큼 남긴다(2026-10-11)."""
+    files = lambda: len(list((store.root / "curated" / "ingest_latency").rglob("*.parquet")))  # noqa: E731
+    backfiller = make_backfiller(store, tmp_path, latency_batch=2)
+    for day in (D1, D2, D3):
+        assert backfiller.run_session(day).ok
+    assert files() == 1
+    assert backfiller.flush_latency() == 4
+    assert backfiller.flush_latency() == 0
+    assert files() == 2

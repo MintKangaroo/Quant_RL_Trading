@@ -264,3 +264,34 @@
   .ls-ranker-table col.c-ls-at { width: 70px; }
   .ls-ranker-table col.c-ls-trend { width: 22%; }
 }
+
+/* 판정 기록 카드 (2026-10-13) — 대장 줄을 후보·기준 칩·접힌 세부로 나눈다. 채택/기각은 상태색(--ok/--bad), 손익색 아님. */
+.fr-verdicts { display: grid; gap: 10px; }
+.fr-verdict { border: 1px solid var(--border); border-left: 3px solid var(--muted); padding: 10px 12px; border-radius: 2px; min-width: 0; }
+.fr-verdict-adopt { border-left-color: var(--ok); }
+.fr-verdict-reject { border-left-color: var(--bad); }
+.fr-verdict header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.fr-vname strong { font-size: 15px; }
+.fr-vname span { color: var(--muted); font-size: 13px; }
+.fr-v { font-size: 11px; font-weight: 600; padding: 1px 8px; border: 1px solid currentColor; border-radius: 2px; white-space: nowrap; }
+.fr-v-adopt { color: var(--ok); }
+.fr-v-reject { color: var(--bad); }
+.fr-headline { margin: 6px 0 4px; line-height: 1.5; overflow-wrap: anywhere; }
+.fr-cand { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.fr-cand-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.fr-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.fr-chip { font-size: 12px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 2px; overflow-wrap: anywhere; }
+.fr-chip b { font-weight: 600; }
+.fr-chip-pass b { color: var(--ok); }
+.fr-chip-fail { border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.fr-chip-fail b { color: var(--bad); }
+.fr-notes { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.fr-notes summary { cursor: pointer; }
+.fr-notes ul { margin: 4px 0 0; padding-left: 16px; }
+.fr-notes li { margin: 2px 0; overflow-wrap: anywhere; }
+
+/* ③ 과거 학습 내역 접기(2026-10-13) · 내역 줄 안의 판정 카드 */
+.ls-fold > summary { cursor: pointer; padding: 6px 0; font-weight: 500; }
+.ls-fold[open] > summary span:first-child { color: var(--muted); }
+.ls-ledger .fr-verdict { margin: 6px 0; font-size: 13px; color: var(--text); }
+.ls-ledger { list-style: none; padding-left: 0; }

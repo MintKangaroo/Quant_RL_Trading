@@ -128,6 +128,12 @@ class Backfiller:
     _listed: set[str] | None = field(default=None, repr=False)
     #: 종목명. 상폐 행에는 그날 명단에 없는 종목의 이름이 필요하다.
     _names: dict[str, str] = field(default_factory=dict, repr=False)
+    #: 지연 기록을 몇 세션마다 한 번 적재하나 — ``PanelBackfiller.latency_batch`` 와 같은 규칙
+    #: (기본 1 = 세션마다).
+    #: 크게 주면 호출자가 끝에 ``flush_latency()`` 를 반드시 부른다.
+    latency_batch: int = 1
+    _latency: LatencyRecorder | None = field(default=None, repr=False)
+    _latency_sessions: int = field(default=0, repr=False)
 
     # -- 계획 -----------------------------------------------------------------
 
@@ -156,12 +162,14 @@ class Backfiller:
             return SessionResult(day=day, prices=0, universe=0, skipped=True)
 
         run_id = session_run_id(PRICES, self.market, day)
-        latency = LatencyRecorder(
-            store=self.store,
-            clock=self.clock,
-            source=self.source.name,
-            ingest_run_id=run_id,
-        )
+        if self._latency is None:
+            self._latency = LatencyRecorder(
+                store=self.store,
+                clock=self.clock,
+                source=self.source.name,
+                ingest_run_id=run_id,
+            )
+        latency = self._latency
         try:
             # 관측시각을 가장 먼저 정한다. 아직 공표되지 않은 세션이면
             # 여기서 끝나고 네트워크를 건드리지도 않는다.
@@ -203,7 +211,14 @@ class Backfiller:
         except CollectorError as error:
             return SessionResult(day=day, prices=0, universe=0, skipped=False, error=str(error))
         finally:
-            latency.flush()
+            self._latency_sessions += 1
+            if self._latency_sessions >= max(1, self.latency_batch):
+                self.flush_latency()
+
+    def flush_latency(self) -> int:
+        """모아 둔 지연 기록을 적재한다. 묶음 적재를 쓰는 호출자는 끝에 반드시 부른다."""
+        latency, self._latency, self._latency_sessions = self._latency, None, 0
+        return latency.flush() if latency is not None else 0
 
     def _append(self, table: str, rows: list[dict[str, Any]], day: date) -> int:
         run_id = session_run_id(table, self.market, day)

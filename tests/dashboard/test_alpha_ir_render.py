@@ -35,7 +35,8 @@ setTimeout(() => {
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node 가 없다")
-@pytest.mark.parametrize("template", ["trading.html", "learning.html"])
+# 학습 탭의 같은 표는 2026-10-13 뺐다(사용자 "겹치면 빼줘") — 트레이딩 탭 하나만 그린다.
+@pytest.mark.parametrize("template", ["trading.html"])
 def test_두_탭에서_실제_응답으로_표가_그려진다(template: str, tmp_path: Path) -> None:
     html = (TEMPLATES / template).read_text()
     assert "alpha_ir.js" in html and "alpha_ir.css" in html
@@ -79,3 +80,9 @@ def test_두_탭에서_실제_응답으로_표가_그려진다(template: str, tm
     assert cards.count('<li class="air-card') == len(books)
     assert cards.count("표본 부족 ") == sum(1 for b in ok if not b["windows"]["all"]["sufficient"])
     assert "undefined" not in cards and "NaN" not in cards
+
+
+def test_학습_탭엔_IR_표가_없다() -> None:
+    """트레이딩 탭과 겹쳐 뺐다(2026-10-13). 다시 붙이면 두 곳이 같은 표를 보인다."""
+    html = (Path(__file__).resolve().parents[2] / "quant_rl_trading/dashboard/templates/learning.html").read_text()
+    assert 'id="alpha-ir"' not in html and "alpha_ir.js" not in html

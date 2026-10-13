@@ -638,6 +638,9 @@ _LEDGER_LEADS = ("채택", "기각", "보류")
 
 #: 대장 문구는 한 줄에 판정 근거를 몰아 적어 길다. 화면 한 칸에 실을 만큼만.
 LEDGER_DETAIL_CHARS = 280
+#: 대장 줄 원문(`ledger`)은 화면이 후보·기준 칩으로 나누고 세부는 접어 보인다(2026-10-13) — 280 자에서 자르면
+#: 기준 칩이 중간에 끊긴다(BF 카드가 '⑤MDD -25.5% 대' 에서 끝났다). 매매 과정 탭 결과 줄과 같은 상한.
+LEDGER_CARD_CHARS = 1500
 
 
 def trial_history(store: Store, *, as_of: datetime, catalog_path: Path = CATALOG_PATH) -> dict[str, Any]:
@@ -655,7 +658,7 @@ def trial_history(store: Store, *, as_of: datetime, catalog_path: Path = CATALOG
             **{k: v for k, v in entry.items() if k != "ledger_ids"},
             "date": entry["date"].isoformat(),
             "source": "catalog",
-            "ledger": [{"entity_id": r["entity_id"], "at": r["at"], "detail": r["detail"][:LEDGER_DETAIL_CHARS]}
+            "ledger": [{"entity_id": r["entity_id"], "at": r["at"], "detail": r["detail"][:LEDGER_CARD_CHARS]}
                        for r in hits],
         })
     for r in ledger:
@@ -674,7 +677,7 @@ def trial_history(store: Store, *, as_of: datetime, catalog_path: Path = CATALOG
             "why": detail[:LEDGER_DETAIL_CHARS],
             "doc": f"docs/protocols/{stem}.md" if trial and (REPO_ROOT / "docs" / "protocols" / f"{stem}.md").is_file() else "",
             "source": "ledger_only",
-            "ledger": [{"entity_id": r["entity_id"], "at": r["at"], "detail": r["detail"][:LEDGER_DETAIL_CHARS]}],
+            "ledger": [{"entity_id": r["entity_id"], "at": r["at"], "detail": r["detail"][:LEDGER_CARD_CHARS]}],
         })
     rows.sort(key=lambda r: (r["date"], r["id"]), reverse=True)
     counts = {name: sum(1 for r in rows if r["result"] == name) for name in RESULTS}
