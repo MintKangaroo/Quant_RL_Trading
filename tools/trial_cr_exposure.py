@@ -66,7 +66,7 @@ from tools.v2_sim import simulate  # noqa: E402
 
 PROTOCOL = Path("docs/protocols/cr-crisis-exposure-2026-10.md")
 #: 등록 문서 sha256 앞 16자 — **사용자 확인 뒤 리드가 고정한다.** None 이면 `--run` 을 거부한다(초안).
-PROTOCOL_HASH: str | None = None
+PROTOCOL_HASH: str | None = "fb50cca79ed3499b"   # 2026-10-13 밤 사용자 설문 고정
 
 #: 봉인 — second 금고(10/1~11/13)는 이 도구가 읽지 않는다. 마지막으로 쓸 수 있는 종가.
 LAST_CLOSE = date(2026, 9, 30)

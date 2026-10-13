@@ -186,7 +186,7 @@ RECORD_NOTE = {"C1G": "C1G · 금고 early 결과를 본 뒤 고른 대조군(�
 #: **주 시험은 긴 과거**(`tools/trial_cr_exposure.py --run`, 종가 ≤ 2026-09-30)이고 이 창은 **확인(해 방지)만** 한다.
 #: C1G 와 같은 규칙: 해시가 고정됐을 때만 second 창에 붙는다. 붙어도 주 시험이 통과가 아니면 `PREREQ` 가 건너뛴다.
 CR_PROTOCOL = Path("docs/protocols/cr-crisis-exposure-2026-10.md")
-CR_PROTOCOL_HASH: str | None = None
+CR_PROTOCOL_HASH: str | None = "fb50cca79ed3499b"   # 2026-10-13 밤 사용자 설문 고정
 if CR_PROTOCOL_HASH:
     EXTRA_TRIALS["second"] = (*EXTRA_TRIALS["second"], "CR")
 EXTRA_PROTOCOLS["CR"] = (CR_PROTOCOL, CR_PROTOCOL_HASH)
