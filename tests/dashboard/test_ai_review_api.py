@@ -436,3 +436,32 @@ def test_every_route_accepts_and_returns_as_of(client) -> None:
         response = client.get(f"{path}?as_of={past}")
         assert response.status_code == 200, path
         assert body(response)["as_of"] == past, path
+
+
+# -- 그림용 묶음(dashboard.md §8-5) — 세기만 한다 ------------------------------------
+
+
+def test_daily_costs_are_counted_by_kst_day_and_priced_only(usage_client) -> None:
+    """일별 비용은 단가 아는 호출만 더하고, 단가 모르는 호출은 따로 센다 — 합이 총액과 같다."""
+    data = body(usage_client.get("/api/ai-review/costs"))["data"]
+    daily = data["daily"]
+    assert sum(d["calls"] for d in daily) == data["total_calls"]
+    assert sum(d["cost_usd"] for d in daily) == pytest.approx(data["cost_usd"])
+    assert sum(d["unpriced_calls"] for d in daily) == data["unpriced_calls"]
+    assert all(len(d["day"]) == 10 for d in daily)
+
+
+def test_verdicts_are_grouped_by_category_and_day(seeded) -> None:
+    seeded.append(
+        "verdicts",
+        [verdict_row("KR:005930", "news", "block", "루머")],
+        ingest_run_id="verdict-seed",
+    )
+    client = make_app(seeded, ReplayClock(NOW)).test_client()
+    data = body(client.get("/api/ai-review/verdicts"))["data"]
+    assert sum(r["count"] for r in data["by_category"]) == data["blocked"]
+    assert sum(r["count"] for r in data["daily"]) == data["blocked"]
+
+
+def test_no_usage_has_empty_daily(client) -> None:
+    assert body(client.get("/api/ai-review/costs"))["data"]["daily"] == []
