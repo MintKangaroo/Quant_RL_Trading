@@ -456,6 +456,11 @@ def cmd_report(force: bool) -> int:
     el.require_heavy(force)
     out: dict[str, Any] = {"cap": str(el.DATE_CAP)}
     md = [f"# AR 대 현행 — 진단 원본(상한 {el.DATE_CAP})", ""]
+    if not el.score_path("C0").exists():                       # 현행 랭커 점수(C0 이음)를 먼저 잇는다(가벼움, 새 학습 없음)
+        from tools.diag_translation_loss import cmd_scores
+
+        cmd_scores()
+        gc.collect()
     # 국장
     ctx = el.load_context()
     ar, arc = el.read_scores(el.score_path("AR-KR", OUT)), el.read_scores(el.score_path("ARc-KR", OUT))
