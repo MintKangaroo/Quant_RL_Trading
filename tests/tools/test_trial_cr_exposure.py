@@ -4,7 +4,8 @@
  ① 봉인 — 2026-10-01 이후 날짜는 as_of 로도 표로도 못 쓴다, 결정 세션은 t+2 종가가 9/30 안.
  ② 대조 E1 = 실전 설정(config yaml)의 V6 배수, 변형은 넷 이하이고 배수 표만 다르다 — 배수는 실전 `regime_scale`(확인 2세션) 그대로.
  ③ 미고정이면 --run 이 자료를 읽기 전에 거부, 금고 second 창에도 안 붙는다(고정 대기로만 보인다).
- ④ 주 시험 기준 A1~A6 · 금고 확인 V1·V2 가 각자 기각을 낼 수 있고, 지표가 비면 멈춘다.
+ ④ 주 시험(지수) I1~I4 · 해 방지(실제 포트) H1~H3 · 금고 확인 V1·V2 가 각자 기각을 낼 수 있고, 지표가 비면 멈춘다.
+ ⑤ 위약용 벡터 배수 = 실전 `regime_scale` 경로와 같은 값.
 """
 from __future__ import annotations
 
@@ -159,27 +160,92 @@ def _daily(effect: dict[str, float], *, n: int = 1159, noise: float = 0.002, bea
     return out, spans
 
 
-def test_judge_main_passes_large_effect_and_rejects_null() -> None:
-    big, spans = _daily({"CR1": 0.30, "CR2": 0.0, "CR3": 0.0}, noise=0.001)
-    _, verdict, stats = cr.judge_main(big, spans)
-    assert verdict.startswith("주 시험 통과 CR1") and all(stats["CR1"]["gates"].values())
-    null, spans = _daily({}, noise=0.002)
-    _, verdict, stats = cr.judge_main(null, spans)
-    assert verdict.startswith("기각")
+def test_harm_passes_clean_and_flags_bear_loss() -> None:
+    clean, spans = _daily({"CR1": 0.05, "CR2": 0.0, "CR3": 0.0}, noise=0.001)
+    _, out = cr.judge_harm(clean, spans)
+    assert all(out["CR1"]["gates"].values())
+    hit, spans = _daily({"CR1": 0.30}, noise=0.001, bear_hit=0.02)
+    _, out = cr.judge_harm(hit, spans)
+    assert not out["CR1"]["gates"]["H1"]
+    sunk, spans = _daily({"CR1": -0.60}, noise=0.001)
+    _, out = cr.judge_harm(sunk, spans)
+    assert not out["CR1"]["gates"]["H3"]
 
 
-def test_bear_loss_cap_rejects_alone() -> None:
-    d, spans = _daily({"CR1": 0.30}, noise=0.001, bear_hit=0.02)
-    _, verdict, stats = cr.judge_main(d, spans)
-    assert not stats["CR1"]["gates"]["A5"] and stats["CR1"]["gates"]["A1"]
-    assert not verdict.startswith("주 시험 통과 CR1")
-
-
-def test_judge_main_stops_on_missing() -> None:
+def test_judge_harm_stops_on_missing() -> None:
     d, spans = _daily({})
     d["CR2"][0] = d["CR2"][0].iloc[:-5]
     with pytest.raises(ValueError):
-        cr.judge_main(d, spans)
+        cr.judge_harm(d, spans)
+
+
+def _index(n: int = 3800, seed: int = 2):  # type: ignore[no-untyped-def]
+    rng = np.random.default_rng(seed)
+    days = list(pd.bdate_range("2011-01-03", periods=n).date)
+    r = pd.Series(rng.normal(0.0, 0.012, n), index=days)
+    states = pd.Series(rng.choice(["bull", "bear", "volatile", "crisis"], n, p=[0.4, 0.3, 0.22, 0.08]), index=days, dtype=object)
+    return r, states
+
+
+def test_fast_scales_equals_live_scale_path() -> None:
+    _, states = _index(400)
+    for v in cr.VARIANTS:
+        slow = cr.scale_path(states, cr.variant_params(BASE, v))
+        assert np.allclose(cr.fast_scales(states, cr.VARIANTS[v], 2).to_numpy(), slow.to_numpy()), v
+
+
+def test_index_daily_cost_and_five_session_hold() -> None:
+    days = list(pd.bdate_range("2020-01-01", periods=6).date)
+    r = pd.Series(0.01, index=days)
+    k = pd.Series([1.0, 0.5, 0.5, 1.0, 1.0, 0.5], index=days)
+    d = cr.index_daily(r, k)
+    assert d.iloc[1] == pytest.approx(0.5 * 0.01 - 0.5 * cr.ONE_WAY_COST)
+    held = cr.index_daily(r, k, every=5)
+    assert held.iloc[:5].tolist() == pytest.approx([0.01] * 5) and held.iloc[5] == pytest.approx(0.005 - 0.5 * cr.ONE_WAY_COST)
+
+
+def test_judge_index_gates_and_final_verdict() -> None:
+    r, states = _index()
+    daily = {v: cr.index_daily(r, cr.fast_scales(states, cr.VARIANTS[v])) for v in cr.VARIANTS}
+    big = dict(daily)
+    big["CR1"] = daily["CR1"] + (states == "crisis").astype(float) * 0.004   # crisis 칸에서 크게, 구간 모두 양
+    _, passed, stats = cr.judge_index(big, states, {"CR1": 0.001, "CR2": 0.5, "CR3": 0.5})
+    assert passed == ["CR1"] and all(stats["CR1"]["gates"].values())
+    _, passed2, stats2 = cr.judge_index(big, states, {"CR1": 0.02, "CR2": 0.5, "CR3": 0.5})
+    assert passed2 == [] and not stats2["CR1"]["gates"]["I4"]               # 위약 하나로도 기각
+    v, w = cr.final_verdict([], stats, None)
+    assert v.startswith("기각 — 주 시험") and w is None
+    with pytest.raises(ValueError):
+        cr.final_verdict(["CR1"], stats, None)
+    ok = {"CR1": {"gates": {"H1": True, "H2": True, "H3": True}}}
+    v, w = cr.final_verdict(["CR1"], stats, ok)
+    assert v.startswith("주 시험 통과 CR1 · 해 방지 통과") and w == "CR1"
+    v, w = cr.final_verdict(["CR1"], stats, {"CR1": {"gates": {"H1": False, "H2": True, "H3": True}}})
+    assert v.startswith("기각 — 주 시험 통과 CR1") and "H1" in v and w is None
+
+
+def test_effect_only_in_covid_fails_special_robustness() -> None:
+    r, states = _index()
+    daily = {v: cr.index_daily(r, cr.fast_scales(states, cr.VARIANTS[v])) for v in cr.VARIANTS}
+    lo, hi = cr.SPECIAL["코로나"]
+    covid = pd.Series([lo <= d <= hi for d in r.index], index=r.index)
+    noise = pd.Series(np.random.default_rng(5).normal(0, 1e-4, len(r)), index=r.index)
+    spiked = {v: daily["E1"] + noise for v in cr.VARIANTS}                            # 구조적 차이 없음(전환 비용 차도 없앤다)
+    spiked["E1"] = daily["E1"]
+    spiked["CR1"] = spiked["CR1"] + (covid & (states == "crisis")).astype(float) * 0.5   # 손익이 코로나 crisis 칸에만
+    lines, passed, stats = cr.judge_index(spiked, states, {"CR1": 0.001, "CR2": 0.5, "CR3": 0.5})
+    assert "CR1" not in passed and not stats["CR1"]["gates"]["I5"]
+    assert stats["CR1"]["covid_share"]["crisis"] > 0.9
+    assert any("특수 제외" in x for x in lines) and any("특수만" in x for x in lines) and any("| 전체 |" in x for x in lines)
+    assert {"코로나": (date(2020, 2, 17), date(2020, 6, 30)), "급등장": (date(2025, 1, 2), date(2026, 6, 30))} == cr.SPECIAL
+
+
+def test_placebo_null_is_not_small() -> None:
+    r, states = _index(1200)
+    obs = float((cr.index_daily(r, cr.fast_scales(states, cr.VARIANTS["CR2"]))
+                 - cr.index_daily(r, cr.fast_scales(states, cr.VARIANTS["E1"]))).mean() * cr.ANN)
+    p = cr.placebo_p(r, states, "CR2", obs, draws=60)
+    assert 0.0 < p <= 1.0 and p > cr.GATE_PLACEBO        # 무작위 국면에서 관측값은 특별하지 않다
 
 
 def test_vault_margins_and_judge() -> None:
@@ -198,5 +264,5 @@ def test_vault_margins_and_judge() -> None:
 
 def test_gates_written_in_protocol() -> None:
     body = cr.PROTOCOL.read_text()
-    for needle in ("t ≥ 3", "5/5", "4/5", "−2%p", "2026-09-30", "초안 — 미고정"):
+    for needle in ("t ≥ 3", "4/5", "−2%p", "−1.645", "0.05/3", "2026-06-30", "2026-09-30", "초안 — 미고정", "V6 −2.7%p", "2020-02-17", "I5"):
         assert needle in body, needle
