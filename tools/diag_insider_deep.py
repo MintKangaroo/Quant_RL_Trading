@@ -465,7 +465,10 @@ def main(argv: list[str] | None = None) -> int:
         stage_single(args.market, out)
     elif args.stage == "marginal":
         base = G7 if args.market == "US" else G4
-        arms = json.loads(args.arms) if args.arms else {"C0": FEATS, "AR": FEATS + base, "AR_new": FEATS + base + list(deep.FEATURES)}
+        # 기본 팔: C0 · AR · AR3(AR + 대조와 겹치지 않는 셋). 미장은 opp_buy/opp_sell 이 G7 과 순위상관 0.99
+        # (일상 거래가 7% 뿐)라 넣지 않는다 — 같은 열을 두 번 넣는 셈이다.
+        new3 = ["buyers_20", "exec_net_60", "mkt_net_60"] if args.market == "US" else list(deep.FEATURES)
+        arms = json.loads(args.arms) if args.arms else {"C0": FEATS, "AR": FEATS + base, "AR3": FEATS + base + new3}
         stage_marginal(args.market, out, arms, tuple(int(s) for s in args.seeds.split(",")), args.train_every)
     elif args.stage == "validate":
         stage_validate(store, data, out)

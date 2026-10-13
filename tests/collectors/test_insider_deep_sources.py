@@ -93,7 +93,7 @@ def test_미장_일별_원문은_벌크와_같은_열로_읽는다() -> None:
 def test_색인은_정정본을_빼고_두_번_실린_접수를_하나로() -> None:
     text = "\n".join([
         "4                A CORP     1     20261001    edgar/data/1/0001-26-1.txt",
-        "4                OWNER X    2     20261001    edgar/data/1/0001-26-1.txt",
+        "4                OWNER X    2     20261001    edgar/data/2/0001-26-1.txt",   # 같은 접수, 보고자 폴더
         "4/A              A CORP     1     20261001    edgar/data/1/0001-26-2.txt",
         "8-K              A CORP     1     20261001    edgar/data/1/0001-26-3.txt",
     ])

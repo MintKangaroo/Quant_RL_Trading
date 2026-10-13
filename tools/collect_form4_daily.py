@@ -10,6 +10,7 @@
 `observed_at` = 실제로 받은 시각(라이브 규칙), `valid_from` = 접수일 18:00 ET.
 
 rc: 0 = 받았거나 받을 날이 없다 · 1 = 한 날이라도 실패(받은 날은 적재됨) · 2 = User-Agent 없음.
+색인이 403·404 면 그날은 EDGAR 휴무일로 보고 건너뛴다(없는 색인은 403 으로 온다).
 """
 from __future__ import annotations
 
@@ -70,13 +71,6 @@ class Http:
         raise RuntimeError(f"{RETRIES}회 실패: {url} — {error}")
 
 
-def last_loaded_day(store: Store, now: datetime) -> date | None:
-    frame = store.get(bulk.TABLE, as_of=now, lookback=200, market="US", columns=["valid_from"])
-    if frame.empty:
-        return None
-    return frame["valid_from"].max().tz_convert(EASTERN).date()
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default="data")
@@ -99,8 +93,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.start:
         start = date.fromisoformat(args.start)
     else:
-        last = last_loaded_day(store, now)
-        start = max((last + timedelta(days=1)) if last else end, end - timedelta(days=args.max_days))
+        # 마지막 적재일 다음이 아니라 **최근 max-days 전체**를 본다 — 중간에 실패한 날이 있으면 그 뒤 날이 적재됐어도
+        # 다시 받는다. 받은 날은 실행 id 로 건너뛰므로 호출이 들지 않는다(휴무일은 색인 1콜). 분기 벌크가 넣은 날은
+        # 접수번호로 걸러 빠진 접수만 더한다(벌크의 분기 마지막 날이 덜 차 있었다 — 2026-09-30 벌크 247건 대 색인 570건).
+        start = end - timedelta(days=args.max_days)
     policy = EdgarPolicy(clock=clock)
     tickers = EdgarSource(user_agent=user_agent).tickers()
     http = Http(user_agent)
@@ -114,8 +110,10 @@ def main(argv: list[str] | None = None) -> int:
             continue
         try:
             status, text = http.get(daily.index_url(day))
-            if status == 404:
-                print(f"{day}: 색인 없음(휴장일) — 건너뜀", flush=True)
+            if status in (403, 404):
+                # 없는 색인은 404 가 아니라 **403** 으로 온다(S3 뒤라서 — 2026-10-12 콜럼버스 데이 실측). 같은 실행의
+                # 다른 날 색인은 받았으므로 UA 차단과는 구분된다. 날짜를 적지 않으니 다음 실행이 다시 본다.
+                print(f"{day}: 색인 없음(HTTP {status} — EDGAR 휴무일) — 건너뜀", flush=True)
                 day += timedelta(days=1)
                 continue
             if status != 200:

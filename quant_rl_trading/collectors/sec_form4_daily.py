@@ -38,12 +38,15 @@ def index_url(day: date) -> str:
 
 def form4_paths(index_text: str) -> list[str]:
     """form.idx 본문 → 원본 Form 4(정정 제외)의 파일 경로, 중복 없이 순서대로."""
-    seen: dict[str, None] = {}
+    # **접수번호로** 하나만 남긴다 — 같은 접수가 발행사 CIK 폴더와 보고자 CIK 폴더 두 경로로 실린다
+    # (edgar/data/<발행사>/<접수>.txt · edgar/data/<보고자>/<접수>.txt). 경로로 거르면 두 번 받아 두 번 싣는다
+    # (2026-10-13 따라잡기에서 실제로 그랬다 — 창고 읽기는 자연키로 하나를 고르지만 호출과 파일이 두 배였다).
+    seen: dict[str, str] = {}
     for line in index_text.splitlines():
         parts = line.split()
         if len(parts) >= 5 and parts[0] == "4" and parts[-1].startswith("edgar/data/"):
-            seen.setdefault(parts[-1], None)
-    return list(seen)
+            seen.setdefault(accession_of(parts[-1]), parts[-1])
+    return list(seen.values())
 
 
 def accession_of(path: str) -> str:
