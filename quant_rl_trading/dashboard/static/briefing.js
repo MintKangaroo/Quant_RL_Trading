@@ -156,7 +156,10 @@ function explainRows(items) {
       <td>${esc(item.brief.headline)}<div class="sub">${esc(item.brief.reading)}</div></td>
     </tr>`;
   }).join("");
-  return `<table><thead><tr><th>지표</th><th class="num">직전 대비</th>`
+  // 열 폭을 고정한다 — 자동 폭이면 지표 칸이 남는 폭을 다 먹고 해석 칸이 한 단어 폭으로 쪼그라들었다(2026-10-13 지적).
+  // col 클래스는 본문 클래스와 겹치지 않는 이름으로(col-class-must-not-collide).
+  return `<table class="explain-table"><colgroup><col class="c-xind"><col class="c-xsur"><col class="c-xrea"><col class="c-xtxt"></colgroup>`
+    + `<thead><tr><th>지표</th><th class="num">직전 대비</th>`
     + `<th class="num">시장 반응</th><th>해석</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 

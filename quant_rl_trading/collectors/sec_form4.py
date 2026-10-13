@@ -88,11 +88,24 @@ def _num(value: Any) -> float | None:
     return number if number == number else None
 
 
+#: 옛 분기에 없는 열. **AFF10B5ONE(10b5-1 계획 표지)은 2023-04 서식 개정 뒤에야 생겼다** — 2006q1 벌크에
+#: 열 자체가 없다(2026-10-13 실측). 없으면 빈 값으로 채운다 → `plan_10b5_1` 은 결측(모름)이지 0(계획 아님)이 아니다.
+OPTIONAL_COLUMNS = frozenset({"AFF10B5ONE"})
+
+
 def _read(archive: zipfile.ZipFile, name: str, columns: list[str]) -> pd.DataFrame:
     with archive.open(name) as handle:
-        return pd.read_csv(
-            handle, sep="\t", dtype=str, usecols=columns, keep_default_na=False, quoting=3
+        frame = pd.read_csv(
+            handle, sep="\t", dtype=str, usecols=lambda c: c in set(columns),
+            keep_default_na=False, quoting=3,
         )
+    missing = [c for c in columns if c not in frame.columns]
+    unknown = [c for c in missing if c not in OPTIONAL_COLUMNS]
+    if unknown:
+        raise ValueError(f"{name} 에 필수 열이 없다: {unknown}")
+    for column in missing:
+        frame[column] = ""
+    return frame[columns]
 
 
 def parse(content: bytes) -> pd.DataFrame:

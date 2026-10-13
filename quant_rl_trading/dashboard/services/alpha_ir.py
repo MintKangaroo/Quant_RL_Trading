@@ -72,15 +72,19 @@ def _iso(day: date | None) -> str | None:
 def _stats(result: relative.Relative | None, *, need: int, sessions_hint: int) -> dict[str, Any]:
     """한 창의 숫자. 세션이 ``need`` 보다 적으면 IR·β·α·추적오차를 **내지 않는다**(표본 부족)."""
     if result is None:
-        return {"sessions": sessions_hint, "need": need, "sufficient": False, "missing": [],
+        return {"sessions": sessions_hint, "need": need, "sufficient": False, "missing": [], "pending": [],
                 "first": None, "last": None, "ours_total": None, "etf_total": None, "excess": None,
                 "ir": None, "tracking_error": None, "beta": None, "alpha": None}
     sufficient = len(result.sessions) >= need
+    # 장부의 마지막 세션 **뒤** 거래일은 결손이 아니라 '아직 안 돈 세션' 이다 — shadow 장부는 그날 세션을 다음 날 새벽에
+    # 돌리므로, 저녁에 보면 오늘이 늘 비어 전 장부가 '결손 1' 로 보였다(사용자 10/13 "결손 뭐야"). 가운데 빈 날만 결손이다.
+    last = result.sessions[-1] if result.sessions else None
     return {
         "sessions": len(result.sessions),
         "need": need,
         "sufficient": sufficient,
-        "missing": [d.isoformat() for d in result.missing],
+        "missing": [d.isoformat() for d in result.missing if last is None or d < last],
+        "pending": [d.isoformat() for d in result.missing if last is not None and d > last],
         "first": _iso(result.sessions[0]),
         "last": _iso(result.sessions[-1]),
         # 누적 수익·초과는 사실이라 표본과 무관하게 싣는다. 비율 추정치만 감춘다.

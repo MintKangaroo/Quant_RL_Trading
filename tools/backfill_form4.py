@@ -66,6 +66,16 @@ def main(argv: list[str] | None = None) -> int:
             continue
         frame = form4.parse(content)
         rows, stats = form4.to_rows(frame, tickers=tickers, policy=policy)
+        # 일별 증분(collect_form4_daily)이 이미 넣은 접수는 건너뛴다 — 같은 거래를 두 번 세지 않게(행 키 trans_sk 가 달라 창고가 못 막는다).
+        if rows:
+            first = min(r["valid_from"] for r in rows)
+            have = store.get(form4.TABLE, as_of=LiveClock().now(), lookback=(LiveClock().now() - first).days + 2,
+                             market="US", columns=["accession", "source"])
+            daily_acc = set(have.loc[have["source"] == "sec-form4-daily", "accession"].astype(str))
+            if daily_acc:
+                before = len(rows)
+                rows = [r for r in rows if r["accession"] not in daily_acc]
+                print(f"{year}q{quarter}: 일별 증분이 이미 넣은 접수 {before - len(rows):,}행 건너뜀", flush=True)
         codes = frame["TRANS_CODE"].value_counts().head(6).to_dict()
         print(f"{year}q{quarter}: Form 4 비파생 {len(frame):,}행 → 적재 {stats['rows']:,} · 티커 없음 {stats['no_symbol']:,} "
               f"· 날짜 불량 {stats['bad_date']} · 아직 모름 {stats['not_yet']} · 코드 {codes}", flush=True)
