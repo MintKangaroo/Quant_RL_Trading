@@ -179,6 +179,14 @@ def test_signal_only_in_rally_is_marked_special() -> None:
     assert "①a IC>0·t≥t*" in res["special_flags"]
 
 
+def test_reexam_bh_family() -> None:
+    from tools.diag_reexam import bh
+    out = bh({"a": 0.001, "b": 0.02, "c": 0.04, "d": 1.0, "e": 1.0})
+    assert out == {"a": True, "b": True, "c": False, "d": False, "e": False}   # 0.02 ≤ 0.05·2/5, 0.04 > 0.05·3/5
+    out = bh({"a": 0.001, "b": 0.015, "c": 0.5})
+    assert out["a"] and out["b"] and not out["c"]
+
+
 @pytest.mark.parametrize(("hh", "mm", "wd", "ok"), [
     (22, 19, 1, True), (22, 20, 1, False), (0, 44, 2, False), (0, 45, 2, True),
     (8, 19, 2, True), (8, 20, 2, False), (15, 49, 2, False), (15, 50, 2, True), (10, 0, 5, True),
