@@ -1,0 +1,7 @@
+# AR shadow — docs/design/c1-ar-shadow.md · 시행 AR(docs/protocols/insider-forward-2026-09.md, 금고 early 통과). scripts/run_shadow_ar.sh 가
+# 첫 실행에 data/_ar_shadow/config-overrides.yaml 로 복사한다. 이 샌드박스에서만 읽힌다(실전 창고는 덮어쓰기 파일을 거부한다).
+# 나머지는 현행 모의계좌 규칙 그대로(상위 24 · 완충 72 · C10 · 리스크 패리티 · 노출 V6 · 섹터 상한).
+# 바꾸는 것은 알파 자리 하나 — 현행 측정표 {ranker: 1, risk: 1} 의 ranker 를 ar_insider 로. 실전 반영은 사용자 재승인 뒤.
+selector.weights_override:
+  ar_insider: 1.0
+  risk: 1.0

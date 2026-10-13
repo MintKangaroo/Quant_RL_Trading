@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | `registered` | 2026-07-01~11-13 | 11-23 / 11-23 | AQ·AR·AS·BD | 각 시행의 등록 문서(원래 설계) |
 | `early` | 2026-07-01~09-30 | 문서가 정한다 | AQ·AR·AS·BD·BE2 | `docs/protocols/vault-early-open-2026-10.md` |
-| `second` | 2026-10-01~11-13 | 문서가 정한다 | BE2(확인)·BD(보류였으면) + 따로 등록 DF2·P1B | 같은 문서 + 각자 등록 문서 |
+| `second` | 2026-10-01~11-13 | 문서가 정한다 | BE2(확인)·BD(보류였으면) + 따로 등록 DF2·P1B(+ 고정되면 TG·C1G) | 같은 문서 + 각자 등록 문서 |
 
 `early`·`second` 의 날짜·시행은 **코드가 아니라 등록 문서의 `창` 줄**에서 읽는다(`windows()`). 날짜를 인자로 받지 않는
 것은 일부러다 — 인자로 창을 옮길 수 있으면 해시 잠금이 뜻을 잃는다. 대신 두 겹으로 잠근다:
@@ -168,6 +168,25 @@ if TG_PROTOCOL_HASH:
 EXTRA_PROTOCOLS["TG"] = (TG_PROTOCOL, TG_PROTOCOL_HASH)
 FAMILY["TG"] = "selection"
 ENTITY["TG"] = "ta-floor-2026-10:TG"
+#: 시행 C1G(docs/protocols/c1-gbm-fa-second-2026-10.md, 사용자 10/13 "C1 → 새 시행 등록 + shadow") — 얼린 C1(BE2 사이드카 안 GBM·FA)
+#: 대 얼린 C0, BE2 기준 ①~⑤ 그대로, second 창. **해시가 고정됐을 때만 second 창에 붙는다**(TG 와 같은 규칙 — 미고정 문서가 붙으면
+#: `extra_problems` 가 second 창 전체를 거부한다). 고정은 리드가 사용자 확인 뒤에 한다.
+C1G_PROTOCOL = Path("docs/protocols/c1-gbm-fa-second-2026-10.md")
+C1G_PROTOCOL_HASH: str | None = None
+if C1G_PROTOCOL_HASH:
+    EXTRA_TRIALS["second"] = (*EXTRA_TRIALS["second"], "C1G")
+EXTRA_PROTOCOLS["C1G"] = (C1G_PROTOCOL, C1G_PROTOCOL_HASH)
+FAMILY["C1G"] = "ranker"
+ENTITY["C1G"] = "c1-gbm-fa-second-2026-10:C1G"
+#: 판정 기록 detail 첫머리에 붙는 말 — 등록 문서 '기록' 절(선택 편향을 기록에 남긴다).
+RECORD_NOTE = {"C1G": "C1G · 금고 early 결과를 본 뒤 고른 대조군(선택 편향)"}
+#: 해시 고정 전이라 아직 창에 안 붙은 따로 등록 시행 — `--plan` 이 "고정 대기" 로 보여 준다(판정에는 영향 없음).
+PENDING_WINDOW: dict[str, str] = {"TG": "second", "C1G": "second"}
+
+
+def pending_trials(win: Window) -> list[str]:
+    """그 창에 붙을 예정이지만 등록 해시가 아직 None 인 시행(고정되면 `trials_of` 로 옮겨 간다)."""
+    return [t for t, w in PENDING_WINDOW.items() if w == win.name and EXTRA_PROTOCOLS[t][1] is None]
 #: P1-b″ 기준 — ① 회전 ≤ B0×0.6 ② 연 ≥ B0 ③ 시드 3/5 ④ MDD 2%p.
 P1B2_GATE_TURN, P1B2_GATE_SHARE, P1B2_GATE_MDD = 0.6, 3, 0.02
 #: P1-b′ 변형 — 등록 표 그대로 (N, 재조정 R, 완충 배수, 비용 인지 θ). B0 = 대조(현행).
@@ -949,6 +968,110 @@ def run_be2(store: Store, *, confirm: bool = False) -> tuple[list[str], str]:
     return lines, verdict
 
 
+# --------------------------------------------------------------------------- C1G (c1-gbm-fa-second-2026-10.md — 두 번째 금고, 국장)
+
+C1G_KEYS = ("ann", "h1", "h2", "mdd", "turn", "ic")
+
+
+def judge_c1g(res: dict[str, list[dict[str, float]]]) -> tuple[list[str], str]:
+    """C1G 기준 ①~⑤ — BE2 등록(final-model-round-2026-10.md)의 대 C0 숫자 그대로(`BE2_GATE_*`), 주인공만 C1. res[군] = 시드 순서 지표, 군 = C1·C0.
+
+    ① 시드 평균 연수익 ≥ C0 + 2%p ② 시드의 80% 이상이 같은 시드 C0 보다 높다 ③ 창을 세션 수 절반으로 가른 두 구간 모두 ≥ C0 − 1%p
+    ④ ΔIC(h5) ≥ 0 ⑤ MDD 가 2%p 넘게 깊지 않고 회전 ≤ C0 × 1.2. 지표가 빠지거나 nan 이면 크게 멈춘다(조용히 기각하지 않는다).
+    """
+    for arm in ("C1", "C0"):
+        for i, row in enumerate(res[arm]):
+            bad = [k for k in C1G_KEYS if k not in row or not np.isfinite(row[k])]
+            if bad:
+                raise ValueError(f"judge_c1g: {arm} 시드 {i} 에 지표 {bad} 가 없다 — 조용히 기각하지 않는다")
+    c1, c0 = res["C1"], res["C0"]
+    if len(c1) != len(c0) or not c1:
+        raise ValueError(f"judge_c1g: 시드 수가 다르거나 비었다 (C1 {len(c1)} · C0 {len(c0)})")
+    wins = sum(a["ann"] > b["ann"] for a, b in zip(c1, c0, strict=True))
+    share = wins / len(c1)
+    halves = [(_mean(c1, k), _mean(c0, k)) for k in ("h1", "h2")]
+    dic = _mean(c1, "ic") - _mean(c0, "ic")
+    c = (
+        _mean(c1, "ann") >= _mean(c0, "ann") + BE2_GATE_MEAN,
+        share >= BE2_GATE_SHARE,
+        all(a >= b + BE2_GATE_HALF for a, b in halves),
+        dic >= BE2_GATE_IC,
+        _mean(c1, "mdd") >= _mean(c0, "mdd") - BE2_GATE_MDD and _mean(c1, "turn") <= _mean(c0, "turn") * BE2_GATE_TURN,
+    )
+    lines = ["| 군 | 연수익(시드 평균) | 시드별 | 전반 | 후반 | MDD | 회전 | IC |", "|---|---|---|---|---|---|---|---|"]
+    for arm, rows in (("C1 GBM·FA", c1), ("C0 6점수", c0)):
+        lines.append(f"| {arm} | {_mean(rows, 'ann'):+.1%} | " + " / ".join(f"{r['ann']:+.1%}" for r in rows)
+                     + f" | {_mean(rows, 'h1'):+.1%} | {_mean(rows, 'h2'):+.1%} | {_mean(rows, 'mdd'):.1%} | "
+                       f"{_mean(rows, 'turn'):.1f} | {_mean(rows, 'ic'):+.4f} |")
+    lines += [
+        f"①평균 {_mean(c1, 'ann') - _mean(c0, 'ann'):+.1%}p (≥ +2%p) {mark(c[0])} · ②{wins}/{len(c1)} ({share:.0%}) {mark(c[1])} · "
+        f"③두 구간 {halves[0][0] - halves[0][1]:+.1%}p / {halves[1][0] - halves[1][1]:+.1%}p (≥ −1%p) {mark(c[2])}",
+        f"④ΔIC {dic:+.4f} (≥ 0) {mark(c[3])} · ⑤MDD {_mean(c1, 'mdd'):.1%} 대 {_mean(c0, 'mdd'):.1%} · 회전 "
+        f"{_mean(c1, 'turn'):.1f} 대 {_mean(c0, 'turn'):.1f} (×{_mean(c1, 'turn') / max(_mean(c0, 'turn'), 1e-12):.2f}) {mark(c[4])}",
+    ]
+    if all(c):
+        verdict = "채택 후보 — C1 금고 second 통과(①~⑤), 실전 반영은 사용자 재승인"
+    else:
+        verdict = "기각 — C1 을 실전에 넣지 않는다(shadow 는 기록으로만)"
+    return lines, verdict
+
+
+def c1g_hashes(doc: Path | None = None) -> dict[str, str]:
+    """C1G 등록 문서 '모델 해시' 절 — 사이드카 둘(be2·c0) + C1 GBM 파일 다섯의 sha256 앞 16자."""
+    body = (doc or C1G_PROTOCOL).read_text()
+    head = body.index("## 모델 해시")
+    found = dict(HASH_LINE.findall(body[head:]))
+    need = [BE2_STEM, C0_STEM, *(f"{BE2_STEM}-gbm-seed{s}.txt" for s in range(5))]
+    lack = [k for k in need if k not in found]
+    if lack:
+        raise SystemExit(f"{doc or C1G_PROTOCOL} 모델 해시 절에 {lack} 가 없다 — 판정 거부")
+    return found
+
+
+def frozen_c1(expected: dict[str, str], *, folder: Path | None = None) -> tuple[Any, dict[int, Any]]:
+    """얼린 C1(BE2 사이드카 안 GBM)·C0 — 사이드카 해시(`frozen_be2`)에 더해 **C1 GBM 파일 지문을 C1G 문서와** 대조한다."""
+    model, c0 = frozen_be2(expected, folder=folder)
+    for seed in model.seeds:
+        path = model.gbm[seed]
+        digest = _digest(path)
+        if expected.get(path.name) != digest:
+            raise SystemExit(f"C1 GBM {path.name} 지문 {digest} ≠ C1G 문서 {expected.get(path.name)} — 판정 거부(다시 학습하지 않는다)")
+    print(f"  C1 GBM 파일 {len(model.seeds)}개 지문 C1G 문서와 대조 ○", flush=True)
+    return model, c0
+
+
+def run_c1g(store: Store) -> tuple[list[str], str]:
+    """C1G — 얼린 C1·C0 × 실전 경로 FA × 국장 포트(BE2 금고 판정과 같은 함수 `be2_predictions`). BE2 군은 계산되지만 판정에 안 쓴다."""
+    from quant_rl_trading.collectors.market_hours import Market, trading_days
+    from quant_rl_trading.collectors.publication import publication_policy
+    from quant_rl_trading.replay.clock import LiveClock
+    from tools.trial_lambdarank import top_overlap
+
+    model, c0 = frozen_c1(c1g_hashes())
+    sessions = list(trading_days(Market.KR, VAULT_START, VAULT_END))
+    policy = publication_policy(store, Market.KR, clock=LiveClock())
+    preds = be2_predictions(store, sessions, model, c0, as_of_of=policy.for_session)
+    panel, _ = kr_loop_panel()
+    y = panel[["entity_id", "session", "y5"]].rename(columns={"y5": "target"})
+    del panel
+    ret, bench, trad = market_data(store, sessions, cache=VAULT)
+    res: dict[str, list[dict[str, float]]] = {}
+    for arm in ("C1", "C0"):
+        res[arm] = []
+        for seed in model.seeds:
+            daily, extra = portfolio(preds[arm][int(seed)], ret, trad, every=EVERY)
+            row = stats(daily, bench, extra)
+            row["ic"] = _ic(preds[arm][int(seed)], y)
+            res[arm].append(row)
+        print(f"  {arm}: 연 {_mean(res[arm], 'ann'):+.1%} · IC {_mean(res[arm], 'ic'):+.4f}", flush=True)
+    lines, verdict = judge_c1g(res)
+    overlap = np.mean([top_overlap(preds["C1"][int(s)], preds["C0"][int(s)]) for s in model.seeds])
+    lines.append(f"기록(기준 아님) 채점 세션 {len(sessions)} · 상위 24 겹침 C1 대 C0 {overlap:.0%} · "
+                 f"β C1 {_mean(res['C1'], 'beta'):+.2f} 대 C0 {_mean(res['C0'], 'beta'):+.2f} · 입력 = 실전 경로 fa_features(miss_ba as_of) · "
+                 "선택 편향: 금고 early 결과를 본 뒤 고른 대조군")
+    return lines, verdict
+
+
 # --------------------------------------------------------------------------- DF2 (df2-2026-10.md — 두 번째 금고, 국장)
 
 
@@ -1478,7 +1601,7 @@ def run_p1b2(store: Store) -> tuple[list[str], str]:
 
 RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b,
            "TF": lambda st: run_tf(st, "TF"), "TB": lambda st: run_tf(st, "TB"), "TC": lambda st: run_tf(st, "TC"),
-           "P1B2": run_p1b2, "TG": lambda st: run_tf(st, "TG")}
+           "P1B2": run_p1b2, "TG": lambda st: run_tf(st, "TG"), "C1G": run_c1g}
 
 
 # --------------------------------------------------------------------------- 기록
@@ -1503,6 +1626,8 @@ def record_verdicts(store: Store, results: list[tuple[str, str, list[str]]], *, 
         governed = early and win is not None and win.protocol is not None and trial not in EXTRA_PROTOCOLS
         digest = _digest(win.protocol) if governed and win is not None and win.protocol is not None else own
         extra = [batch, f"시행 문서 {protocol_path(trial).name} {own}"] if early else []
+        if trial in RECORD_NOTE:
+            extra = [RECORD_NOTE[trial], *extra]
         record(store, entity=ENTITY[trial], source="vault_judge", family=FAMILY[trial], digest=digest,
                verdict=verdict, lines=[*extra, *lines[-3:]], market="US" if trial == "BD" else "KR", run_tag=trial)
     now = datetime.now(UTC)  # invariant-allow: wallclock — 개봉 시각
@@ -1609,7 +1734,7 @@ def bake(store: Store, win: Window | None = None) -> int:
     for group in INSIDER:
         for market, days in sessions.items():
             build_panel(store, group, market, days, collect=False)
-    if win is not None and {"BE2", "DF2", "P1B", *ADD_TRIALS} & set(trials_of(win)):
+    if win is not None and {"BE2", "DF2", "P1B", "C1G", *ADD_TRIALS} & set(trials_of(win)):
         # BE2·DF2 입력 = 창고 fa_features. 창(60 국장∪미장 세션)이 첫 채점일 앞 약 3개월을 덮어야 한다 — 적재 기록만 본다(값은 안 읽는다).
         from quant_rl_trading.analysts import fa_features
         # 첫 채점일의 60칸 창 첫날. P1B·TF 계열은 창 앞 P1B_WARM 세션을 데우므로 **그 첫 세션**의 창까지 본다
@@ -1656,6 +1781,10 @@ def main(argv: list[str] | None = None) -> int:
         state = "고정" if not registration_problems(win) else "초안(미고정) — --bake·--judge 거부"
         print(f"=== 금고 {win.name} 실행 순서 · 창 {win.start}~{win.end} · 굽기 {win.bake_from}~ · 판정 {win.judge_from}~ · "
               f"시행 {','.join(trials_of(win))} · 등록 {state} ===", flush=True)
+        waiting = pending_trials(win)
+        if waiting:
+            print("   고정 대기(이 창에 아직 안 붙음 — 등록 해시가 None): "
+                  + " · ".join(f"{t} {EXTRA_PROTOCOLS[t][0]}" for t in waiting), flush=True)
         plan = bake_plan(win)
         for i, (label, ready, cmd) in enumerate(plan, 1):
             print(f"{i}. {label}\n   있어야 하는 것: {ready}\n   {cmd}", flush=True)

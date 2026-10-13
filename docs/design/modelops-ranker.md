@@ -55,6 +55,10 @@ M5 완료 기준 넷 중 남은 하나는 "Analyst 별 성과 귀속이 **가중
   `docs/protocols/breadth72-forward-2026-09.md`) · 시행 AR(내부자 G4+G7, `docs/protocols/insider-forward-2026-09.md`) · 시행 AS(원피처 랭커 = 시행 W,
   `docs/protocols/raw-feature-vault-2026-09.md`, 9/25 추가). 금고는 한 번만 연다 — 시행 BD(미장 국면 전환, `docs/protocols/us-regime-switch-vault-2026-11.md`, 9/26 추가) 까지 넷을 따로 열지 않는다.
 - 개봉 전엔 재학습 없음. "낡았다" 는 경보가 떠도 11월까지 옛 열로 간다 — 그것이 홀드아웃의 값이다.
+- **금고 early(10/13) 뒤 (사용자 10/13)**: AR(내부자 G4+G7)은 채택 후보 — 재학습 게이트 전까지는 **금고가 판정한 얼린 파일**로
+  `ar_insider` shadow(`data/_ar_shadow`)만 돈다. 대조군이던 C1(GBM·FA)은 시행 C1G 로 등록해 second 창에서 판정하고 `c1fa` shadow 로 병주한다.
+  둘 다 관찰 전용(운영 가중치 0), 실전 반영은 사용자 재승인 — `docs/design/c1-ar-shadow.md`. 게이트를 통과한 AR 피처의 새 열이 생기면
+  shadow 모델 교체를 사용자에게 묻는다.
 
 ## 배선 (설계 뒤 코드 — 순서)
 
