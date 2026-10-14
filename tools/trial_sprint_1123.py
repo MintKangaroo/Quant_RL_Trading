@@ -3,8 +3,8 @@
     .venv/bin/python tools/trial_sprint_1123.py plan                         # 시행별 순서·필요 파일·해시 상태
     .venv/bin/python tools/trial_sprint_1123.py power --trial BLT            # 검정력(긴 과거 t ≥ 3 · 30세션 블록) — 가벼움
     .venv/bin/python tools/trial_sprint_1123.py bake --trial UIR|TK          # 재료 패널(무거움, 연구 슬롯 안)
-    .venv/bin/python tools/trial_sprint_1123.py walk --trial UIR|TK          # 재료 워크포워드 처리·대조(무거움)
     .venv/bin/python tools/trial_sprint_1123.py freeze --trial T2P|TK|UIR    # 금고 확인용 얼린 모델(자료 끝 6/30, 학습 끝 = 6/30 − 10세션)
+    .venv/bin/python tools/trial_sprint_1123.py walk --trial UIR|TK          # 재료 워크포워드 처리·대조(무거움) — 해시 고정 뒤(등록 문서 순서)
     .venv/bin/python tools/trial_sprint_1123.py run --trial BLT [--save]     # 주 시험 — 등록 해시가 고정·일치할 때만
 
 | 시행 | 등록 문서 | 처리 | 대조 |
@@ -1070,8 +1070,8 @@ def plan() -> int:
         doc = REPO_ROOT / DOCS[t]
         state = "초안(고정 대기)" if h is None else ("고정 ○" if doc.exists() and doc_hash(t) == h else "고정값과 문서 불일치 ×")
         steps = {"BLT": "run --save", "T2P": "freeze → 해시 기입 → 고정 → run --save",
-                 "TK": "bake → walk → freeze → 해시 기입 → 고정 → run --save",
-                 "UIR": "bake → walk → freeze → 해시 기입 → 고정 → run --save"}[t]
+                 "TK": "bake → freeze → 해시 기입 → 고정 → walk → run --save",
+                 "UIR": "bake → freeze → 해시 기입 → 고정 → walk → run --save"}[t]
         log(f"{t}: {DOCS[t]} · {state} · 순서 {steps} · {SPECS[t].note}")
     return 0
 
@@ -1102,6 +1102,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "walk":
         if args.trial not in ("TK", "UIR"):
             ap.error("walk 는 재료 시행(TK·UIR)만")
+        require_pinned(args.trial)                   # 처리·대조 점수 파일은 고정 뒤에만 — 먼저 생기면 ΔIC 를 미리 볼 수 있다
         (tk_walk() if args.trial == "TK" else uir_walk())
         return 0
     if args.cmd == "freeze":

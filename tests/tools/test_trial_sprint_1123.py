@@ -60,6 +60,13 @@ def test_main_test_refuses_draft_before_reading_data(monkeypatch) -> None:  # ty
         sp.require_pinned("BLT")
 
 
+def test_walk_refuses_draft_before_reading_data(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    for t in ("TK", "UIR"):
+        monkeypatch.setitem(sp.PROTOCOL_HASH, t, None)
+        with pytest.raises(SystemExit, match="초안"):
+            sp.main(["walk", "--trial", t, "--root", "/nonexistent-never-opened"])
+
+
 def test_arms_match_p1b_registration() -> None:
     for mine, theirs in (("B0", "B0"), ("B1p", "B1′"), ("B2p", "B2′")):
         n, mult, every, theta = sp.ARMS[mine]
