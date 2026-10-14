@@ -793,21 +793,28 @@ def walk_kr(panel: pd.DataFrame, sessions: list[date], feats: Sequence[str], tar
 
     out: dict[int, list[pd.DataFrame]] = {int(s): [] for s in seeds}
     bl = fkit.blocks(sessions)
+    # 메모리(2026-10-14): 블록마다 패널 행을 통째로 복사하지 않고, 배열을 한 번 만들어 같은 순서의 마스크로 자른다(결과는 같다).
+    X = panel[list(feats)].to_numpy(np.float32)
+    y = panel[target].to_numpy(np.float32)
+    day = np.array([d.toordinal() for d in pd.to_datetime(panel["session"]).dt.date], dtype=np.int32)
+    has_y = ~np.isnan(y)
+    keys = panel[["entity_id", "session"]]
     for k, (first, last) in enumerate(bl):
         end = fkit.train_end(sessions, first)
-        train = panel[(panel["session"] <= end) & panel[target].notna()]
+        tr = (day <= end.toordinal()) & has_y
         hi = sessions[last + 1] if last + 1 < len(sessions) else None
-        test = panel[(panel["session"] >= sessions[first]) & ((panel["session"] < hi) if hi else True)]
-        if train.empty or test.empty:
+        te = (day >= sessions[first].toordinal()) & ((day < hi.toordinal()) if hi else True)
+        n_tr = int(tr.sum())
+        if n_tr == 0 or not te.any():
             continue
-        ds = lgb.Dataset(train[list(feats)].to_numpy(np.float32), train[target].to_numpy(np.float32), free_raw_data=False)
-        Xt = test[list(feats)].to_numpy(np.float32)
-        base = test[["entity_id", "session"]].reset_index(drop=True)
+        ds = lgb.Dataset(X[tr], y[tr], free_raw_data=False)
+        Xt = X[te]
+        base = keys[te].reset_index(drop=True)
         for s in seeds:
             out[int(s)].append(base.assign(pred=fit(None, None, seed=int(s), dataset=ds).predict(Xt)))
-        msg = f"  {label} 블록 {k + 1}/{len(bl)} {sessions[first]}~{sessions[last]} · 학습 {len(train):,}행 ~{end}"
+        msg = f"  {label} 블록 {k + 1}/{len(bl)} {sessions[first]}~{sessions[last]} · 학습 {n_tr:,}행 ~{end}"
         (progress or print)(msg)
-        del ds, Xt, train, test
+        del ds, Xt
     return {s: pd.concat(v, ignore_index=True) for s, v in out.items() if v}
 
 
@@ -827,7 +834,12 @@ def read_feature_frame(path: Path | str) -> pd.DataFrame:
     frame["session"] = pd.to_datetime(frame["session"]).dt.date
     guard_cap(frame["session"].unique(), str(path))
     keep = ["entity_id", "session", "pred", *[c for c in frame.columns if c.startswith(EXTRA_PREFIXES)]]
-    return frame[keep].reset_index(drop=True)
+    frame = frame[keep].reset_index(drop=True)
+    # 메모리: 320만 행 × 열 10개를 float64·문자열로 들면 재료 모드가 3GB 상한에 걸린다(2026-10-14 N1) — float32·범주로.
+    for c in keep[2:]:
+        frame[c] = frame[c].astype(np.float32)
+    frame["entity_id"] = frame["entity_id"].astype("category")
+    return frame
 
 
 def _base_key(sessions: Sequence[date], n_rows: int, seeds: Sequence[int]) -> str:
@@ -842,9 +854,9 @@ def _base_walk(panel: pd.DataFrame, sessions: list[date], seeds: Sequence[int], 
     path = BASE_CACHE / f"base-{_base_key(sessions, len(panel), seeds)}{SCORE_SUFFIX}"
     if cache and path.exists():
         print(f"  C0 재학습 캐시 {path}", flush=True)
-        return {int(s): p.reset_index(drop=True) for s, p in
-                pd.read_parquet(path).assign(session=lambda f: pd.to_datetime(f["session"]).dt.date).groupby("seed")[  # invariant-allow: data-access — 캐시
-                    ["entity_id", "session", "pred"]]}
+        # 시드마다 범주형으로 읽는다 — 통째로 문자열 열로 읽으면 4.3GB(2026-10-14 N1 재시도에서 3GB 상한에 걸렸다).
+        lazy = LazyScores(path)
+        return {int(s): lazy[s] for s in lazy}
     base = walk_kr(panel, sessions, SCORE_FEATS, "y", seeds, label="C0 재학습")
     if cache:
         write_scores(base, path)
@@ -852,7 +864,7 @@ def _base_walk(panel: pd.DataFrame, sessions: list[date], seeds: Sequence[int], 
 
 
 def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] = SEEDS, *,
-                     cache_base: bool = True) -> dict[int, dict[str, pd.DataFrame]]:
+                     cache_base: bool = True, plus_path: Path | None = None) -> dict[int, dict[str, pd.DataFrame]]:
     """재료 모드 칸 ② — C0 6점수 대 6점수 + 재료(rank-gauss)를 같은 블록·시드로 다시 배운다. 반환 {seed: {"base", "plus"}}.
     `feature` 에 `x_*`·`m_*` 열이 있으면 같이 넣는다(`EXTRA_PREFIXES`)."""
     from tools.trial_pooled_rank import rank_gauss
@@ -865,17 +877,53 @@ def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] =
     panel["y"] = panel["y"].where(panel["r5"].notna())          # rank_gauss 는 결측을 0 으로 채운다 — 정답은 결측 그대로
     extra = [c for c in feature.columns if c.startswith(EXTRA_PREFIXES)]
     feat = feature.rename(columns={"pred": "cand"})[["entity_id", "session", "cand", *extra]]
+    if str(panel["entity_id"].dtype) != "category":
+        feat = feat.assign(entity_id=feat["entity_id"].astype(str))
     n_rows = len(panel)
     base = _base_walk(panel, sessions, seeds, cache=cache_base)
+    # 메모리(3GB 상한, 2026-10-14): 쓰지 않는 열을 버리고, 문자열 열을 범주로, 순위 정규화는 사본 없이 제자리에서.
+    panel = panel[["entity_id", "session", *SCORE_FEATS, "y"]]
+    panel["entity_id"] = panel["entity_id"].astype(str)
     panel = panel.merge(feat, on=["entity_id", "session"], how="left")
+    panel["entity_id"] = panel["entity_id"].astype("category")
     assert len(panel) == n_rows, "재료 파일에 (종목, 세션) 중복이 있다"
     xs = ["cand", *[c for c in extra if c.startswith("x_")]]
-    panel = rank_gauss(panel, xs)
+    g = panel.groupby("session", sort=False)
+    for c in xs:
+        r = g[c].rank(pct=True)
+        cnt = g[c].transform("count")
+        panel[c] = pd.Series(norm.ppf((r * cnt - 0.5) / cnt), index=panel.index).fillna(0.0).astype(np.float32)
+        del r, cnt
     ms = [c for c in extra if c.startswith("m_")]
     for c in ms:
         panel[c] = panel[c].fillna(1.0).astype(np.float32)
+    ctx.__dict__.pop("_y5", None)          # 긴 정답 표(문자열 380만 행)는 재학습 동안 필요 없다 — 사다리가 다시 만든다
+    del y5
     plus = walk_kr(panel, sessions, [*SCORE_FEATS, *xs, *ms], "y", seeds, label="C0+재료")
+    if plus_path is not None:
+        write_scores(plus, plus_path)
+        plus_path.with_suffix(".json").write_text(json.dumps(
+            {"base": str(BASE_CACHE / f"base-{_base_key(sessions, n_rows, seeds)}{SCORE_SUFFIX}"), "feats": xs + ms}))
     return {s: {"base": base[s], "plus": plus[s]} for s in base}
+
+
+PLUS_CACHE = OUT / "feature-plus"  # invariant-allow: data-access — C0+재료 재학습 예측 캐시
+
+
+def plus_cache_path(name: str, score: str) -> Path:
+    """재료 파일(크기·수정 시각)·이름·시드·6점수로 정하는 재학습 예측 캐시 경로."""
+    import hashlib
+
+    f = resolve(score)
+    st = f.stat()
+    blob = f"{name}|{f.name}|{st.st_size}|{int(st.st_mtime)}|{SEEDS}|{SCORE_FEATS}|v1"
+    return PLUS_CACHE / f"{name}-{hashlib.sha256(blob.encode()).hexdigest()[:12]}{SCORE_SUFFIX}"
+
+
+def load_plus_base(path: Path) -> dict[int, dict[str, pd.DataFrame]]:
+    meta = json.loads(path.with_suffix(".json").read_text())
+    plus, base = LazyScores(path), LazyScores(Path(meta["base"]))
+    return {int(s): {"base": base[s], "plus": plus[s]} for s in plus}
 
 
 # --------------------------------------------------------------------------- 사다리
@@ -1123,6 +1171,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.end is not None and args.end > DATE_CAP:
         raise CapViolation(f"--end {args.end} > {DATE_CAP}")
+    if args.mode == "feature" and args.start is None and args.end is None:
+        # 메모리(3GB 상한, 2026-10-14): 재학습은 가격 표만 든 가벼운 프로세스에서 하고 예측을 캐시에 쓴 뒤,
+        # 같은 명령으로 **새 프로세스**를 띄워(execv) 공통 자료 전체를 들고 판정한다 — 두 단계의 메모리가 겹치지 않는다.
+        pp = plus_cache_path(args.name, args.score)
+        if not pp.with_suffix(".json").exists():
+            require_heavy(args.force)
+            close = pd.read_pickle(CONTEXT_FILE / "close.pkl").astype("float64")  # invariant-allow: data-access — 연구 캐시
+            light = Context(close=close, ret=None, bench=None, k200_close=None, trad={}, uni=None, scale=None)  # type: ignore[arg-type]
+            feature_marginal(read_feature_frame(args.score), light, plus_path=pp)
+            print(f"재학습 예측 캐시 {pp} — 새 프로세스로 판정", flush=True)
+            os.execv(sys.executable, [sys.executable, *sys.argv])
     ctx = load_context()
     preds = restrict(read_scores(args.score), args.start, args.end)
     control = None if args.no_control else restrict(read_scores(args.control), args.start, args.end)
@@ -1131,7 +1190,9 @@ def main(argv: list[str] | None = None) -> int:
         require_heavy(args.force)
         feat = read_feature_frame(args.score)
         feat = feat[[(args.start is None or d >= args.start) and (args.end is None or d <= args.end) for d in feat["session"]]]
-        plus_base = feature_marginal(feat, ctx)
+        pp = plus_cache_path(args.name, args.score)
+        plus_base = (load_plus_base(pp) if (args.start is None and args.end is None and pp.with_suffix(".json").exists())
+                     else feature_marginal(feat, ctx))
         control = None
         preds = {0: feat[["entity_id", "session", "pred"]]}
     res = ladder(preds, ctx, control=control, thresholds=Thresholds(t_star=args.t_star), n_tests=args.n_tests,
