@@ -399,18 +399,24 @@ def n2(base, store) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
         seen |= set(ls["entity_id"])
         kx = kx[kx["entity_id"].isin(seen)]       # 덮는 종목 집합은 LS 의 것 그대로(커버리지가 마지막 30세션에 갑자기 넓어지지 않게)
         f = pd.concat([ls, kx], ignore_index=True)
+        wide.setdefault("_krx", []).append(kx.assign(one=1.0).pivot_table(index="session", columns="entity_id", values="one", aggfunc="max"))
         for inv in ("기금", "투신", "증권", "사모펀드", "보험", "개인"):
             g = f[f["investor"] == inv]
             wide.setdefault(inv, []).append(g.pivot_table(index="session", columns="entity_id", values="net_value", aggfunc="last"))
         print(f"  수급 {lo}~{hi}: {len(f):,}행", flush=True)
     W = {k: pd.concat(v).sort_index().reindex(index=sessions, columns=ents) for k, v in wide.items()}
     covered = W["개인"].notna()
+    # KRX 로 메운 칸(2026-08 중순~)에는 사모펀드·보험이 없다 — 0 이 아니라 모름. 창 안에 그런 칸이 하나라도 있으면 결측(2026-10-14 리드).
+    krx = W["_krx"].fillna(0.0) > 0
+    krx_blind = {inv for inv in ("사모펀드", "보험") if inv not in KRX_NAMES.values()}
     cap = base["cap"].reindex(index=sessions, columns=ents).ffill(limit=5)
     adv = base["value"].reindex(index=sessions, columns=ents).rolling(20, min_periods=10).mean()
 
     def flow(inv: str, n: int, denom: pd.DataFrame) -> pd.DataFrame:
         x = W[inv].where(covered, np.nan).fillna(0.0).where(covered)
         s = x.rolling(n, min_periods=max(5, n // 2)).sum()
+        if inv in krx_blind:
+            s = s.where(~(krx.astype("float64").rolling(n, min_periods=1).max() > 0))
         return s / denom.where(denom > 0)
 
     out = {"pred": flow("기금", 60, cap)}
@@ -425,6 +431,7 @@ def n2(base, store) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
     out["x_pension_persist"] = sgn.rolling(60, min_periods=30).mean()
     out["x_pension_accel"] = out["x_pension_20"] - out["pred"] / 3.0
     out["m_flow"] = (~covered.rolling(20, min_periods=1).max().astype(bool)).astype("float32")
+    out["m_pe_ins"] = out["x_pe_60"].isna().astype("float32")
     return out
 
 
