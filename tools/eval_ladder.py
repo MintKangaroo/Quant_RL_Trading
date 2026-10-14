@@ -811,8 +811,50 @@ def walk_kr(panel: pd.DataFrame, sessions: list[date], feats: Sequence[str], tar
     return {s: pd.concat(v, ignore_index=True) for s, v in out.items() if v}
 
 
-def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] = SEEDS) -> dict[int, dict[str, pd.DataFrame]]:
-    """재료 모드 칸 ② — C0 6점수 대 6점수 + 재료(rank-gauss)를 같은 블록·시드로 다시 배운다. 반환 {seed: {"base", "plus"}}."""
+#: 재료 파일의 추가 열 — `x_*` 는 연속 재료(세션 안 rank-gauss, 결측 0), `m_*` 는 결측 표지(0/1, 원값 그대로 — 파일에 없는
+#: (종목, 세션)은 1 = 모름). `pred` 는 칸 ① 이 보는 대표 재료(부호는 사전 가설 방향 — 클수록 좋다)이고 칸 ② 에도 들어간다.
+#: (2026-10-14 새 정보 N1~N7: "결측은 0 이 아니라 표지 열" — 열 하나짜리 재료 모드로는 표지를 못 넣었다.)
+EXTRA_PREFIXES = ("x_", "m_")
+BASE_CACHE = OUT / "feature-base"  # invariant-allow: data-access — C0 재학습 예측 캐시(재료와 무관하게 같다)
+
+
+def read_feature_frame(path: Path | str) -> pd.DataFrame:
+    """재료 파일 → (entity_id, session, pred, x_*, m_*) 한 표. 시드 열이 있으면 시드 0(재료는 시드가 없다). 봉인선 검사."""
+    path = resolve(str(path))
+    frame = pd.read_parquet(path) if path.suffix == SCORE_SUFFIX else pd.read_pickle(path)  # invariant-allow: data-access — 재료 캐시
+    if "seed" in frame.columns:
+        frame = frame[frame["seed"] == frame["seed"].min()].drop(columns=["seed"])
+    frame["session"] = pd.to_datetime(frame["session"]).dt.date
+    guard_cap(frame["session"].unique(), str(path))
+    keep = ["entity_id", "session", "pred", *[c for c in frame.columns if c.startswith(EXTRA_PREFIXES)]]
+    return frame[keep].reset_index(drop=True)
+
+
+def _base_key(sessions: Sequence[date], n_rows: int, seeds: Sequence[int]) -> str:
+    import hashlib
+
+    blob = f"{sessions[0]}|{sessions[-1]}|{len(sessions)}|{n_rows}|{tuple(int(s) for s in seeds)}|{SCORE_FEATS}|v1"
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def _base_walk(panel: pd.DataFrame, sessions: list[date], seeds: Sequence[int], *, cache: bool) -> dict[int, pd.DataFrame]:
+    """C0 재학습(6점수만) — 재료와 무관하게 같으므로 한 번 굽고 캐시한다(재료마다 절반의 계산을 아낀다)."""
+    path = BASE_CACHE / f"base-{_base_key(sessions, len(panel), seeds)}{SCORE_SUFFIX}"
+    if cache and path.exists():
+        print(f"  C0 재학습 캐시 {path}", flush=True)
+        return {int(s): p.reset_index(drop=True) for s, p in
+                pd.read_parquet(path).assign(session=lambda f: pd.to_datetime(f["session"]).dt.date).groupby("seed")[  # invariant-allow: data-access — 캐시
+                    ["entity_id", "session", "pred"]]}
+    base = walk_kr(panel, sessions, SCORE_FEATS, "y", seeds, label="C0 재학습")
+    if cache:
+        write_scores(base, path)
+    return base
+
+
+def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] = SEEDS, *,
+                     cache_base: bool = True) -> dict[int, dict[str, pd.DataFrame]]:
+    """재료 모드 칸 ② — C0 6점수 대 6점수 + 재료(rank-gauss)를 같은 블록·시드로 다시 배운다. 반환 {seed: {"base", "plus"}}.
+    `feature` 에 `x_*`·`m_*` 열이 있으면 같이 넣는다(`EXTRA_PREFIXES`)."""
     from tools.trial_pooled_rank import rank_gauss
 
     panel, sessions = score_panel(ctx)
@@ -821,11 +863,18 @@ def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] =
     panel["y"] = panel["r5"]
     panel = rank_gauss(panel, ["y"])
     panel["y"] = panel["y"].where(panel["r5"].notna())          # rank_gauss 는 결측을 0 으로 채운다 — 정답은 결측 그대로
-    feat = feature.rename(columns={"pred": "cand"})[["entity_id", "session", "cand"]]
+    extra = [c for c in feature.columns if c.startswith(EXTRA_PREFIXES)]
+    feat = feature.rename(columns={"pred": "cand"})[["entity_id", "session", "cand", *extra]]
+    n_rows = len(panel)
+    base = _base_walk(panel, sessions, seeds, cache=cache_base)
     panel = panel.merge(feat, on=["entity_id", "session"], how="left")
-    panel = rank_gauss(panel, ["cand"])
-    base = walk_kr(panel, sessions, SCORE_FEATS, "y", seeds, label="C0 재학습")
-    plus = walk_kr(panel, sessions, [*SCORE_FEATS, "cand"], "y", seeds, label="C0+재료")
+    assert len(panel) == n_rows, "재료 파일에 (종목, 세션) 중복이 있다"
+    xs = ["cand", *[c for c in extra if c.startswith("x_")]]
+    panel = rank_gauss(panel, xs)
+    ms = [c for c in extra if c.startswith("m_")]
+    for c in ms:
+        panel[c] = panel[c].fillna(1.0).astype(np.float32)
+    plus = walk_kr(panel, sessions, [*SCORE_FEATS, *xs, *ms], "y", seeds, label="C0+재료")
     return {s: {"base": base[s], "plus": plus[s]} for s in base}
 
 
@@ -1080,10 +1129,11 @@ def main(argv: list[str] | None = None) -> int:
     plus_base = None
     if args.mode == "feature":
         require_heavy(args.force)
-        feat = bundle(preds)
+        feat = read_feature_frame(args.score)
+        feat = feat[[(args.start is None or d >= args.start) and (args.end is None or d <= args.end) for d in feat["session"]]]
         plus_base = feature_marginal(feat, ctx)
         control = None
-        preds = {0: feat}
+        preds = {0: feat[["entity_id", "session", "pred"]]}
     res = ladder(preds, ctx, control=control, thresholds=Thresholds(t_star=args.t_star), n_tests=args.n_tests,
                  plus_base=plus_base)
     print(render(args.name, res), flush=True)
