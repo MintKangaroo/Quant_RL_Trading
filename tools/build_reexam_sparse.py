@@ -4,7 +4,7 @@
     .venv/bin/python tools/build_reexam_sparse.py          # RX-G1·RX-G2·RX-G4·RX-G5·RX-BA 점수 파일
     flock -n data/_locks/research-slot-1.lock nice -n 10 .venv/bin/python tools/eval_ladder.py run --mode feature --name RX-G2 --score RX-G2 --n-tests 5
 
-- 6차 묶음(G1·G2·G4·G5)은 6차 작업 캐시 `data/_diag/ranker-sources/G?-KR-*.parquet` 의 **원값 그대로**(그때 `ranker_sources.build` 가 만든 것).
+- 6차 묶음(G1·G2·G4·G5)은 6차 작업 캐시(ranker-sources 폴더의 월 조각)의 **원값 그대로**(그때 `ranker_sources.build` 가 만든 것).
   BA 는 `analysts.valueup.features`(시행 BA·BE2 shadow 와 같은 함수, 건수 결측 → 0 도 같다).
 - 사다리가 0 이 30% 넘는 열을 `sparse_gauss` 로 바꾼다 — **바뀌는 것은 변환뿐**이다(재심 규칙).
 - 대표 열 `pred` = 묶음의 첫 열(원값, 부호를 뒤집지 않는다 — 판정은 칸 ② ΔIC). 나머지는 `x_*`, 캐시에 행이 없으면 `m_miss = 1`
