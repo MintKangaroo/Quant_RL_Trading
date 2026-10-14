@@ -100,6 +100,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="일일 경로. run_id 에 오늘 날짜를 넣는다 — 안 넣으면 첫 적재 뒤로 "
         "매일이 같은 id 가 되어 **영원히 건너뛴다**(2026-08-18 발견)",
     )
+    parser.add_argument(
+        "--run-tag", default="",
+        help="run_id 꼬리표. 같은 날 두 번째 스캔(예 halt — 거래정지 중 감자)이 첫 적재와 같은 id 로 건너뛰지 않게",
+    )
     args = parser.parse_args(argv)
 
     load_env()
@@ -111,6 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     # 일일 경로만 날짜를 붙인다. 5년치 백필은 한 번만 도는 작업이라 날짜를
     # 넣으면 재실행이 중복을 못 막는다.
     stamp = now.astimezone().strftime("%Y%m%d") if args.daily else ""
+    if args.run_tag:
+        stamp = f"{stamp}-{args.run_tag}" if stamp else args.run_tag
     min_log_factor = float(store.config(MIN_LOG_FACTOR_CONFIG, as_of=now))
     actions = _load(args.scan)
     print(f"스캔 파일에 사건 {len(actions)}건")
