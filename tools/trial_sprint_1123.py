@@ -45,6 +45,8 @@ from tools import eval_ladder as el  # noqa: E402
 # --------------------------------------------------------------------------- 등록·고정값
 
 TRIALS = ("BLT", "UIR", "T2P", "TK")
+#: 금고 second 창에 붙는 시행 — T2P 는 등록하지 않고 전방 shadow 만(사용자 10/14). 주 시험 도구는 T2P 도 돌 수 있다(기록용).
+VAULT_TRIALS = ("BLT", "UIR", "TK")
 DOCS: dict[str, Path] = {
     "BLT": Path("docs/protocols/be2-low-turnover-2026-10.md"),
     "UIR": Path("docs/protocols/us-insider-style-neutral-2026-10.md"),
@@ -52,7 +54,7 @@ DOCS: dict[str, Path] = {
     "TK": Path("docs/protocols/ta-ranker-features-2026-10.md"),
 }
 #: 등록 문서 sha256 앞 16자 — **사용자 확인 뒤 리드가 고정할 때** 적는다(`vault_judge.<시행>_PROTOCOL_HASH` 와 같은 값, 테스트가 맞춘다).
-PROTOCOL_HASH: dict[str, str | None] = {"BLT": None, "UIR": None, "T2P": None, "TK": None}
+PROTOCOL_HASH: dict[str, str | None] = {"BLT": "fcdf33a8a1ce96b3", "UIR": None, "T2P": None, "TK": None}
 ENTITY = {"BLT": "be2-low-turnover-2026-10:BLT", "UIR": "us-insider-style-neutral-2026-10:UIR",
           "T2P": "t2-target-p1b-2026-10:T2P", "TK": "ta-ranker-features-2026-10:TK"}
 FAMILY = {"BLT": "selection", "UIR": "ranker", "T2P": "selection", "TK": "ranker"}
