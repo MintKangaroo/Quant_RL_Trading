@@ -1,7 +1,7 @@
-# BLT shadow — 얼린 BE2 × P1-b′ 구성 병행 장부 (2026-10-14 설계, 미가동)
+# BLT shadow — 얼린 BE2 × P1-b′ 구성 병행 장부 (2026-10-14 설계, 첫 세션 2026-10-15)
 
 등록 초안 `docs/protocols/be2-low-turnover-2026-10.md`(시행 BLT, 미고정) §6 의 전방 장부. 사용자 결정(10/14 아침): 1번(BE2 + 저회전)은 shadow 장부 설계까지.
-**크론은 걸지 않았다. 화면에도 넣지 않는다**(해시 고정 전 — second 창 성적이 매일 보이면 등록 전 오염. C1·AR 와 같은 이유).
+사용자 결정(10/14): **shadow 는 바로**, 첫 세션 2026-10-15. 크론은 리드가 장 마감 뒤에 건다. **화면에는 해시 고정 뒤에** 넣는다(C1·AR 와 같은 이유).
 
 ## 무엇인가 — 새 코드 없이 두 장부를 합친 것
 
@@ -35,14 +35,13 @@
 | 부품 | 파일 | 비고 |
 |---|---|---|
 | 덮어쓰기 템플릿 | `config/shadow/blt.config-overrides.yaml` | be2 알파 = BE2 템플릿, 구성 넷 + `risk.max_positions` 110 = P1-b′ 템플릿과 **같은 값**(테스트가 맞춘다) |
-| anchor | 같은 파일 `selector.rebalance_anchor` | 자리표시 `2099-01-01` — 활성화 때 **첫 세션 날짜**로 바꾼다(빈 장부가 보유일에 시작하지 않게) |
+| anchor | 같은 파일 `selector.rebalance_anchor` | `2026-10-15` = 첫 세션(빈 장부가 보유일에 시작하지 않게). 그 다음날 01:15 부터 러너가 돈다 |
 | 러너 | `scripts/run_shadow_blt.sh` | anchor 다음날부터 돈다. 샌드박스만 · 실주문 없음 |
 | 정적 검사 | `tests/invariants/test_blt_shadow_isolation.py` | 템플릿 = BE2 알파 + P1-b′ 구성 · 키 실재 · 샌드박스 한정 · 채점 안 함 · 자리표시면 무동작 |
 
 ## 켜는 순서 (리드, 장 마감 뒤)
 
-1. 사용자 확인 — 해시 고정 전에 띄울지(기록만) 고정 뒤에 띄울지(BLT §9-4). 주 시험 우승이 V2 면 템플릿 구성 넷을 B2′(24 · 72 · 20 · 0.0)로 바꾸고 `max_positions` 를 30 으로.
-2. 템플릿 `selector.rebalance_anchor` 를 첫 세션 날짜로(예: 고정 다음 거래일) — 테스트는 날짜 형식만 본다.
+1. (끝남) 변형 하나 V1 · 첫 세션 2026-10-15 — 사용자 결정 10/14.
 3. 크론 한 줄(초안):
    ```
    15 1 * * 2-6 /home/mintkangaroo/Project/Quant_RL_Trading/scripts/run_shadow_blt.sh

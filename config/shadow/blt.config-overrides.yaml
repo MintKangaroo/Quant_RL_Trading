@@ -12,6 +12,6 @@ selector.exit_rank: 500
 selector.rebalance_every: 20
 selector.swap_min_z: 1.0
 # 첫 세션 = 재조정 anchor(빈 장부가 보유일에 시작하면 잔여 채움이 읽을 직전 재조정 기록이 없다 — P1-b′ 와 같은 이유).
-# **활성화 때 첫 세션 날짜로 바꾼다.** 2099-01-01 이면 러너가 아무것도 하지 않는다(크론을 먼저 걸어도 장부가 서지 않는다).
-selector.rebalance_anchor: "2099-01-01"
+# 첫 세션 2026-10-15(사용자 10/14 "shadow 는 바로") — 러너는 그 다음날(10/16 01:15)부터 돈다.
+selector.rebalance_anchor: "2026-10-15"
 risk.max_positions: 110

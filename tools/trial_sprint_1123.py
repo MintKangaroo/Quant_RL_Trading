@@ -76,7 +76,7 @@ T2P_NI, T2P_NI_T = 0.002, 2.0
 T2P_TURN_T = -3.0
 #: 금고 확인 여유 — 주 시험 창의 30세션 블록(5세션씩 밀며) 표준편차 × 1.645.
 BLOCK, BLOCK_STEP, Z_MARGIN = 30, 5, 1.645
-#: 다중검정 — 이 넷의 변형 6(BLT 2 · UIR 1 · T2P 1 · TK 1 + 넷이 같이 여는 확인) + 같은 창에서 이미 본 질문 13
+#: 다중검정 — 11/23 가족의 변형(BLT 1 · UIR 1 · TK 1, T2P 는 등록 안 함 — 본 것이라 그대로 센다 1) + 여유 2 + 같은 창에서 이미 본 질문 13
 #: (레버 9 · 정답 2 · BE2 사다리 2). t ≥ 3 의 양측 p 0.0027 × 19 = 0.051 — Bonferroni 5% 와 거의 같다(필요 t 3.01).
 N_TESTS = 19
 
@@ -105,7 +105,7 @@ class Spec:
 
 
 SPECS: dict[str, Spec] = {
-    "BLT": Spec("BLT", "KR", "model", {"V1": "B1p", "V2": "B2p"}, start=date(2023, 2, 15), low_turnover=True,
+    "BLT": Spec("BLT", "KR", "model", {"V1": "B1p"}, start=date(2023, 2, 15), low_turnover=True,
                 note="처리 BE2 · 원리 대조 C0 · 포트 대조 C0×B0(현행)·C0×같은 구성"),
     "T2P": Spec("T2P", "KR", "model", {"V1": "B1p"}, start=date(2022, 6, 28), low_turnover=True,
                 note="처리 T2 · 원리 대조 T0(비열등) · 포트 대조 C0×B1′(P1-b′)·C0×B0(현행) · 기록 T0×B1′"),

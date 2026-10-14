@@ -4,7 +4,7 @@
  ① 템플릿 = be2 알파 + B1′ 구성 넷 + 배관 둘 — 다른 장부 템플릿과 값이 같다(갈라지면 2×2 짝 비교가 깨진다).
  ② 덮어쓰는 이름은 모두 체크인 설정에 있는 키다(오타면 조용히 안 걸린다).
  ③ 러너는 샌드박스에만 쓰고 실주문을 내지 않으며, 채점하지 않는다(be2 점수는 run_score_be2 가 낸다).
- ④ anchor 자리표시(2099-01-01)면 러너가 아무것도 안 한다 — 크론을 먼저 걸어도 장부가 서지 않는다.
+ ④ 러너는 anchor(첫 세션) 다음날 전에는 아무것도 안 한다 — 크론을 먼저 걸어도 장부가 앞서 서지 않는다.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def test_runner_writes_only_to_its_shadow_sandbox() -> None:
 
 
 def test_placeholder_anchor_makes_runner_a_no_op(tmp_path: Path) -> None:
-    """러너의 anchor 추출 sed 가 템플릿 줄을 읽고, 자리표시(2099)는 '첫 세션 전' 으로 건너뛴다."""
+    """러너의 anchor 추출 sed 가 템플릿 줄을 읽고, 그 날짜 전(당일 포함)은 '첫 세션 전' 으로 건너뛴다."""
     import subprocess
 
     text = RUNNER.read_text(encoding="utf-8")

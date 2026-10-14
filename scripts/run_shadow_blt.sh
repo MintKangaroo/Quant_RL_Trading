@@ -6,7 +6,7 @@
 # be2 점수는 scripts/run_score_be2.sh(크론 22:56, 일일 실행기 직후)가 이미 낸다 — 여기서는 채점하지 않는다. 점수가 없으면 선정이
 # fault alpha_stale(rc 3)로 멈춘다(묵은 점수로 조용히 고르지 않는다). 채점 잠금(data/_locks/score-be2.lock)이 잡혀 있으면 풀릴 때까지 기다린다.
 # 크론 초안 `15 1 * * 2-6` — 월~금 세션을 다음날 01:15 에(P1-b′ 00:40 · C1 00:55 · AR 01:05 뒤). 다른 KR 세션이 도는 중이면 기다린다.
-# 첫 세션은 템플릿의 selector.rebalance_anchor — 그 날짜가 오기 전(2099-01-01 자리표시 포함)에는 아무것도 하지 않는다. 첫 실행만 자본 5.03억(.funded).
+# 첫 세션은 템플릿의 selector.rebalance_anchor(2026-10-15) — 그 다음날 전에는 아무것도 하지 않는다. 첫 실행만 자본 5.03억(.funded).
 set -u
 cd /home/mintkangaroo/Project/Quant_RL_Trading || exit 1
 LOG="logs/shadow-blt-$(date +%Y%m).log"
