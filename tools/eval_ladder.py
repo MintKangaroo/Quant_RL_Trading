@@ -795,7 +795,8 @@ def fit(X: np.ndarray, y: np.ndarray | None, *, seed: int, dataset: Any = None):
 
 
 def walk_kr(panel: pd.DataFrame, sessions: list[date], feats: Sequence[str], target: str,
-            seeds: Sequence[int] = SEEDS, *, label: str = "", progress: Callable[[str], None] | None = None) -> dict[int, pd.DataFrame]:
+            seeds: Sequence[int] = SEEDS, *, label: str = "", progress: Callable[[str], None] | None = None,
+            release: bool = False) -> dict[int, pd.DataFrame]:
     """국장 워크포워드 — C0 규격(20세션 블록 · 첫 블록 155 · 학습 끝 = 블록 시작 − 퍼지 5 − 엠바고 5 − 1).
     `final_round_kit.walk_gbm` 과 같은 블록·간격, 시장만 국장 하나다."""
     import lightgbm as lgb
@@ -810,6 +811,8 @@ def walk_kr(panel: pd.DataFrame, sessions: list[date], feats: Sequence[str], tar
     day = np.array([d.toordinal() for d in pd.to_datetime(panel["session"]).dt.date], dtype=np.int32)
     has_y = ~np.isnan(y)
     keys = panel[["entity_id", "session"]]
+    if release:                           # 배열을 만든 뒤 호출자 패널의 피처 열을 제자리에서 버린다(3GB 상한, 2026-10-14)
+        panel.drop(columns=[c for c in feats if c in panel.columns] + [target], inplace=True)
     for k, (first, last) in enumerate(bl):
         end = fkit.train_end(sessions, first)
         tr = (day <= end.toordinal()) & has_y
@@ -898,6 +901,7 @@ def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] =
     panel = panel.merge(feat, on=["entity_id", "session"], how="left")
     panel["entity_id"] = panel["entity_id"].astype("category")
     assert len(panel) == n_rows, "재료 파일에 (종목, 세션) 중복이 있다"
+    del feat, feature                     # 재료 표(문자열 320만 행)는 결합 뒤 필요 없다 — 3GB 상한(2026-10-14 N2)
     xs = ["cand", *[c for c in extra if c.startswith("x_")]]
     g = panel.groupby("session", sort=False)
     for c in xs:
@@ -913,7 +917,7 @@ def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] =
         panel[c] = panel[c].fillna(1.0).astype(np.float32)
     ctx.__dict__.pop("_y5", None)          # 긴 정답 표(문자열 380만 행)는 재학습 동안 필요 없다 — 사다리가 다시 만든다
     del y5
-    plus = walk_kr(panel, sessions, [*SCORE_FEATS, *xs, *ms], "y", seeds, label="C0+재료")
+    plus = walk_kr(panel, sessions, [*SCORE_FEATS, *xs, *ms], "y", seeds, label="C0+재료", release=True)
     if plus_path is not None:
         write_scores(plus, plus_path)
         plus_path.with_suffix(".json").write_text(json.dumps(
