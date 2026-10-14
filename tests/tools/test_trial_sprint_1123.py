@@ -32,7 +32,8 @@ def _restore_window():  # type: ignore[no-untyped-def]
 
 
 def test_docs_exist_and_hash_lives_in_one_place() -> None:
-    for t in sp.TRIALS:
+    assert "T2P" not in sp.VAULT_TRIALS and sp.PROTOCOL_HASH["T2P"] is None and "T2P" not in vj.RUNNERS
+    for t in sp.VAULT_TRIALS:
         assert (sp.REPO_ROOT / sp.DOCS[t]).exists(), t
         assert vj.EXTRA_PROTOCOLS[t] == (sp.DOCS[t], sp.PROTOCOL_HASH[t])
         assert vj.ENTITY[t] == sp.ENTITY[t] and vj.FAMILY[t] == sp.FAMILY[t]
@@ -41,7 +42,7 @@ def test_docs_exist_and_hash_lives_in_one_place() -> None:
 
 def test_unpinned_trials_do_not_attach_to_second() -> None:
     second = vj.windows()["second"]
-    for t in sp.TRIALS:
+    for t in sp.VAULT_TRIALS:
         if sp.PROTOCOL_HASH[t] is None:
             assert t not in vj.trials_of(second)
             assert t in vj.pending_trials(second)

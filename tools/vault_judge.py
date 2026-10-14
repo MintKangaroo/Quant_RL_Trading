@@ -193,12 +193,12 @@ EXTRA_PROTOCOLS["CR"] = (CR_PROTOCOL, CR_PROTOCOL_HASH)
 FAMILY["CR"] = "selection"
 ENTITY["CR"] = "cr-crisis-exposure-2026-10:CR"
 RECORD_NOTE["CR"] = "CR · 금고는 확인(해 방지)만 — 주 시험은 긴 과거(trial_cr_exposure), 그 방향은 10/13 장×전략 진단이 지수 위에서 먼저 봤다"
-#: 11/23 등록 넷(사용자 10/14 아침) — BLT(BE2 + 저회전) · UIR(미장 내부자 스타일 잔차) · T2P(T2 정답 + P1-b′) · TK(기술 지표 여섯).
+#: 11/23 등록 셋(사용자 10/14) — BLT(BE2 + 저회전) · UIR(미장 내부자 스타일 잔차) · TK(기술 지표 여섯). T2P 는 등록 안 함(전방 shadow 만).
 #: 주 시험은 긴 과거 사다리(`tools/trial_sprint_1123.py run`), 이 창은 **확인(해 방지)만**. 해시는 그 도구의 `PROTOCOL_HASH` 한 곳에
 #: 적는다(여기서 읽는다 — 두 자리가 갈라지지 않게). None 이면 second 창에 안 붙고, 붙어도 주 시험 통과가 아니면 `PREREQ` 가 건너뛴다(CR 과 같다).
 from tools import trial_sprint_1123 as sprint  # noqa: E402
 
-for _t in sprint.TRIALS:
+for _t in sprint.VAULT_TRIALS:
     if sprint.PROTOCOL_HASH[_t]:
         EXTRA_TRIALS["second"] = (*EXTRA_TRIALS["second"], _t)
     EXTRA_PROTOCOLS[_t] = (sprint.DOCS[_t], sprint.PROTOCOL_HASH[_t])
@@ -207,7 +207,7 @@ for _t in sprint.TRIALS:
     RECORD_NOTE[_t] = (f"{_t} · 금고는 확인(해 방지)만 — 주 시험은 긴 과거 사다리(trial_sprint_1123), "
                        "그 원리·레버 숫자는 10/14 사다리·번역 손실표가 먼저 봤다")
 #: 해시 고정 전이라 아직 창에 안 붙은 따로 등록 시행 — `--plan` 이 "고정 대기" 로 보여 준다(판정에는 영향 없음).
-PENDING_WINDOW: dict[str, str] = {"TG": "second", "C1G": "second", "CR": "second", **{t: "second" for t in sprint.TRIALS}}
+PENDING_WINDOW: dict[str, str] = {"TG": "second", "C1G": "second", "CR": "second", **{t: "second" for t in sprint.VAULT_TRIALS}}
 
 
 def pending_trials(win: Window) -> list[str]:
@@ -1661,13 +1661,13 @@ def cr_prereq(store: Store) -> str | None:
 
 #: 창에 붙은 시행이 **판정 전에** 갖춰야 할 조건(없으면 None). 이유를 돌려주면 그 시행은 건너뛴다(기록·개봉 계수에 안 들어간다).
 PREREQ = {"CR": cr_prereq,
-          **{t: (lambda st, t=t: sprint.vault_prereq(t, Path(st.root), EXTRA_PROTOCOLS[t][1])) for t in sprint.TRIALS}}
+          **{t: (lambda st, t=t: sprint.vault_prereq(t, Path(st.root), EXTRA_PROTOCOLS[t][1])) for t in sprint.VAULT_TRIALS}}
 
 
 RUNNERS = {"AQ": run_aq, "AR": run_ar, "AS": run_as, "BD": run_bd, "BE2": run_be2, "DF2": run_df2, "P1B": run_p1b,
            "TF": lambda st: run_tf(st, "TF"), "TB": lambda st: run_tf(st, "TB"), "TC": lambda st: run_tf(st, "TC"),
            "P1B2": run_p1b2, "TG": lambda st: run_tf(st, "TG"), "C1G": run_c1g, "CR": run_cr,
-           **{t: (lambda st, t=t: sprint.vault_run(t, st)) for t in sprint.TRIALS}}
+           **{t: (lambda st, t=t: sprint.vault_run(t, st)) for t in sprint.VAULT_TRIALS}}
 
 
 # --------------------------------------------------------------------------- 기록
