@@ -89,6 +89,7 @@ HTTP 500 ``IGW00215``(유효하지 않은 TR CD) 가 온다 — ``ls_client.PATH
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -394,9 +395,12 @@ HALT_FILING_NEEDLES = ("감자", "주식병합")
 #: KR:241820 7/11 결정 → 10/17). 효력 뒤 공시(감자완료·변경상장)는 며칠 안이다.
 HALT_FILING_BEFORE_DAYS = 250
 HALT_FILING_AFTER_DAYS = 10
-#: 배율이 정수 N(≥2)에서 이만큼 안이어야 한다 — 감자·병합 비율은 정수(N:1)이고, 차이는 호가 단위 올림뿐이다(실측 944→9,450 ×10.01).
-#: 정수가 아닌 계단(×1.37·×2.41 등, 2021~2026 창고 10건)은 기준가 재평가 등 다른 사건일 수 있어 사람이 본다.
-HALT_INTEGER_TOLERANCE = 0.01
+#: 계수를 읽는 공시 제목(공백 제거 뒤) — 감자결정·주식병합결정. 자회사·종속회사 공시는 부르는 쪽이 뺀다.
+HALT_NOTICE_TITLES = r"감자결정|주식병합결정"
+#: 가격 배율 검산 — 공시 N 과 가격 배율이 이만큼 안이면 가격 배율(호가 올림 포함)을 쓴다(실측 944→9,450 ×10.01 대 10:1).
+HALT_PRICE_TOLERANCE = 0.01
+#: 원문에 이 말이 있으면 회생·출자전환 사건이다 — 재상장 기준가에 희석이 섞여 가격 배율 ≠ N 이 정상이다(KR:001470 ×16.77 대 540).
+HALT_REHAB_NEEDLES = ("회생", "출자전환")
 
 
 @dataclass(frozen=True)
@@ -409,15 +413,132 @@ class Bar:
     adj_factor: float | None = None
 
 
+@dataclass(frozen=True)
+class ReductionNotice:
+    """감자결정 공시 한 건(정정본이면 그 정정본)에서 읽은 것. 원문이 없으면 ``ratio``·``listing_on`` 이 None 이다."""
+
+    doc_id: str
+    filed_on: date
+    #: 소액주주 1주가 감자 뒤 1/ratio 주가 된다. 못 읽으면 None.
+    ratio: float | None
+    #: 신주상장예정일 — 거래소 기준가가 바뀌는 세션.
+    listing_on: date | None
+    #: 감자 전 발행주식수 — 같은 감자의 정정본을 한 번만 세는 데만 쓴다(계수에는 안 쓴다).
+    shares_before: float | None = None
+    rehab: bool = False
+    has_text: bool = True
+
+
+@dataclass(frozen=True)
+class HaltReview:
+    """쓰지 않은 계단 — 사람이 본다."""
+
+    action: CorporateAction
+    reason: str
+
+
+_NOTICE_DATE = re.compile(r"(\d{4})\s*[.년-]\s*(\d{1,2})\s*[.월-]\s*(\d{1,2})")
+_NUM = r"(\d+(?:\.\d+)?)"
+#: "N주를 … 1주로" — 사이에 액면가 숫자가 낄 수 있다(KR:245620 "6주를 액면가 100원의 보통주 1주로").
+_MERGE = re.compile(_NUM + r"\s*주\s*(?:를|을)(?:(?!주를|주을).){0,60}?(?<![\d.,])1\s*주\s*로")
+_COLON = re.compile(_NUM + r"\s*(?::|대)\s*1(?!\d)")
+_SPLIT = re.compile(_NUM + r"\s*주\s*(?:를|을)(?:(?!주를|주을).){0,60}?(?<![\d.,])" + _NUM + r"\s*주\s*로\s*(?:주식)?분할")
+#: 차등감자 — 최대주주와 '그 외' 주주의 비율이 다르다. 우리 가격은 소액주주 1주의 값이다(KR:119650·241820).
+_MINORITY = re.compile(r"그\s*외|그외|기타\s*주주|일반\s*주주|소액\s*주주")
+
+
+def _section(text: str, head: str, tail: str) -> str:
+    start = text.rfind(head)            # 정정 공시는 정정 표 뒤에 본문이 온다 — 마지막 것
+    if start < 0:
+        return ""
+    end = text.find(tail, start + len(head))
+    return text[start + len(head): end if end >= 0 else start + 1_500]
+
+
+def _notice_date(text: str) -> date | None:
+    m = _NOTICE_DATE.search(text)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def reduction_ratio(method: str) -> float | None:
+    """``7. 감자방법`` 글 → 소액주주 N. 못 읽으면 None(0 이나 1 로 채우지 않는다)."""
+    text = method
+    minority = _MINORITY.search(text)
+    if minority:
+        text = text[minority.start():]
+    split = 1.0
+    s = _SPLIT.search(text)
+    if s:
+        a, b = float(s.group(1)), float(s.group(2))
+        if a > 0 and b > a:
+            split = b / a
+        text = text[:s.start()] + text[s.end():]
+    m = _MERGE.search(text) or _COLON.search(text)
+    if not m:
+        return None
+    n = float(m.group(1)) / split
+    return n if n > 1.0 else None
+
+
+def parse_reduction_notice(text: str, *, doc_id: str, filed_on: date) -> ReductionNotice:
+    """감자결정 공시 원문 → ``ReductionNotice``. DART 표가 '레이블 한 줄 · 값 한 줄' 로 풀린 글(`dart_documents.read_text`)."""
+    flat = re.sub(r"\s+", " ", text.replace("&cr;", " "))
+    method = _section(flat, "7. 감자방법", "8. 감자사유")
+    # 신주상장예정일은 본문 표(7. 감자방법 뒤) 첫 것 — 14. 참고사항의 "상기 9. 신주상장예정일은 …" 이 뒤에 또 나온다.
+    body = flat.rfind("7. 감자방법")
+    at = flat.find("신주상장예정일", body if body >= 0 else 0)
+    listing = flat[at + len("신주상장예정일"): at + 60] if at >= 0 else ""
+    shares = re.search(r"보통주식\s*\(주\)\s*([\d,]+)\s+([\d,]+)", _section(flat, "4. 감자전후 발행주식수", "5."))
+    ratio = reduction_ratio(method)
+    if not method:
+        # 주식병합결정(감자 아닌 액면 병합) 서식 — "1주당 가액(원) 500 2,500" · "신주권상장예정일 2026-07-28"(실측 KR:000040·001000).
+        face = re.search(r"1주당\s*가액\s*\(원\)\s*([\d,]+)\s+([\d,]+)", flat)
+        if face:
+            before, after = (float(x.replace(",", "")) for x in face.groups())
+            ratio = after / before if before > 0 and after > before else None
+        shares = re.search(r"발행주식총수\s*보통주식\s*\(주\)\s*([\d,]+)\s+([\d,]+)", flat)
+        at = flat.find("신주권상장예정일")
+        listing = flat[at + len("신주권상장예정일"): at + 60] if at >= 0 else ""
+    return ReductionNotice(
+        doc_id=doc_id, filed_on=filed_on, ratio=ratio, listing_on=_notice_date(listing),
+        shares_before=float(shares.group(1).replace(",", "")) if shares else None,
+        rehab=any(needle in flat for needle in HALT_REHAB_NEEDLES),
+    )
+
+
+def _stage_ratio(notices: Sequence[ReductionNotice]) -> float | None:
+    """같은 신주상장일 공시들 → 소액주주 N. 같은 감자의 정정본(같은 N · 감자 전 주식수 1% 안)은 한 번만, 다른 차수는 곱한다."""
+    stages: list[ReductionNotice] = []
+    for notice in sorted(notices, key=lambda n: n.filed_on):
+        if notice.ratio is None:
+            continue
+        same = next((i for i, s in enumerate(stages) if s.ratio is not None
+                     and abs(s.ratio / notice.ratio - 1.0) < 1e-9
+                     and (s.shares_before is None or notice.shares_before is None
+                          or abs(s.shares_before / notice.shares_before - 1.0) <= 0.01)), None)
+        if same is None:
+            stages.append(notice)
+        else:
+            stages[same] = notice
+    if not stages:
+        return None
+    return math.prod(s.ratio for s in stages if s.ratio is not None)
+
+
 def detect_halt_steps(
     bars: Sequence[Bar],
-    filing_days: Sequence[date],
+    notices: Sequence[ReductionNotice],
     *,
     entity_id: str,
     min_log_factor: float,
-    rejected: list[CorporateAction] | None = None,
+    rejected: list[HaltReview] | None = None,
 ) -> list[CorporateAction]:
-    """**거래 없는 날(거래량 0)에 원주가가 오른 계단** 중 근처에 감자·병합 공시가 있는 것 → 사건.
+    """**거래 없는 날(거래량 0)에 원주가가 오른 계단** 중 그날 신주상장 예정인 감자결정 공시가 있는 것 → 사건. 계수는 **공시의 N**.
 
     ## 왜 따로 찾나
 
@@ -425,22 +546,30 @@ def detect_halt_steps(
     비율이 1 로 평탄하다(실측: KR:352770 2025-04-28 350→5,250 ×15, KR:241820 2025-10-17 302→6,040 ×20 — 둘 다 거래량 0, 스캔
     결과에 사건 없음). 창고엔 거래소 기준가가 원주가로 들어와 **가짜 +1,400%·+1,900% 수익**이 된다. 모멘텀·변동성 창 250세션을 오염시킨다.
 
+    ## 왜 가격 배율이 아니라 공시인가 (2026-10-14 개정)
+
+    회생 사건은 감자·출자전환·제3자 유증이 한 재상장 기준가에 함께 들어간다 — KR:001470 2026-09-01 가격 ×16.77, 원문 27:1 × 20:1 = 540.
+    가격 배율을 계수로 쓰면 옛 주주의 -96.9% 가 0 이 된다. 이전 판(정수 배율 조건)은 이 사건을 정수가 아니라서 우연히 걸렀을 뿐이다.
+
     ## 규칙(보수적)
 
-    - 그날 거래량이 0 이다 — 거래가 없으면 값이 바뀔 길은 거래소의 기준가 조정뿐이다. 거래가 있는 날의 계단은 그날 수익이 섞여
-      배율을 못 가른다 — 여기서는 안 본다.
-    - 오른 쪽만(``log(close/전 세션 close) > min_log_factor``). 감자·병합은 가격을 올린다.
-    - 그 세션에 이미 계수가 있으면 건드리지 않는다(LS 가 잡은 것).
-    - 감자·병합 공시가 [D − 250일, D + 10일] 안에 있다.
-    - 배율이 정수 N ≥ 2 에서 1% 안이다(``HALT_INTEGER_TOLERANCE``). 아니면 ``rejected`` 에 담아 사람이 본다.
+    - 그날 거래량이 0 이다 — 거래가 있는 날의 계단은 그날 수익이 섞여 배율을 못 가른다(여기서 안 본다).
+    - 오른 쪽만(``log(close/전 세션 close) > min_log_factor``). 그 세션에 이미 계수가 있으면 건드리지 않는다(LS 가 잡은 것).
+    - 감자결정 공시 중 **신주상장예정일 = 그 세션**인 것이 있다. 같은 날 상장하는 여러 차수는 N 을 곱한다(정정본은 한 번만).
+      그런 공시가 없는데 [D-250일, D+10일] 안에 감자결정 공시가 있으면 ``rejected``(기준가 재산정 등 — KR:083470 2022-03-14).
+    - 원문이 없거나 N 을 못 읽으면 쓰지 않는다(``rejected``).
+    - 가격 배율이 N 의 1% 안이면 가격 배율(호가 올림 포함, 기존 규약). 넘으면 원문에 회생·출자전환이 있을 때만 N, 아니면 ``rejected``.
 
-    배율 = close(D) / close(D−1) — 정지 중 기준가는 직전 가격 × 감자 비율이라 그날 수익이 섞이지 않는다.
-    ``ratio_before``·``ratio_after`` 에는 진단용으로 앞·뒤 원주가를 남긴다.
+    ``ratio_before``·``ratio_after`` 에는 진단용으로 앞·뒤 원주가를 남긴다(잔여 = after / (before × factor) - 1 이 실제 수익).
     """
-    if not bars or not filing_days:
+    if not bars or not notices:
         return []
-    filings = sorted(filing_days)
     events: list[CorporateAction] = []
+
+    def review(action: CorporateAction, reason: str) -> None:
+        if rejected is not None:
+            rejected.append(HaltReview(action, reason))
+
     for prev, cur in pairwise(bars):
         if cur.volume is None or cur.volume != 0:
             continue
@@ -448,20 +577,34 @@ def detect_halt_steps(
             continue
         if cur.adj_factor is not None and math.isfinite(cur.adj_factor):
             continue
-        factor = cur.close / prev.close
-        if math.log(factor) <= min_log_factor:
+        price = cur.close / prev.close
+        if math.log(price) <= min_log_factor:
             continue
         lo = cur.day - timedelta(days=HALT_FILING_BEFORE_DAYS)
         hi = cur.day + timedelta(days=HALT_FILING_AFTER_DAYS)
-        if not any(lo <= day <= hi for day in filings):
+        near = [n for n in notices if lo <= n.filed_on <= hi]
+        if not near:
             continue
-        action = CorporateAction(entity_id=entity_id, effective_on=cur.day, factor=factor,
+        action = CorporateAction(entity_id=entity_id, effective_on=cur.day, factor=price,
                                  ratio_before=float(prev.close), ratio_after=float(cur.close))
-        whole = round(factor)
-        if whole >= 2 and abs(factor / whole - 1.0) <= HALT_INTEGER_TOLERANCE:
+        listed = [n for n in near if n.listing_on == cur.day]
+        if not listed:
+            if any(not n.has_text for n in near):
+                review(action, "그날 신주상장 예정인 감자결정 공시를 못 찾음 — 원문 없는 공시가 있다(그것일 수 있다)")
+            else:
+                review(action, "그날 신주상장 예정인 감자결정 공시 없음 — 기준가 재산정 등")
+            continue
+        n = _stage_ratio(listed)
+        if n is None:
+            review(action, "감자방법에서 소액주주 비율을 못 읽음")
+            continue
+        if abs(price / n - 1.0) <= HALT_PRICE_TOLERANCE:
             events.append(action)
-        elif rejected is not None:
-            rejected.append(action)
+        elif any(x.rehab for x in listed):
+            events.append(CorporateAction(entity_id=entity_id, effective_on=cur.day, factor=n,
+                                          ratio_before=float(prev.close), ratio_after=float(cur.close)))
+        else:
+            review(action, f"가격 ×{price:.4f} 가 공시 N {n:g} 와 다르고 회생·출자전환 아님")
     return events
 
 

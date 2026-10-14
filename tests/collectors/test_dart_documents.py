@@ -208,3 +208,22 @@ def test_제목으로_other_분류의_최대주주변경_자사주처분을_더_
     picked = set(docs.pending(frame, doc_types=("distress",), titles=tool.DEFAULT_TITLES)["doc_id"])
     assert picked == {"a", "d", "f", "g", "h"}
     assert set(docs.pending(frame, doc_types=("distress",))["doc_id"]) == {"g"}, "titles 없이는 예전 그대로"
+
+
+def test_감자결정_주식병합결정_원문도_매일_받는다_DEFAULT_TITLES_는_그대로() -> None:
+    """정지 중 감자 계수를 공시 N 으로 읽는다(2026-10-14) — 감자결정 원문이 없으면 계단은 '확인 필요' 로 남는다.
+    TX 임베딩·원문 백필이 `DEFAULT_TITLES` 로 표본을 고르므로 그 상수는 바꾸지 않고 수집 조건만 넓힌다."""
+    titles = {
+        "a": ("other", "주요사항보고서(감자결정)"),
+        "b": ("other", "[기재정정]주요사항보고서(감자결정)"),
+        "c": ("other", "주식병합결정"),
+        "d": ("other", "감자결정(종속회사의주요경영사항)"),
+        "e": ("other", "감자완료"),
+        "f": ("other", "최대주주변경"),
+    }
+    frame = pd.DataFrame([
+        {"entity_id": "KR:000001", "doc_id": k, "source": "dart", "valid_from": NOW, "revision": 0,
+         "raw_path": None, "doc_type": t, "title": title} for k, (t, title) in titles.items()
+    ])
+    assert set(docs.pending(frame, doc_types=("distress",), titles=tool.COLLECT_TITLES)["doc_id"]) == {"a", "b", "c", "f"}
+    assert set(docs.pending(frame, doc_types=("distress",), titles=tool.DEFAULT_TITLES)["doc_id"]) == {"f"}
