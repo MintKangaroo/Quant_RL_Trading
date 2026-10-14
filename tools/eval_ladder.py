@@ -641,6 +641,17 @@ def decile_frame(pred: pd.DataFrame, ctx: Context, *, q: float = 0.10) -> pd.Dat
     with np.errstate(invalid="ignore"):
         top = np.where(rp > 1 - q, R, np.nan)
         bot = np.where(rp <= q, R, np.nan)
+        # 0 이 몰린 사건형 재료(2026-10-14): 평균 순위 동점이 십분위 경계를 덮어 d10 또는 d1 이 비었다(N1·N7 ①b nan).
+        # 그 세션은 **0/양/음 세 무리**로 — 위 = 양수 무리(없으면 0 무리), 아래 = 음수 무리(없으면 0 무리).
+        n = (~np.isnan(P)).sum(axis=1)
+        zero = P == 0
+        sparse = zero.sum(axis=1) >= SPARSE_ZERO_SHARE * np.maximum(n, 1)
+        if sparse.any():
+            pos, neg = P > 0, P < 0
+            hi = np.where(pos.any(axis=1, keepdims=True), pos, zero)
+            lo = np.where(neg.any(axis=1, keepdims=True), neg, zero)
+            top[sparse] = np.where(hi, R, np.nan)[sparse]
+            bot[sparse] = np.where(lo, R, np.nan)[sparse]
         d10 = np.nanmean(top, axis=1)
         d1 = np.nanmean(bot, axis=1)
     return pd.DataFrame({"d10": d10, "d1": d1}, index=idx).dropna(how="all")
