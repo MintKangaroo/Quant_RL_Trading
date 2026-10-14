@@ -115,3 +115,44 @@ def test_n6_is_one_day_late_and_marks_missing() -> None:
     assert np.isnan(out["x_lockup20"].loc[SESS[0], "KR:B"])      # 첫 세션은 전날 주식수가 없다
     assert out["x_lockup20"].loc[SESS[1], "KR:B"] == pytest.approx(0.05)
     assert "N6" in bn.SIGNS and bn.BUILDERS["N6"][0] == "store"
+
+
+def test_arrival_handles_microsecond_unit() -> None:
+    # 창고는 datetime64[us] 로 돌려준다 — 단위를 안 맞추면 µs 정수가 ns 결정 시각보다 작아 전부 세션 0 이 됐다(N6 첫 굽기).
+    obs = pd.Series(pd.to_datetime([datetime(2024, 1, 3, 4, tzinfo=UTC), datetime(2024, 1, 4, 4, tzinfo=UTC)])).astype("datetime64[us, UTC]")
+    assert list(bn.arrival_index(obs, SESS)) == [1, 2]
+
+
+def _n7_events(n_te: int, n_te_text: int, n_te_parsed: int) -> pd.DataFrame:
+    t = pd.Timestamp("2024-01-02 09:00", tz="UTC")
+    rows = [{"entity_id": "KR:A", "kind": "bb_trust", "observed_at": t, "has_text": True, "parsed": True, "amount": 50.0, "ratio": np.nan}]
+    for i in range(n_te):
+        rows.append({"entity_id": "KR:A" if i == 0 else "KR:B", "kind": "bb_trust_end", "observed_at": t + pd.Timedelta(days=1),
+                     "has_text": i < n_te_text, "parsed": i < n_te_parsed, "amount": 40.0 if i < n_te_parsed else np.nan,
+                     "ratio": 80.0 if i < n_te_parsed else np.nan})
+    return pd.DataFrame(rows)
+
+
+def _n7_base() -> dict[str, pd.DataFrame]:
+    ents = ["KR:A", "KR:B"]
+    return {"cap": pd.DataFrame(1000.0, index=SESS, columns=ents), "close_adj": pd.DataFrame(1.0, index=SESS, columns=ents)}
+
+
+def test_n7_refuses_without_trust_end_texts() -> None:
+    # 원문 없는 신탁 해지결과를 '이행 0' 으로 읽으면 안 된다 — 80% 미만이면 굽기를 거부한다.
+    with pytest.raises(SystemExit):
+        bn.n7(_n7_base(), _n7_events(n_te=5, n_te_text=0, n_te_parsed=0))
+
+
+def test_n7_marks_unparsed_trust_end_as_unknown() -> None:
+    # 원문 80% 이상이어도 파싱 못 한 해지결과가 온 종목은 금액 열이 결측(모름) + m_trust_gap=1, 0 으로 읽지 않는다.
+    out = bn.n7(_n7_base(), _n7_events(n_te=5, n_te_text=5, n_te_parsed=1))
+    assert out["pred"].loc[SESS[1], "KR:A"] > 0 and out["m_trust_gap"].loc[SESS[1], "KR:A"] == 0
+    assert np.isnan(out["x_unfilled_h60"].loc[SESS[1], "KR:B"]) and out["m_trust_gap"].loc[SESS[1], "KR:B"] == 1
+    assert np.isnan(out["pred"].loc[SESS[1], "KR:B"])
+
+
+def test_backfill_takes_trust_end_first() -> None:
+    from tools import backfill_n_texts as bt
+
+    assert bt.TARGETS[0][0] == "bb_trust_end"

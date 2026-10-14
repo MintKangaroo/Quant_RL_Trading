@@ -76,7 +76,9 @@ def decision_cutoffs(sessions: Sequence[date]) -> np.ndarray:
 
 def arrival_index(observed: pd.Series, sessions: Sequence[date]) -> np.ndarray:
     """관측 시각 → 처음 보이는 세션 인덱스(len(sessions) 면 창 밖)."""
-    obs = pd.to_datetime(observed, utc=True).astype("int64").to_numpy()
+    # 단위를 ns 로 맞춘다 — 창고(`store.get`)는 datetime64[us] 로 돌려줘 int64 가 µs 가 되고, 결정 시각(ns)과 견주면 전부 세션 0 이 됐다
+    # (2026-10-14 N6 첫 굽기: 대차 값 0%·반환 0 아님 0%). 사건 표(events.parquet)는 ns 라 N1·N3·N5·N7 은 닿지 않았다.
+    obs = pd.to_datetime(observed, utc=True).astype("datetime64[ns, UTC]").astype("int64").to_numpy()
     return np.searchsorted(decision_cutoffs(sessions), obs, side="left")
 
 
@@ -494,19 +496,29 @@ def n5(base, ev) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
 
 
 def n7(base, ev) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
-    """N7 자사주 실제 취득 — 결과보고서(직접)·신탁 해지결과(원문 있으면)의 실제 금액, 결정 대비 이행률."""
+    """N7 자사주 실제 취득 — 결과보고서(직접)·신탁 해지결과의 실제 금액, 결정 대비 이행률.
+
+    **원문 관문**(2026-10-14 리드 점검): 신탁 해지결과는 원문을 파싱해야 금액이 나온다. 원문 0/1,612 로 구웠을 때 신탁형 매입이
+    '이행 0' 으로 읽혀 `pred` 가 덜 세이고 `x_unfilled_h60` 이 부풀었다(그 판정은 보류). 그래서 N3 담보처럼 원문 80% 미만이면 굽지 않고,
+    넘어도 **파싱 못 한 해지결과**가 최근 60세션 안에 도착한 (종목, 세션)은 금액 열을 결측으로 두고 `m_trust_gap`=1 로 표지한다.
+    """
     sessions, ents = _axis(base)
+    te_all = ev[ev["kind"] == "bb_trust_end"]
+    n_te_text, n_te = int(te_all["has_text"].sum()), len(te_all)
+    print(f"  N7 신탁 해지결과 원문 {n_te_text}/{n_te}", flush=True)
+    if n_te_text < 0.8 * max(n_te, 1):
+        raise SystemExit(f"N7 신탁 해지결과 원문이 {n_te_text}/{n_te} — 백필 뒤에 굽는다(원문 없음을 '이행 0' 으로 읽으면 안 된다)")
     e = ev[ev["parsed"]]
     res = e[e["kind"].isin(["bb_result", "bb_trust_end"])]
     plan = e[e["kind"].isin(["bb_decision", "bb_trust"])]
+    gap = _roll(event_wide(te_all[~te_all["parsed"]].assign(one=1.0), "one", sessions, ents), 60) > 0
     exe = _per_cap(event_wide(res, "amount", sessions, ents), base["cap"]).fillna(0.0)
     pl = _per_cap(event_wide(plan, "amount", sessions, ents), base["cap"]).fillna(0.0)
     rate, rage = _last_state(res.assign(r=res["ratio"].clip(0, 150)), "r", sessions, ents, max_age=250)
-    n_te_text = int(ev[ev["kind"] == "bb_trust_end"]["has_text"].sum())
-    print(f"  N7 신탁 해지결과 원문 {n_te_text}/{int((ev['kind'] == 'bb_trust_end').sum())}", flush=True)
-    return {"pred": _decay(exe, 60) * 100, "x_exec_250": _roll(exe, 250) * 100, "x_plan_h20": _decay(pl, 20) * 100,
-            "x_rate_last": rate, "x_unfilled_h60": (_decay(pl, 60) - _decay(exe, 60)) * 100,
-            "m_rate": rate.isna().astype("float32")}
+    return {"pred": (_decay(exe, 60) * 100).where(~gap), "x_exec_250": (_roll(exe, 250) * 100).where(~gap),
+            "x_plan_h20": _decay(pl, 20) * 100, "x_rate_last": rate,
+            "x_unfilled_h60": ((_decay(pl, 60) - _decay(exe, 60)) * 100).where(~gap),
+            "m_rate": rate.isna().astype("float32"), "m_trust_gap": gap.astype("float32")}
 
 
 def n3(base, ev) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
