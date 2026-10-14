@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     room = max(0, args.cap - used)
     batch = t.head(room).drop(columns=["_target", "_rank"])
     rows: list[dict] = []
-    got = empty = calls = 0
+    got = empty = calls = flushes = 0
     rc = 0
     run_id = f"n-texts-{now:%Y%m%dT%H%M%S}"
     root = Path(args.text_root)
@@ -152,12 +152,14 @@ def main(argv: list[str] | None = None) -> int:
                 docs.save_text(text, path)
                 rows.append(docs.revision_row(record, raw_path=str(path.as_posix()), observed_at=clock.now()))
         if rows and len(rows) >= FLUSH_EVERY:
-            store.append(docs.DOCUMENTS, rows, ingest_run_id=run_id, source=docs.SOURCE)
+            flushes += 1
+            # 적재 단위마다 다른 run id — 같은 id 로 두 번 적재하면 창고가 거부한다(DuplicateIngestRun, 2026-10-14 첫 실행).
+            store.append(docs.DOCUMENTS, rows, ingest_run_id=f"{run_id}-p{flushes:03d}", source=docs.SOURCE)
             rows = []
             _save_used(now_kst, used + calls, args.cap)
         time_module.sleep(PAUSE_SEC)
     if rows and not args.dry_run:
-        store.append(docs.DOCUMENTS, rows, ingest_run_id=run_id, source=docs.SOURCE)
+        store.append(docs.DOCUMENTS, rows, ingest_run_id=f"{run_id}-p{flushes + 1:03d}", source=docs.SOURCE)
     if not args.dry_run:
         _save_used(now_kst, used + calls, args.cap)
     print(f"호출 {calls} · 원문 {got} · 원문 없음 {empty} · 오늘 누적 {used + calls}/{args.cap}", flush=True)
