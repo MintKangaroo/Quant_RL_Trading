@@ -1,0 +1,13 @@
+# T2P 전방 shadow — docs/design/t2p-shadow.md (T2 정답 GBM × P1-b′ 구성, 등록 안 함 · 전방 기록, 사용자 10/14).
+# scripts/run_shadow_t2p.sh 가 첫 실행에 data/_t2p_shadow/config-overrides.yaml 로 복사한다. 이 샌드박스에서만 읽힌다.
+# = t2fa 알파(얼린 T2 GBM) × P1-b′ shadow 의 구성(B1′). 짝 비교 상대는 data/_p1b_shadow(같은 구성 · ranker 알파).
+selector.weights_override:
+  t2fa: 1.0
+  risk: 1.0
+selector.n_candidates: 100
+selector.exit_rank: 500
+selector.rebalance_every: 20
+selector.swap_min_z: 1.0
+# 첫 세션 = 재조정 anchor. t2fa Analyst·얼린 모델이 갖춰지는 날로 **활성화 때** 바꾼다 — 2099-01-01 이면 러너가 아무것도 하지 않는다.
+selector.rebalance_anchor: "2099-01-01"
+risk.max_positions: 110
