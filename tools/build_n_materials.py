@@ -338,14 +338,14 @@ def n1(base, ev) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
     # 리픽싱 여력: 최근 2년 CB·BW 의 (전환가/ max(현재가, 최저가) − 1) × 주식총수 대비 % — 가격이 내려가면 늘어나는 희석.
     close = base["close_adj"]
     b = bond[bond["price"].notna() & bond["dil"].notna()].copy()
-    b["_pos"] = arrival_index(b["observed_at"], sessions)
-    b = b[(b["_pos"] < len(sessions)) & b["entity_id"].isin(ents)]
+    b["apos"] = arrival_index(b["observed_at"], sessions)
+    b = b[(b["apos"] < len(sessions)) & b["entity_id"].isin(ents)]
     room = np.zeros((len(sessions), len(ents)))
     col_of = {e_: i for i, e_ in enumerate(ents)}
     px = close.reindex(columns=ents).ffill().to_numpy()
     for r in b.itertuples():
         j = col_of[r.entity_id]
-        lo_, hi_ = int(r._pos), min(len(sessions), int(r._pos) + 500)
+        lo_, hi_ = int(r.apos), min(len(sessions), int(r.apos) + 500)
         floor = r.price2 if (r.price2 and r.price2 > 0) else 0.7 * r.price
         p = np.maximum(px[lo_:hi_, j], floor)
         extra = np.clip(r.price / np.where(p > 0, p, np.nan) - 1.0, 0.0, 1.0)
