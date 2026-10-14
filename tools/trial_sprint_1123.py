@@ -88,6 +88,10 @@ FREEZE_DATA_END = date(2026, 6, 30)
 #: 미장 내부자 원 열(진단 `diag_ar_vs_current.G7`)과 잔차 열 이름.
 G7 = ("form4_sell_60", "form4_sellers_20", "form4_buy_60")
 UIR_COLS = tuple(f"{c}_sres" for c in G7)
+#: UIR 우주 — 실전 미장 명단 규칙의 시점 계산 가능한 부분(`universe.min_price_us` · `universe.min_turnover_no_cap_us`, store.config 에서 읽는다).
+#: 시점별 시총이 없어 "시총 ≥ $3억" 대신 "시총 모름 → 거래대금 $1,000만" 쪽 규칙을 모든 종목에 쓴다(보수적). 10/14 점검: 내부자 심화 패널은
+#: 세션당 4~6천 종목 · 원 종가 < $5 가 21~27% 라 실전 명단과 다르다(10/7 '상위 1,000' 오염과는 다른 이유 — 거래대금 순위로 고르지 않았다).
+UIR_PRICE_KEY, UIR_ADV_KEY = "universe.min_price_us", "universe.min_turnover_no_cap_us"
 #: 기술 지표 여섯(`ta_composite.composite_panel` 이 같은 함수로 만든다).
 TK_COLS = ("shadow_asym_20", "pv_corr_20", "skew_60", "fip", "mom_12_1", "vol_cv_60")
 TK_SIGN = {"shadow_asym_20": -1, "pv_corr_20": -1, "skew_60": -1, "fip": 1, "mom_12_1": 1, "vol_cv_60": -1}
@@ -492,7 +496,7 @@ def style_residual(x: np.ndarray, styles: np.ndarray, groups: np.ndarray) -> np.
     return out
 
 
-def uir_bake() -> Path:
+def uir_bake(root: str = "data") -> Path:
     """미장 Form 4 세 열의 스타일 잔차 — 내부자 심화 압축 패널(`ar/panel-US`)과 **같은 행 순서**로 세 열만 쓴다.
     스타일 = log ADV20(원 종가 × 원 거래량 20일 평균 — 분할 보정 가격 × 원 거래량을 쓰지 않는다, 10/7 명단 오염 교훈) ·
     log 원 종가 · 60일 일수익 변동성(보정 종가). 모두 결정일 d 종가까지."""
@@ -522,16 +526,24 @@ def uir_bake() -> Path:
         vals[ok] = w.to_numpy(np.float64)[ri[ok], ci[ok]]
         return vals
 
+    from quant_rl_trading.store import Store
+
+    store = Store(root=Path(root))
+    min_price = float(store.config(UIR_PRICE_KEY, as_of=el.CAP_AS_OF))
+    min_adv = float(store.config(UIR_ADV_KEY, as_of=el.CAP_AS_OF))
     la = look(adv)
     lp = look(px)
+    tradable = (lp >= min_price) & (la >= min_adv)
     styles = np.column_stack([np.log(np.where(la > 0, la, np.nan)), np.log(np.where(lp > 0, lp, np.nan)), look(vol)])
+    styles[~tradable] = np.nan                       # 잔차화도 실전 우주 안에서만(실전 Analyst 가 채점하는 집합)
+    log(f"  UIR 우주(원 종가 ≥ ${min_price:g} · ADV20 ≥ ${min_adv:,.0f}): 행 {int(tradable.sum()):,} / {len(tradable):,}")
     del adv, px, vol
     gc.collect()
     res = {}
     for c, name in zip(G7, UIR_COLS, strict=True):
         res[name] = style_residual(t.column(c).to_numpy(zero_copy_only=False).astype(np.float64), styles, ords).astype(np.float32)
         log(f"  {name}: 값 있는 행 {int(np.isfinite(res[name]).sum()):,}")
-    frame = pd.DataFrame({"ord": ords.astype(np.int32), **res})
+    frame = pd.DataFrame({"ord": ords.astype(np.int32), "tradable": tradable, **res})
     path = out_dir("UIR") / "resid-US.parquet"  # invariant-allow: data-access — 시행 캐시
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(path, index=False)  # invariant-allow: data-access — 시행 캐시
@@ -590,6 +602,18 @@ def uir_walk() -> None:
         gc.collect()
 
 
+def uir_trad() -> dict[date, set[str]]:
+    """UIR 판정 우주 — 굽기 때 정한 `tradable`(실전 미장 규칙의 시점 계산 가능한 부분) 행의 (세션, 종목)."""
+    import pyarrow.parquet as pq  # invariant-allow: data-access — 진단 캐시
+
+    from tools import diag_ar_vs_current as ar
+
+    t = pq.read_table(el.score_path("panel-US", ar.OUT), columns=["entity_id", "ord"])  # invariant-allow: data-access — 진단 캐시
+    keep = pd.read_parquet(out_dir("UIR") / "resid-US.parquet", columns=["tradable"])["tradable"].to_numpy()  # invariant-allow: data-access — 시행 캐시
+    f = pd.DataFrame({"e": t.column("entity_id").to_pandas().astype(str), "o": t.column("ord").to_numpy()})[keep]
+    return {date.fromordinal(int(o)): set(g["e"]) for o, g in f.groupby("o")}
+
+
 def feature_principle(trial: str, ctx: el.Context) -> dict[str, Any]:
     """① 재료 열마다 거래가능 전 종목 h5 IC(원값, 등록 부호와 비교). 이미 본 숫자(진단)와 같은 질문 — 기록에 가깝다."""
     out: dict[str, Any] = {}
@@ -616,6 +640,11 @@ def run_feature_trial(trial: str) -> dict[str, Any]:
     from tools import diag_ar_vs_current as ar
 
     ctx = el.load_context() if trial == "TK" else el.load_context(ar.CTX_US)
+    if trial == "UIR":                          # 판정 우주 = 실전 미장 규칙(굽기 때 정함) — 명단 점검 10/14
+        ctx.trad = uir_trad()
+        for k in ("_tmask", "_ret_long"):
+            ctx.__dict__.pop(k, None)
+        ctx.uni = pd.Series({d: float(ctx.ret.loc[d].reindex(list(ctx.trad[d])).mean()) for d in ctx.ret.index if d in ctx.trad})
     lo = SPECS[trial].start                     # TK: 여섯이 이력 252세션을 채운 뒤(창고 가격 2021-08~ → 2022-09~)
     plus = el.restrict(el.read_scores(out_dir(trial) / "plus.parquet"), lo, None)  # invariant-allow: data-access — 시행 캐시
     base = el.restrict(el.read_scores(out_dir(trial) / "base.parquet"), lo, None)  # invariant-allow: data-access — 시행 캐시
@@ -973,6 +1002,10 @@ def _vault_uir(store: Any, main: dict[str, Any]) -> tuple[list[str], str]:
     del kr
     us = us.sort_values(["session", "entity_id"]).reset_index(drop=True)
     styles = _us_styles(store, us)
+    as_of = datetime.combine(vj.VAULT_END, time(16), tzinfo=UTC)
+    keep = (styles[:, 1] >= np.log(float(store.config(UIR_PRICE_KEY, as_of=as_of)))) & \
+           (styles[:, 0] >= np.log(float(store.config(UIR_ADV_KEY, as_of=as_of))))
+    styles[~keep] = np.nan                           # 주 시험과 같은 우주 규칙
     groups = np.array([d.toordinal() for d in us["session"]])
     for c, name in zip(G7, UIR_COLS, strict=True):
         us[name] = style_residual(us[c].to_numpy(np.float64), styles, groups)
@@ -985,7 +1018,7 @@ def _vault_uir(store: Any, main: dict[str, Any]) -> tuple[list[str], str]:
                  for s, b in boosters[a].items()} for a in boosters}
     _, _, close, bench_close = vj.us_panel(store, start=vj.VAULT_START, end=vj.VAULT_END, work_dirs=(vj.US_WORK,))
     ret = vj.us_returns(close)
-    trad = {d: set(g["entity_id"]) for d, g in us.groupby("session")}
+    trad = {d: set(g["entity_id"]) for d, g in us[keep].groupby("session")}
     sessions = sorted(trad)
     y = us[["entity_id", "session", "target"]]
     from tools.power_principle import session_stats
@@ -1064,7 +1097,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "bake":
         if args.trial not in ("TK", "UIR"):
             ap.error("bake 는 재료 시행(TK·UIR)만")
-        (tk_bake(args.root) if args.trial == "TK" else uir_bake())
+        (tk_bake(args.root) if args.trial == "TK" else uir_bake(args.root))
         return 0
     if args.cmd == "walk":
         if args.trial not in ("TK", "UIR"):
