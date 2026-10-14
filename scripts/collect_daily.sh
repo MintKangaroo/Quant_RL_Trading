@@ -228,6 +228,15 @@ step_rc() {
         step_rc "기업행위 스캔" $?
         .venv/bin/python tools/backfill_adj_factor.py --scan "${SCAN}" --market KR --daily
         step_rc "기업행위 적재" $?
+        # 거래정지 중 효력 난 감자는 LS 비율에 안 잡힌다(2026-10-14, data-contract.md §4-1) — 창고 원주가로 보충한다.
+        # 감자결정 공시는 효력보다 수개월 앞서 위 --daily 의 14일 공시 창으로는 효력일에 안 걸린다. LS 를 안 부른다.
+        HALT_SCAN="logs/adjfactor-halt-daily-KR.json"
+        rm -f "${HALT_SCAN}"
+        .venv/bin/python tools/scan_corporate_actions.py \
+            --halt-steps --halt-days 14 --market KR --out "${HALT_SCAN}"
+        step_rc "기업행위 스캔(정지 중 감자)" $?
+        .venv/bin/python tools/backfill_adj_factor.py --scan "${HALT_SCAN}" --market KR --daily --run-tag halt
+        step_rc "기업행위 적재(정지 중 감자)" $?
     fi
 
     # 3. 지수. **여기 없어서 조용히 낡아 있었다** — fx 와 같은 사고다.

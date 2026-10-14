@@ -49,6 +49,12 @@ DEFAULT_TITLES = (
     r"^(?!.*주식담보제공계약)(?!.*자회사의주요경영사항)"
     r"(?:(?:\[[^\]]*\])?주식소각결정|.*(?:최대주주변경|자기주식처분결정|자기주식소각결정))"
 )
+#: 감자결정·주식병합결정 — 정지 중 감자 계수를 공시 원문의 소액주주 N 으로 읽는다(`corporate_actions.detect_halt_steps`, 2026-10-14).
+#: 분류가 `other` 라 위 조건에 안 걸렸다. **`DEFAULT_TITLES` 에 넣지 않는다** — TX 임베딩(`tx_embed.py`)·원문 백필 예산이 그 상수로
+#: 표본을 고르므로, 넣으면 등록된 시행의 입력 집합이 바뀐다. 자회사·종속회사 공시는 뺀다(자회사 사건).
+CAPITAL_REDUCTION_TITLES = r"^(?!.*(?:자회사|종속회사)의주요경영사항).*(?:감자결정|주식병합결정)"
+#: 일일 수집이 실제로 쓰는 제목 조건.
+COLLECT_TITLES = f"(?:{DEFAULT_TITLES})|(?:{CAPITAL_REDUCTION_TITLES})"
 
 
 def collect(
@@ -78,7 +84,7 @@ def collect(
         # 창을 자르지 않으면 판정 창 안의 공시가 배치 머리를 차지한다.
         frame = frame[frame["valid_from"] < pd.Timestamp(until, tz="UTC")]
     # 제목 추가는 기본 분류로 돌 때만 — `--doc-type` 로 좁힌 배치(시행 X 표본 등)에 딴 사건이 끼지 않게.
-    titles = DEFAULT_TITLES if doc_types == DEFAULT_TYPES else None
+    titles = COLLECT_TITLES if doc_types == DEFAULT_TYPES else None
     todo = docs.pending(frame, limit=limit, doc_types=doc_types, titles=titles)
     if todo.empty:
         return 0, 0, 0

@@ -1,0 +1,17 @@
+# BLT shadow — docs/design/blt-shadow.md (등록 초안 docs/protocols/be2-low-turnover-2026-10.md §6). scripts/run_shadow_blt.sh 가 첫 실행에
+# data/_blt_shadow/config-overrides.yaml 로 복사한다. 이 샌드박스에서만 읽힌다(실전 창고는 덮어쓰기 파일을 거부한다).
+# 기록만 — 판정은 긴 과거 주 시험 + 금고 second 확인이고 이 장부 성적은 기준에 들어가지 않는다.
+#
+# = BE2 shadow 의 알파(be2) × P1-b′ shadow 의 구성(B1′: N100 · 완충 500 · R20 · θ1.0). 둘 다 이미 도는 장부의 설정을 그대로 합친 것이다.
+# 나머지(리스크 패리티 · 노출 V6 · 종목 상한 · 위험 하한 · 섹터 상한 · 보유일 잔여 채움)는 모의계좌 규칙 그대로.
+selector.weights_override:
+  be2: 1.0
+  risk: 1.0
+selector.n_candidates: 100
+selector.exit_rank: 500
+selector.rebalance_every: 20
+selector.swap_min_z: 1.0
+# 첫 세션 = 재조정 anchor(빈 장부가 보유일에 시작하면 잔여 채움이 읽을 직전 재조정 기록이 없다 — P1-b′ 와 같은 이유).
+# 첫 세션 2026-10-15(사용자 10/14 "shadow 는 바로") — 러너는 그 다음날(10/16 01:15)부터 돈다.
+selector.rebalance_anchor: "2026-10-15"
+risk.max_positions: 110

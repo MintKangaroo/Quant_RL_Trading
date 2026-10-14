@@ -12,6 +12,7 @@ from flask import Blueprint
 
 from quant_rl_trading.collectors.market_hours import Market
 from quant_rl_trading.dashboard.api.common import envelope, scope, store
+from quant_rl_trading.dashboard.services import live_cache
 from quant_rl_trading.dashboard.services import data_quality as service
 from quant_rl_trading.dashboard.services import jobs as jobs_service
 
@@ -37,16 +38,20 @@ def jobs() -> Any:
 @bp.get("/summary")
 def summary() -> Any:
     current = scope()
-    return envelope(
-        current,
-        service.summary(
-            store(),
+    st = store()
+    # '지금' 조회는 60초 짧은 캐시(dashboard.md §9) — 표 여럿을 훑어 1.5초가 걸렸다(2026-10-14 실측).
+    data = live_cache.cached(
+        "data_quality.summary", (str(st.root), current.lookback, repr(sorted(current.thresholds.items()))),
+        as_of=current.as_of,
+        compute=lambda: service.summary(
+            st,
             as_of=current.as_of,
             lookback=current.lookback,
             thresholds=current.thresholds,
             market=Market.KR,
         ),
     )
+    return envelope(current, data)
 
 
 @bp.get("/coverage")

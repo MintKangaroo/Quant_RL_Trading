@@ -571,3 +571,219 @@ def test_real_warehouse_has_no_absurd_factors() -> None:
     assert logs.max() < math.log(1_000.0), (
         f"배율 {factors.abs().max():,.0f} — 계수가 뒤집혔거나 누적이 저장됐다"
     )
+
+
+# -----------------------------------------------------------------------------
+# 거래정지 중 감자 — LS 계수에 안 잡히는 사건 (2026-10-14 결함 수정 · 같은 날 개정: 계수는 공시 N)
+# -----------------------------------------------------------------------------
+
+#: 감자결정 공시 원문을 줄인 고정 자료 — 실제 2026-10-14 대조 사례(`docs/diag/decisions-2026-10-14.md` §2-2·2-3)의 서식 그대로.
+#: 정정 공시처럼 14. 참고사항에 "상기 9. … 신주상장예정일은" 이 뒤에 또 나오게 둔다(본문 표의 첫 날짜를 읽어야 한다).
+_NOTICE = (
+    "감자 결정 1. 감자주식의 종류와 수 보통주식 (주) 1 2. 1주당 액면가액 (원) 500 "
+    "4. 감자전후 발행주식수 구 분 감자전 (주) 감자후 (주) 보통주식(주) {before} {after} 기타주식(주) - - "
+    "5. 감자비율 보통주식 (%) 90 6. 감자기준일 2025년 01월 01일 7. 감자방법 {method} 8. 감자사유 {reason} "
+    "9. 감자일정 주주총회 예정일 - 매매거래정지예정기간 시작일 - 종료일 - 신주권교부예정일 - 신주상장예정일 {listing} "
+    "10. 채권자 이의제출기간 시작일 - 14. 기타 투자판단에 참고할 사항 1) 상기 9. 감자일정의 신주상장예정일은 2099년 01월 01일로 바뀔 수 있다."
+)
+_REHAB = "재무구조개선(「채무자 회생 및 파산에 관한 법률」에 따른 회생계획 인가)"
+_PLAIN = "결손금 보전을 통한 재무구조 개선"
+
+
+def _notice(method: str, listing: str, *, reason: str = _PLAIN, before: str = "100,000,000", after: str = "10,000,000",
+            filed: date = date(2025, 2, 10), doc_id: str = "N1"):
+    from quant_rl_trading.collectors.corporate_actions import parse_reduction_notice
+
+    text = _NOTICE.format(method=method, listing=listing, reason=reason, before=before, after=after)
+    return parse_reduction_notice(text, doc_id=doc_id, filed_on=filed)
+
+
+def _halt_bars(*, jump_volume: float = 0.0, factor: float = 15.0, start: date = date(2025, 3, 3),
+               base: float = 350.0) -> list:
+    """KR:352770 모양: 거래하다 정지(거래량 0)되고, 정지 중 기준가가 ×factor 로 바뀐다. 계단 세션 = bars[15]."""
+    from quant_rl_trading.collectors.corporate_actions import Bar
+
+    bars = [Bar(day=start + timedelta(days=i), close=base, volume=1_000_000.0) for i in range(5)]
+    bars += [Bar(day=start + timedelta(days=5 + i), close=base, volume=0.0) for i in range(10)]
+    bars.append(Bar(day=start + timedelta(days=15), close=round(base * factor), volume=jump_volume))
+    bars += [Bar(day=start + timedelta(days=16 + i), close=round(base * factor), volume=0.0) for i in range(3)]
+    return bars
+
+
+STEP_DAY = date(2025, 3, 18)          # _halt_bars 기본의 bars[15]
+STEP_KO = "2025년 03월 18일"
+
+
+@pytest.mark.parametrize(
+    ("method", "ratio"),
+    [
+        ("기명식 보통주 15주를 동일한 액면주식 1주로 무상병합", 15.0),                                   # KR:352770
+        ("3대1 무상감자&cr;(기명식 보통주 3주를 동일한 액면주식 1주로 무상병합)", 3.0),                    # KR:009730
+        ("보통주식 3주를 병합하여 같은액면주식 1주로 무상감자", 3.0),                                      # KR:041590
+        ("액면가 500원의 보통주 1.37주를 동일 액면금액 보통주 1주로 무상병합", 1.37),                      # KR:001840
+        ("액면가 100원의 보통주 6주를 액면가 100원의 보통주 1주로 병합. 단, 1주 미만의 단주는 무상소각.", 6.0),  # KR:245620
+        ("제1차 자본감소-보통주에 대하여 27:1 병합-주식 병합시 발행하는 1주 미만의 단주는 무상 소각", 27.0),    # KR:001470
+        ("액면가액500원의 보통주4.7500주를 1주로 병합. 단, 이때 발생하는1주 미만의 단주는 무상 소각.", 4.75),   # KR:182400
+        ("- 최대주주와 기타주주간에 차등감자- 최대주주 소유주식 26,948,235 주 전부에 대하여는 무상 소각하여 감자- "
+         "기타주주 보유주식 37,266,094주에 대하여 액면가 500 원의 기명식 보통주 2주를 액면가 500 원의 기명식 보통주 1주로 "
+         "병합하여 감자 (2:1)", 2.0),                                                                       # KR:119650 차등
+        ("액면가 500원의 보통주식에 대하여1. 최대주주가 감자전 보유하는 10,590,000주는 감자 후 353,000주로(감자비율 30:1)"
+         "2. 그외 주주들이 보유하는 보통주식 48,581,967주는 감자 후 2,429,098주로(감자비율 20:1) 병합하는 차등무상감자.", 20.0),  # KR:241820 차등
+        ("1) 액면금액 1,000원의 보통주식 1주를 액면금액 500원 보통주식 2주로 주식분할함.2) 주식분할과 동시에 1주당 액면금액 "
+         "500원의 보통주 10주를 동일한 액면금액 보통주 1주로 무상병합함.", 5.0),                           # KR:106080 분할 뒤 병합
+        ("- 기존 주식의 소각(제1차 감자) 후 잔여 주식 및 회생채권에서 출자전환된 신주는 액면가 500원의 보통주 9주를 "
+         "액면가 500원의 보통주 1주로 병합합니다.- 회생담보권에서 출자전환 된 신주는 액면가 500원의 보통주 7주를 "
+         "액면가 500원의 보통주 1주로 병합 합니다.", 9.0),                                                   # KR:377460 2차
+        ("구 특수관계인 보유 주식 150,000주 전체를 무상소각합니다.", None),                                # KR:377460 1차(소각뿐)
+    ],
+)
+def test_reduction_ratio_reads_the_minority_holder_n(method: str, ratio: float | None) -> None:
+    notice = _notice(method, STEP_KO)
+    assert notice.ratio == (pytest.approx(ratio) if ratio is not None else None)
+    assert notice.listing_on == STEP_DAY                # 14. 참고사항의 2099 년이 아니라 본문 표의 날짜
+
+
+def test_share_count_ratio_is_not_the_factor() -> None:
+    """감자전후 발행주식수 비율은 차등감자·분할에서 틀린다 — 계수는 감자방법에서만 읽는다(KR:119650 64.2M/18.6M = 3.45 ≠ 2)."""
+    notice = _notice("기타주주 보유주식에 대하여 보통주 2주를 보통주 1주로 병합하여 감자 (2:1)", STEP_KO,
+                     before="64,214,329", after="18,633,047")
+    assert notice.ratio == pytest.approx(2.0)
+
+
+def test_merge_without_capital_reduction_form_is_read() -> None:
+    """주식병합결정(감자 아닌 액면 병합) 서식 — 1주당 가액 전후 비율과 신주권상장예정일(실측 KR:000040)."""
+    from quant_rl_trading.collectors.corporate_actions import parse_reduction_notice
+
+    text = ("주식병합 결정 1. 주식병합의 내용 구분 병합 전 병합 후 1주당 가액(원) 500 2,500 발행주식총수 보통주식(주) "
+            "86,375,184 17,275,036 종류주식(주) 0 0 2. 주식병합의 일정 주주총회예정일 2026-06-19 신주의 효력발생일 2026-07-07 "
+            "매매거래정지기간 시작일 2026-07-03 종료일 2026-07-27 신주권상장예정일 2026-07-28 3. 주식병합목적 적정 유통주식수 유지")
+    notice = parse_reduction_notice(text, doc_id="M1", filed_on=date(2026, 5, 11))
+    assert notice.ratio == pytest.approx(5.0)
+    assert notice.listing_on == date(2026, 7, 28)
+
+
+def test_halt_capital_reduction_is_found_with_a_filing() -> None:
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    bars = _halt_bars()
+    events = detect_halt_steps(bars, [_notice("보통주 15주를 동일한 액면주식 1주로 무상병합", STEP_KO)],
+                               entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    assert len(events) == 1
+    assert events[0].effective_on == STEP_DAY
+    assert events[0].factor == pytest.approx(15.0)       # 감자 = 1 보다 큰 배율(과거 가격 × 15)
+
+
+def test_halt_step_needs_notice_no_trade_and_no_existing_factor() -> None:
+    from dataclasses import replace
+
+    from quant_rl_trading.collectors.corporate_actions import ReductionNotice, detect_halt_steps
+
+    kwargs = dict(entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    good = _notice("보통주 15주를 동일한 액면주식 1주로 무상병합", STEP_KO)
+    assert detect_halt_steps(_halt_bars(), [], **kwargs) == []                                    # 공시 없음
+    assert detect_halt_steps(_halt_bars(), [replace(good, filed_on=date(2024, 1, 2))], **kwargs) == []   # 공시가 250일 밖
+    assert detect_halt_steps(_halt_bars(jump_volume=5_000.0), [good], **kwargs) == []             # 거래 있는 날
+    assert detect_halt_steps(_halt_bars(factor=0.2), [good], **kwargs) == []                      # 내려간 계단(감자 아님)
+    bars = _halt_bars()
+    bars[15] = replace(bars[15], adj_factor=15.0)                                                 # LS 가 이미 잡았다
+    assert detect_halt_steps(bars, [good], **kwargs) == []
+    assert len(detect_halt_steps(_halt_bars(factor=10.01),
+                                 [_notice("보통주 10주를 1주로 병합", STEP_KO)], **kwargs)) == 1  # 호가 올림은 통과(가격 배율)
+    odd: list = []
+    blind = ReductionNotice(doc_id="X", filed_on=date(2025, 2, 10), ratio=None, listing_on=None, has_text=False)
+    assert detect_halt_steps(_halt_bars(), [blind], rejected=odd, **kwargs) == []                 # 원문 없음 → 안 쓴다
+    assert len(odd) == 1 and "원문" in odd[0].reason
+
+
+def test_rehab_step_uses_notice_n_and_leaves_the_dilution_as_return() -> None:
+    """KR:001470 2026-09-01 — 1차 27:1 × 2차 20:1 = 540, 가격은 ×16.77(347 → 5,820). 정정본이 같은 차수를 두 번 세지 않는다."""
+    from dataclasses import replace
+
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    listing = "2026년 09월 01일"
+    first = _notice("제1차 자본감소-보통주에 대하여 27:1 병합", listing, reason=_REHAB,
+                    before="229,681,824", after="8,455,571", filed=date(2026, 6, 29), doc_id="A")
+    second = _notice("제2차 자본감소-보통주에 대하여 20:1 병합", listing, reason=_REHAB,
+                     before="123,465,987", after="6,139,903", filed=date(2026, 6, 29), doc_id="B")
+    first_fix = replace(first, doc_id="A2", filed_on=date(2026, 8, 7))           # [기재정정] — 같은 감자
+    bars = _halt_bars(start=date(2026, 8, 17), base=347.0, factor=5820 / 347)
+    odd: list = []
+    events = detect_halt_steps(bars, [first, second, first_fix], entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR,
+                               rejected=odd)
+    assert odd == []
+    assert len(events) == 1 and events[0].effective_on == date(2026, 9, 1)
+    assert events[0].factor == pytest.approx(540.0)
+    residual = events[0].ratio_after / (events[0].ratio_before * events[0].factor) - 1.0
+    assert residual == pytest.approx(-0.969, abs=1e-3)                          # 옛 주주의 실제 손실은 수익으로 남는다
+
+
+def test_rehab_with_exact_base_price_keeps_the_price_factor() -> None:
+    """KR:033340·099520 — 회생이어도 기준가가 정확히 직전가 × 2 면 가격 배율 그대로(이미 적재한 19건과 같은 값)."""
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    events = detect_halt_steps(_halt_bars(base=1055.0, factor=2.0),
+                               [_notice("보통주 2주를 액면가 500원의 기명식 보통주 1주로 병합", STEP_KO, reason=_REHAB)],
+                               entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    assert len(events) == 1 and events[0].factor == pytest.approx(2.0)
+
+
+def test_step_without_a_listing_that_day_is_not_a_reduction() -> None:
+    """KR:083470 2022-03-14(감자 2:1 은 넉 달 전 2021-11-15 상장) · KR:182400 2025-08-06(4.75:1 은 7/22 상장) — 기준가 재산정."""
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    odd: list = []
+    events = detect_halt_steps(_halt_bars(base=2775.0, factor=3220 / 2775),
+                               [_notice("기명식 보통주식 2주를 동일한 액면주식 1주로 병합", "2025년 01월 06일")],
+                               entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR, rejected=odd)
+    assert events == [] and len(odd) == 1 and "신주상장" in odd[0].reason
+
+
+def test_price_mismatch_without_rehab_goes_to_a_human() -> None:
+    """KR:000300 2026-01-14 꼴 — 공시 2:1 인데 가격 ×2.117, 원문에 회생·출자전환 없음 → 쓰지 않는다."""
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    odd: list = []
+    events = detect_halt_steps(_halt_bars(base=1984.0, factor=4200 / 1984),
+                               [_notice("보통주식 2주를 동일한 액면주가의 보통주식 1주로 무상병합 (2:1 무상감자)", STEP_KO)],
+                               entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR, rejected=odd)
+    assert events == [] and len(odd) == 1 and "회생" in odd[0].reason
+
+
+def test_retirement_only_notice_does_not_block_the_merge_stage() -> None:
+    """KR:377460 — 1차(특수관계인 주식만 소각, N 없음)와 2차 9:1 이 같은 날 상장 → 9."""
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    listing = STEP_KO
+    events = detect_halt_steps(
+        _halt_bars(base=1691.0, factor=4080 / 1691),
+        [_notice("구 특수관계인 보유 주식 150,000주 전체를 무상소각합니다.", listing, reason=_REHAB, doc_id="R1"),
+         _notice("잔여 주식 및 출자전환된 신주는 보통주 9주를 보통주 1주로 병합합니다.", listing, reason=_REHAB, doc_id="R2",
+                 before="135,543,592", after="14,055,687")],
+        entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    assert len(events) == 1 and events[0].factor == pytest.approx(9.0)
+
+
+def test_halt_reduction_stops_looking_like_a_return(store: Store) -> None:
+    """검출 → 정정본 → 접기 한 벌: 정지 중 ×15 계단이 보정가에서 수익 0 이 된다."""
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    bars = _halt_bars()
+    rows = []
+    for bar in bars:
+        moment = datetime(bar.day.year, bar.day.month, bar.day.day, tzinfo=UTC)
+        rows.append({"entity_id": ENTITY, "valid_from": moment, "observed_at": moment + timedelta(hours=8),
+                     "source": "test", "market": "KR", "open": bar.close, "high": bar.close, "low": bar.close,
+                     "close": bar.close, "volume": bar.volume, "value": bar.close * bar.volume, "adj_factor": None})
+    store.append("prices", rows, ingest_run_id="halt-seed")
+    events = detect_halt_steps(bars, [_notice("보통주 15주를 동일한 액면주식 1주로 무상병합", STEP_KO)],
+                               entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    as_of = datetime(2025, 4, 1, tzinfo=UTC)
+    frame = read_prices(store, as_of=as_of, market="KR",
+                        columns=["entity_id", "valid_from", "observed_at", "source", "revision", "adj_factor",
+                                 "market", "open", "high", "low", "close", "volume", "value"])
+    existing = {(str(r["entity_id"]), r["valid_from"].date()): r for r in frame.to_dict(orient="records")}
+    store.append("prices", revision_rows(events, existing), ingest_run_id="halt-fix")
+    folded = read_prices(store, as_of=as_of, market="KR", columns=["close"], adjusted=True)
+    returns = folded.sort_values("valid_from")["close"].pct_change().dropna()
+    assert returns.abs().max() < 1e-9

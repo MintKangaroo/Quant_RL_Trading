@@ -13,6 +13,11 @@
                     5년 700종목 남짓, 3~4시간. **백필은 이걸 먼저 돌린다.**
 ``--all``           유니버스 전체. 목적은 발견이 아니라 **검증**이다 —
                     공시로 좁힌 목록이 무엇을 놓쳤는지 본다.
+``--halt-steps``    **LS 를 안 부른다.** 창고 원주가에서 거래정지 중(거래량 0) 기준가가 오른 계단 중
+                    그날 신주상장 예정인 감자결정 공시가 있는 것(``corporate_actions.detect_halt_steps``) — 계수는
+                    공시 원문의 소액주주 N(2026-10-14 개정, 원문 없으면 안 쓴다). LS 수정주가가
+                    정지 중 효력 난 감자를 못 잡는다(2026-10-14 결함, data-contract.md §4-1). 같은 JSON 형식이라
+                    ``backfill_adj_factor.py`` 가 그대로 읽는다. 매일 경로는 ``--halt-days 14``.
 
 ## 왜 공시로 좁히나 — 그리고 왜 그것만 믿지 않나
 
@@ -48,10 +53,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from quant_rl_trading.collectors.corporate_actions import (  # noqa: E402
+    HALT_FILING_BEFORE_DAYS,
+    HALT_FILING_NEEDLES,
+    HALT_NOTICE_TITLES,
     MIN_LOG_FACTOR_CONFIG,
     AdjustmentUnavailable,
+    Bar,
+    HaltReview,
     LSAdjustmentSource,
+    ReductionNotice,
     detect_events,
+    detect_halt_steps,
+    parse_reduction_notice,
 )
 from quant_rl_trading.collectors.errors import CollectorError  # noqa: E402
 from quant_rl_trading.collectors.ls_client import (  # noqa: E402
@@ -112,6 +125,81 @@ def _entities_from_prices(
         columns=["entity_id"],
     )
     return sorted(set(frame["entity_id"].astype(str))) if not frame.empty else []
+
+
+def _halt_notices(docs, *, local_day) -> dict[str, list[ReductionNotice]]:  # type: ignore[no-untyped-def]
+    """감자결정 공시 → 종목별 ``ReductionNotice``(원문은 `dart_documents.read_text`). 원문이 없으면 has_text=False.
+
+    감자·병합 제목은 있는데 감자결정 공시가 하나도 없는 종목은 자리표시(원문 없음)를 하나 둔다 — 그래야 계단이 조용히
+    사라지지 않고 "확인 필요" 로 찍힌다(이전 판은 제목만으로 사건을 만들었다)."""
+    from quant_rl_trading.collectors import dart_documents
+
+    compact = docs["title"].fillna("").str.replace(r"\s+", "", regex=True)
+    is_notice = compact.str.contains(HALT_NOTICE_TITLES, regex=True, na=False)
+    out: dict[str, list[ReductionNotice]] = {}
+    for row, notice in zip(docs.to_dict(orient="records"), is_notice, strict=True):
+        entity, day = str(row["entity_id"]), local_day(row["valid_from"])
+        if not notice:
+            continue
+        raw = str(row.get("raw_path") or "")
+        if raw.endswith(".gz") and Path(raw).exists():
+            parsed = parse_reduction_notice(dart_documents.read_text(Path(raw)), doc_id=str(row["doc_id"]), filed_on=day)
+        else:
+            parsed = ReductionNotice(doc_id=str(row["doc_id"]), filed_on=day, ratio=None, listing_on=None, has_text=False)
+        out.setdefault(entity, []).append(parsed)
+    for row in docs.to_dict(orient="records"):
+        entity = str(row["entity_id"])
+        if entity not in out:
+            out[entity] = [ReductionNotice(doc_id=str(row["doc_id"]), filed_on=local_day(row["valid_from"]),
+                                           ratio=None, listing_on=None, has_text=False)]
+    return out
+
+
+def _halt_steps(store: Store, *, as_of: datetime, days: int, min_log_factor: float) -> dict[str, dict]:
+    """창고만으로 거래정지 중 감자·병합 계단을 찾는다. LS 호출 없음 — 같은 결과 형식(종목 → status·events)."""
+    import pandas as pd
+
+    docs = store.get("documents", as_of=as_of, lookback=days + HALT_FILING_BEFORE_DAYS,
+                     columns=["entity_id", "title", "doc_id", "raw_path", "revision"], market="KR")
+    if docs.empty:
+        return {}
+    # 원문을 받으면 raw_path 만 채운 정정본(revision+1)이 쌓인다 — 공시마다 마지막 것만(`dart_documents.pending` 과 같은 규칙).
+    docs = docs.sort_values("revision").groupby(["entity_id", "valid_from", "doc_id"], as_index=False).tail(1)
+    compact = docs["title"].fillna("").str.replace(r"\s+", "", regex=True)
+    hit = docs[compact.str.contains("|".join(HALT_FILING_NEEDLES), regex=True, na=False)
+               & ~compact.str.contains("자회사의주요경영사항|종속회사의주요경영사항", regex=True, na=False)
+               & docs["entity_id"].astype(str).str.startswith("KR:")]
+    if hit.empty:
+        return {}
+
+    def local_day(value):  # type: ignore[no-untyped-def]
+        day = pd.Timestamp(value)
+        return day.tz_convert("Asia/Seoul").date() if day.tzinfo else day.date()
+
+    notices = _halt_notices(hit, local_day=local_day)
+    frame = read_prices(store, as_of=as_of, entity=sorted(notices), lookback=days + 10, market="KR",
+                        columns=["entity_id", "valid_from", "close", "volume", "adj_factor"])
+    result: dict[str, dict] = {}
+    for entity, group in frame.sort_values("valid_from").groupby("entity_id"):
+        bars = [Bar(day=pd.Timestamp(v).date(), close=None if pd.isna(c) else float(c),
+                    volume=None if pd.isna(q) else float(q), adj_factor=None if pd.isna(f) else float(f))
+                for v, c, q, f in zip(group["valid_from"], group["close"], group["volume"], group["adj_factor"], strict=True)]
+        odd: list[HaltReview] = []
+        events = detect_halt_steps(bars, notices.get(str(entity), []), entity_id=str(entity), min_log_factor=min_log_factor,
+                                   rejected=odd)
+        for item in odd:
+            e = item.action
+            print(f"  확인 필요(안 씀) {entity} {e.effective_on} ×{e.factor:.4f} ({e.ratio_before:,.0f} → {e.ratio_after:,.0f}) — {item.reason}")
+        for e in events:
+            residual = e.ratio_after / (e.ratio_before * e.factor) - 1.0
+            if abs(residual) > 0.01:
+                print(f"  공시 N 적용 {entity} {e.effective_on} ×{e.factor:g} (가격 ×{e.ratio_after / e.ratio_before:.4f}) — "
+                      f"회생·출자전환, 잔여 {residual:+.1%} 는 실제 수익으로 남는다")
+        if events:
+            result[str(entity)] = {"status": "ok", "method": "halt_step", "sessions": len(bars), "events": [
+                {"effective_on": e.effective_on.isoformat(), "factor": e.factor, "ratio_before": e.ratio_before,
+                 "ratio_after": e.ratio_after} for e in events]}
+    return result
 
 
 def _scan(
@@ -177,6 +265,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     scope.add_argument("--daily", action="store_true", help="최근 공시 종목만 (매일)")
     scope.add_argument("--from-filings", action="store_true", help="공시로 후보를 좁힌다")
     scope.add_argument("--all", action="store_true", help="유니버스 전체 (검증용)")
+    scope.add_argument("--halt-steps", action="store_true",
+                       help="창고만으로 거래정지 중 감자·병합 계단 (LS 안 부름, 국장)")
     parser.add_argument("--market", default="KR", choices=["KR", "US"])
     parser.add_argument("--years", type=int, default=5)
     parser.add_argument(
@@ -185,6 +275,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=14,
         help="--daily 가 볼 공시 창(달력일). 권리락은 발효 하루 전에 뜬다",
     )
+    parser.add_argument("--halt-days", type=int, default=0,
+                        help="--halt-steps 가 볼 시세 창(달력일). 0 이면 --years")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=0, help="앞에서 N종목만 (시험용)")
     args = parser.parse_args(argv)
@@ -196,6 +288,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     market = Market.KR if args.market == "KR" else Market.US
 
     min_log_factor = float(store.config(MIN_LOG_FACTOR_CONFIG, as_of=as_of))
+
+    if args.halt_steps:
+        if market is Market.US:
+            parser.error("--halt-steps 는 국장 전용이다 (DART 감자 공시)")
+        # 매일 경로는 --halt-days(예 14), 백필은 --years 창.
+        days = args.halt_days or args.years * 366
+        found = _halt_steps(store, as_of=as_of, days=days, min_log_factor=min_log_factor)
+        args.out.write_text(json.dumps(found, ensure_ascii=False, indent=1), encoding="utf-8")
+        events = sum(len(item["events"]) for item in found.values())
+        for entity, item in found.items():
+            for event in item["events"]:
+                print(f"  {entity} {event['effective_on']} ×{event['factor']:.4f} "
+                      f"({event['ratio_before']:,.0f} → {event['ratio_after']:,.0f})")
+        print(f"\n끝. 거래정지 중 감자·병합 계단 {len(found)}종목 · 사건 {events}건 · 창 {days}일", flush=True)
+        return 0
 
     # --daily 는 창도 좁힌다. 계수는 계단 하나만 보면 되고, 창이 길수록 콜이
     # 늘어난다 — 500세션이면 한 콜로 끝나 종목당 6초다.

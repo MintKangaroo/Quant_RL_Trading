@@ -189,7 +189,8 @@ def test_reexam_bh_family() -> None:
 
 @pytest.mark.parametrize(("hh", "mm", "wd", "ok"), [
     (22, 19, 1, True), (22, 20, 1, False), (0, 44, 2, False), (0, 45, 2, True),
-    (8, 19, 2, True), (8, 20, 2, False), (15, 49, 2, False), (15, 50, 2, True), (10, 0, 5, True),
+    (8, 29, 2, True), (8, 30, 2, False), (9, 39, 2, False), (9, 40, 2, True), (12, 0, 2, True),
+    (15, 9, 2, True), (15, 10, 2, False), (15, 49, 2, False), (15, 50, 2, True), (10, 0, 5, True),
 ])
 def test_heavy_window(hh: int, mm: int, wd: int, ok: bool) -> None:
     base = date(2026, 10, 12)                 # 월요일

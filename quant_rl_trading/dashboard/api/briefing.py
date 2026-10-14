@@ -14,6 +14,7 @@ from flask import Blueprint
 from quant_rl_trading.analysts.macro_brief import MacroBrief
 from quant_rl_trading.dashboard.api.common import clock, envelope, scope, store
 from quant_rl_trading.dashboard.services import briefing as service
+from quant_rl_trading.dashboard.services import live_cache
 
 bp = Blueprint("briefing_api", __name__, url_prefix="/api/briefing")
 
@@ -21,9 +22,12 @@ bp = Blueprint("briefing_api", __name__, url_prefix="/api/briefing")
 @bp.get("/summary")
 def summary() -> Any:
     current = scope()
-    data = service.collect_briefing(
-        store(), as_of=current.as_of, lookback=current.lookback
-    ).as_dict()
+    st = store()
+    # '지금' 조회는 60초 짧은 캐시(dashboard.md §9). 다음 발표까지 남은 시간은 그 요청 as_of 로 캐시 밖에서.
+    data = dict(live_cache.cached(
+        "briefing.summary", (str(st.root), current.lookback), as_of=current.as_of,
+        compute=lambda: service.collect_briefing(st, as_of=current.as_of, lookback=current.lookback).as_dict(),
+    ))
     data["next"] = service.next_release(data["upcoming"], as_of=current.as_of)
     return envelope(current, data)
 

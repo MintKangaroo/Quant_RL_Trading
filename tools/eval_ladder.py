@@ -1148,13 +1148,19 @@ def record(name: str, res: dict[str, Any], *, ledger: Path = LEDGER, out_dir: Pa
 
 
 def heavy_allowed(now: datetime | None = None) -> tuple[bool, str]:
-    """무거운 계산 금지 창 — 22:20~00:45(매일), 평일 08:20~15:50. 공유 머신 규칙(2026-10-13)."""
+    """무거운 계산 금지 창 — 22:20~00:45(매일), 평일 08:30~09:40(주문·조각 배포)·15:10~15:50(마감·대사).
+
+    사용자 2026-10-14 "자원 넉넉하면 장중에 진행해도 돼" — 장중 전체 금지에서 주문 시간대만 피하는 것으로 바꿨다.
+    메모리 여유(MemAvailable)는 따로 본다.
+    """
     k = (now or datetime.now(KST)).astimezone(KST)  # invariant-allow: wallclock — 실행 창 관문
     t = k.time()
     if t >= time(22, 20) or t < time(0, 45):
         return False, "22:20~00:45 금지 창"
-    if k.weekday() < 5 and time(8, 20) <= t < time(15, 50):
-        return False, "평일 08:20~15:50 금지 창"
+    if k.weekday() < 5 and time(8, 30) <= t < time(9, 40):
+        return False, "평일 08:30~09:40 금지 창(주문·조각 배포)"
+    if k.weekday() < 5 and time(15, 10) <= t < time(15, 50):
+        return False, "평일 15:10~15:50 금지 창(마감·대사)"
     return True, "허용"
 
 
