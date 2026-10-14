@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""새 정보 여섯(N1·N2·N3·N4·N5·N7)을 **랭커 재료 파일**로 굽는다 — 공통 평가 사다리(`eval_ladder.py --mode feature`)의 입력.
+"""새 정보 일곱(N1~N7)을 **랭커 재료 파일**로 굽는다 — 공통 평가 사다리(`eval_ladder.py --mode feature`)의 입력.
 사용자 10/13 "다 돌려" · 리드 지시 2026-10-14. 진단 도구다 — 창고에 쓰지 않는다(읽기는 전부 `store.get`).
 
     # 0) 시장 바탕(시총·상장주식수·거래대금·수정종가·명단 축)을 굽는다 — 가볍다(분기별 읽기)
@@ -8,6 +8,7 @@
     .venv/bin/python tools/build_n_materials.py events
     # 2) 재료 파일 — 사다리 점수 폴더의 N1~N7 (+ 스타일 잔차 부분 IC 보고)
     .venv/bin/python tools/build_n_materials.py features --n N2,N4,N5,N7
+    .venv/bin/python tools/build_n_materials.py features --n N6        # 대차잔고·보호예수 반환(창고 stock_lending·lockup_returns)
     .venv/bin/python tools/build_n_materials.py style --n N2      # FW 부분 IC(재료·정답 둘 다 스타일 잔차) — 가볍다
 
 ## 규칙(10/13 확정 교훈 — 계산 전에 고정)
@@ -55,6 +56,7 @@ SIGNS = {
     "N4": "+(K200 편입 압력 − 편출 압력, 정기변경 전 40세션 가중) — 기계적 수요(롱)",
     "N5": "+(공급계약 매출액 대비 %, 반감기 40세션 합) — G13 크기형",
     "N7": "+(실제 자사주 취득 금액/시총, 반감기 60세션) — 이행된 매입만",
+    "N6": "−(대차잔고/상장주식수의 20세션 변화) — 숏 수요 증가는 부진(Desai 외 2002, Cohen·Diether·Malloy 2007) · 2026-10-14 결과 전 고정",
 }
 
 
@@ -582,7 +584,43 @@ def style_report(name: str, base: dict[str, pd.DataFrame]) -> dict[str, object]:
 
 # --------------------------------------------------------------------------- CLI
 
-BUILDERS = {"N1": ("ev", n1), "N2": ("store", n2), "N3": ("ev", n3), "N4": ("store", n4), "N5": ("ev", n5), "N7": ("ev", n7)}
+def _lending_wide(store, value: str, table: str, sessions: list[date], ents: pd.Index, *, how: str) -> pd.DataFrame:  # type: ignore[no-untyped-def]
+    """창고 표 → **도착 세션**(observed_at ≤ 결정 시각) × 종목 넓은 표. how="last" 는 상태(잔고), "sum" 은 흐름(반환 물량)."""
+    as_of = el.CAP_AS_OF
+    parts = []
+    for lo, hi in _quarters(START, el.DATE_CAP):
+        lo_t = datetime.combine(lo, time(0), tzinfo=UTC) - timedelta(hours=9)
+        hi_t = datetime.combine(hi, time(23, 59), tzinfo=UTC)
+        f = store.get(table, as_of=as_of, lookback=(as_of - lo_t).days + 1, until=hi_t, market="KR",
+                      columns=["entity_id", "valid_from", "observed_at", value])
+        f = f[(pd.to_datetime(f["valid_from"]).dt.tz_convert(KST).dt.date >= lo)]
+        parts.append(f)
+        print(f"  {table} {lo}~{hi}: {len(f):,}행", flush=True)
+    ev = pd.concat(parts, ignore_index=True)
+    if how == "sum":
+        return event_wide(ev, value, sessions, ents)
+    val, _age = _last_state(ev, value, sessions, ents, max_age=5)
+    return val
+
+
+def n6(base, store) -> dict[str, pd.DataFrame]:  # type: ignore[no-untyped-def]
+    """N6 주식대차잔고·의무보호예수 반환(금융위, `collectors/fsc_lending.py`). 기준일 d 값은 d+1 13:00 KST 에 공표 → 도착 세션 d+1
+    (`fsc_lending.lending_features` 의 '하루 늦춤' 과 같다). 정의는 그 피처 그대로 + 결측 표지, 결과 보기 전 고정(2026-10-14).
+
+    - 대차: 잔고 행이 없는 (종목, 세션)은 **모름**(`m_lend`=1, 값 결측) — 0 으로 메우지 않는다. 상태라 5세션까지만 이어 쓴다.
+    - 반환: 반환이 없던 날은 0(사건 부재는 사실). 보호예수는 반환 **뒤에** 나온다 — 해제 전 약세가 아니라 반환 직후 오버행이다.
+    """
+    sessions, ents = _axis(base)
+    bal = _lending_wide(store, "lend_balance", "stock_lending", sessions, ents, how="last")
+    ret = _lending_wide(store, "returned_shares", "lockup_returns", sessions, ents, how="sum")
+    sh = base["shares"].reindex(index=sessions, columns=ents).ffill(limit=5).shift(1)   # 잔고 기준일(전날)의 주식수
+    ratio = bal / sh.where(sh > 0)
+    lock20 = _per_shares(_roll(ret, 20), base["shares"])
+    return {"pred": -(ratio - ratio.shift(20)), "x_lend_ratio": ratio, "x_dlend5": ratio - ratio.shift(5),
+            "x_lockup20": lock20, "m_lend": ratio.isna().astype("float32")}
+
+
+BUILDERS = {"N1": ("ev", n1), "N2": ("store", n2), "N3": ("ev", n3), "N4": ("store", n4), "N5": ("ev", n5), "N7": ("ev", n7), "N6": ("store", n6)}
 
 
 def main(argv: list[str] | None = None) -> int:

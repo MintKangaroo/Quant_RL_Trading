@@ -81,3 +81,37 @@ def test_decile_sparse_uses_three_groups() -> None:
     pred = pd.DataFrame({"entity_id": ents, "session": days[0], "pred": [1.0, 2.0] + [0.0] * 8})
     d = el.decile_frame(pred, ctx)
     assert d.loc[days[0], "d10"] == pytest.approx(0.1) and d.loc[days[0], "d1"] == pytest.approx(0.0)
+
+
+class _FakeStore:
+    """`store.get(table, as_of, lookback, until, …)` 흉내 — until 이하 valid_from 만, as_of 이하 observed_at 만."""
+
+    def __init__(self, tables: dict[str, pd.DataFrame]) -> None:
+        self.tables = tables
+
+    def get(self, table, *, as_of, lookback, until, market, columns):  # type: ignore[no-untyped-def]
+        f = self.tables[table]
+        f = f[(f["valid_from"] <= until) & (f["observed_at"] <= as_of)]
+        return f[columns].copy()
+
+
+def test_n6_is_one_day_late_and_marks_missing() -> None:
+    # 기준일 d 잔고는 d+1 13:00 KST 공표 → 세션 d+1 부터. 잔고 행이 없는 종목은 결측 + m_lend=1, 반환 없는 날은 0.
+    ents = ["KR:A", "KR:B"]
+    base = {"shares": pd.DataFrame(100.0, index=SESS, columns=ents), "close_adj": pd.DataFrame(1.0, index=SESS, columns=ents)}
+
+    def at(d: date, kst_hour: int) -> datetime:
+        return datetime(d.year, d.month, d.day, kst_hour - 9, tzinfo=UTC)
+
+    lend = pd.DataFrame({"entity_id": ["KR:A", "KR:A"], "valid_from": [at(SESS[0], 9), at(SESS[1], 9)],
+                         "observed_at": [at(SESS[1], 13), at(SESS[2], 13)], "lend_balance": [10.0, 30.0]})
+    lock = pd.DataFrame({"entity_id": ["KR:B"], "valid_from": [at(SESS[0], 9)], "observed_at": [at(SESS[1], 13)],
+                         "returned_shares": [5.0]})
+    out = bn.n6(base, _FakeStore({"stock_lending": lend, "lockup_returns": lock}))
+    assert np.isnan(out["x_lend_ratio"].loc[SESS[0], "KR:A"])
+    assert out["x_lend_ratio"].loc[SESS[1], "KR:A"] == pytest.approx(0.10)
+    assert out["x_lend_ratio"].loc[SESS[2], "KR:A"] == pytest.approx(0.30)
+    assert list(out["m_lend"]["KR:B"]) == [1.0] * 4
+    assert np.isnan(out["x_lockup20"].loc[SESS[0], "KR:B"])      # 첫 세션은 전날 주식수가 없다
+    assert out["x_lockup20"].loc[SESS[1], "KR:B"] == pytest.approx(0.05)
+    assert "N6" in bn.SIGNS and bn.BUILDERS["N6"][0] == "store"
