@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -156,3 +156,25 @@ def test_backfill_takes_trust_end_first() -> None:
     from tools import backfill_n_texts as bt
 
     assert bt.TARGETS[0][0] == "bb_trust_end"
+
+
+def test_n2_krx_filled_cells_leave_pe_insurance_unknown() -> None:
+    # LS(t1717)가 끊긴 뒤 KRX 로 메운 칸에는 사모펀드·보험이 없다 — 그 창의 x_pe_60·x_ins_60 은 0 이 아니라 결측 + m_pe_ins=1.
+    days = [date(2024, 1, 1) + timedelta(days=i) for i in range(70)]
+    ents = ["KR:A"]
+    base = {"cap": pd.DataFrame(1e6, index=days, columns=ents), "value": pd.DataFrame(1e4, index=days, columns=ents),
+            "close_adj": pd.DataFrame(1.0, index=days, columns=ents)}
+    rows = []
+    for i, d in enumerate(days):
+        vf = datetime(d.year, d.month, d.day, tzinfo=UTC)
+        if i < 65:
+            for inv in ("기금", "투신", "증권", "사모펀드", "보험", "개인"):
+                rows.append({"entity_id": "KR:A", "valid_from": vf, "observed_at": vf, "investor": inv, "net_value": 10.0, "source": "ls_api"})
+        else:
+            for inv in ("연기금", "투신", "금융투자", "개인"):
+                rows.append({"entity_id": "KR:A", "valid_from": vf, "observed_at": vf, "investor": inv, "net_value": 10.0, "source": "krx"})
+    out = bn.n2(base, _FakeStore({"flows": pd.DataFrame(rows)}))
+    assert out["x_pe_60"].iloc[64, 0] == pytest.approx(600.0 / 1e6)
+    assert np.isnan(out["x_pe_60"].iloc[66, 0]) and np.isnan(out["x_ins_60"].iloc[66, 0])
+    assert out["m_pe_ins"].iloc[66, 0] == 1.0 and out["m_pe_ins"].iloc[64, 0] == 0.0
+    assert out["pred"].iloc[66, 0] == pytest.approx(600.0 / 1e6)      # 연기금은 KRX 에도 있다 — 그대로 이어진다
