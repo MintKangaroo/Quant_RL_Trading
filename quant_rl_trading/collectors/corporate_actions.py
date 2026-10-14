@@ -394,6 +394,9 @@ HALT_FILING_NEEDLES = ("감자", "주식병합")
 #: KR:241820 7/11 결정 → 10/17). 효력 뒤 공시(감자완료·변경상장)는 며칠 안이다.
 HALT_FILING_BEFORE_DAYS = 250
 HALT_FILING_AFTER_DAYS = 10
+#: 배율이 정수 N(≥2)에서 이만큼 안이어야 한다 — 감자·병합 비율은 정수(N:1)이고, 차이는 호가 단위 올림뿐이다(실측 944→9,450 ×10.01).
+#: 정수가 아닌 계단(×1.37·×2.41 등, 2021~2026 창고 10건)은 기준가 재평가 등 다른 사건일 수 있어 사람이 본다.
+HALT_INTEGER_TOLERANCE = 0.01
 
 
 @dataclass(frozen=True)
@@ -412,6 +415,7 @@ def detect_halt_steps(
     *,
     entity_id: str,
     min_log_factor: float,
+    rejected: list[CorporateAction] | None = None,
 ) -> list[CorporateAction]:
     """**거래 없는 날(거래량 0)에 원주가가 오른 계단** 중 근처에 감자·병합 공시가 있는 것 → 사건.
 
@@ -428,6 +432,7 @@ def detect_halt_steps(
     - 오른 쪽만(``log(close/전 세션 close) > min_log_factor``). 감자·병합은 가격을 올린다.
     - 그 세션에 이미 계수가 있으면 건드리지 않는다(LS 가 잡은 것).
     - 감자·병합 공시가 [D − 250일, D + 10일] 안에 있다.
+    - 배율이 정수 N ≥ 2 에서 1% 안이다(``HALT_INTEGER_TOLERANCE``). 아니면 ``rejected`` 에 담아 사람이 본다.
 
     배율 = close(D) / close(D−1) — 정지 중 기준가는 직전 가격 × 감자 비율이라 그날 수익이 섞이지 않는다.
     ``ratio_before``·``ratio_after`` 에는 진단용으로 앞·뒤 원주가를 남긴다.
@@ -450,8 +455,13 @@ def detect_halt_steps(
         hi = cur.day + timedelta(days=HALT_FILING_AFTER_DAYS)
         if not any(lo <= day <= hi for day in filings):
             continue
-        events.append(CorporateAction(entity_id=entity_id, effective_on=cur.day, factor=factor,
-                                      ratio_before=float(prev.close), ratio_after=float(cur.close)))
+        action = CorporateAction(entity_id=entity_id, effective_on=cur.day, factor=factor,
+                                 ratio_before=float(prev.close), ratio_after=float(cur.close))
+        whole = round(factor)
+        if whole >= 2 and abs(factor / whole - 1.0) <= HALT_INTEGER_TOLERANCE:
+            events.append(action)
+        elif rejected is not None:
+            rejected.append(action)
     return events
 
 

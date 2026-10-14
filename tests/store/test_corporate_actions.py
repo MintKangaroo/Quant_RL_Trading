@@ -613,6 +613,10 @@ def test_halt_step_needs_filing_no_trade_and_no_existing_factor() -> None:
     bars = _halt_bars()
     bars[15] = replace(bars[15], adj_factor=15.0)                                           # LS 가 이미 잡았다
     assert detect_halt_steps(bars, [date(2025, 2, 10)], **kwargs) == []
+    odd: list = []
+    assert detect_halt_steps(_halt_bars(factor=1.37), [date(2025, 2, 10)], rejected=odd, **kwargs) == []  # 정수 배율 아님
+    assert len(odd) == 1 and odd[0].factor == pytest.approx(1.37)
+    assert len(detect_halt_steps(_halt_bars(factor=10.01), [date(2025, 2, 10)], **kwargs)) == 1  # 호가 올림은 통과
 
 
 def test_halt_reduction_stops_looking_like_a_return(store: Store) -> None:

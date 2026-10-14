@@ -144,7 +144,12 @@ def _halt_steps(store: Store, *, as_of: datetime, days: int, min_log_factor: flo
         bars = [Bar(day=pd.Timestamp(v).date(), close=None if pd.isna(c) else float(c),
                     volume=None if pd.isna(q) else float(q), adj_factor=None if pd.isna(f) else float(f))
                 for v, c, q, f in zip(group["valid_from"], group["close"], group["volume"], group["adj_factor"], strict=True)]
-        events = detect_halt_steps(bars, filings.get(str(entity), []), entity_id=str(entity), min_log_factor=min_log_factor)
+        odd: list = []
+        events = detect_halt_steps(bars, filings.get(str(entity), []), entity_id=str(entity), min_log_factor=min_log_factor,
+                                   rejected=odd)
+        for e in odd:
+            print(f"  확인 필요(정수 배율 아님 — 안 씀) {entity} {e.effective_on} ×{e.factor:.4f} "
+                  f"({e.ratio_before:,.0f} → {e.ratio_after:,.0f})")
         if events:
             result[str(entity)] = {"status": "ok", "method": "halt_step", "sessions": len(bars), "events": [
                 {"effective_on": e.effective_on.isoformat(), "factor": e.factor, "ratio_before": e.ratio_before,
