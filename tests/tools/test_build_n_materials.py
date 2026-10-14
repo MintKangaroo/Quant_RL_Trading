@@ -60,3 +60,11 @@ def test_feature_frame_rejects_sealed(tmp_path) -> None:
     f.to_parquet(p, index=False)
     with pytest.raises(SystemExit):
         el.read_feature_frame(p)
+
+
+def test_sparse_gauss_keeps_zero_mass_at_zero() -> None:
+    v = pd.Series([0.0, 0.0, 0.0, 2.0, 5.0, -1.0, 0.0, 0.0, 1.0, np.nan])
+    s = pd.Series([1, 1, 1, 1, 1, 1, 2, 2, 2, 2])
+    out = el.sparse_gauss(v, s)
+    assert list(out[[0, 1, 2, 6, 7, 9]]) == [0.0] * 6
+    assert out[4] > out[3] > 0 > out[5] and out[8] > 0

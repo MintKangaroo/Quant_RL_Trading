@@ -890,6 +890,9 @@ def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] =
     xs = ["cand", *[c for c in extra if c.startswith("x_")]]
     g = panel.groupby("session", sort=False)
     for c in xs:
+        if float((panel[c] == 0).mean()) >= SPARSE_ZERO_SHARE:
+            panel[c] = sparse_gauss(panel[c], panel["session"])
+            continue
         r = g[c].rank(pct=True)
         cnt = g[c].transform("count")
         panel[c] = pd.Series(norm.ppf((r * cnt - 0.5) / cnt), index=panel.index).fillna(0.0).astype(np.float32)
@@ -907,6 +910,25 @@ def feature_marginal(feature: pd.DataFrame, ctx: Context, seeds: Sequence[int] =
     return {s: {"base": base[s], "plus": plus[s]} for s in base}
 
 
+#: **0 이 몰린 사건형 재료의 정규화**(2026-10-14 N1·N7 진단). 세션 안 rank-gauss 는 0 동점 무리에 평균 순위를 주는데,
+#: 그 값이 '그날 사건이 난 종목 비율' 에 따라 세션마다 달라져 **달력(국면) 대리 변수**가 된다 — GBM 이 학습 창에서 그것과
+#: 다른 점수의 상호작용을 외워 시험 창 IC 를 깎았다(블록 31 단독 적합: N7 pred 를 더하면 IC 0.026 → 0.003, 이득 4.9만).
+#: 그래서 0 비율이 이 이상인 열은 **0 은 0 그대로, 양수·음수는 각자 세션 안 순위 → 반쪽 정규분위**로 둔다(같은 블록 0.026 → 0.026, 이득 270).
+SPARSE_ZERO_SHARE = 0.30
+
+
+def sparse_gauss(v: pd.Series, session: pd.Series) -> np.ndarray:
+    """0 → 0, 양수 → Φ⁻¹(0.5 + 0.49·q⁺), 음수 → −Φ⁻¹(0.5 + 0.49·q⁻) (q 는 세션 안 순위 백분위), 결측 → 0."""
+    pos, neg = v.where(v > 0), (-v).where(v < 0)
+    qp = pos.groupby(session).rank(pct=True)
+    qn = neg.groupby(session).rank(pct=True)
+    out = np.zeros(len(v), dtype=np.float32)
+    mp, mn = qp.notna().to_numpy(), qn.notna().to_numpy()
+    out[mp] = norm.ppf(0.5 + 0.49 * qp.to_numpy()[mp])
+    out[mn] = -norm.ppf(0.5 + 0.49 * qn.to_numpy()[mn])
+    return out
+
+
 PLUS_CACHE = OUT / "feature-plus"  # invariant-allow: data-access — C0+재료 재학습 예측 캐시
 
 
@@ -916,7 +938,7 @@ def plus_cache_path(name: str, score: str) -> Path:
 
     f = resolve(score)
     st = f.stat()
-    blob = f"{name}|{f.name}|{st.st_size}|{int(st.st_mtime)}|{SEEDS}|{SCORE_FEATS}|v1"
+    blob = f"{name}|{f.name}|{st.st_size}|{int(st.st_mtime)}|{SEEDS}|{SCORE_FEATS}|v2-sparse{SPARSE_ZERO_SHARE}"
     return PLUS_CACHE / f"{name}-{hashlib.sha256(blob.encode()).hexdigest()[:12]}{SCORE_SUFFIX}"
 
 
