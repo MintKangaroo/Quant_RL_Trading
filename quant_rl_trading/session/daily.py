@@ -314,13 +314,16 @@ def run(
         # **잔여 채움** (selector.md §5 7번, 2026-10-04 결함 수정). 직전 재조정의 목표 주식 수와 어긋난 종목만 그 수량을
         # 목표로 바꾼다 — 그 재조정의 배수 전으로 되돌려, 위 보유와 같이 새 배수가 곱해진다. 반 주를 얹는 것은 사이징의 내림이
         # 부동소수 오차로 한 주를 깎지 않게 하려는 것이다(목표가 0주면 반 주도 0주로 내려간다).
+        # 목표 주식 수는 **지금 걸린 배수(base)** 기준이다 — 재조정 배수로 재면 보유일에 배수가 내려간 뒤 취소된 축소를
+        # 다시 안 낸다(2026-10-12, selector.md §5 7번 5항). 같은 base 로 배수 전으로 되돌려 새 배수를 곱한다.
         fill = hold_fill.plan(
             store, as_of=as_of, market=market, target=rebalance, holdings=holdings, prices=prices, equity=equity,
+            scale=base,
         )
         result.notes.extend(fill.notes)
         if fill.target is not None:
             for entity, shares in fill.shares.items():
-                weights[entity] = (shares + 0.5) * prices[entity] / equity / fill.target.scale
+                weights[entity] = (shares + 0.5) * prices[entity] / equity / base
     elif rl_params.active_for(store_mode.of(store.root).code):
         from quant_rl_trading.allocator import live as live_rl
 

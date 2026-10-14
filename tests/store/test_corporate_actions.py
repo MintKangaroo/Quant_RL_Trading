@@ -571,3 +571,73 @@ def test_real_warehouse_has_no_absurd_factors() -> None:
     assert logs.max() < math.log(1_000.0), (
         f"배율 {factors.abs().max():,.0f} — 계수가 뒤집혔거나 누적이 저장됐다"
     )
+
+
+# -----------------------------------------------------------------------------
+# 거래정지 중 감자 — LS 계수에 안 잡히는 사건 (2026-10-14 결함 수정)
+# -----------------------------------------------------------------------------
+
+
+def _halt_bars(*, jump_volume: float = 0.0, factor: float = 15.0) -> list:
+    """KR:352770 모양: 거래하다(350원) 정지(거래량 0)되고, 정지 중 기준가가 ×15 로 바뀐다."""
+    from quant_rl_trading.collectors.corporate_actions import Bar
+
+    start = date(2025, 3, 3)
+    bars = [Bar(day=start + timedelta(days=i), close=350.0, volume=1_000_000.0) for i in range(5)]
+    bars += [Bar(day=start + timedelta(days=5 + i), close=350.0, volume=0.0) for i in range(10)]
+    bars.append(Bar(day=start + timedelta(days=15), close=350.0 * factor, volume=jump_volume))
+    bars += [Bar(day=start + timedelta(days=16 + i), close=350.0 * factor, volume=0.0) for i in range(3)]
+    return bars
+
+
+def test_halt_capital_reduction_is_found_with_a_filing() -> None:
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    bars = _halt_bars()
+    events = detect_halt_steps(bars, [date(2025, 2, 10)], entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    assert len(events) == 1
+    assert events[0].effective_on == bars[15].day
+    assert events[0].factor == pytest.approx(15.0)       # 감자 = 1 보다 큰 배율(과거 가격 × 15)
+
+
+def test_halt_step_needs_filing_no_trade_and_no_existing_factor() -> None:
+    from dataclasses import replace
+
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    kwargs = dict(entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    assert detect_halt_steps(_halt_bars(), [], **kwargs) == []                              # 공시 없음
+    assert detect_halt_steps(_halt_bars(), [date(2024, 1, 2)], **kwargs) == []             # 공시가 250일 밖
+    assert detect_halt_steps(_halt_bars(jump_volume=5_000.0), [date(2025, 2, 10)], **kwargs) == []   # 거래 있는 날
+    assert detect_halt_steps(_halt_bars(factor=0.2), [date(2025, 2, 10)], **kwargs) == []  # 내려간 계단(감자 아님)
+    bars = _halt_bars()
+    bars[15] = replace(bars[15], adj_factor=15.0)                                           # LS 가 이미 잡았다
+    assert detect_halt_steps(bars, [date(2025, 2, 10)], **kwargs) == []
+    odd: list = []
+    assert detect_halt_steps(_halt_bars(factor=1.37), [date(2025, 2, 10)], rejected=odd, **kwargs) == []  # 정수 배율 아님
+    assert len(odd) == 1 and odd[0].factor == pytest.approx(1.37)
+    assert len(detect_halt_steps(_halt_bars(factor=10.01), [date(2025, 2, 10)], **kwargs)) == 1  # 호가 올림은 통과
+
+
+def test_halt_reduction_stops_looking_like_a_return(store: Store) -> None:
+    """검출 → 정정본 → 접기 한 벌: 정지 중 ×15 계단이 보정가에서 수익 0 이 된다."""
+    from quant_rl_trading.collectors.corporate_actions import detect_halt_steps
+
+    bars = _halt_bars()
+    rows = []
+    for bar in bars:
+        moment = datetime(bar.day.year, bar.day.month, bar.day.day, tzinfo=UTC)
+        rows.append({"entity_id": ENTITY, "valid_from": moment, "observed_at": moment + timedelta(hours=8),
+                     "source": "test", "market": "KR", "open": bar.close, "high": bar.close, "low": bar.close,
+                     "close": bar.close, "volume": bar.volume, "value": bar.close * bar.volume, "adj_factor": None})
+    store.append("prices", rows, ingest_run_id="halt-seed")
+    events = detect_halt_steps(bars, [date(2025, 2, 10)], entity_id=ENTITY, min_log_factor=MIN_LOG_FACTOR)
+    as_of = datetime(2025, 4, 1, tzinfo=UTC)
+    frame = read_prices(store, as_of=as_of, market="KR",
+                        columns=["entity_id", "valid_from", "observed_at", "source", "revision", "adj_factor",
+                                 "market", "open", "high", "low", "close", "volume", "value"])
+    existing = {(str(r["entity_id"]), r["valid_from"].date()): r for r in frame.to_dict(orient="records")}
+    store.append("prices", revision_rows(events, existing), ingest_run_id="halt-fix")
+    folded = read_prices(store, as_of=as_of, market="KR", columns=["close"], adjusted=True)
+    returns = folded.sort_values("valid_from")["close"].pct_change().dropna()
+    assert returns.abs().max() < 1e-9

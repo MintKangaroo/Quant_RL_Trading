@@ -130,6 +130,24 @@ def test_가격이_올라도_목표_주식_수는_그대로다() -> None:
                                      equity=1.2e8, min_weight=0.002) == {}
 
 
+def test_지금_배수로_목표_주식_수를_고친다() -> None:
+    """2026-10-12 결함 — 재조정은 배수 1.0, 보유일에 0.7 로 내렸는데 축소 매도가 취소됐다. 재조정 배수 기준으로 비교하면
+    보유 = 목표라 다시 안 냈다. 지금 배수 기준이면 0.7 배 수량까지 판다."""
+    target = hold_fill.RebalanceTarget(session_id="KR-x", as_of=NOW, equity=1e8, scale=1.0, weights={"A": 0.10})
+    held = {"A": 1_000}
+    kwargs = dict(holdings=held, growth={"A": 1.0}, prices={"A": 10_000.0}, equity=1e8, min_weight=0.002)
+    assert hold_fill.residual_shares(target, **kwargs) == {}                    # 옛 동작(scale 없음)
+    assert hold_fill.residual_shares(target, scale=0.7, **kwargs) == {"A": 700}
+    assert hold_fill.residual_shares(target, scale=1.0, **kwargs) == {}
+    # 재조정이 이미 0.7 이었다면 target_weight 에 0.7 이 들어 있다 — 지금도 0.7 이면 그대로
+    shrunk = hold_fill.RebalanceTarget(session_id="KR-x", as_of=NOW, equity=1e8, scale=0.7, weights={"A": 0.07})
+    assert hold_fill.residual_shares(shrunk, scale=0.7, holdings={"A": 700}, growth={"A": 1.0},
+                                     prices={"A": 10_000.0}, equity=1e8, min_weight=0.002) == {}
+    # 배수가 오른 쪽도 대칭 — 못 산 늘림을 마저 산다
+    assert hold_fill.residual_shares(shrunk, scale=1.0, holdings={"A": 700}, growth={"A": 1.0},
+                                     prices={"A": 10_000.0}, equity=1e8, min_weight=0.002) == {"A": 1_000}
+
+
 # ------------------------------------------------------------------ 세션 경로
 
 
@@ -266,3 +284,34 @@ def test_e_백테스트는_잔여_채움이_있어도_결과가_같다(tmp_path,
     assert sum(day.filled for day in on.days) > 0, "체결이 하나도 없으면 비교가 비어 있다"
     orders = on_store.get("orders", as_of=datetime.combine(END, loop.DEFAULT_SNAPSHOT_TIME, tzinfo=SEOUL), lookback=30)
     assert not orders["reason"].astype(str).str.contains("maximum position size").any(), "상한에 붙은 마지막 조각이 막혔다"
+
+
+def _record_held_scale(store: Store, scale: float) -> None:
+    """어제 보유일 세션이 적은 노출 배수 — ``exposure.held_scale`` 이 읽는다."""
+    day = NOW - timedelta(days=1)
+    session = f"KR-{day.date().isoformat()}"
+    store.append("events", [{
+        "entity_id": f"session-{session}", "valid_from": day, "observed_at": day, "source": "test", "seq": 3,
+        "stage": "exposure", "actor": "regime", "payload_hash": "x",
+        "payload": json.dumps({"driver": "regime", "notes": [], "scale": scale}),
+    }], ingest_run_id=f"events-{session}")
+
+
+def test_a_배수가_내려간_뒤_취소된_축소를_다시_낸다(fund, monkeypatch) -> None:
+    """2026-10-12 모의계좌: 재조정(배수 1.0) 뒤 보유일에 배수 0.7 — 축소 매도가 취소돼 보유가 1.0 배 수량 그대로. 오늘도 0.7 이라
+    '배수 불변' 경로(잔여 종목만 넘김)인데, 잔여를 1.0 배 수량과 비교하면 주문 0 이었다. 지금 배수 기준이면 0.7 배까지 판다."""
+    from quant_rl_trading.selector import exposure
+
+    weights = {ENTITIES[0]: 0.10, ENTITIES[1]: 0.05}
+    _record_rebalance(fund, weights, scale=1.0)
+    _record_held_scale(fund, 0.7)
+    monkeypatch.setattr(exposure, "decide", lambda *a, **k: exposure.ExposureDecision(scale=0.7, driver="regime"))
+    full_0, full_1 = _target_shares(0.10, 0), _target_shares(0.05, 1)
+    want_0, want_1 = _target_shares(0.07, 0), _target_shares(0.035, 1)
+    holdings = {ENTITIES[0]: full_0, ENTITIES[1]: want_1}   # 0번 축소 매도는 취소됐다 · 1번은 줄였다
+
+    result = daily.run(fund, ReplayClock(NOW), as_of=NOW, market="KR", holdings=holdings)
+
+    orders = _orders(result)
+    assert set(orders) == {(ENTITIES[0], Side.SELL)}, orders
+    assert abs(orders[(ENTITIES[0], Side.SELL)] - (full_0 - want_0)) <= 1

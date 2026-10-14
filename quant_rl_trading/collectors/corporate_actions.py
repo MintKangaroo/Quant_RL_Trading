@@ -385,6 +385,87 @@ def detect_events(
 
 
 # -----------------------------------------------------------------------------
+# 거래정지 중 감자·병합 — LS 계수에 안 잡히는 사건 (2026-10-14 결함 수정)
+# -----------------------------------------------------------------------------
+
+#: 이 사건을 찾을 때 쓰는 공시 제목 조각(공백 제거 뒤). 감자결정·감자완료·주식병합결정 등.
+HALT_FILING_NEEDLES = ("감자", "주식병합")
+#: 공시 창(달력일) — 감자결정 공시는 효력(기준가 변경)보다 수개월 앞선다(실측 KR:352770 2/10 결정 → 4/28 기준가,
+#: KR:241820 7/11 결정 → 10/17). 효력 뒤 공시(감자완료·변경상장)는 며칠 안이다.
+HALT_FILING_BEFORE_DAYS = 250
+HALT_FILING_AFTER_DAYS = 10
+#: 배율이 정수 N(≥2)에서 이만큼 안이어야 한다 — 감자·병합 비율은 정수(N:1)이고, 차이는 호가 단위 올림뿐이다(실측 944→9,450 ×10.01).
+#: 정수가 아닌 계단(×1.37·×2.41 등, 2021~2026 창고 10건)은 기준가 재평가 등 다른 사건일 수 있어 사람이 본다.
+HALT_INTEGER_TOLERANCE = 0.01
+
+
+@dataclass(frozen=True)
+class Bar:
+    """창고 원주가 한 세션 — 사건 검출 입력."""
+
+    day: date
+    close: float | None
+    volume: float | None
+    adj_factor: float | None = None
+
+
+def detect_halt_steps(
+    bars: Sequence[Bar],
+    filing_days: Sequence[date],
+    *,
+    entity_id: str,
+    min_log_factor: float,
+    rejected: list[CorporateAction] | None = None,
+) -> list[CorporateAction]:
+    """**거래 없는 날(거래량 0)에 원주가가 오른 계단** 중 근처에 감자·병합 공시가 있는 것 → 사건.
+
+    ## 왜 따로 찾나
+
+    LS 수정주가 비율(``detect_events``)은 거래정지 중에 효력이 난 감자를 못 잡는다. 정지 중엔 수정주가도 같은 계단을 그대로 둬서
+    비율이 1 로 평탄하다(실측: KR:352770 2025-04-28 350→5,250 ×15, KR:241820 2025-10-17 302→6,040 ×20 — 둘 다 거래량 0, 스캔
+    결과에 사건 없음). 창고엔 거래소 기준가가 원주가로 들어와 **가짜 +1,400%·+1,900% 수익**이 된다. 모멘텀·변동성 창 250세션을 오염시킨다.
+
+    ## 규칙(보수적)
+
+    - 그날 거래량이 0 이다 — 거래가 없으면 값이 바뀔 길은 거래소의 기준가 조정뿐이다. 거래가 있는 날의 계단은 그날 수익이 섞여
+      배율을 못 가른다 — 여기서는 안 본다.
+    - 오른 쪽만(``log(close/전 세션 close) > min_log_factor``). 감자·병합은 가격을 올린다.
+    - 그 세션에 이미 계수가 있으면 건드리지 않는다(LS 가 잡은 것).
+    - 감자·병합 공시가 [D − 250일, D + 10일] 안에 있다.
+    - 배율이 정수 N ≥ 2 에서 1% 안이다(``HALT_INTEGER_TOLERANCE``). 아니면 ``rejected`` 에 담아 사람이 본다.
+
+    배율 = close(D) / close(D−1) — 정지 중 기준가는 직전 가격 × 감자 비율이라 그날 수익이 섞이지 않는다.
+    ``ratio_before``·``ratio_after`` 에는 진단용으로 앞·뒤 원주가를 남긴다.
+    """
+    if not bars or not filing_days:
+        return []
+    filings = sorted(filing_days)
+    events: list[CorporateAction] = []
+    for prev, cur in pairwise(bars):
+        if cur.volume is None or cur.volume != 0:
+            continue
+        if not prev.close or not cur.close or prev.close <= 0 or cur.close <= 0:
+            continue
+        if cur.adj_factor is not None and math.isfinite(cur.adj_factor):
+            continue
+        factor = cur.close / prev.close
+        if math.log(factor) <= min_log_factor:
+            continue
+        lo = cur.day - timedelta(days=HALT_FILING_BEFORE_DAYS)
+        hi = cur.day + timedelta(days=HALT_FILING_AFTER_DAYS)
+        if not any(lo <= day <= hi for day in filings):
+            continue
+        action = CorporateAction(entity_id=entity_id, effective_on=cur.day, factor=factor,
+                                 ratio_before=float(prev.close), ratio_after=float(cur.close))
+        whole = round(factor)
+        if whole >= 2 and abs(factor / whole - 1.0) <= HALT_INTEGER_TOLERANCE:
+            events.append(action)
+        elif rejected is not None:
+            rejected.append(action)
+    return events
+
+
+# -----------------------------------------------------------------------------
 # 정규화
 # -----------------------------------------------------------------------------
 

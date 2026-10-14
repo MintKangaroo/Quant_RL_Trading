@@ -425,6 +425,43 @@ _SPECS: dict[str, TableSpec] = {
             "기초자산 매핑은 이름으로만 된다 — collectors/krx_stock_futures.py."
         ),
     ),
+    "stock_lending": TableSpec(
+        name="stock_lending",
+        columns={
+            "market": pa.string(),
+            "isin": pa.string(),
+            "name": pa.string(),
+            "lend_new": pa.float64(),        # 대차 체결 주식수(lnbCclStckCnt)
+            "lend_repaid": pa.float64(),     # 상환 주식수(lnbRdptStckCnt)
+            "lend_balance": pa.float64(),    # 대차잔고 주식수(lnbRmanStckCnt)
+        },
+        observation_lag_days=20,
+        doc=(
+            "N6 종목별 일별 주식대차(금융위 data.go.kr 15059612, 2008-01~). valid_from = 기준일, observed_at = 다음 거래일 13:00 KST(포털 공표). "
+            "원천이 덮어쓰기라 과거 빈티지 없음. 공공누리 2유형(상업 금지) — collectors/fsc_lending.py."
+        ),
+    ),
+    "lockup_returns": TableSpec(
+        name="lockup_returns",
+        columns={
+            "market": pa.string(),
+            "isin": pa.string(),
+            "lockup_reg_date": pa.string(),  # 보호예수 등록일 YYYY-MM-DD
+            "reason_code": pa.string(),      # stckLblHoldRcd
+            "reason_name": pa.string(),
+            "listing_code": pa.string(),     # lstgDcd(11 유가·12 코스닥·50 비상장 …)
+            "registered_shares": pa.float64(),
+            "returned_shares": pa.float64(),
+            "remaining_shares": pa.float64(),
+            "protected_total_shares": pa.float64(),
+        },
+        natural_key=("entity_id", "valid_from", "lockup_reg_date", "reason_code"),
+        observation_lag_days=20,
+        doc=(
+            "N6 의무보호예수 반환(금융위 data.go.kr 15043423, 2010-07~). valid_from = 반환일, observed_at = 다음 거래일 13:00 KST. "
+            "한 종목·한 날에 등록일·사유별 여러 행. 공공누리 2유형(상업 금지) — collectors/fsc_lending.py."
+        ),
+    ),
     "names_ko": TableSpec(
         name="names_ko",
         columns={

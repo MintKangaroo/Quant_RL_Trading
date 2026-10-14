@@ -140,8 +140,14 @@ def residual_shares(
     prices: dict[str, float],
     equity: float,
     min_weight: float,
+    scale: float | None = None,
 ) -> dict[str, int]:
     """목표 주식 수와 보유가 ``min_weight``(자본 대비) 이상 어긋난 종목만 → 목표 주식 수. 순수 함수.
+
+    ``scale`` = **지금 걸린** 노출 배수(직전 세션이 실제로 쓴 값). 목표 주식 수는 재조정 배수가 아니라 이 배수 기준이다 —
+    ``target_weight`` 는 재조정 배수가 곱해진 값이라 ``× scale / target.scale`` 로 옮긴다. None 이면 재조정 배수 그대로(옛 동작).
+    재조정 배수 그대로 비교하면 보유일에 배수가 내려간 뒤 취소된 축소 매도를 다시 안 낸다(2026-10-12 KR:005930 −20주,
+    selector.md §5 7번 5항).
 
     ``growth`` = 지금 보정가 / 재조정일 보정가, ``prices`` = 지금 원주가. 둘 중 하나라도 없으면 그 종목은 뺀다 — 모르는 값으로
     주식 수를 내면 그것이 곧 틀린 주문이다.
@@ -151,6 +157,7 @@ def residual_shares(
     out: dict[str, int] = {}
     if equity <= 0:
         return out
+    ratio_scale = 1.0 if scale is None or not math.isfinite(scale) or scale <= 0 else scale / target.scale
     for entity in dict.fromkeys([*target.weights, *holdings]):
         weight = target.weights.get(entity)
         held = int(holdings.get(entity, 0))
@@ -161,7 +168,7 @@ def residual_shares(
         if price <= 0 or ratio is None or not math.isfinite(ratio) or ratio <= 0:
             continue
         # 내림 — executor.sizing 과 같은 이유(넘치는 쪽으로 틀리면 현금 부족 → 거부 → 재시도).
-        desired = math.floor(weight * target.equity * ratio / price + 1e-9)
+        desired = math.floor(weight * ratio_scale * target.equity * ratio / price + 1e-9)
         if desired == held:
             continue
         if abs(desired - held) * price / equity < min_weight:
@@ -179,8 +186,11 @@ def plan(
     holdings: dict[str, int],
     prices: dict[str, float],
     equity: float,
+    scale: float | None = None,
 ) -> HoldFill:
     """보유일의 잔여 채움 목표. 세션(``session/daily``)이 보유일에만 부른다.
+
+    ``scale`` = 지금 걸린 노출 배수(``exposure.held_scale``, 없으면 세션이 1.0 으로 본 값) — ``residual_shares`` 참조.
 
     ``target`` 은 ``rebalance_target`` 의 결과다 — 세션이 시세를 읽기 **전에** 불러 목표 종목(못 산 종목 포함)의 시세를 같이
     읽는다. None 이면 채우지 않는다.
@@ -197,7 +207,7 @@ def plan(
     entities = sorted(set(target.weights) | {e for e, q in holdings.items() if q})
     growth = _growth(store, as_of=as_of, since=target.as_of, market=market, entities=entities)
     result.shares = residual_shares(
-        target, holdings=holdings, growth=growth, prices=prices, equity=equity, min_weight=min_weight,
+        target, holdings=holdings, growth=growth, prices=prices, equity=equity, min_weight=min_weight, scale=scale,
     )
     if result.shares:
         buys = sum(1 for e, q in result.shares.items() if q > holdings.get(e, 0))
