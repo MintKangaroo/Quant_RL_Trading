@@ -502,16 +502,20 @@ def uir_bake() -> Path:
     ctx = el.load_context(ar.CTX_US)
     t = pq.read_table(el.score_path("panel-US", ar.OUT), columns=["entity_id", "ord", *G7])  # invariant-allow: data-access — 진단 캐시
     ords = t.column("ord").to_numpy()
-    ents = np.asarray(t.column("entity_id").to_pylist(), dtype=object)
+    # 행마다 문자열·date 객체를 만들지 않는다(660만 행 — 4GB 상한) — 고유 세션·고유 종목에서 찾아 펼친다.
+    uord, inv_d = np.unique(ords, return_inverse=True)
+    ecol = t.column("entity_id").dictionary_encode().combine_chunks()
+    edict = pd.Index(ecol.dictionary.to_pylist())
+    inv_e = ecol.indices.to_numpy(zero_copy_only=False)
+    udays = pd.Index([date.fromordinal(int(o)) for o in uord])
     adv = pd.read_pickle(ar.OUT / "us-adv20.pkl")  # invariant-allow: data-access — 진단 캐시
     px = pd.read_pickle(ar.OUT / "us-rawclose.pkl")  # invariant-allow: data-access — 진단 캐시
     vol = ctx.close.pct_change(fill_method=None).rolling(60, min_periods=30).std()
-    days = np.array([date.fromordinal(int(o)) for o in ords], dtype=object)
 
     def look(w: pd.DataFrame) -> np.ndarray:
-        ri = w.index.get_indexer(pd.Index(days))
-        ci = w.columns.get_indexer(pd.Index(ents))
-        vals = np.full(len(days), np.nan)
+        ri = w.index.get_indexer(udays)[inv_d]
+        ci = w.columns.get_indexer(edict)[inv_e]
+        vals = np.full(len(ords), np.nan)
         ok = (ri >= 0) & (ci >= 0)
         vals[ok] = w.to_numpy(np.float64)[ri[ok], ci[ok]]
         return vals
@@ -558,21 +562,22 @@ def uir_walk() -> None:
     ax = np.array(axis, dtype=object)
     for arm in ("base", "plus"):
         preds = {s: np.full(len(y), np.nan, dtype=np.float32) for s in seeds}
+        xs = X[:, base_idx] if arm == "base" else np.hstack([X[:, base_idx], extra])   # 팔마다 한 번(폴드마다 복사하지 않는다)
         for year in ar.YEARS:
             lo = next(i for i, d in enumerate(axis) if d >= date(year, 1, 1))
             hi = max(i for i, d in enumerate(axis) if d <= min(date(year, 12, 31), el.DATE_CAP))
             te = lo - ar.GAP - 1
             idx_tr = np.flatnonzero((sidx <= te) & ~np.isnan(y))
             idx_te = np.flatnonzero((sidx >= lo) & (sidx <= hi))
-            xs = X[:, base_idx] if arm == "base" else np.hstack([X[:, base_idx], extra])
             ds = lgb.Dataset(xs[idx_tr], y[idx_tr], free_raw_data=True)
             ds.construct()
             xt = xs[idx_te]
             for s in seeds:
                 preds[s][idx_te] = ar.fit(ds, s).predict(xt).astype(np.float32)
             log(f"  UIR {arm} {year}: 학습 ~{axis[te]} · 채점 {axis[lo]}~{axis[hi]}")
-            del ds, xt, xs
+            del ds, xt
             gc.collect()
+        del xs
 
         def gen(preds: dict = preds):  # type: ignore[no-untyped-def]
             for s in seeds:
@@ -844,11 +849,12 @@ def _load_frozen(trial: str, arm: str, data: Path) -> dict[int, Any]:
 
 
 def _vault_ports(preds: dict[int, pd.DataFrame], ctrl: dict[int, pd.DataFrame], ret: pd.DataFrame, trad: dict[date, set[str]],
-                 sessions: list[date], arm: str, ctrl_arm: str, *, smooth: bool = True) -> tuple[dict[str, float], dict[str, float]]:
+                 sessions: list[date], arm: str, ctrl_arm: str, *, smooth: bool = True,
+                 cost: float = el.ONE_WAY_COST) -> tuple[dict[str, float], dict[str, float]]:
     """금고 창 장부 — 시드별(처리 × arm · 대조 × ctrl_arm) 연수익·MDD·회전의 시드 평균. 데운 세션은 EMA 만 데운다."""
     first = sessions[0]
     ctx = el.Context(close=ret, ret=ret, bench=pd.Series(0.0, index=ret.index), k200_close=pd.Series(1.0, index=ret.index),
-                     trad=trad, uni=pd.Series(0.0, index=ret.index), scale=pd.Series(1.0, index=ret.index))
+                     trad=trad, uni=pd.Series(0.0, index=ret.index), scale=pd.Series(1.0, index=ret.index), cost=cost)
     rows: dict[str, list[dict[str, float]]] = {"t": [], "c": []}
     for key, src, a in (("t", preds, arm), ("c", ctrl, ctrl_arm)):
         for s in sorted(src):
@@ -983,7 +989,8 @@ def _vault_uir(store: Any, main: dict[str, Any]) -> tuple[list[str], str]:
     from tools.power_principle import session_stats
     dic = pd.DataFrame({s: session_stats(preds["plus"][s], y, trad)["ic"] - session_stats(preds["base"][s], y, trad)["ic"]
                         for s in sorted(preds["plus"])}).mean(axis=1)
-    t_port, c_port = _vault_ports(preds["plus"], preds["base"], ret, trad, sessions, "U0", "U0", smooth=False)
+    fee = float(store.config("accounting.fee_us", as_of=datetime.combine(vj.VAULT_END, time(16), tzinfo=UTC)))
+    t_port, c_port = _vault_ports(preds["plus"], preds["base"], ret, trad, sessions, "U0", "U0", smooth=False, cost=fee)
     lines, verdict = judge_confirm("UIR", dic, t_port, c_port, main["margins"])
     lines.append(f"기록(기준 아님) 미장 처리 연 {t_port['ann']:+.1%} · 대조 {c_port['ann']:+.1%} · 주 시험 {main['verdict']}")
     return lines, verdict
@@ -1040,7 +1047,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--trial", choices=TRIALS)
     ap.add_argument("--root", default="data")
     ap.add_argument("--save", action="store_true")
+    ap.add_argument("--cwd", default=None, help="상대 경로(data/)의 기준 디렉터리 — worktree 에서 실전 트리의 연구 캐시를 읽을 때(읽기만)")
     args = ap.parse_args(argv)
+    if args.cwd:
+        import os
+
+        os.chdir(args.cwd)
     if args.cmd == "plan":
         return plan()
     if args.trial is None:

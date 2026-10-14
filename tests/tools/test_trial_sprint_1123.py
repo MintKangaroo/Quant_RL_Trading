@@ -237,3 +237,37 @@ def test_arm_book_phase_average_runs_and_low_turnover_is_lower() -> None:
     n2, t2 = sp.arm_book(wide, ctx, "B2p")
     assert len(n0) and len(n2) and np.isfinite(n0).all()
     assert t2.sum() < t0.sum()
+
+
+def _preds(ctx: el.Context, signal: float, seed0: int) -> dict[int, pd.DataFrame]:
+    """다음 수익을 조금 아는 점수(signal) + 잡음 — 시드 둘."""
+    fwd = (ctx.close.shift(-6) / ctx.close.shift(-1) - 1.0).fillna(0.0)
+    out = {}
+    for s in (0, 1):
+        rng = np.random.default_rng(seed0 + s)
+        w = fwd * signal + rng.normal(0, 0.05, fwd.shape)
+        long = w.stack().rename("pred").reset_index()
+        long.columns = ["session", "entity_id", "pred"]
+        out[s] = long[["entity_id", "session", "pred"]]
+    return out
+
+
+def test_model_blocks_run_end_to_end_on_synthetic_data() -> None:
+    ctx = _ctx(days=160, names=60)
+    treat, ctrl = _preds(ctx, 3.0, 10), _preds(ctx, 0.0, 20)
+    pb = sp.principle_block(treat, ctrl, ctx)
+    assert pb["marginal"]["dic"]["ann"] > 0 and pb["marginal"]["seed_pos"] == 2
+    tb, cb = sp.seed_books(treat, ctx, "B2p"), sp.seed_books(ctrl, ctx, "B0")
+    vb = sp.variant_block(tb, cb, sp.seed_books(ctrl, ctx, "B2p"), ctx)
+    for k in ("vs_current", "vs_same", "vs_uni", "vs_bench", "mdd", "turn", "turn_current", "turn_pair_t"):
+        assert k in vb
+    m = sp.block_margins(tb["bundle"][0], cb["bundle"][0], tb["bundle"][1], cb["bundle"][1], pb["_dic_daily"])
+    assert m["blocks"] > 0 and np.isfinite(m["sd_ann"])
+
+
+def test_vault_ports_on_synthetic_window() -> None:
+    ctx = _ctx(days=80, names=60)
+    treat, ctrl = _preds(ctx, 3.0, 30), _preds(ctx, 0.0, 40)
+    sessions = list(ctx.close.index[20:60])
+    t, c = sp._vault_ports(treat, ctrl, ctx.ret, ctx.trad, sessions, "B2p", "B0")
+    assert set(t) == {"ann", "mdd", "turn"} and all(np.isfinite(v) for v in (*t.values(), *c.values()))
