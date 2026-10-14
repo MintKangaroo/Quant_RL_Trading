@@ -68,3 +68,16 @@ def test_sparse_gauss_keeps_zero_mass_at_zero() -> None:
     out = el.sparse_gauss(v, s)
     assert list(out[[0, 1, 2, 6, 7, 9]]) == [0.0] * 6
     assert out[4] > out[3] > 0 > out[5] and out[8] > 0
+
+
+def test_decile_sparse_uses_three_groups() -> None:
+    days = [date(2024, 1, d) for d in (2, 3, 4, 5)]
+    ents = [f"KR:{i:03d}" for i in range(10)]
+    close = pd.DataFrame(100.0, index=days, columns=ents)
+    close.loc[days[2], ents[:2]] = 110.0              # 앞 두 종목만 t+1→t+2 에 오른다
+    ret = close.shift(-2) / close.shift(-1) - 1.0
+    ctx = el.Context(close=close, ret=ret, bench=None, k200_close=None, trad={d: set(ents) for d in days},  # type: ignore[arg-type]
+                     uni=None, scale=None)  # type: ignore[arg-type]
+    pred = pd.DataFrame({"entity_id": ents, "session": days[0], "pred": [1.0, 2.0] + [0.0] * 8})
+    d = el.decile_frame(pred, ctx)
+    assert d.loc[days[0], "d10"] == pytest.approx(0.1) and d.loc[days[0], "d1"] == pytest.approx(0.0)
