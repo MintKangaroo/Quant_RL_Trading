@@ -36,7 +36,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def test_pin_then_switch(repo: Path) -> None:
     want = sw.changes(["TF"])
-    assert want["dashboard.ir_reset_date"] == '"2026-10-15"'
+    assert want["dashboard.ir_reset_date"] == '"2026-10-16"'
     sw.pin_shadows(list(want), apply=True)
     n24 = (repo / "data" / "_n24_shadow" / "config-overrides.yaml").read_text()
     assert "selector.extra_floor_analyst: ''" in n24 and "selector.extra_floor_percentile: 0.0" in n24
