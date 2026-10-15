@@ -111,6 +111,21 @@ VM 은 국내 리전(asia-northeast3)에 둔다. LS API 지연이 직접 슬리�
 - [ ] 데이터 품질 게이트가 통과하는가
 - [ ] 미체결 주문이 남아 있지 않은가
 
+### 4.1 계좌가 초기화됐을 때 — 장부 리셋 (2026-10-15)
+
+LS 모의투자는 3개월마다 계좌를 초기화한다(10/15: 추정순자산 5억·보유 0, 옛 키 주문은 01491 거부). 장부가 계좌와 갈라진 채로
+`reconcile_snapshot --apply`(15:45 대사 안)가 돌면 '브로커 보유 = 진실' 로 전 종목 매도 정정을 지어낸다 — **먼저 15:45 대사 크론을 멈춘다.**
+
+1. 새 appkey 면 지문부터: `execution.live_account_fingerprint_paper` 를 새 지문으로(`LSCredentials.from_env(prefix='LS_PAPER_').fingerprint`).
+   안 바꾸면 다음 세션이 PaperBroker 로 떨어져 주문이 **조용히** 안 나간다.
+2. 킬스위치는 옛 장부에서 증거와 함께 해제해 기록을 남긴다(옛 장부는 보관된다).
+3. `tools/reset_ledger.py --sandbox data/_paper --flow KRW:<예수금> --valid-from <초기화 시각> --known-at <조회 시각> --reason ...`
+   (미리보기 → `--apply`, 장 마감 뒤). 옛 장부는 `data/_archive/` 로 통째로 옮겨지고(지우지 않는다), 같은 경로에 입금 한 행짜리 새 장부가 선다.
+   `--known-at` 이 그날 16:00 전이어야 그날 세션(다음 날 08:40 주문)이 입금을 본다. 미장 슬리브가 섞인 `data/_shadow` 는
+   `--flow KRW:… --flow USD:…` 로 같이.
+4. 화면 리셋일 `dashboard.ir_reset_date` 를 첫 수익일로, `scripts/restart_dashboards.sh`(대시보드는 옮긴 장부를 쥐고 있다).
+5. 멈춘 크론을 푼다. 다음 08:40 세션 로그에 `NAV <새 예수금> · 지수 100` · `브로커: 모의투자 전송` 이 찍히는지 본다.
+
 ---
 
 ## 5. 일일 운영 체크

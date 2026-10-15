@@ -8,7 +8,7 @@
    **현재 실전 값**으로 적는다(파일이 없으면 만든다 — N24). 아직 안 생긴 샌드박스의 원본 `config/shadow/*.config-overrides.yaml` 도.
    값이 같아 동작은 그대로이고, 실전 전환이 대조군(IX0·N24 등)에 새지 않는다.
    `data/_paper`·`data/_shadow`(실전의 그림자)는 실전을 따른다 — 고정하지 않는다.
-2. `config/quant_rl_trading.yaml` 의 해당 키를 바꾼다(줄 단위 — 주석 보존). 리셋일 `dashboard.ir_reset_date` = 2026-10-15.
+2. `config/quant_rl_trading.yaml` 의 해당 키를 바꾼다(줄 단위 — 주석 보존). 리셋일 `dashboard.ir_reset_date` = RESET_DATE(2026-10-16).
 3. `tools/seed_config.py --store data --apply` 로 창고에 정정본(지금 시각)을 적는다 — 첫 반영은 그 뒤 세션(10/14 장 마감 → 10/15 주문).
 
 장 중(평일 08:20~15:50 KST)에는 --apply 를 거부한다. 구성 요소는 금고 판정 통과분만 넣는다 — 이 도구는 판정을 확인하지 않는다(사람이 한다).
@@ -26,7 +26,9 @@ from zoneinfo import ZoneInfo
 REPO_ROOT = Path(__file__).resolve().parent.parent
 YAML = REPO_ROOT / "config" / "quant_rl_trading.yaml"
 DATA = REPO_ROOT / "data"
-RESET_DATE = "2026-10-15"
+#: 측정 시작일. 10/13 전환은 무산됐고(AR 만 통과), 10/15 LS 모의계좌가 3개월 만료로 초기화돼 사용자가 10/16 리셋·P1-b′ 출발을
+#: 정했다(메모리 paper-reset-2026-10-16). 첫 세션 KR-2026-10-15(10/16 08:40 주문)의 첫 수익일이 10/16 이다.
+RESET_DATE = "2026-10-16"
 
 #: 구성 요소 → {키: 새 값(yaml 리터럴)}. 등록 문서·shadow 설정과 같은 값.
 COMPONENTS: dict[str, dict[str, str]] = {
@@ -36,8 +38,10 @@ COMPONENTS: dict[str, dict[str, str]] = {
     "BE2": {"selector.weights_override": "{be2: 1.0, risk: 1.0}", "selector.weights_override_us": "{}"},
     "AQ": {"selector.n_candidates": "72", "selector.exit_rank": "216", "risk.max_positions": "220"},
     "P1B2": {"selector.n_candidates": "100", "selector.exit_rank": "500", "selector.rebalance_every": "20",
-             "selector.swap_min_z": "1.0", "selector.rebalance_anchor": '"2026-10-14"', "risk.max_positions": "110"},
-    "P1B2-B2": {"selector.rebalance_every": "20", "selector.rebalance_anchor": '"2026-10-14"'},
+             "selector.swap_min_z": "1.0", "selector.rebalance_anchor": '"2026-10-15"', "risk.max_positions": "110"},
+    # anchor = 새 장부 첫 세션의 **세션 날짜**(10/16 08:40 주문 = last_settled_day 10/15 = KR-2026-10-15). 10/16 으로 두면 10/15 세션이
+    # 'anchor 전 → 재조정' 이고 10/16 이 anchor 0번째라 이틀 연속 재조정한다(cadence.decide).
+    "P1B2-B2": {"selector.rebalance_every": "20", "selector.rebalance_anchor": '"2026-10-15"'},
     "TF": {"selector.extra_floor_analyst": "tsfm", "selector.extra_floor_percentile": "0.20"},
     "TB": {"selector.extra_floor_analyst": "tsfm", "selector.extra_floor_percentile": "0.20",
            "selector.ceiling_analyst": "tsfm", "selector.ceiling_percentile": "0.10"},
