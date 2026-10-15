@@ -15,3 +15,6 @@ selector.swap_min_z: 1.0
 # 첫 세션 2026-10-15(사용자 10/14 "shadow 는 바로") — 러너는 그 다음날(10/16 01:15)부터 돈다.
 selector.rebalance_anchor: "2026-10-15"
 risk.max_positions: 110
+
+# 10/13 실전 전환 전 값 고정(tools/apply_switch.py) — 실전이 바뀌어도 이 장부는 그대로다.
+dashboard.ir_reset_date: "2026-11-26"

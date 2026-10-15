@@ -18,3 +18,9 @@ allocator.name_risk_cap: 0.30
 allocator.sector_risk_cap: 1.0
 allocator.cash_buffer: 0.0
 selector.hold_fill_min_weight: 0.0002
+
+# 10/13 실전 전환 전 값 고정(tools/apply_switch.py) — 실전이 바뀌어도 이 장부는 그대로다.
+selector.rebalance_every: 10
+selector.swap_min_z: 0.0
+selector.rebalance_anchor: "2026-09-28"
+dashboard.ir_reset_date: "2026-11-26"

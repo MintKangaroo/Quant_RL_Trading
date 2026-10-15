@@ -11,3 +11,12 @@ allocator.max_position_weight: 1.0
 allocator.cash_buffer: 0.0
 # 한 종목이라 분할할 이유가 없다(k200v6 선례). 시뮬레이션은 일봉 체결이라 결과도 같다.
 execution.slice_count: 1
+
+# 10/13 실전 전환 전 값 고정(tools/apply_switch.py) — 실전이 바뀌어도 이 장부는 그대로다.
+selector.n_candidates: 24
+selector.exit_rank: 72
+selector.rebalance_every: 10
+selector.swap_min_z: 0.0
+selector.rebalance_anchor: "2026-09-28"
+risk.max_positions: 30
+dashboard.ir_reset_date: "2026-11-26"

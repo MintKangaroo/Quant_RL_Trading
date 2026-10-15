@@ -6,3 +6,12 @@
 selector.weights_override:
   be2: 1.0
   risk: 1.0
+
+# 10/13 실전 전환 전 값 고정(tools/apply_switch.py) — 실전이 바뀌어도 이 장부는 그대로다.
+selector.n_candidates: 24
+selector.exit_rank: 72
+selector.rebalance_every: 10
+selector.swap_min_z: 0.0
+selector.rebalance_anchor: "2026-09-28"
+risk.max_positions: 30
+dashboard.ir_reset_date: "2026-11-26"

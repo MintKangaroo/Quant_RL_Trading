@@ -11,3 +11,6 @@ selector.swap_min_z: 1.0
 # 첫 세션 = 재조정 anchor. t2fa Analyst·얼린 모델이 갖춰지는 날로 **활성화 때** 바꾼다 — 2099-01-01 이면 러너가 아무것도 하지 않는다.
 selector.rebalance_anchor: "2099-01-01"
 risk.max_positions: 110
+
+# 10/13 실전 전환 전 값 고정(tools/apply_switch.py) — 실전이 바뀌어도 이 장부는 그대로다.
+dashboard.ir_reset_date: "2026-11-26"

@@ -12,3 +12,6 @@ selector.swap_min_z: 1.0
 selector.rebalance_anchor: "2026-10-08"
 # 배관: 기본 max_positions 30 이 100종목 장부를 잘랐을 것이다(W72 첫 세션 선례). 비용 인지 교체는 보유를 N 안으로 두므로 N 위 여유만.
 risk.max_positions: 110
+
+# 10/13 실전 전환 전 값 고정(tools/apply_switch.py) — 실전이 바뀌어도 이 장부는 그대로다.
+dashboard.ir_reset_date: "2026-11-26"
